@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import socket
+from dataclasses import dataclass
 from typing import Any, cast
 
-from aiohttp.client import ClientError, ClientSession
 import async_timeout
-from yarl import URL
 import pandas as pd
+from aiohttp.client import ClientError, ClientSession
+from yarl import URL
 
 
 @dataclass
@@ -39,7 +39,6 @@ class FlexmeasuresClient:
         json: dict | None = None,
         headers: dict | None = None,
     ) -> Any:
-
         url = URL.build(scheme="http", host="localhost:5000", path=path).join(
             URL(uri),
         )
@@ -130,16 +129,16 @@ class FlexmeasuresClient:
         return response.json()
 
 
-fm = FlexmeasuresClient(email="guus@seita.nl", password="test")
-access_token = await fm.get_access_token()
-print(access_token)
+# fm = FlexmeasuresClient(email="guus@seita.nl", password="test")
+# access_token = await fm.get_access_token()
+# print(access_token)
 
-post_response = await fm.post_measurements(
-    access_token=access_token,
-    sensor_id=1,
-    start="2023-03-26T10:00+02:00",  # bare in mind DST transitions in case of POSTing local times (for NL, +02:00 becomes +01:00 and vice versa), or stick to POSTing times in UTC (+00:00)
-    duration="PT6H",
-    values=[15.3, 0, -3.9, 100, 0, -100],
-    unit="kW",
-)
-print(post_response)
+# post_response = await fm.post_measurements(
+#     access_token=access_token,
+#     sensor_id=1,
+#     start="2023-03-26T10:00+02:00",  # bare in mind DST transitions in case of POSTing local times (for NL, +02:00 becomes +01:00 and vice versa), or stick to POSTing times in UTC (+00:00)
+#     duration="PT6H",
+#     values=[15.3, 0, -3.9, 100, 0, -100],
+#     unit="kW",
+# )
+# print(post_response)
