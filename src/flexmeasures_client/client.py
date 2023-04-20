@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import socket
+from dataclasses import dataclass
 from typing import Any, cast
 
-from aiohttp.client import ClientError, ClientSession
 import async_timeout
-from yarl import URL
 import pandas as pd
+from aiohttp.client import ClientError, ClientSession
+from yarl import URL
 
 
 @dataclass
@@ -39,7 +39,6 @@ class FlexmeasuresClient:
         json: dict | None = None,
         headers: dict | None = None,
     ) -> Any:
-
         url = URL.build(scheme="http", host="localhost:5000", path=path).join(
             URL(uri),
         )
