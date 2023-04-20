@@ -4,8 +4,9 @@ import pytest_mock
 from aiohttp import ClientSession
 import aiohttp
 import json
-from unittest.mock import AsyncMock
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, patch, call
+from aiohttp.test_utils import make_mocked_request
+
 from src.flexmeasures_client.client import FlexmeasuresClient
 
 flexmeasures_client = FlexmeasuresClient("test", "test")
@@ -26,15 +27,17 @@ class MockResponse:
 
 @pytest.mark.asyncio
 async def test_get_access_token(mocker):
+    with patch("get_access_token", )
     mock = aiohttp.ClientSession
     mock.request = AsyncMock()
     mock.__aenter__.status = 200
-    mock.__aenter__.headers.get = ["application/json"]
-    mock.__aenter__.data = {"test":"test"}
+    mock.__aenter__.headers.get("Content-Type", "") = ["application/json"]
+    mock.__aenter__.data = {"test":"test", "auth_token":"test"}
     data = {}
 
     resp_dict = await flexmeasures_client.get_access_token()
+    print(resp_dict)
 
-
-def test_fail():
     assert 1 == 2
+
+
