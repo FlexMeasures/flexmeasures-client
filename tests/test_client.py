@@ -18,7 +18,7 @@ async def test_get_access_token() -> None:
 
 
 @pytest.mark.asyncio
-async def test_post_measurements(caplog) -> None:
+async def test_post_measurements() -> None:
     with aioresponses() as m:
         payload = {"zzzz": "test"}
 
