@@ -26,7 +26,8 @@ class FlexmeasuresClient:
     request_timeout: float = 10.0
     session: ClientSession | None = None
 
-    _close_session: bool = False
+    async def close(self):
+        await self.session.close()
 
     async def request(
         self,
@@ -47,7 +48,6 @@ class FlexmeasuresClient:
 
         if self.session is None:
             self.session = ClientSession()
-            self._close_session = True
 
         try:
             async with async_timeout.timeout(self.request_timeout):

@@ -37,3 +37,4 @@ async def test_post_measurements() -> None:
         unit = "test"
 
         await flexmeasures_client.post_measurements(access_token, sensor_id, start, duration, values, unit)
+    await flexmeasures_client.close()
