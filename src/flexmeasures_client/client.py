@@ -1,5 +1,3 @@
-"""authoristaion."""
-
 from __future__ import annotations
 
 import asyncio
@@ -19,6 +17,7 @@ class FlexmeasuresClient:
 
     password: str
     email: str
+    access_token: str = None
     scheme: str = "http"
     host: str = "localhost:5000"
     local: bool = False
@@ -38,7 +37,7 @@ class FlexmeasuresClient:
         params: dict[str, Any] | None = None,
         json: dict | None = None,
         headers: dict | None = None,
-    ) -> Any:
+    ) -> tuple[dict, int]:
         url = URL.build(scheme="http", host="localhost:5000", path=path).join(
             URL(uri),
         )
@@ -81,11 +80,11 @@ class FlexmeasuresClient:
                 {"Content-Type": content_type, "response": text},
             )
 
-        return cast(dict[str, Any], await response.json())
+        return cast(dict[str, Any], await response.json()), response.status
 
     async def get_access_token(self):
-        """lalalal.Missing argument descriptions in the docstring: `json`, `method`, `params`, `path`, `uri`."""
-        response = await self.request(
+        """Get access token and store it on the FlexMeasuresClient."""
+        response, status = await self.request(
             uri="requestAuthToken",
             path="/api/",
             json={
@@ -93,8 +92,7 @@ class FlexmeasuresClient:
                 "password": self.password,
             },
         )
-        print(response)
-        return response["auth_token"]
+        self.access_token = response["auth_token"]
 
     async def post_measurements(
         self,
@@ -104,11 +102,11 @@ class FlexmeasuresClient:
         duration: str,
         values: list[float],
         unit: str,
-    ) -> str:
+    ):
         """Post sensor data for the given time range."""
 
         # POST data
-        response = await self.request(
+        response, status = await self.request(
             uri="sensors/data",
             json=dict(
                 sensor=f"ea1.2022-04.nl.seita.flexmeasures:fm1.{sensor_id}",
@@ -121,12 +119,11 @@ class FlexmeasuresClient:
             ),
             headers={"Content-Type": "application/json", "Authorization": access_token},
         )
-        print(response)
-        if response.status_code != 200:
+        if status != 200:
             raise ValueError(
-                f"Request failed with status code {response.status_code} and message: {response.json()}"
+                f"Request failed with status code {status} and message: {response}"
             )
-        return response.json()
+        print("Sensor data sent successfully.")
 
 
 # fm = FlexmeasuresClient(email="guus@seita.nl", password="test")

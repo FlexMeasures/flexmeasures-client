@@ -1,7 +1,5 @@
 import pytest
 from aioresponses import aioresponses
-import json
-from unittest.mock import MagicMock
 from flexmeasures_client.client import FlexmeasuresClient
 
 
@@ -15,24 +13,19 @@ async def test_get_access_token() -> None:
         )
         flexmeasures_client = FlexmeasuresClient("test", "test")
 
-        resp = (
-            await flexmeasures_client.get_access_token()
-        )  # await session.get('http://example.com')
-        print(resp)
-        assert resp == "test-token"
+        await flexmeasures_client.get_access_token()
+        assert flexmeasures_client.access_token == "test-token"
 
 
 @pytest.mark.asyncio
-async def test_post_measurements() -> None:
+async def test_post_measurements(caplog) -> None:
     with aioresponses() as m:
-        payload = {"zzzz": "test", "status_code" :200}
+        payload = {"zzzz": "test"}
 
         m.post(
             "http://localhost:5000/api/v3_0/sensors/data",
             status=200,
-            payload = payload
-            #json.dumps({"auth_token": "test-token", "status_code" :200})
-            # payload={"auth_token": "test-token", "status_code" :200},
+            payload=payload,
         )
         flexmeasures_client = FlexmeasuresClient("test", "test")
 
@@ -43,8 +36,4 @@ async def test_post_measurements() -> None:
         values = "test"
         unit = "test"
 
-        resp = (
-            await flexmeasures_client.post_measurements(access_token, sensor_id, start, duration, values, unit)
-        )  # await session.get('http://example.com')
-        print(resp)
-        assert resp == "test-token"
+        await flexmeasures_client.post_measurements(access_token, sensor_id, start, duration, values, unit)
