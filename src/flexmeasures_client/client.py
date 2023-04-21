@@ -38,15 +38,16 @@ class FlexmeasuresClient:
         method: str = "POST",
         path: str = path,
         params: dict[str, Any] | None = None,
-        headers: dict | None = None,
     ) -> tuple[dict, int]:
         url = URL.build(scheme="http", host="localhost:5000", path=path).join(
             URL(uri),
         )
         print(method)
         print(url)
-        if not headers:
-            headers: dict = {}
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": self.access_token,
+        }
 
         if self.session is None:
             self.session = ClientSession()
@@ -118,10 +119,6 @@ class FlexmeasuresClient:
                 values=values,
                 unit=unit,
             ),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": self.access_token,
-            },
         )
         if status != 200:
             raise ValueError(
@@ -154,10 +151,6 @@ class FlexmeasuresClient:
                     "consumption-price-sensor": 3,
                 },
             },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": self.access_token,
-            },
         )
         if status != 200:
             raise ValueError(
@@ -174,10 +167,6 @@ class FlexmeasuresClient:
         """Get schedule with given ID."""
         response, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": self.access_token,
-            },
             method="GET",
             json={
                 "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
