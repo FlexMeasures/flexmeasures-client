@@ -22,6 +22,7 @@ class FlexmeasuresClient:
     host: str = "localhost:5000"
     local: bool = False
     version: str = "/v3_0/"
+    path: str = f"/api{version}"
 
     request_timeout: float = 10.0
     session: ClientSession | None = None
@@ -33,15 +34,16 @@ class FlexmeasuresClient:
         self,
         uri: str,
         *,
-        method: str = "POST",
-        path: str = f"/api{version}",
-        params: dict[str, Any] | None = None,
         json: dict | None = None,
+        method: str = "POST",
+        path: str = path,
+        params: dict[str, Any] | None = None,
         headers: dict | None = None,
     ) -> tuple[dict, int]:
         url = URL.build(scheme="http", host="localhost:5000", path=path).join(
             URL(uri),
         )
+        print(method)
         print(url)
         if not headers:
             headers: dict = {}
@@ -52,8 +54,8 @@ class FlexmeasuresClient:
         try:
             async with async_timeout.timeout(self.request_timeout):
                 response = await self.session.request(
-                    method,
-                    url,
+                    url=url,
+                    method=method,
                     params=params,
                     headers=headers,
                     json=json,
@@ -96,7 +98,6 @@ class FlexmeasuresClient:
 
     async def post_measurements(
         self,
-        access_token: str,
         sensor_id: int,
         start: str,
         duration: str,
@@ -117,7 +118,10 @@ class FlexmeasuresClient:
                 values=values,
                 unit=unit,
             ),
-            headers={"Content-Type": "application/json", "Authorization": access_token},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": self.access_token,
+            },
         )
         if status != 200:
             raise ValueError(
@@ -125,17 +129,66 @@ class FlexmeasuresClient:
             )
         print("Sensor data sent successfully.")
 
+    async def post_schedule_trigger(
+        self,
+        sensor_id: int,
+        start: str,
+        soc_unit: str,
+        soc_at_start: float,
+        soc_targets: list,
+    ) -> dict:
+        """Post schedule trigger with initial and target states of charge (soc)."""
+        response, status = await self.request(
+            uri=f"sensors/{sensor_id}/schedules/trigger",
+            json={
+                "start": pd.Timestamp(
+                    start
+                ).isoformat(),  # for example: 2021-10-13T00:00+02:00
+                "flex-model": {
+                    "soc-unit": soc_unit,
+                    "soc-at-start": soc_at_start,
+                    "soc-targets": soc_targets,
+                },
+                # TODO remove hardcoded sensor id
+                "flex-context": {
+                    "consumption-price-sensor": 3,
+                },
+            },
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": self.access_token,
+            },
+        )
+        if status != 200:
+            raise ValueError(
+                f"Request failed with status code {status} and message: {response}"
+            )
+        print("Sensor data sent successfully.")
 
-# fm = FlexmeasuresClient(email="guus@seita.nl", password="test")
-# access_token = await fm.get_access_token()
-# print(access_token)
+        return response, status
 
-# post_response = await fm.post_measurements(
-#     access_token=access_token,
-#     sensor_id=1,
-#     start="2023-03-26T10:00+02:00",  # bare in mind DST transitions in case of POSTing local times (for NL, +02:00 becomes +01:00 and vice versa), or stick to POSTing times in UTC (+00:00)
-#     duration="PT6H",
-#     values=[15.3, 0, -3.9, 100, 0, -100],
-#     unit="kW",
-# )
-# print(post_response)
+    async def get_schedule(
+        self,
+        sensor_id: int,
+        schedule_id: str,
+        duration: str,
+    ):
+        """Get schedule with given ID."""
+        response, status = await self.request(
+            uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": self.access_token,
+            },
+            method="GET",
+            json={
+                "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
+            },
+        )
+        if status != 200:
+            raise ValueError(
+                f"Request failed with status code {status} and message: {response}"
+            )
+        print("Sensor data sent successfully.")
+
+        return response, status
