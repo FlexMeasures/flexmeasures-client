@@ -72,7 +72,7 @@ class FlexmeasuresClient:
                 msg,
             ) from exception
 
-        content_type = await response.headers.get("Content-Type", "")
+        content_type = response.headers.get("Content-Type", "")
         if "application/json" not in content_type:
             text = await response.text()
             msg = "Unexpected content type response from the API"
@@ -121,6 +121,7 @@ class FlexmeasuresClient:
             ),
             headers={"Content-Type": "application/json", "Authorization": access_token},
         )
+        print(response)
         if response.status_code != 200:
             raise ValueError(
                 f"Request failed with status code {response.status_code} and message: {response.json()}"
