@@ -136,7 +136,7 @@ class FlexmeasuresClient:
         soc_unit: str,
         soc_at_start: float,
         soc_targets: list,
-    ) -> dict:
+    ):
         """Post schedule trigger with initial and target states of charge (soc)."""
         response, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/trigger",
@@ -163,9 +163,7 @@ class FlexmeasuresClient:
             raise ValueError(
                 f"Request failed with status code {status} and message: {response}"
             )
-        print("Sensor data sent successfully.")
-
-        return response, status
+        print("Schedule triggered successfully.")
 
     async def get_schedule(
         self,
@@ -189,6 +187,5 @@ class FlexmeasuresClient:
             raise ValueError(
                 f"Request failed with status code {status} and message: {response}"
             )
-        print("Sensor data sent successfully.")
 
         return response, status
