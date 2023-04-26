@@ -16,6 +16,7 @@ async def test_get_access_token() -> None:
 
         await flexmeasures_client.get_access_token()
         assert flexmeasures_client.access_token == "test-token"
+    await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
