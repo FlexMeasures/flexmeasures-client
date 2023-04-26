@@ -25,7 +25,8 @@ class FlexmeasuresClient:
     version: str = "/v3_0/"
     path: str = f"/api{version}"
 
-    request_timeout: float = 200.0  # seconds
+    polling_timeout: float = 200.0  # seconds
+    request_timeout: float = 20.0  # seconds
     request_step: float = 10  # seconds
     session: ClientSession | None = None
 
@@ -58,33 +59,34 @@ class FlexmeasuresClient:
             "Scheduling job waiting" in y.get("message", "") or "Scheduling job in progress" in y.get("message", "")
         )
 
-        while True:
-            try:
-                async with async_timeout.timeout(self.request_timeout):
-                    response = await self.session.request(
-                        method=method,
-                        url=url,
-                        params=params,
-                        headers=headers,
-                        json=json,
-                        ssl=False if "localhost" in self.host else True,
-                    )
-                    payload = await response.json()
-                    response.raise_for_status()
-                    break
-            except asyncio.TimeoutError as exception:
-                msg = "Timeout occurred while connecting to the API."
-                raise ConnectionError(
-                    msg,
-                ) from exception
-            except (ClientError, socket.gaierror) as exception:
-                if retry_function(exception, payload):
-                    await asyncio.sleep(self.request_step)
-                else:
-                    msg = "Error occurred while communicating with the API."
+        async with async_timeout.timeout(self.polling_timeout):
+            while True:
+                try:
+                    async with async_timeout.timeout(self.request_timeout):
+                        response = await self.session.request(
+                            method=method,
+                            url=url,
+                            params=params,
+                            headers=headers,
+                            json=json,
+                            ssl=False if "localhost" in self.host else True,
+                        )
+                        payload = await response.json()
+                        response.raise_for_status()
+                        break
+                except asyncio.TimeoutError as exception:
+                    msg = "Timeout occurred while connecting to the API."
                     raise ConnectionError(
                         msg,
                     ) from exception
+                except (ClientError, socket.gaierror) as exception:
+                    if retry_function(exception, payload):
+                        await asyncio.sleep(self.request_step)
+                    else:
+                        msg = "Error occurred while communicating with the API."
+                        raise ConnectionError(
+                            msg,
+                        ) from exception
 
         content_type = response.headers.get("Content-Type", "")
         if "application/json" not in content_type:
