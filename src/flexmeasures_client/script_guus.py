@@ -1,12 +1,10 @@
-
-
-
 fm = FlexmeasuresClient(email="guus@seita.nl", password="test")
 await fm.get_access_token()
 print(fm.access_token)
 
 await fm.post_measurements(
     sensor_id=2,
+    entity_address="ea1.2022-04.nl.seita.flexmeasures:fm1",
     start="2023-03-03T10:00+02:00",  # bare in mind DST transitions in case of POSTing local times (for NL, +02:00 becomes +01:00 and vice versa), or stick to POSTing times in UTC (+00:00)
     duration="PT6H",
     values=[15.3, 0, -3.9, 100, 0, -100],
@@ -39,6 +37,7 @@ schedule_response, schedule_status = await fm.get_schedule(
 
 print(schedule_response)
 
+
 def get_schedule(
     base_url: str,
     api_version: str,
@@ -58,7 +57,9 @@ def get_schedule(
         headers={"Authorization": auth_token},
     )
     if res.status_code != 200:
-        raise ValueError(f"Request failed with status code {res.status_code} and message: {res.json()}")
+        raise ValueError(
+            f"Request failed with status code {res.status_code} and message: {res.json()}"
+        )
     return res.json()
 
 
