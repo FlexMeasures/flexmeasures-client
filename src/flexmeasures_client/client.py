@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import async_timeout
 import pandas as pd
+from aiohttp import ContentTypeError
 from aiohttp.client import ClientError, ClientSession
 from yarl import URL
 
@@ -22,8 +23,9 @@ class FlexmeasuresClient:
     scheme: str = "http"
     host: str = "localhost:5000"
     local: bool = False
-    version: str = "/v3_0/"
-    path: str = f"/api{version}"
+    api_version: str = "v3_0"
+    path: str = f"/api/{api_version}/"
+    consumption_price_sensor: int = 3
 
     max_polling_steps: int = 10  # seconds
     polling_timeout: float = 200.0  # seconds
@@ -54,11 +56,9 @@ class FlexmeasuresClient:
         - the server response indicated a status code of 400 or higher
         - the client polling timed out (as indicated by the client's self.polling_timeout)
         """
-        url = URL.build(scheme="http", host="localhost:5000", path=path).join(
+        url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
             URL(uri),
         )
-        print(method)
-        print(url)
         headers = {
             "Content-Type": "application/json",
             "Authorization": self.access_token,
@@ -114,9 +114,8 @@ class FlexmeasuresClient:
         content_type = response.headers.get("Content-Type", "")
         if "application/json" not in content_type:
             text = await response.text()
-            msg = "Unexpected content type response from the API"
-            raise TypeError(
-                msg,
+            raise ContentTypeError(
+                "Unexpected content type response from the API",
                 {"Content-Type": content_type, "response": text},
             )
 
@@ -124,7 +123,7 @@ class FlexmeasuresClient:
 
     async def get_access_token(self):
         """Get access token and store it on the FlexMeasuresClient."""
-        response, status = await self.request(
+        response, _status = await self.request(
             uri="requestAuthToken",
             path="/api/",
             json={
@@ -141,6 +140,7 @@ class FlexmeasuresClient:
         duration: str,
         values: list[float],
         unit: str,
+        entity_address: str,
     ):
         """Post sensor data for the given time range."""
 
@@ -148,7 +148,7 @@ class FlexmeasuresClient:
         response, status = await self.request(
             uri="sensors/data",
             json=dict(
-                sensor=f"ea1.2022-04.nl.seita.flexmeasures:fm1.{sensor_id}",
+                sensor=f"{entity_address}.{sensor_id}",
                 start=pd.Timestamp(
                     start
                 ).isoformat(),  # for example: 2021-10-13T00:00+02:00
