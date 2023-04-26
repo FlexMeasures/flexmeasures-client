@@ -67,9 +67,11 @@ class FlexmeasuresClient:
         if self.session is None:
             self.session = ClientSession()
 
-        retry_function = lambda x, y: getattr(x, "status") == 400 and (
-            "Scheduling job waiting" in y.get("message", "")
-            or "Scheduling job in progress" in y.get("message", "")
+        client_should_retry = lambda exception, payload: getattr(
+            exception, "status"
+        ) == 400 and (
+            "Scheduling job waiting" in payload.get("message", "")
+            or "Scheduling job in progress" in payload.get("message", "")
         )
 
         polling_step = 0
@@ -96,7 +98,7 @@ class FlexmeasuresClient:
                         polling_step += 1
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
-                        if retry_function(exception, payload):
+                        if client_should_retry(exception, payload):
                             print(
                                 f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."
                             )
