@@ -25,6 +25,7 @@ class FlexmeasuresClient:
     version: str = "/v3_0/"
     path: str = f"/api{version}"
 
+    max_polling_steps: int = 10  # seconds
     polling_timeout: float = 200.0  # seconds
     request_timeout: float = 20.0  # seconds
     request_step: float = 10  # seconds
@@ -59,8 +60,9 @@ class FlexmeasuresClient:
             "Scheduling job waiting" in y.get("message", "") or "Scheduling job in progress" in y.get("message", "")
         )
 
+        poll_step = 0
         async with async_timeout.timeout(self.polling_timeout):
-            while True:
+            while poll_step < self.max_polling_steps:
                 try:
                     async with async_timeout.timeout(self.request_timeout):
                         response = await self.session.request(
@@ -81,6 +83,7 @@ class FlexmeasuresClient:
                     ) from exception
                 except (ClientError, socket.gaierror) as exception:
                     if retry_function(exception, payload):
+                        poll_step += 1
                         await asyncio.sleep(self.request_step)
                     else:
                         msg = "Error occurred while communicating with the API."
