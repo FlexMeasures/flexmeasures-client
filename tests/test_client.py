@@ -84,6 +84,7 @@ async def test_trigger_schedule() -> None:
                     "datetime": "2023-03-03T11:00+02:00",
                 }
             ],
+            consumption_price_sensor=3,
         )
 
         m.assert_called_once_with(
