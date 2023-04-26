@@ -28,7 +28,7 @@ class FlexmeasuresClient:
     max_polling_steps: int = 10  # seconds
     polling_timeout: float = 200.0  # seconds
     request_timeout: float = 20.0  # seconds
-    request_step: float = 10  # seconds
+    polling_delay: float = 10  # seconds
     session: ClientSession | None = None
 
     async def close(self):
@@ -43,6 +43,17 @@ class FlexmeasuresClient:
         path: str = path,
         params: dict[str, Any] | None = None,
     ) -> tuple[dict, int]:
+        """Send a request to FlexMeasures.
+
+        Retries if:
+        - the client request timed out (as indicated by the client's self.request_timeout)
+        - the server response indicates a 408 (Request Timeout) status
+        - the server response indicates a 503 (Service Unavailable) status with a Retry-After response header
+
+        Fails if:
+        - the server response indicated a status code of 400 or higher
+        - the client polling timed out (as indicated by the client's self.polling_timeout)
+        """
         url = URL.build(scheme="http", host="localhost:5000", path=path).join(
             URL(uri),
         )
@@ -57,39 +68,48 @@ class FlexmeasuresClient:
             self.session = ClientSession()
 
         retry_function = lambda x, y: getattr(x, "status") == 400 and (
-            "Scheduling job waiting" in y.get("message", "") or "Scheduling job in progress" in y.get("message", "")
+            "Scheduling job waiting" in y.get("message", "")
+            or "Scheduling job in progress" in y.get("message", "")
         )
 
-        poll_step = 0
-        async with async_timeout.timeout(self.polling_timeout):
-            while poll_step < self.max_polling_steps:
-                try:
-                    async with async_timeout.timeout(self.request_timeout):
-                        response = await self.session.request(
-                            method=method,
-                            url=url,
-                            params=params,
-                            headers=headers,
-                            json=json,
-                            ssl=False if "localhost" in self.host else True,
+        polling_step = 0
+        try:
+            async with async_timeout.timeout(self.polling_timeout):
+                while polling_step < self.max_polling_steps:
+                    try:
+                        async with async_timeout.timeout(self.request_timeout):
+                            response = await self.session.request(
+                                method=method,
+                                url=url,
+                                params=params,
+                                headers=headers,
+                                json=json,
+                                ssl=False if "localhost" in self.host else True,
+                            )
+                            payload = await response.json()
+                            response.raise_for_status()
+                            break
+                    except asyncio.TimeoutError:
+                        print(
+                            f"Client request timeout occurred while connecting to the API. Retrying in {self.polling_delay} seconds..."
                         )
-                        payload = await response.json()
-                        response.raise_for_status()
-                        break
-                except asyncio.TimeoutError as exception:
-                    msg = "Timeout occurred while connecting to the API."
-                    raise ConnectionError(
-                        msg,
-                    ) from exception
-                except (ClientError, socket.gaierror) as exception:
-                    if retry_function(exception, payload):
-                        poll_step += 1
-                        await asyncio.sleep(self.request_step)
-                    else:
-                        msg = "Error occurred while communicating with the API."
-                        raise ConnectionError(
-                            msg,
-                        ) from exception
+                        polling_step += 1
+                        await asyncio.sleep(self.polling_delay)
+                    except (ClientError, socket.gaierror) as exception:
+                        if retry_function(exception, payload):
+                            print(
+                                f"Server indicated to try again later. Retrying in {self.polling_delay} seconds..."
+                            )
+                            polling_step += 1
+                            await asyncio.sleep(self.polling_delay)
+                        else:
+                            raise ConnectionError(
+                                "Error occurred while communicating with the API."
+                            ) from exception
+        except asyncio.TimeoutError as exception:
+            raise ConnectionError(
+                "Client polling timeout while connection to the API."
+            ) from exception
 
         content_type = response.headers.get("Content-Type", "")
         if "application/json" not in content_type:
@@ -150,24 +170,38 @@ class FlexmeasuresClient:
         soc_unit: str,
         soc_at_start: float,
         soc_targets: list,
+        consumption_price_sensor: int | None = None,
+        production_price_sensor: int | None = None,
+        inflexible_device_sensors: list[int] | None = None,
     ):
         """Post schedule trigger with initial and target states of charge (soc)."""
+        message = {
+            "start": pd.Timestamp(
+                start
+            ).isoformat(),  # for example: 2021-10-13T00:00+02:00
+            "flex-model": {
+                "soc-unit": soc_unit,
+                "soc-at-start": soc_at_start,
+                "soc-targets": soc_targets,
+            },
+            "flex-context": {},
+        }
+
+        # Set optional flex context
+        if consumption_price_sensor is not None:
+            message["flex-context"][
+                "consumption-price-sensor"
+            ] = consumption_price_sensor
+        if production_price_sensor is not None:
+            message["flex-context"]["production-price-sensor"] = production_price_sensor
+        if inflexible_device_sensors is not None:
+            message["flex-context"][
+                "inflexible-device-sensors"
+            ] = inflexible_device_sensors
+
         response, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/trigger",
-            json={
-                "start": pd.Timestamp(
-                    start
-                ).isoformat(),  # for example: 2021-10-13T00:00+02:00
-                "flex-model": {
-                    "soc-unit": soc_unit,
-                    "soc-at-start": soc_at_start,
-                    "soc-targets": soc_targets,
-                },
-                # TODO remove hardcoded sensor id
-                "flex-context": {
-                    "consumption-price-sensor": 3,
-                },
-            },
+            json=message,
         )
         if status != 200:
             raise ValueError(
