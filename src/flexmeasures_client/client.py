@@ -20,9 +20,9 @@ class FlexmeasuresClient:
     password: str
     email: str
     access_token: str = None
-    scheme: str = "http"
     host: str = "localhost:5000"
-    local: bool = False
+    scheme: str = "http" if "localhost" in host else "https"
+    ssl: bool = False if "localhost" in host else True
     api_version: str = "v3_0"
     path: str = f"/api/{api_version}/"
     consumption_price_sensor: int = 3
@@ -84,7 +84,7 @@ class FlexmeasuresClient:
                                 params=params,
                                 headers=headers,
                                 json=json,
-                                ssl=False if "localhost" in self.host else True,
+                                ssl=self.ssl,
                             )
                             payload = await response.json()
                             response.raise_for_status()
