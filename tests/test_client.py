@@ -160,7 +160,11 @@ async def test_get_schedule_timeout() -> None:
             repeat=True,
         )
         flexmeasures_client = FlexmeasuresClient(
-            "test", "test", polling_timeout=0.5, request_timeout=0.2, polling_interval=0.1
+            "test",
+            "test",
+            polling_timeout=0.5,
+            request_timeout=0.2,
+            polling_interval=0.1,
         )
 
         sensor_id = 1
