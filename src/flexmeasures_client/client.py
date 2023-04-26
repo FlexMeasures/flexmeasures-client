@@ -30,7 +30,7 @@ class FlexmeasuresClient:
     max_polling_steps: int = 10  # seconds
     polling_timeout: float = 200.0  # seconds
     request_timeout: float = 20.0  # seconds
-    polling_delay: float = 10  # seconds
+    polling_interval: float = 10  # seconds
     session: ClientSession | None = None
 
     async def close(self):
@@ -91,17 +91,17 @@ class FlexmeasuresClient:
                             break
                     except asyncio.TimeoutError:
                         print(
-                            f"Client request timeout occurred while connecting to the API. Retrying in {self.polling_delay} seconds..."
+                            f"Client request timeout occurred while connecting to the API. Retrying in {self.polling_interval} seconds..."
                         )
                         polling_step += 1
-                        await asyncio.sleep(self.polling_delay)
+                        await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
                         if retry_function(exception, payload):
                             print(
-                                f"Server indicated to try again later. Retrying in {self.polling_delay} seconds..."
+                                f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."
                             )
                             polling_step += 1
-                            await asyncio.sleep(self.polling_delay)
+                            await asyncio.sleep(self.polling_interval)
                         else:
                             raise ConnectionError(
                                 "Error occurred while communicating with the API."
