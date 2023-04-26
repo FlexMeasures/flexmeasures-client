@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import socket
 from dataclasses import dataclass
-from json import loads
 from typing import Any, cast
 
 import async_timeout
@@ -67,12 +66,11 @@ class FlexmeasuresClient:
         if self.session is None:
             self.session = ClientSession()
 
-        client_should_retry = lambda exception, payload: getattr(
-            exception, "status"
-        ) == 400 and (
-            "Scheduling job waiting" in payload.get("message", "")
-            or "Scheduling job in progress" in payload.get("message", "")
-        )
+        def client_should_retry(exception, payload) -> bool:
+            return getattr(exception, "status") == 400 and (
+                "Scheduling job waiting" in payload.get("message", "")
+                or "Scheduling job in progress" in payload.get("message", "")
+            )
 
         polling_step = 0
         try:
