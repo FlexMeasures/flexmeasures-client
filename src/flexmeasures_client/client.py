@@ -43,6 +43,7 @@ class FlexmeasuresClient:
         method: str = "POST",
         path: str = path,
         params: dict[str, Any] | None = None,
+        headers: dict | None = None,
     ) -> tuple[dict, int]:
         """Send a request to FlexMeasures.
 
@@ -58,10 +59,12 @@ class FlexmeasuresClient:
         url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
             URL(uri),
         )
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": self.access_token,
-        }
+        print(url)
+        if headers is None:
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": self.access_token,
+            }
 
         if self.session is None:
             self.session = ClientSession()
@@ -88,6 +91,7 @@ class FlexmeasuresClient:
                             )
                             payload = await response.json()
                             response.raise_for_status()
+                            print(response.headers)
                             break
                     except asyncio.TimeoutError:
                         print(
@@ -130,7 +134,9 @@ class FlexmeasuresClient:
                 "email": self.email,
                 "password": self.password,
             },
+            headers={},
         )
+        print(response, _status)
         self.access_token = response["auth_token"]
 
     async def post_measurements(
@@ -143,7 +149,7 @@ class FlexmeasuresClient:
         entity_address: str,
     ):
         """Post sensor data for the given time range."""
-
+        #TODO add option to add prior to post.
         # POST data
         response, status = await self.request(
             uri="sensors/data",
@@ -229,3 +235,16 @@ class FlexmeasuresClient:
             )
 
         return response, status
+
+
+    async def get_assets(self):
+        """Get all the assets available to the current user"""
+        response, status = await self.request(uri="assets", method="GET")
+        return response, status
+
+    async def get_sensors(self):
+        """Get all the sensors available to the current user"""
+        response, status = await self.request(uri="sensors", method="GET")
+        return response, status
+
+

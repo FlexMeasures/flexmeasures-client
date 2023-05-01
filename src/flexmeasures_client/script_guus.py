@@ -1,4 +1,7 @@
-fm = FlexmeasuresClient(email="guus@seita.nl", password="test")
+
+from client import FlexmeasuresClient
+
+fm = FlexmeasuresClient(email="rolestest@seita.nl", password="test")
 await fm.get_access_token()
 print(fm.access_token)
 
@@ -72,3 +75,5 @@ get_response = get_schedule(
     duration="PT24H",
 )
 print(get_response)
+
+

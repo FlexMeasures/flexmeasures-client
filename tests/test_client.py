@@ -12,10 +12,20 @@ async def test_get_access_token() -> None:
             status=200,
             payload={"auth_token": "test-token"},
         )
-        flexmeasures_client = FlexmeasuresClient("test", "test")
+        flexmeasures_client = FlexmeasuresClient(
+            email="test@test.test", password="test"
+        )
 
         await flexmeasures_client.get_access_token()
         assert flexmeasures_client.access_token == "test-token"
+        m.assert_called_once_with(
+            "http://localhost:5000/api/requestAuthToken",
+            method="POST",
+            json={"email": "test@test.test", "password": "test"},
+            headers={},
+            params=None,
+            ssl=False,
+        )
     await flexmeasures_client.close()
 
 
@@ -173,4 +183,59 @@ async def test_get_schedule_timeout() -> None:
 
         with pytest.raises(ConnectionError):
             await flexmeasures_client.get_schedule(sensor_id, schedule_id, duration)
+    await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_assets() -> None:
+    with aioresponses() as m:
+        flexmeasures_client = FlexmeasuresClient("test", "test")
+        flexmeasures_client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/assets",
+            status=200,
+            payload=[
+                {
+                    "account_id": 2,
+                    "attributes": '{"capacity_in_mw": 0.5, "min_soc_in_mwh": 0.05, "max_soc_in_mwh": 0.45, "sensors_to_show": [3, 2]}',
+                    "generic_asset_type_id": 5,
+                    "id": 3,
+                    "latitude": 52.374,
+                    "longitude": 4.88969,
+                    "name": "toy-battery",
+                }
+            ],
+        )
+
+        response, _status = await flexmeasures_client.get_assets()
+        assert len(response) == 1
+        assert response[0]["account_id"] == 2
+
+    await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_sensors() -> None:
+    with aioresponses() as m:
+        flexmeasures_client = FlexmeasuresClient("test", "test")
+        flexmeasures_client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=200,
+            payload=[
+                {
+                    "entity_address": "ea1.2023-06.localhost:fm1.2",
+                    "event_resolution": 15,
+                    "generic_asset_id": 3,
+                    "name": "discharging",
+                    "timezone": "Europe/Amsterdam",
+                    "unit": "MW",
+                }
+            ],
+        )
+
+        response, _status = await flexmeasures_client.get_sensors()
+        assert len(response) == 1
+        assert response[0]["entity_address"] == "ea1.2023-06.localhost:fm1.2"
+
     await flexmeasures_client.close()
