@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import functools
 import json
+from collections import deque
 from dataclasses import dataclass
-from typing import Callable, Dict, List
+from typing import Callable, Dict, Type
 
 import pydantic
 from python_s2_protocol.common.messages import (
@@ -24,10 +25,10 @@ class Tag:
     message_type: str
 
 
-def register(schema: pydantic.BaseModel, message_type: str) -> Callable:
+def register(schema: Type[pydantic.BaseModel], message_type: str) -> Callable:
     """
-    Adds a tag with the message_type that the function that decorates
-    handles. Moreover, it validates and converts the dict represenation
+    Adds a tag with the message_type to the function that decorates.
+    Moreover, it validates and converts the dict representation
     of the message into its pydantic class equivalent, running the
     data validation.
 
@@ -77,17 +78,17 @@ class Handler:
     outgoing_messages: SizeLimitOrderedDict
     incoming_messages: SizeLimitOrderedDict
 
-    objects_revoked: List[str]
+    objects_revoked: deque
 
     success_callback: Dict[str, Callable]
-    failiure_callback: Dict[str, Callable]
+    failure_callback: Dict[str, Callable]
 
     outgoing_messages_status: SizeLimitOrderedDict
 
-    def __init__(self, max_size=100) -> None:
+    def __init__(self, max_size: int = 100) -> None:
         """
         Handler
-        Upon creation, this class will discover the functions tagged with
+        Upon creation, this class will discover the class methods tagged with
         the @register decorator and store them in self.message_handlers indexed
         by the message_type.
         """
@@ -97,9 +98,9 @@ class Handler:
         self.incoming_messages = SizeLimitOrderedDict(max_size=max_size)
 
         self.success_callback = dict()
-        self.failiure_callback = dict()
+        self.failure_callback = dict()
 
-        self.objects_revoked = list()
+        self.objects_revoked = deque(maxlen=max_size)
 
         self.outgoing_messages_status = SizeLimitOrderedDict(max_size=max_size)
 
@@ -107,7 +108,7 @@ class Handler:
 
     def discovery(self):
         """
-        Discovers which class method haven been tagged by the decorator
+        Discovers which class method hasn't been tagged by the decorator
         @register
         """
         for method in dir(self):
@@ -130,12 +131,12 @@ class Handler:
         """
         self.register_callback(self.success_callback, message_id, callback, **kwargs)
 
-    def register_failiure_callback(self, message_id: str, callback: Callable, **kwargs):
+    def register_failure_callback(self, message_id: str, callback: Callable, **kwargs):
         """
-        Stores a callback into the failiure callback store.
+        Stores a callback into the failure callback store.
         Callbacks will be called if ReceptionStatus.satus != ReceptionStatusValues.OK
         """
-        self.register_callback(self.failiure_callback, message_id, callback, **kwargs)
+        self.register_callback(self.failure_callback, message_id, callback, **kwargs)
 
     def supports_message(self, message: Dict | pydantic.BaseModel) -> bool:
         """
@@ -155,7 +156,7 @@ class Handler:
     def handle_message(self, message: pydantic.BaseModel) -> dict:
         """
         Calls the handler linked to the message_type and converts the output
-        to a serilizd dict, i.e, it converts all the inner objects to Python
+        to a serialized dict, i.e, it converts all the inner objects to Python
         basic types (dict, list, int, str, ...).
 
         :returns serialized_output_message:
@@ -173,7 +174,7 @@ class Handler:
     @register(ReceptionStatus, "ReceptionStatus")
     def handle_response_status(self, message: ReceptionStatus):
         """
-        If defined, it calls the success_callback or failiure_callback depeding
+        If defined, it calls the success_callback or failure_callback depending
         on the status of the ReceptionStatus.
 
         By default, the handlers will use this handler for the messages of
@@ -182,7 +183,7 @@ class Handler:
 
         callback_store = None
 
-        # saving ACK status code
+        # save acknowledgement status code
         # TODO: implement function __hash__ in ID that returns the value of __root__
         self.outgoing_messages_status[
             message.subject_message_id.__root__
@@ -192,7 +193,7 @@ class Handler:
         if message.status == ReceptionStatusValues.OK:
             callback_store = self.success_callback
         else:
-            callback_store = self.failiure_callback
+            callback_store = self.failure_callback
 
         # pop callback from callback_store and run it, if there exists one
         if callback := callback_store.pop(message.subject_message_id.__root__):

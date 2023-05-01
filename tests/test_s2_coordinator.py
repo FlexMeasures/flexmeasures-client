@@ -82,7 +82,7 @@ def test_cem():  # TODO: move into different test functions
 
     """
     ========================
-    Activate control status
+    Activate control type
     ========================
     """
 
