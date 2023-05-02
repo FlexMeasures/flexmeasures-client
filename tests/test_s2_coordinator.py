@@ -26,7 +26,7 @@ from python_s2_protocol.FRBC.schemas import (
 )
 
 from flexmeasures_client.s2.cem import CEM
-from flexmeasures_client.s2.frbc import FRBC
+from flexmeasures_client.s2.control_types.frbc import FRBC
 from flexmeasures_client.s2.utils import get_unique_id
 
 
@@ -34,7 +34,7 @@ def test_cem():  # TODO: move into different test functions
     cem = CEM()
     frbc = FRBC()
 
-    cem.register_control_type(ControlType.FILL_RATE_BASED_CONTROL, frbc)
+    cem.register_control_type(frbc)
 
     """
     =========
@@ -49,8 +49,12 @@ def test_cem():  # TODO: move into different test functions
 
     response = cem.handle_message(handshake_message)
 
-    assert response["message_type"] == "HandshakeResponse"
-    assert response["selected_protocol_version"] == "0.1.0"
+    assert (
+        response["message_type"] == "HandshakeResponse"
+    ), "response message_type should be HandshakeResponse"
+    assert (
+        response["selected_protocol_version"] == "0.1.0"
+    ), "CEM selected protocol version should be supported by the Resource Manager"
 
     print(cem)
 
@@ -64,7 +68,10 @@ def test_cem():  # TODO: move into different test functions
         resource_id=get_unique_id(),
         roles=[Role(role=RoleType.ENERGY_STORAGE, commodity=Commodity.ELECTRICITY)],
         instruction_processing_delay=Duration(__root__=1.0),
-        available_control_types=[ControlType.FILL_RATE_BASED_CONTROL],
+        available_control_types=[
+            ControlType.FILL_RATE_BASED_CONTROL,
+            ControlType.NO_SELECTION,
+        ],
         provides_forecast=True,
         provides_power_measurement_types=[
             CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC
@@ -75,8 +82,13 @@ def test_cem():  # TODO: move into different test functions
 
     assert response["message_type"] == "ReceptionStatus"
     assert response["status"] == "OK"
-    assert cem.resource_manager_details == resource_manager_details_message
-    assert cem.control_type == ControlType.NO_SELECTION
+    assert (
+        cem.resource_manager_details == resource_manager_details_message
+    ), "CEM should store the resource_manager_details"
+    assert cem.control_type == ControlType.NO_SELECTION, (
+        "CEM control type should switch to ControlType.NO_SELECTION,"
+        "independently of the original type"
+    )
 
     print(response)
 
@@ -89,7 +101,10 @@ def test_cem():  # TODO: move into different test functions
     message = cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
 
     print(message)
-    assert cem.control_type == ControlType.NO_SELECTION
+    assert cem.control_type == ControlType.NO_SELECTION, (
+        "the control type should still be NO_SELECTION (rather than FRBC),"
+        " because the RM has not yet confirmed FRBC activation"
+    )
 
     response = ReceptionStatus(
         subject_message_id=message.message_id.__root__, status=ReceptionStatusValues.OK
@@ -97,7 +112,9 @@ def test_cem():  # TODO: move into different test functions
 
     cem.handle_message(response)
 
-    assert cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
+    assert (
+        cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
+    ), "after a positive ResponseStatus, the status changes from NO_SELECTION to FRBC"
 
     """
     ====
@@ -152,9 +169,34 @@ def test_cem():  # TODO: move into different test functions
             ControlType.FILL_RATE_BASED_CONTROL
         ].system_description_list[-1]
         == system_description_message
+    ), (
+        "the FRBC.SystemDescription message should be stored"
+        "in the frbc.system_description_list variable"
     )
+
     print(response)
 
-    # Let's check check what it does when we change state
+    # change of control type is not performed in case that the RM answers
+    # with a negative response
+    response = cem.activate_control_type(ControlType.NO_SELECTION)
 
-    response = cem.activate_control_type()
+    assert (
+        cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
+    ), "control type should not change, confirmation still pending"
+
+    cem.handle_message(
+        ReceptionStatus(
+            subject_message_id=response.message_id.__root__,
+            status=ReceptionStatusValues.INVALID_CONTENT,
+        ).dict()
+    )
+
+    assert (
+        cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
+    ), "control type should not change, confirmation state is not 'OK'"
+    assert (
+        response.message_id.__root__
+        not in cem.control_types_handlers[
+            ControlType.FILL_RATE_BASED_CONTROL
+        ].success_callbacks
+    ), "success callback should be deleted"
