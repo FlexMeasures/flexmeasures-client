@@ -1,8 +1,9 @@
 from typing import Callable
 from aiohttp import ContentTypeError
+import asyncio
 
 
-def check_response(self, response):
+async def check_response(self, response):
     """
     <300: passes
     401: reauthenticate
@@ -20,6 +21,15 @@ def check_response(self, response):
     elif status == 503 and "Retry-After" in headers:
         # todo: move the client_should_retry logic into this function)
         pass
+    elif status == 400 and (
+        "Scheduling job waiting" in payload.get("message", "")
+        or "Scheduling job in progress" in payload.get("message", "")
+    ):
+        print(
+            f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."
+        )
+        self.polling_step += 1
+        await asyncio.sleep(self.polling_interval)
     else:
         response.raise_for_status
 

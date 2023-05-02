@@ -1,9 +1,9 @@
 
-from client import FlexmeasuresClient
+from client import FlexMeasuresClient
 
-fm = FlexmeasuresClient(email="rolestest@seita.nl", password="test")
-await fm.get_access_token()
-print(fm.access_token)
+fm = FlexMeasuresClient(email="rolestest@seita.nl", password="test")
+#await fm.get_access_token()
+#print(fm.access_token)
 
 await fm.post_measurements(
     sensor_id=2,

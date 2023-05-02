@@ -53,7 +53,7 @@ class FlexMeasuresClient:
         method: str = "POST",
         path: str = path,
         params: dict[str, Any] | None = None,
-        headers: dict | None = None,
+        include_auth: bool = True
     ) -> tuple[dict, int]:
         """Send a request to FlexMeasures.
 
@@ -71,14 +71,14 @@ class FlexMeasuresClient:
         )
         print(url)
         
-        headers = self.create_headers()
+        headers = await self.get_headers(include_auth=include_auth)
         self.start_session()
 
-        polling_step = 0
+        self.polling_step = 0
         self.reauth_once = True  # reset this counter once when starting polling
         try:
             async with async_timeout.timeout(self.polling_timeout):
-                while polling_step < self.max_polling_steps:
+                while self.polling_step < self.max_polling_steps:
                     try:
                         async with async_timeout.timeout(self.request_timeout):
                             response = await self.request_once(
@@ -88,30 +88,19 @@ class FlexMeasuresClient:
                                 headers=headers,
                                 json=json,
                             )
-                            payload = await response.json()
-                            check_response(
-                                self,
-                                response,
-                            )
-                            print(response.headers)
                             break
                     except asyncio.TimeoutError:
                         print(
                             f"Client request timeout occurred while connecting to the API. Retrying in {self.polling_interval} seconds..."
                         )
-                        polling_step += 1
+                        self.polling_step += 1
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
-                        if self.client_should_retry(exception, payload):
-                            print(
-                                f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."
-                            )
-                            polling_step += 1
-                            await asyncio.sleep(self.polling_interval)
-                        else:
-                            raise ConnectionError(
-                                "Error occurred while communicating with the API."
-                            ) from exception
+
+                        
+                        raise ConnectionError(
+                            "Error occurred while communicating with the API."
+                        ) from exception
         except asyncio.TimeoutError as exception:
             raise ConnectionError(
                 "Client polling timeout while connection to the API."
@@ -137,15 +126,15 @@ class FlexMeasuresClient:
             json=json,
             ssl=self.ssl,
         )
-        payload = await response.json()
-        check_response(
+        await check_response(
             self,
             response,
         )
         print(response.headers)
         return response
 
-    def client_should_retry(self, exception, payload) -> bool:
+    def client_should_retry(self, exception, response) -> bool:
+        payload = response.json()
         return getattr(exception, "status") == 400 and (
             "Scheduling job waiting" in payload.get("message", "")
             or "Scheduling job in progress" in payload.get("message", "")
@@ -155,9 +144,11 @@ class FlexMeasuresClient:
         if self.session is None:
             self.session = ClientSession()
 
-    def create_headers(self):
+    async def get_headers(self, include_auth: bool):
         headers = CONTENT_TYPE_HEADERS
-        if self.access_token:
+        if include_auth:
+            if self.access_token is None:
+                await self.get_access_token()            
             headers |= {"Authorization": self.access_token}
         print(headers)
         return headers
@@ -171,11 +162,14 @@ class FlexMeasuresClient:
                 "email": self.email,
                 "password": self.password,
             },
-            headers={},
+            include_auth=False,
         )
         print(response, _status)
         self.access_token = response["auth_token"]
-
+    
+    async def check_or_authenticate(self):
+        if self.access_token is None:
+            await self.get_access_token()
 
 
     async def post_measurements(
