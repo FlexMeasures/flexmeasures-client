@@ -7,11 +7,10 @@ from typing import Any, cast
 
 import async_timeout
 import pandas as pd
-from aiohttp import ContentTypeError
 from aiohttp.client import ClientError, ClientSession
 from yarl import URL
 
-from flexmeasures_client.response_handling import check_response, check_content_type
+from flexmeasures_client.response_handling import check_response, check_content_type, check_for_status
 
 CONTENT_TYPE_HEADERS = {
     "Content-Type": "application/json",
@@ -67,15 +66,7 @@ class FlexmeasuresClient:
         )
         print(url)
         headers = self.create_headers()
-
-        if self.session is None:
-            self.session = ClientSession()
-
-        # def client_should_retry(exception, payload) -> bool:
-        #     return getattr(exception, "status") == 400 and (
-        #         "Scheduling job waiting" in payload.get("message", "")
-        #         or "Scheduling job in progress" in payload.get("message", "")
-        #     )
+        self.start_session()
 
         polling_step = 0
         reauth_step = 0  # reset this counter once when starting polling
@@ -95,11 +86,8 @@ class FlexmeasuresClient:
                             payload = await response.json()
                             check_response(
                                 self,
-                                response.status,
-                                payload,
-                                response.headers,
+                                response,
                                 reauth_step,
-                                response.raise_for_status,
                             )
                             print(response.headers)
                             break
@@ -129,7 +117,6 @@ class FlexmeasuresClient:
 
         return cast(dict[str, Any], await response.json()), response.status
 
-
     def client_should_retry(self, exception, payload) -> bool:
         return getattr(exception, "status") == 400 and (
             "Scheduling job waiting" in payload.get("message", "")
@@ -137,11 +124,8 @@ class FlexmeasuresClient:
         )
 
     def start_session(self):
-        pass
-
-
-    def build_url(self):
-        pass
+        if self.session is None:
+            self.session = ClientSession()
 
     def create_headers(self):
         headers = CONTENT_TYPE_HEADERS
@@ -188,10 +172,7 @@ class FlexmeasuresClient:
                 unit=unit,
             ),
         )
-        if status != 200:
-            raise ValueError(
-                f"Request failed with status code {status} and message: {response}"
-            )
+        check_for_status(status, 200)
         print("Sensor data sent successfully.")
 
     async def post_schedule_trigger(
@@ -234,10 +215,7 @@ class FlexmeasuresClient:
             uri=f"sensors/{sensor_id}/schedules/trigger",
             json=message,
         )
-        if status != 200:
-            raise ValueError(
-                f"Request failed with status code {status} and message: {response}"
-            )
+        check_for_status(status, 200)
         print("Schedule triggered successfully.")
 
     async def get_schedule(
@@ -254,19 +232,19 @@ class FlexmeasuresClient:
                 "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
             },
         )
-        if status != 200:
-            raise ValueError(
-                f"Request failed with status code {status} and message: {response}"
-            )
+        check_for_status(status, 200)
 
         return response, status
 
     async def get_assets(self):
         """Get all the assets available to the current user"""
         response, status = await self.request(uri="assets", method="GET")
+        check_for_status(status, 200)
         return response, status
+        
 
     async def get_sensors(self):
         """Get all the sensors available to the current user"""
         response, status = await self.request(uri="sensors", method="GET")
+        check_for_status(status, 200)
         return response, status
