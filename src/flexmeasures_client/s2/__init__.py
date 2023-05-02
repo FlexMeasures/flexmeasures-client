@@ -80,8 +80,8 @@ class Handler:
 
     objects_revoked: deque
 
-    success_callback: Dict[str, Callable]
-    failure_callback: Dict[str, Callable]
+    success_callbacks: Dict[str, Callable]
+    failure_callbacks: Dict[str, Callable]
 
     outgoing_messages_status: SizeLimitOrderedDict
 
@@ -97,8 +97,8 @@ class Handler:
         self.outgoing_messages = SizeLimitOrderedDict(max_size=max_size)
         self.incoming_messages = SizeLimitOrderedDict(max_size=max_size)
 
-        self.success_callback = dict()
-        self.failure_callback = dict()
+        self.success_callbacks = dict()
+        self.failure_callbacks = dict()
 
         self.objects_revoked = deque(maxlen=max_size)
 
@@ -124,19 +124,19 @@ class Handler:
         """
         callback_store[message_id] = functools.partial(callback, **kwargs)
 
-    def register_success_callback(self, message_id: str, callback: Callable, **kwargs):
+    def register_success_callbacks(self, message_id: str, callback: Callable, **kwargs):
         """
         Stores a callback into the success callback store.
         Callbacks will be called if ReceptionStatus.satus = ReceptionStatusValues.OK
         """
-        self.register_callback(self.success_callback, message_id, callback, **kwargs)
+        self.register_callback(self.success_callbacks, message_id, callback, **kwargs)
 
-    def register_failure_callback(self, message_id: str, callback: Callable, **kwargs):
+    def register_failure_callbacks(self, message_id: str, callback: Callable, **kwargs):
         """
         Stores a callback into the failure callback store.
         Callbacks will be called if ReceptionStatus.satus != ReceptionStatusValues.OK
         """
-        self.register_callback(self.failure_callback, message_id, callback, **kwargs)
+        self.register_callback(self.failure_callbacks, message_id, callback, **kwargs)
 
     def supports_message(self, message: Dict | pydantic.BaseModel) -> bool:
         """
@@ -174,7 +174,7 @@ class Handler:
     @register(ReceptionStatus, "ReceptionStatus")
     def handle_response_status(self, message: ReceptionStatus):
         """
-        If defined, it calls the success_callback or failure_callback depending
+        If defined, it calls the success_callbacks or failure_callbacks depending
         on the status of the ReceptionStatus.
 
         By default, the handlers will use this handler for the messages of
@@ -191,13 +191,17 @@ class Handler:
 
         # choose which callback to call, depending on the ReceptionSatatus value
         if message.status == ReceptionStatusValues.OK:
-            callback_store = self.success_callback
+            callback_store = self.success_callbacks
         else:
-            callback_store = self.failure_callback
+            callback_store = self.failure_callbacks
 
         # pop callback from callback_store and run it, if there exists one
-        if callback := callback_store.pop(message.subject_message_id.__root__):
+        if callback := callback_store.pop(message.subject_message_id.__root__, None):
             callback()
+
+        # delete success callback related to this message
+        if callback is None and (message.status != ReceptionStatusValues.OK):
+            self.success_callbacks.pop(message.subject_message_id.__root__, None)
 
     @register(RevokeObject, "RevokeObject")
     def handle_revoke_object(self, message: RevokeObject):
