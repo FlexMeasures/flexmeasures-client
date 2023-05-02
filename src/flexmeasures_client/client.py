@@ -11,6 +11,8 @@ from aiohttp import ContentTypeError
 from aiohttp.client import ClientError, ClientSession
 from yarl import URL
 
+from flexmeasures_client.response_handling import check_response
+
 
 @dataclass
 class FlexmeasuresClient:
@@ -76,6 +78,7 @@ class FlexmeasuresClient:
             )
 
         polling_step = 0
+        reauth_step = 0  # reset this counter once when starting polling
         try:
             async with async_timeout.timeout(self.polling_timeout):
                 while polling_step < self.max_polling_steps:
@@ -90,7 +93,7 @@ class FlexmeasuresClient:
                                 ssl=self.ssl,
                             )
                             payload = await response.json()
-                            response.raise_for_status()
+                            check_response(self, response.status, payload, response.headers, reauth_step, response.raise_for_status)
                             print(response.headers)
                             break
                     except asyncio.TimeoutError:
