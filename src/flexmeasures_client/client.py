@@ -10,7 +10,11 @@ import pandas as pd
 from aiohttp.client import ClientError, ClientSession
 from yarl import URL
 
-from flexmeasures_client.response_handling import check_response, check_content_type, check_for_status
+from flexmeasures_client.response_handling import (
+    check_response,
+    check_content_type,
+    check_for_status,
+)
 
 CONTENT_TYPE_HEADERS = {
     "Content-Type": "application/json",
@@ -18,8 +22,8 @@ CONTENT_TYPE_HEADERS = {
 
 
 @dataclass
-class FlexmeasuresClient:
-    """Main class for connecting to the Flexmeasures API"""
+class FlexMeasuresClient:
+    """Main class for connecting to the FlexMeasures API"""
 
     password: str
     email: str
@@ -30,6 +34,7 @@ class FlexmeasuresClient:
     api_version: str = "v3_0"
     path: str = f"/api/{api_version}/"
     consumption_price_sensor: int = 3
+    reauth_once: bool = True
 
     max_polling_steps: int = 10  # seconds
     polling_timeout: float = 200.0  # seconds
@@ -65,29 +70,28 @@ class FlexmeasuresClient:
             URL(uri),
         )
         print(url)
+        
         headers = self.create_headers()
         self.start_session()
 
         polling_step = 0
-        reauth_step = 0  # reset this counter once when starting polling
+        self.reauth_once = True  # reset this counter once when starting polling
         try:
             async with async_timeout.timeout(self.polling_timeout):
                 while polling_step < self.max_polling_steps:
                     try:
                         async with async_timeout.timeout(self.request_timeout):
-                            response = await self.session.request(
+                            response = await self.request_once(
                                 method=method,
                                 url=url,
                                 params=params,
                                 headers=headers,
                                 json=json,
-                                ssl=self.ssl,
                             )
                             payload = await response.json()
                             check_response(
                                 self,
                                 response,
-                                reauth_step,
                             )
                             print(response.headers)
                             break
@@ -116,6 +120,30 @@ class FlexmeasuresClient:
         check_content_type(response)
 
         return cast(dict[str, Any], await response.json()), response.status
+
+    async def request_once(
+        self,
+        method: str,
+        url: str,
+        params: dict[str, Any] | None = None,
+        headers: dict | None = None,
+        json: dict | None = None,
+    ):
+        response = await self.session.request(
+            method=method,
+            url=url,
+            params=params,
+            headers=headers,
+            json=json,
+            ssl=self.ssl,
+        )
+        payload = await response.json()
+        check_response(
+            self,
+            response,
+        )
+        print(response.headers)
+        return response
 
     def client_should_retry(self, exception, payload) -> bool:
         return getattr(exception, "status") == 400 and (
@@ -147,6 +175,8 @@ class FlexmeasuresClient:
         )
         print(response, _status)
         self.access_token = response["auth_token"]
+
+
 
     async def post_measurements(
         self,
@@ -241,7 +271,6 @@ class FlexmeasuresClient:
         response, status = await self.request(uri="assets", method="GET")
         check_for_status(status, 200)
         return response, status
-        
 
     async def get_sensors(self):
         """Get all the sensors available to the current user"""

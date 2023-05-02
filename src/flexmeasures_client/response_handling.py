@@ -2,7 +2,7 @@ from typing import Callable
 from aiohttp import ContentTypeError
 
 
-def check_response(self, response, reauth_step: int):
+def check_response(self, response):
     """
     <300: passes
     401: reauthenticate
@@ -16,12 +16,13 @@ def check_response(self, response, reauth_step: int):
         pass
     elif status == 401:
         self.get_access_token()
-        reauth_step += 1
+        self.reauth_once = False
     elif status == 503 and "Retry-After" in headers:
         # todo: move the client_should_retry logic into this function)
         pass
     else:
         response.raise_for_status
+
 
 def check_content_type(response):
     content_type = response.headers.get("Content-Type", "")
@@ -31,6 +32,7 @@ def check_content_type(response):
             "Unexpected content type response from the API",
             {"Content-Type": content_type, "response": text},
         )
+
 
 def check_for_status(status, expected_status):
     if status != expected_status:

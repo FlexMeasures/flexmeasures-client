@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 from aioresponses import aioresponses, CallbackResult
-from flexmeasures_client.client import FlexmeasuresClient
+from flexmeasures_client.client import FlexMeasuresClient
 
 
 @pytest.mark.asyncio
@@ -12,7 +12,7 @@ async def test_get_access_token() -> None:
             status=200,
             payload={"auth_token": "test-token"},
         )
-        flexmeasures_client = FlexmeasuresClient(
+        flexmeasures_client = FlexMeasuresClient(
             email="test@test.test", password="test"
         )
 
@@ -34,7 +34,7 @@ async def test_get_access_token() -> None:
 @pytest.mark.asyncio
 async def test_post_measurements() -> None:
     with aioresponses() as m:
-        flexmeasures_client = FlexmeasuresClient("test", "test")
+        flexmeasures_client = FlexMeasuresClient("test", "test")
         flexmeasures_client.access_token = "test-token"
         m.post(
             "http://localhost:5000/api/v3_0/sensors/data",
@@ -78,7 +78,7 @@ async def test_post_measurements() -> None:
 @pytest.mark.asyncio
 async def test_trigger_schedule() -> None:
     with aioresponses() as m:
-        flexmeasures_client = FlexmeasuresClient("test", "test")
+        flexmeasures_client = FlexMeasuresClient("test", "test")
         flexmeasures_client.access_token = "test-token"
         m.post(
             "http://localhost:5000/api/v3_0/sensors/3/schedules/trigger",
@@ -142,7 +142,7 @@ async def test_get_schedule() -> None:
                 "unit": "MW",
             },
         )
-        flexmeasures_client = FlexmeasuresClient(
+        flexmeasures_client = FlexMeasuresClient(
             "test", "test", request_timeout=2, polling_interval=0.2
         )
 
@@ -171,7 +171,7 @@ async def test_get_schedule_timeout() -> None:
             callback=callback,
             repeat=True,
         )
-        flexmeasures_client = FlexmeasuresClient(
+        flexmeasures_client = FlexMeasuresClient(
             "test",
             "test",
             polling_timeout=0.5,
@@ -191,7 +191,7 @@ async def test_get_schedule_timeout() -> None:
 @pytest.mark.asyncio
 async def test_get_assets() -> None:
     with aioresponses() as m:
-        flexmeasures_client = FlexmeasuresClient("test", "test")
+        flexmeasures_client = FlexMeasuresClient("test", "test")
         flexmeasures_client.access_token = "test-token"
         m.get(
             "http://localhost:5000/api/v3_0/assets",
@@ -219,7 +219,7 @@ async def test_get_assets() -> None:
 @pytest.mark.asyncio
 async def test_get_sensors() -> None:
     with aioresponses() as m:
-        flexmeasures_client = FlexmeasuresClient("test", "test")
+        flexmeasures_client = FlexMeasuresClient("test", "test")
         flexmeasures_client.access_token = "test-token"
         m.get(
             "http://localhost:5000/api/v3_0/sensors",
