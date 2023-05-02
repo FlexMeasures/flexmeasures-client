@@ -22,7 +22,9 @@ async def test_get_access_token() -> None:
             "http://localhost:5000/api/requestAuthToken",
             method="POST",
             json={"email": "test@test.test", "password": "test"},
-            headers={},
+            headers={
+                "Content-Type": "application/json",
+            },
             params=None,
             ssl=False,
         )

@@ -13,6 +13,10 @@ from yarl import URL
 
 from flexmeasures_client.response_handling import check_response
 
+CONTENT_TYPE_HEADERS = {
+    "Content-Type": "application/json",
+}
+
 
 @dataclass
 class FlexmeasuresClient:
@@ -62,20 +66,16 @@ class FlexmeasuresClient:
             URL(uri),
         )
         print(url)
-        if headers is None:
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": self.access_token,
-            }
+        headers = self.create_headers()
 
         if self.session is None:
             self.session = ClientSession()
 
-        def client_should_retry(exception, payload) -> bool:
-            return getattr(exception, "status") == 400 and (
-                "Scheduling job waiting" in payload.get("message", "")
-                or "Scheduling job in progress" in payload.get("message", "")
-            )
+        # def client_should_retry(exception, payload) -> bool:
+        #     return getattr(exception, "status") == 400 and (
+        #         "Scheduling job waiting" in payload.get("message", "")
+        #         or "Scheduling job in progress" in payload.get("message", "")
+        #     )
 
         polling_step = 0
         reauth_step = 0  # reset this counter once when starting polling
@@ -93,7 +93,14 @@ class FlexmeasuresClient:
                                 ssl=self.ssl,
                             )
                             payload = await response.json()
-                            check_response(self, response.status, payload, response.headers, reauth_step, response.raise_for_status)
+                            check_response(
+                                self,
+                                response.status,
+                                payload,
+                                response.headers,
+                                reauth_step,
+                                response.raise_for_status,
+                            )
                             print(response.headers)
                             break
                     except asyncio.TimeoutError:
@@ -103,7 +110,7 @@ class FlexmeasuresClient:
                         polling_step += 1
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
-                        if client_should_retry(exception, payload):
+                        if self.client_should_retry(exception, payload):
                             print(
                                 f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."
                             )
@@ -118,6 +125,11 @@ class FlexmeasuresClient:
                 "Client polling timeout while connection to the API."
             ) from exception
 
+        await self.check_content_type(response)
+
+        return cast(dict[str, Any], await response.json()), response.status
+
+    async def check_content_type(self, response):
         content_type = response.headers.get("Content-Type", "")
         if "application/json" not in content_type:
             text = await response.text()
@@ -126,7 +138,22 @@ class FlexmeasuresClient:
                 {"Content-Type": content_type, "response": text},
             )
 
-        return cast(dict[str, Any], await response.json()), response.status
+
+    def client_should_retry(self, exception, payload) -> bool:
+        return getattr(exception, "status") == 400 and (
+            "Scheduling job waiting" in payload.get("message", "")
+            or "Scheduling job in progress" in payload.get("message", "")
+        )
+
+    def build_url(self):
+        pass
+
+    def create_headers(self):
+        headers = CONTENT_TYPE_HEADERS
+        if self.access_token:
+            headers |= {"Authorization": self.access_token}
+        print(headers)
+        return headers
 
     async def get_access_token(self):
         """Get access token and store it on the FlexMeasuresClient."""
@@ -152,7 +179,7 @@ class FlexmeasuresClient:
         entity_address: str,
     ):
         """Post sensor data for the given time range."""
-        #TODO add option to add prior to post.
+        # TODO add option to add prior to post.
         # POST data
         response, status = await self.request(
             uri="sensors/data",
@@ -239,7 +266,6 @@ class FlexmeasuresClient:
 
         return response, status
 
-
     async def get_assets(self):
         """Get all the assets available to the current user"""
         response, status = await self.request(uri="assets", method="GET")
@@ -249,5 +275,3 @@ class FlexmeasuresClient:
         """Get all the sensors available to the current user"""
         response, status = await self.request(uri="sensors", method="GET")
         return response, status
-
-
