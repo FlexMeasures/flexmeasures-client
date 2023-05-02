@@ -18,3 +18,13 @@ def check_response(self, status: int, payload: dict, headers, reauth_step: int, 
         pass
     else:
         error_handler()
+
+def check_content_type(response):
+    content_type = response.headers.get("Content-Type", "")
+    if "application/json" not in content_type:
+        text = response.text()
+        raise ContentTypeError(
+            "Unexpected content type response from the API",
+            {"Content-Type": content_type, "response": text},
+        )
+

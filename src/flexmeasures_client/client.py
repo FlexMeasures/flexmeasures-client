@@ -11,7 +11,7 @@ from aiohttp import ContentTypeError
 from aiohttp.client import ClientError, ClientSession
 from yarl import URL
 
-from flexmeasures_client.response_handling import check_response
+from flexmeasures_client.response_handling import check_response, check_content_type
 
 CONTENT_TYPE_HEADERS = {
     "Content-Type": "application/json",
@@ -125,18 +125,9 @@ class FlexmeasuresClient:
                 "Client polling timeout while connection to the API."
             ) from exception
 
-        await self.check_content_type(response)
+        check_content_type(response)
 
         return cast(dict[str, Any], await response.json()), response.status
-
-    async def check_content_type(self, response):
-        content_type = response.headers.get("Content-Type", "")
-        if "application/json" not in content_type:
-            text = await response.text()
-            raise ContentTypeError(
-                "Unexpected content type response from the API",
-                {"Content-Type": content_type, "response": text},
-            )
 
 
     def client_should_retry(self, exception, payload) -> bool:
@@ -144,6 +135,10 @@ class FlexmeasuresClient:
             "Scheduling job waiting" in payload.get("message", "")
             or "Scheduling job in progress" in payload.get("message", "")
         )
+
+    def start_session(self):
+        pass
+
 
     def build_url(self):
         pass
