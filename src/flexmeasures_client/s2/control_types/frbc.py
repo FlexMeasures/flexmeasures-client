@@ -4,14 +4,12 @@ import pydantic
 from python_s2_protocol.common.messages import ReceptionStatus, ReceptionStatusValues
 from python_s2_protocol.FRBC.messages import FRBCSystemDescription
 
-from flexmeasures_client.s2 import Handler, register
+from flexmeasures_client.s2 import register
+from flexmeasures_client.s2.control_types import ControlTypeHandler
 
 
-class FRBC(Handler):
+class FRBC(ControlTypeHandler):
     system_description_list: List[FRBCSystemDescription] = list()
-
-    def __init__(self) -> None:
-        super().__init__()
 
     @register(FRBCSystemDescription, "FRBC.SystemDescription")
     def handle_system_description(

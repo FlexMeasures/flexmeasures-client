@@ -12,13 +12,14 @@ from python_s2_protocol.common.messages import (
 from python_s2_protocol.common.schemas import ControlType
 
 from flexmeasures_client.s2 import Handler, register
+from flexmeasures_client.s2.control_types import ControlTypeHandler
 from flexmeasures_client.s2.utils import get_unique_id
 
 
 class CEM(Handler):
     __version__ = "0.1.0"  # TODO: find the right version that we will use
 
-    control_types_handlers: Dict[ControlType, Handler] = dict()
+    control_types_handlers: Dict[ControlType, ControlTypeHandler] = dict()
     control_type = None
 
     state = None
@@ -37,17 +38,19 @@ class CEM(Handler):
 
         self._logger = logger
 
-    def register_control_type(self, control_type: ControlType, handle: Handler):
+    def register_control_type(self, control_type_handler: ControlTypeHandler):
         """
         This method registers control types.
         """
 
-        if control_type in self.control_types_handlers:
+        if control_type_handler.control_type in self.control_types_handlers:
             self._logger.warning(
                 "Control Type {control_type} already registered. Updating..."
             )
 
-        self.control_types_handlers[control_type] = handle
+        self.control_types_handlers[
+            control_type_handler.control_type
+        ] = control_type_handler
 
     def handle_message(self, message: dict) -> Optional[dict]:
         """
@@ -61,8 +64,10 @@ class CEM(Handler):
         # try to handle the message with the control_type handle
         if (
             self.control_type is not None
-            and self.control_type
-            not in [ControlType.NO_SELECTION, ControlType.NOT_CONTROLABLE]
+            and (
+                self.control_type
+                not in [ControlType.NO_SELECTION, ControlType.NOT_CONTROLABLE]
+            )
             and self.control_types_handlers[self.control_type].supports_message(message)
         ):
             return self.control_types_handlers[self.control_type].handle_message(
@@ -76,7 +81,7 @@ class CEM(Handler):
         return ReceptionStatus(
             subject_message_id=message.get("message_id"),
             status=ReceptionStatusValues.TEMPORARY_ERROR,
-        )  # TODO: decide what to send
+        )
 
     def update_control_type(self, control_type: ControlType):
         """
@@ -102,18 +107,27 @@ class CEM(Handler):
             self._logger.warning(f"RM doesn not support `{control_type}` control type.")
             return
 
-        # RM is controllable and initialization succeded
-        if (
-            self.control_type != ControlType.NOT_CONTROLABLE
-            and self.control_type is not None
-        ):
+        # RM initialization succeded
+        if self.control_type is not None:
             message_id = get_unique_id()
 
             # the callback `update_control_type` will be called upon arrival of a
             # ReceptionStatus message with status = ReceptionStatusValues.OK
-            self.register_success_callback(
-                message_id, self.update_control_type, control_type=control_type
-            )
+
+            # register callback in CEM handler
+            if self.control_type in [
+                ControlType.NOT_CONTROLABLE,
+                ControlType.NO_SELECTION,
+            ]:
+                self.register_success_callbacks(
+                    message_id, self.update_control_type, control_type=control_type
+                )
+            else:  # register callback in control mode handler
+                self.control_types_handlers[
+                    self.control_type
+                ].register_success_callbacks(
+                    message_id, self.update_control_type, control_type=control_type
+                )
 
             return SelectControlType(message_id=message_id, control_type=control_type)
 
