@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from uuid import uuid1
+from uuid import uuid4
 
 import pydantic
 
@@ -23,7 +23,13 @@ class SizeLimitOrderedDict(OrderedDict):
 
 
 def get_unique_id() -> str:
-    return str(uuid1())
+    """Generate a random v4 UUID string.
+
+    Why UUID4? UUID4 is a hash of a 122bit random number
+    which means that, in practice, the probability of collision
+    is very low (1 collision is 2.71 quintillion, src: Wikipedia).
+    """
+    return str(uuid4())
 
 
 def get_validation_error_summary(error: pydantic.ValidationError) -> str:
