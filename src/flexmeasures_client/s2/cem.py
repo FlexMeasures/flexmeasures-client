@@ -85,8 +85,8 @@ class CEM(Handler):
 
     def update_control_type(self, control_type: ControlType):
         """
-        Callback function that is triggered when we receive a confirmation
-        that the message has been received.
+        Callback function that is triggered when we receive
+        a confirmation that the message has been received.
         """
         self.control_type = control_type
 
