@@ -1,4 +1,4 @@
-from typing import Callable
+
 from aiohttp import ContentTypeError
 import asyncio
 
@@ -11,7 +11,7 @@ async def check_response(self, response):
     otherwise: call error_handler
     """
     status = response.status
-    payload = response.json()
+    payload = await response.json()
     headers = response.headers
     if status < 300:
         pass
