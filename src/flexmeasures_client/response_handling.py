@@ -1,5 +1,5 @@
-from __future__ import annotations
 
+from aiohttp import ContentTypeError
 import asyncio
 from typing import TYPE_CHECKING
 

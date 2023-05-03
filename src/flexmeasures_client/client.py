@@ -17,11 +17,16 @@ from flexmeasures_client.response_handling import (
     check_for_status,
     check_response,
 )
+CONTENT_TYPE_HEADERS = {
+    "Content-Type": "application/json",
+}
+API_VERSIOM = "v3_0"
 
 MAX_POLLING_STEPS: int = 10  # seconds
 POLLING_TIMEOUT = 200.0  # seconds
 REQUEST_TIMEOUT = 20.0  # seconds
-POLLING_INTERVAL = 10.0  # seconds
+POLLING_INTERVAL = float(10)  # seconds
+
 
 
 @dataclass
@@ -32,14 +37,15 @@ class FlexMeasuresClient:
     email: str
     access_token: str = None
     host: str = "localhost:5000"
-    scheme: str = ""
-    ssl: bool | None = None
-    api_version: str = API_VERSION
+    scheme: str = "http" if "localhost" in host else "https"
+    ssl: bool = False if "localhost" in host else True
+    api_version: str = API_VERSIOM
     path: str = f"/api/{api_version}/"
+    consumption_price_sensor: int = 3 #TODO find sensor and use sensor through API or set in config
     reauth_once: bool = True
 
     polling_step: int = 0
-    max_polling_steps: int = MAX_POLLING_STEPS
+    max_polling_steps: int = MAX_POLLING_STEPS  # seconds
     polling_timeout: float = POLLING_TIMEOUT  # seconds
     request_timeout: float = REQUEST_TIMEOUT  # seconds
     polling_interval: float = POLLING_INTERVAL  # seconds
@@ -74,7 +80,7 @@ class FlexMeasuresClient:
         Fails if:
         - the server response indicated a status code of 400 or higher
         - the client polling timed out (as indicated by the client's self.polling_timeout)
-        """  # noqa: E501
+        """
         url = self.build_url(uri, path=path)
         print(url)
 
@@ -139,13 +145,21 @@ class FlexMeasuresClient:
         print(response.headers)
         return response
 
+    def client_should_retry(self, exception, response) -> bool:
+        """Determines if the client should retry because the job is not yet finished"""
+        payload = response.json()
+        return getattr(exception, "status") == 400 and (
+            "Scheduling job waiting" in payload.get("message", "")
+            or "Scheduling job in progress" in payload.get("message", "")
+        )
+
     def start_session(self):
         """If there is no session, start one"""
         if self.session is None:
             self.session = ClientSession()
 
     async def get_headers(self, include_auth: bool) -> dict:
-        """Create HTTP headers dictionary with content type and, optionally, access token."""  # noqa: E501
+        """If the request needs to be authenticated check if there is a access_token or request one. Then create the headers dict"""
         headers = CONTENT_TYPE_HEADERS
         if include_auth:
             if self.access_token is None:
@@ -154,7 +168,10 @@ class FlexMeasuresClient:
         print(headers)
         return headers
 
-    def build_url(self, uri: str, path: str = path):
+    def build_url(self, uri: str, path: str =path):
+        if "://" in self.host:
+            self.host = self.host.split("://")[1]
+
         url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
             URL(uri),
         )
@@ -185,6 +202,9 @@ class FlexMeasuresClient:
         prior: str | None = None,
     ):
         """Post sensor data for the given time range."""
+        # TODO add option to add prior to post.
+        # POST data
+
         json = dict(
             sensor=f"{entity_address}.{sensor_id}",
             start=pd.Timestamp(
