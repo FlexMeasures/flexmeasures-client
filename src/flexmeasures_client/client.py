@@ -15,10 +15,16 @@ from flexmeasures_client.response_handling import (
     check_content_type,
     check_for_status,
 )
-
 CONTENT_TYPE_HEADERS = {
     "Content-Type": "application/json",
 }
+API_VERSIOM = "v3_0"
+
+MAX_POLLING_STEPS: int = 10  # seconds
+POLLING_TIMEOUT = 200.0  # seconds
+REQUEST_TIMEOUT = 20.0  # seconds
+POLLING_INTERVAL = float(10)  # seconds
+
 
 
 @dataclass
@@ -31,15 +37,16 @@ class FlexMeasuresClient:
     host: str = "localhost:5000"
     scheme: str = "http" if "localhost" in host else "https"
     ssl: bool = False if "localhost" in host else True
-    api_version: str = "v3_0"
+    api_version: str = API_VERSIOM
     path: str = f"/api/{api_version}/"
-    consumption_price_sensor: int = 3
+    consumption_price_sensor: int = 3 #TODO find sensor and use sensor through API or set in config
     reauth_once: bool = True
 
-    max_polling_steps: int = 10  # seconds
-    polling_timeout: float = 200.0  # seconds
-    request_timeout: float = 20.0  # seconds
-    polling_interval: float = 10  # seconds
+    polling_step: int = 0
+    max_polling_steps: int = MAX_POLLING_STEPS  # seconds
+    polling_timeout: float = POLLING_TIMEOUT  # seconds
+    request_timeout: float = REQUEST_TIMEOUT  # seconds
+    polling_interval: float = POLLING_INTERVAL  # seconds
     session: ClientSession | None = None
 
     async def close(self):
@@ -53,7 +60,7 @@ class FlexMeasuresClient:
         method: str = "POST",
         path: str = path,
         params: dict[str, Any] | None = None,
-        include_auth: bool = True
+        include_auth: bool = True,
     ) -> tuple[dict, int]:
         """Send a request to FlexMeasures.
 
@@ -66,11 +73,9 @@ class FlexMeasuresClient:
         - the server response indicated a status code of 400 or higher
         - the client polling timed out (as indicated by the client's self.polling_timeout)
         """
-        url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
-            URL(uri),
-        )
+        url = self.build_url(uri, path=path)
         print(url)
-        
+
         headers = await self.get_headers(include_auth=include_auth)
         self.start_session()
 
@@ -96,8 +101,6 @@ class FlexMeasuresClient:
                         self.polling_step += 1
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
-
-                        
                         raise ConnectionError(
                             "Error occurred while communicating with the API."
                         ) from exception
@@ -118,6 +121,7 @@ class FlexMeasuresClient:
         headers: dict | None = None,
         json: dict | None = None,
     ):
+        """Sends a single request to FlexMeasures and checks the response"""
         response = await self.session.request(
             method=method,
             url=url,
@@ -134,6 +138,7 @@ class FlexMeasuresClient:
         return response
 
     def client_should_retry(self, exception, response) -> bool:
+        """Determines if the client should retry because the job is not yet finished"""
         payload = response.json()
         return getattr(exception, "status") == 400 and (
             "Scheduling job waiting" in payload.get("message", "")
@@ -141,17 +146,28 @@ class FlexMeasuresClient:
         )
 
     def start_session(self):
+        """If there is no session, start one"""
         if self.session is None:
             self.session = ClientSession()
 
-    async def get_headers(self, include_auth: bool):
+    async def get_headers(self, include_auth: bool) -> dict:
+        """If the request needs to be authenticated check if there is a access_token or request one. Then create the headers dict"""
         headers = CONTENT_TYPE_HEADERS
         if include_auth:
             if self.access_token is None:
-                await self.get_access_token()            
+                await self.get_access_token()
             headers |= {"Authorization": self.access_token}
         print(headers)
         return headers
+
+    def build_url(self, uri: str, path: str =path):
+        if "://" in self.host:
+            self.host = self.host.split("://")[1]
+
+        url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
+            URL(uri),
+        )
+        return url
 
     async def get_access_token(self):
         """Get access token and store it on the FlexMeasuresClient."""
@@ -166,11 +182,6 @@ class FlexMeasuresClient:
         )
         print(response, _status)
         self.access_token = response["auth_token"]
-    
-    async def check_or_authenticate(self):
-        if self.access_token is None:
-            await self.get_access_token()
-
 
     async def post_measurements(
         self,
@@ -180,10 +191,24 @@ class FlexMeasuresClient:
         values: list[float],
         unit: str,
         entity_address: str,
+        prior: str | None = None,
     ):
         """Post sensor data for the given time range."""
         # TODO add option to add prior to post.
         # POST data
+
+        json = dict(
+            sensor=f"{entity_address}.{sensor_id}",
+            start=pd.Timestamp(
+                start
+            ).isoformat(),  # for example: 2021-10-13T00:00+02:00
+            duration=pd.Timedelta(duration).isoformat(),  # for example: PT1H
+            values=values,
+            unit=unit,
+        )
+        if prior:
+            json["prior"] = prior
+
         response, status = await self.request(
             uri="sensors/data",
             json=dict(

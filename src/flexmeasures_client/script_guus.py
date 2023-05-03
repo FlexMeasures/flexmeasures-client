@@ -1,7 +1,7 @@
 
 from client import FlexMeasuresClient
 
-fm = FlexMeasuresClient(email="rolestest@seita.nl", password="test")
+fm = FlexMeasuresClient(email="rolestest@seita.nl", password="test", host="localhost:5000")
 #await fm.get_access_token()
 #print(fm.access_token)
 
@@ -76,4 +76,9 @@ get_response = get_schedule(
 )
 print(get_response)
 
+await fm.get_assets()
 
+
+
+url_sting = "https://local"
+url_sting.split("://")[1]
