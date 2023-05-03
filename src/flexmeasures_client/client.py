@@ -211,15 +211,7 @@ class FlexMeasuresClient:
 
         response, status = await self.request(
             uri="sensors/data",
-            json=dict(
-                sensor=f"{entity_address}.{sensor_id}",
-                start=pd.Timestamp(
-                    start
-                ).isoformat(),  # for example: 2021-10-13T00:00+02:00
-                duration=pd.Timedelta(duration).isoformat(),  # for example: PT1H
-                values=values,
-                unit=unit,
-            ),
+            json=json,
         )
         check_for_status(status, 200)
         print("Sensor data sent successfully.")
