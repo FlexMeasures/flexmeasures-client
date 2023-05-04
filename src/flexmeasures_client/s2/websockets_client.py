@@ -7,7 +7,7 @@ from python_s2_protocol.common.schemas import EnergyManagementRole
 from flexmeasures_client.s2.utils import get_unique_id
 
 
-async def main():
+async def main_s2():
     async with aiohttp.ClientSession() as session:
         async with session.ws_connect("http://localhost:8080/ws") as ws:
             message = Handshake(
@@ -39,4 +39,16 @@ async def main():
             await ws.close()
 
 
-asyncio.run(main())
+async def main_websocket():
+    async with aiohttp.ClientSession() as session:
+        async with session.ws_connect("http://localhost:8080/ws") as ws:
+            try:
+                async for msg in ws:
+                    print("RESPONSE: ", msg.data)
+                    await asyncio.sleep(1)
+                    await ws.send_json(msg.data)
+            except KeyboardInterrupt:
+                await ws.close()
+
+
+asyncio.run(main_websocket())
