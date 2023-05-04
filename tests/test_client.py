@@ -14,6 +14,11 @@ def test__init__():
     flexmeasures_custom_ssl_and_scheme = FlexMeasuresClient("password", "email", ssl=True, scheme="test")
     assert flexmeasures_custom_ssl_and_scheme.__dict__ == {'password': 'password', 'email': 'email', 'access_token': None, 'host': 'localhost:5000', 'scheme': 'test', 'ssl': True, 'api_version': 'v3_0', 'path': '/api/v3_0/', 'consumption_price_sensor': 3, 'reauth_once': True, 'polling_step': 0, 'max_polling_steps': 10, 'polling_timeout': 200.0, 'request_timeout': 20.0, 'polling_interval': 10.0, 'session': None}
 
+def test_build_url():
+    flexmeasures_client = FlexMeasuresClient("password", "email")
+    url = flexmeasures_client.build_url(uri="endpoint", path="/path/")
+    assert url.human_repr() == "http://localhost:5000/path/endpoint"
+
 
 
 

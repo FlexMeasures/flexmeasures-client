@@ -15,6 +15,7 @@ from flexmeasures_client.response_handling import (
     check_content_type,
     check_for_status,
 )
+
 CONTENT_TYPE_HEADERS = {
     "Content-Type": "application/json",
 }
@@ -24,7 +25,6 @@ MAX_POLLING_STEPS: int = 10  # seconds
 POLLING_TIMEOUT = 200.0  # seconds
 REQUEST_TIMEOUT = 20.0  # seconds
 POLLING_INTERVAL = 10.0  # seconds
-
 
 
 @dataclass
@@ -39,7 +39,9 @@ class FlexMeasuresClient:
     ssl: bool | None = None
     api_version: str = API_VERSIOM
     path: str = f"/api/{api_version}/"
-    consumption_price_sensor: int = 3 #TODO find sensor and use sensor through API or set in config
+    consumption_price_sensor: int = (
+        3  # TODO find sensor and use sensor through API or set in config
+    )
     reauth_once: bool = True
 
     polling_step: int = 0
@@ -54,7 +56,6 @@ class FlexMeasuresClient:
             self.scheme: str = "http" if "localhost" in self.host else "https"
         if self.ssl is None:
             self.ssl: bool = False if "localhost" in self.host else True
-
 
     async def close(self):
         await self.session.close()
@@ -167,10 +168,7 @@ class FlexMeasuresClient:
         print(headers)
         return headers
 
-    def build_url(self, uri: str, path: str =path):
-        if "://" in self.host:
-            self.host = self.host.split("://")[1]
-
+    def build_url(self, uri: str, path: str = path):
         url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
             URL(uri),
         )
