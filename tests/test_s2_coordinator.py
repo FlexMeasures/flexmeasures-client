@@ -1,5 +1,6 @@
 from datetime import datetime
 
+import pytest
 from python_s2_protocol.common.messages import (
     EnergyManagementRole,
     Handshake,
@@ -30,8 +31,9 @@ from flexmeasures_client.s2.control_types.frbc import FRBC
 from flexmeasures_client.s2.utils import get_unique_id
 
 
-def test_cem():  # TODO: move into different test functions
-    cem = CEM()
+@pytest.mark.asyncio
+async def test_cem():  # TODO: move into different test functions
+    cem = CEM(sensor_id=1, fm_client=None)
     frbc = FRBC()
 
     cem.register_control_type(frbc)
@@ -47,7 +49,13 @@ def test_cem():  # TODO: move into different test functions
         supported_protocol_versions=["0.1.0"],
     ).dict()
 
-    response = cem.handle_message(handshake_message)
+    await cem.handle_message(handshake_message)
+
+    assert (
+        cem._sending_queue.qsize() == 1
+    )  # check that message is put to the outgoing queue
+
+    response = await cem.get_message()
 
     assert (
         response["message_type"] == "HandshakeResponse"
@@ -78,12 +86,13 @@ def test_cem():  # TODO: move into different test functions
         ],
     ).dict()
 
-    response = cem.handle_message(resource_manager_details_message)
+    await cem.handle_message(resource_manager_details_message)
+    response = await cem.get_message()
 
     assert response["message_type"] == "ReceptionStatus"
     assert response["status"] == "OK"
     assert (
-        cem.resource_manager_details == resource_manager_details_message
+        cem._resource_manager_details == resource_manager_details_message
     ), "CEM should store the resource_manager_details"
     assert cem.control_type == ControlType.NO_SELECTION, (
         "CEM control type should switch to ControlType.NO_SELECTION,"
@@ -98,7 +107,8 @@ def test_cem():  # TODO: move into different test functions
     ========================
     """
 
-    message = cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
+    await cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
+    message = await cem.get_message()
 
     print(message)
     assert cem.control_type == ControlType.NO_SELECTION, (
@@ -110,7 +120,7 @@ def test_cem():  # TODO: move into different test functions
         subject_message_id=message.message_id.__root__, status=ReceptionStatusValues.OK
     ).dict()
 
-    cem.handle_message(response)
+    await cem.handle_message(response)
 
     assert (
         cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
@@ -161,13 +171,14 @@ def test_cem():  # TODO: move into different test functions
         storage=storage,
     ).dict()
 
-    response = cem.handle_message(system_description_message)
+    await cem.handle_message(system_description_message)
+    response = await cem.get_message()
 
     # checking that FRBC handler is being called
     assert (
         cem.control_types_handlers[
             ControlType.FILL_RATE_BASED_CONTROL
-        ].system_description_list[-1]
+        ]._system_description_list[-1]
         == system_description_message
     ), (
         "the FRBC.SystemDescription message should be stored"
@@ -178,13 +189,13 @@ def test_cem():  # TODO: move into different test functions
 
     # change of control type is not performed in case that the RM answers
     # with a negative response
-    response = cem.activate_control_type(ControlType.NO_SELECTION)
-
+    await cem.activate_control_type(ControlType.NO_SELECTION)
+    response = await cem.get_message()
     assert (
         cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
     ), "control type should not change, confirmation still pending"
 
-    cem.handle_message(
+    await cem.handle_message(
         ReceptionStatus(
             subject_message_id=response.message_id.__root__,
             status=ReceptionStatusValues.INVALID_CONTENT,
