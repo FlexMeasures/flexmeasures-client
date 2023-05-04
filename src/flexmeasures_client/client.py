@@ -202,9 +202,6 @@ class FlexMeasuresClient:
         prior: str | None = None,
     ):
         """Post sensor data for the given time range."""
-        # TODO add option to add prior to post.
-        # POST data
-
         json = dict(
             sensor=f"{entity_address}.{sensor_id}",
             start=pd.Timestamp(

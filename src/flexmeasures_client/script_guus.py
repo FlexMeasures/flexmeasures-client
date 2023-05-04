@@ -77,8 +77,19 @@ get_response = get_schedule(
 print(get_response)
 
 await fm.get_assets()
+await fm.get_sensors()
 
 
 
 url_sting = "https://local"
 url_sting.split("://")[1]
+
+await fm.request(uri="assets/public", method="GET", include_auth=False)
+
+    #     *,
+    #     json: dict | None = None,
+    #     method: str = "POST",
+    #     path: str = path,
+    #     params: dict[str, Any] | None = None,
+    #     include_auth: bool = True,
+    # ) -> tuple[dict, int]:
