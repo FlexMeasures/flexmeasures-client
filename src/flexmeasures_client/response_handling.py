@@ -1,9 +1,14 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
 
 from aiohttp import ContentTypeError
 import asyncio
 
+if TYPE_CHECKING:  # Only imports the below statements during type checking
+    from flexmeasures_client.client import FlexMeasuresClient
 
-async def check_response(self, response):
+
+async def check_response(self: FlexMeasuresClient, response):
     """
     <300: passes
     401: reauthenticate
