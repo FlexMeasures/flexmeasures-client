@@ -2,6 +2,7 @@ from typing import List
 
 import pydantic
 from python_s2_protocol.common.messages import ReceptionStatus, ReceptionStatusValues
+from python_s2_protocol.common.schemas import ControlType
 from python_s2_protocol.FRBC.messages import FRBCSystemDescription
 
 from flexmeasures_client.s2 import register
@@ -9,13 +10,15 @@ from flexmeasures_client.s2.control_types import ControlTypeHandler
 
 
 class FRBC(ControlTypeHandler):
-    system_description_list: List[FRBCSystemDescription] = list()
+    _control_type = ControlType.FILL_RATE_BASED_CONTROL
+
+    _system_description_list: List[FRBCSystemDescription] = list()
 
     @register(FRBCSystemDescription, "FRBC.SystemDescription")
     def handle_system_description(
         self, message: pydantic.BaseModel
     ) -> pydantic.BaseModel:
-        self.system_description_list.append(
+        self._system_description_list.append(
             message
         )  # TODO: update system description / get valid ones
         return ReceptionStatus(
