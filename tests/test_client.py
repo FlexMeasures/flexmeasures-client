@@ -157,7 +157,7 @@ async def test_trigger_storage_schedule() -> None:
             payload={"schedule": "test_schedule_id"},
         )
 
-        schedule_id = await flexmeasures_client.trigger_storage_schedule(
+        await flexmeasures_client.trigger_storage_schedule(
             sensor_id=3,
             start="2023-03-26T10:00+02:00",
             duration="PT12H",
