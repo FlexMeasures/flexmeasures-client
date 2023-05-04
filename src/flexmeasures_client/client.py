@@ -213,7 +213,7 @@ class FlexMeasuresClient:
         check_for_status(status, 200)
         print("Sensor data sent successfully.")
 
-    async def post_schedule_trigger(
+    async def trigger_storage_schedule(
         self,
         sensor_id: int,
         start: str,
