@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 from aioresponses import aioresponses, CallbackResult
-from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.client import FlexMeasuresClient # noqa: F401
 
 
 @pytest.mark.asyncio
