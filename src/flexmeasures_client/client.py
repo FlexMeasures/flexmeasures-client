@@ -35,8 +35,8 @@ class FlexMeasuresClient:
     email: str
     access_token: str = None
     host: str = "localhost:5000"
-    scheme: str = "http" if "localhost" in host else "https"
-    ssl: bool = False if "localhost" in host else True
+    scheme: str = ""
+    ssl: bool | None = None
     api_version: str = API_VERSIOM
     path: str = f"/api/{api_version}/"
     consumption_price_sensor: int = 3 #TODO find sensor and use sensor through API or set in config
@@ -48,6 +48,13 @@ class FlexMeasuresClient:
     request_timeout: float = REQUEST_TIMEOUT  # seconds
     polling_interval: float = POLLING_INTERVAL  # seconds
     session: ClientSession | None = None
+
+    def __post_init__(self):
+        if not self.scheme:
+            self.scheme: str = "http" if "localhost" in self.host else "https"
+        if self.ssl is None:
+            self.ssl: bool = False if "localhost" in self.host else True
+
 
     async def close(self):
         await self.session.close()
