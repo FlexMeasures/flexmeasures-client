@@ -76,7 +76,7 @@ async def test_post_measurements() -> None:
 
 
 @pytest.mark.asyncio
-async def test_trigger_schedule() -> None:
+async def test_trigger_storage_schedule() -> None:
     with aioresponses() as m:
         flexmeasures_client = FlexMeasuresClient("test", "test")
         flexmeasures_client.access_token = "test-token"
@@ -86,7 +86,7 @@ async def test_trigger_schedule() -> None:
             payload={"test": "test"},
         )
 
-        await flexmeasures_client.post_schedule_trigger(
+        await flexmeasures_client.trigger_storage_schedule(
             sensor_id=3,
             start="2023-03-26T10:00+02:00",
             soc_unit="kWh",
