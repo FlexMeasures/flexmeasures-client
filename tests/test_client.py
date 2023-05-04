@@ -1,9 +1,8 @@
 import asyncio
 
 import pytest
-from aioresponses import CallbackResult, aioresponses
-
-from flexmeasures_client.client import FlexMeasuresClient
+from aioresponses import aioresponses, CallbackResult
+from flexmeasures_client.client import FlexMeasuresClient # noqa: F401
 
 
 def test__init__():
