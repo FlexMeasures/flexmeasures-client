@@ -88,9 +88,17 @@ class Handler:
     def __init__(self, max_size: int = 100) -> None:
         """
         Handler
+        This class does the following:
+            - Create a namespace where the entities (CEM, ControlTypes, ...)
+            can store state variables without colliding.
+            - Routes the incoming messages to functions (handlers) decorated
+             with @register to process the different message types.
+
         Upon creation, this class will discover the class methods tagged with
         the @register decorator and store them in self.message_handlers indexed
         by the message_type.
+
+        Inherit from this class to define new control type handlers.
         """
         self.message_handlers = dict()
 
