@@ -189,7 +189,7 @@ class Handler:
             message.subject_message_id.__root__
         ] = message.status
 
-        # choose which callback to call, depending on the ReceptionSatatus value
+        # choose which callback to call, depending on the ReceptionStatus value
         if message.status == ReceptionStatusValues.OK:
             callback_store = self.success_callbacks
         else:
