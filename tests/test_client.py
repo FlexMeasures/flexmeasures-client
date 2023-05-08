@@ -6,21 +6,74 @@ from flexmeasures_client.client import FlexMeasuresClient
 
 def test__init__():
     flexmeasures_localhost = FlexMeasuresClient("password", "email")
-    assert flexmeasures_localhost.__dict__ == {'password': 'password', 'email': 'email', 'access_token': None, 'host': 'localhost:5000', 'scheme': 'http', 'ssl': False, 'api_version': 'v3_0', 'path': '/api/v3_0/', 'consumption_price_sensor': 3, 'reauth_once': True, 'polling_step': 0, 'max_polling_steps': 10, 'polling_timeout': 200.0, 'request_timeout': 20.0, 'polling_interval': 10.0, 'session': None}
+    assert flexmeasures_localhost.__dict__ == {
+        "password": "password",
+        "email": "email",
+        "access_token": None,
+        "host": "localhost:5000",
+        "scheme": "http",
+        "ssl": False,
+        "api_version": "v3_0",
+        "path": "/api/v3_0/",
+        "consumption_price_sensor": 3,
+        "reauth_once": True,
+        "polling_step": 0,
+        "max_polling_steps": 10,
+        "polling_timeout": 200.0,
+        "request_timeout": 20.0,
+        "polling_interval": 10.0,
+        "session": None,
+    }
 
-    flexmeasures_not_localhost = FlexMeasuresClient("password","email", host="test_host.test")
-    assert flexmeasures_not_localhost.__dict__ == {'password': 'password', 'email': 'email', 'access_token': None, 'host': 'test_host.test', 'scheme': 'https', 'ssl': True, 'api_version': 'v3_0', 'path': '/api/v3_0/', 'consumption_price_sensor': 3, 'reauth_once': True, 'polling_step': 0, 'max_polling_steps': 10, 'polling_timeout': 200.0, 'request_timeout': 20.0, 'polling_interval': 10.0, 'session': None}
+    flexmeasures_not_localhost = FlexMeasuresClient(
+        "password", "email", host="test_host.test"
+    )
+    assert flexmeasures_not_localhost.__dict__ == {
+        "password": "password",
+        "email": "email",
+        "access_token": None,
+        "host": "test_host.test",
+        "scheme": "https",
+        "ssl": True,
+        "api_version": "v3_0",
+        "path": "/api/v3_0/",
+        "consumption_price_sensor": 3,
+        "reauth_once": True,
+        "polling_step": 0,
+        "max_polling_steps": 10,
+        "polling_timeout": 200.0,
+        "request_timeout": 20.0,
+        "polling_interval": 10.0,
+        "session": None,
+    }
 
-    flexmeasures_custom_ssl_and_scheme = FlexMeasuresClient("password", "email", ssl=True, scheme="test")
-    assert flexmeasures_custom_ssl_and_scheme.__dict__ == {'password': 'password', 'email': 'email', 'access_token': None, 'host': 'localhost:5000', 'scheme': 'test', 'ssl': True, 'api_version': 'v3_0', 'path': '/api/v3_0/', 'consumption_price_sensor': 3, 'reauth_once': True, 'polling_step': 0, 'max_polling_steps': 10, 'polling_timeout': 200.0, 'request_timeout': 20.0, 'polling_interval': 10.0, 'session': None}
+    flexmeasures_custom_ssl_and_scheme = FlexMeasuresClient(
+        "password", "email", ssl=True, scheme="test"
+    )
+    assert flexmeasures_custom_ssl_and_scheme.__dict__ == {
+        "password": "password",
+        "email": "email",
+        "access_token": None,
+        "host": "localhost:5000",
+        "scheme": "test",
+        "ssl": True,
+        "api_version": "v3_0",
+        "path": "/api/v3_0/",
+        "consumption_price_sensor": 3,
+        "reauth_once": True,
+        "polling_step": 0,
+        "max_polling_steps": 10,
+        "polling_timeout": 200.0,
+        "request_timeout": 20.0,
+        "polling_interval": 10.0,
+        "session": None,
+    }
+
 
 def test_build_url():
     flexmeasures_client = FlexMeasuresClient("password", "email")
     url = flexmeasures_client.build_url(uri="endpoint", path="/path/")
     assert url.human_repr() == "http://localhost:5000/path/endpoint"
-
-
-
 
 
 @pytest.mark.asyncio
@@ -141,39 +194,35 @@ async def test_trigger_storage_schedule() -> None:
     await flexmeasures_client.close()
 
 
-@pytest.mark.asyncio
-async def test_get_schedule() -> None:
-    # todo: relies on https://github.com/pnuckowski/aioresponses/pull/237
-    with aioresponses() as m:
-        m.get(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
-            status=400,
-            payload={"message": "Scheduling job waiting"},
-            repeat=3,
-        )
-        m.get(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
-            status=200,
-            payload={
-                "values": [2.15, 3, 2],
-                "start": "2015-06-02T10:00:00+00:00",
-                "duration": "PT45M",
-                "unit": "MW",
-            },
-        )
-        flexmeasures_client = FlexMeasuresClient(
-            "test", "test", request_timeout=2, polling_interval=0.2
-        )
+# @pytest.mark.asyncio
+# async def test_get_schedule() -> None:
+#     # todo: relies on https://github.com/pnuckowski/aioresponses/pull/237
+#     with aioresponses() as m:
+#         m.get(
+#             "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+#             status=400,
+#             payload={"message": "Scheduling job waiting"},
+#             repeat=3,
+#         )
+#         m.get(
+#             "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+#             status=200,
+#             payload={
+#                 "values": [2.15, 3, 2],
+#                 "start": "2015-06-02T10:00:00+00:00",
+#                 "duration": "PT45M",
+#                 "unit": "MW",
+#             },
+#         )
+#         flexmeasures_client = FlexMeasuresClient(
+#             "test", "test", request_timeout=2, polling_interval=0.2
+#         )
 
-        sensor_id = 1
-        schedule_id = "some-uuid"
-        duration = "PT45M"
-
-        schedule, status = await flexmeasures_client.get_schedule(
-            sensor_id, schedule_id, duration
-        )
-    assert schedule["values"] == [2.15, 3, 2]
-    await flexmeasures_client.close()
+#         schedule, status = await flexmeasures_client.get_schedule(
+#             sensor_id=1, schedule_id="some-uuid", duration="PT45M"
+#         )
+#     assert schedule["values"] == [2.15, 3, 2]
+#     await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -198,12 +247,10 @@ async def test_get_schedule_timeout() -> None:
             polling_interval=0.1,
         )
 
-        sensor_id = 1
-        schedule_id = "some-uuid"
-        duration = "PT45M"
-
         with pytest.raises(ConnectionError):
-            await flexmeasures_client.get_schedule(sensor_id, schedule_id, duration)
+            await flexmeasures_client.get_schedule(
+                sensor_id=1, schedule_id="some-uuid", duration="PT45M"
+            )
     await flexmeasures_client.close()
 
 
@@ -258,5 +305,26 @@ async def test_get_sensors() -> None:
         response, _status = await flexmeasures_client.get_sensors()
         assert len(response) == 1
         assert response[0]["entity_address"] == "ea1.2023-06.localhost:fm1.2"
+
+    await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_sensors2() -> None:
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient("test", "test")
+        flexmeasures_client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=9999,
+            payload={"error": "9999 error test"},
+        )
+
+        # response, _status = await flexmeasures_client.get_sensors()
+
+        with pytest.raises(
+            ConnectionError,match="Error occurred while communicating with the API."
+        ):
+            await flexmeasures_client.get_sensors()
 
     await flexmeasures_client.close()
