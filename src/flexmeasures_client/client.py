@@ -77,7 +77,7 @@ class FlexMeasuresClient:
         Fails if:
         - the server response indicated a status code of 400 or higher
         - the client polling timed out (as indicated by the client's self.polling_timeout)
-        """
+        """  # noqa: E501
         url = self.build_url(uri, path=path)
         print(url)
 
@@ -148,7 +148,7 @@ class FlexMeasuresClient:
             self.session = ClientSession()
 
     async def get_headers(self, include_auth: bool) -> dict:
-        """If the request needs to be authenticated check if there is a access_token or request one. Then create the headers dict"""
+        """If the request needs to be authenticated check if there is a access_token or request one. Then create the headers dict"""  # noqa: E501
         headers = CONTENT_TYPE_HEADERS
         if include_auth:
             if self.access_token is None:
