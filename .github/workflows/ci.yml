@@ -92,8 +92,12 @@ jobs:
   finalize:
     needs: test
     runs-on: ubuntu-latest
-    steps:
-      - run: echo "Finished checks"
+    # steps:
+    #   - name: Finalize coverage report
+    #     uses: coverallsapp/github-action@master
+    #     with:
+    #       github-token: ${{ secrets.GITHUB_TOKEN }}
+    #       parallel-finished: true
 
   publish:
     needs: finalize
