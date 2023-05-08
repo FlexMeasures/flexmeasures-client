@@ -267,7 +267,7 @@ async def test_get_assets() -> None:
             payload=[
                 {
                     "account_id": 2,
-                    "attributes": '{"capacity_in_mw": 0.5, "min_soc_in_mwh": 0.05, "max_soc_in_mwh": 0.45, "sensors_to_show": [3, 2]}',
+                    "attributes": '{"capacity_in_mw": 0.5, "min_soc_in_mwh": 0.05, "max_soc_in_mwh": 0.45, "sensors_to_show": [3, 2]}',  # noqa: E501
                     "generic_asset_type_id": 5,
                     "id": 3,
                     "latitude": 52.374,
