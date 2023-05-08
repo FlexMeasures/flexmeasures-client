@@ -1,4 +1,8 @@
+import sys
+from flexmeasures_client.client import FlexMeasuresClient
+
 from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
+
 
 try:
     # Change here if project is renamed and does not equal the package name
