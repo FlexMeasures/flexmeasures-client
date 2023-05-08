@@ -47,7 +47,7 @@ class FlexMeasuresClient:
     reauth_once: bool = True
 
     polling_step: int = 0
-    max_polling_steps: int = MAX_POLLING_STEPS  # seconds
+    max_polling_steps: int = MAX_POLLING_STEPS
     polling_timeout: float = POLLING_TIMEOUT  # seconds
     request_timeout: float = REQUEST_TIMEOUT  # seconds
     polling_interval: float = POLLING_INTERVAL  # seconds
@@ -146,14 +146,6 @@ class FlexMeasuresClient:
         )
         print(response.headers)
         return response
-
-    def client_should_retry(self, exception, response) -> bool:
-        """Determines if the client should retry because the job is not yet finished"""
-        payload = response.json()
-        return getattr(exception, "status") == 400 and (
-            "Scheduling job waiting" in payload.get("message", "")
-            or "Scheduling job in progress" in payload.get("message", "")
-        )
 
     def start_session(self):
         """If there is no session, start one"""

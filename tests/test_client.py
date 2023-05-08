@@ -7,25 +7,6 @@ from flexmeasures_client.client import FlexMeasuresClient
 
 def test__init__():
     flexmeasures_localhost = FlexMeasuresClient("password", "email")
-    assert flexmeasures_localhost.__dict__ == {'password': 'password', 'email': 'email', 'access_token': None, 'host': 'localhost:5000', 'scheme': 'http', 'ssl': False, 'api_version': 'v3_0', 'path': '/api/v3_0/', 'consumption_price_sensor': 3, 'reauth_once': True, 'polling_step': 0, 'max_polling_steps': 10, 'polling_timeout': 200.0, 'request_timeout': 20.0, 'polling_interval': 10.0, 'session': None}
-
-    flexmeasures_not_localhost = FlexMeasuresClient("password","email", host="test_host.test")
-    assert flexmeasures_not_localhost.__dict__ == {'password': 'password', 'email': 'email', 'access_token': None, 'host': 'test_host.test', 'scheme': 'https', 'ssl': True, 'api_version': 'v3_0', 'path': '/api/v3_0/', 'consumption_price_sensor': 3, 'reauth_once': True, 'polling_step': 0, 'max_polling_steps': 10, 'polling_timeout': 200.0, 'request_timeout': 20.0, 'polling_interval': 10.0, 'session': None}
-
-    flexmeasures_custom_ssl_and_scheme = FlexMeasuresClient("password", "email", ssl=True, scheme="test")
-    assert flexmeasures_custom_ssl_and_scheme.__dict__ == {'password': 'password', 'email': 'email', 'access_token': None, 'host': 'localhost:5000', 'scheme': 'test', 'ssl': True, 'api_version': 'v3_0', 'path': '/api/v3_0/', 'consumption_price_sensor': 3, 'reauth_once': True, 'polling_step': 0, 'max_polling_steps': 10, 'polling_timeout': 200.0, 'request_timeout': 20.0, 'polling_interval': 10.0, 'session': None}
-
-def test_build_url():
-    flexmeasures_client = FlexMeasuresClient("password", "email")
-    url = flexmeasures_client.build_url(uri="endpoint", path="/path/")
-    assert url.human_repr() == "http://localhost:5000/path/endpoint"
-
-
-
-
-
-def test__init__():
-    flexmeasures_localhost = FlexMeasuresClient("password", "email")
     assert flexmeasures_localhost.__dict__ == {
         "password": "password",
         "email": "email",
@@ -35,6 +16,7 @@ def test__init__():
         "ssl": False,
         "api_version": "v3_0",
         "path": "/api/v3_0/",
+        "consumption_price_sensor": 3,
         "reauth_once": True,
         "polling_step": 0,
         "max_polling_steps": 10,
@@ -56,6 +38,7 @@ def test__init__():
         "ssl": True,
         "api_version": "v3_0",
         "path": "/api/v3_0/",
+        "consumption_price_sensor": 3,
         "reauth_once": True,
         "polling_step": 0,
         "max_polling_steps": 10,
@@ -77,6 +60,7 @@ def test__init__():
         "ssl": True,
         "api_version": "v3_0",
         "path": "/api/v3_0/",
+        "consumption_price_sensor": 3,
         "reauth_once": True,
         "polling_step": 0,
         "max_polling_steps": 10,
@@ -341,8 +325,10 @@ async def test_get_sensors2() -> None:
             payload={"error": "9999 error test"},
         )
 
+        # response, _status = await flexmeasures_client.get_sensors()
+
         with pytest.raises(
-            ConnectionError, match="Error occurred while communicating with the API."
+            ConnectionError,match="Error occurred while communicating with the API."
         ):
             await flexmeasures_client.get_sensors()
 

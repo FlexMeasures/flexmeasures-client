@@ -59,4 +59,6 @@ def check_content_type(response):
 
 def check_for_status(status, expected_status):
     if status != expected_status:
-        raise ValueError(f"Request failed with status code {status}")
+        raise ValueError(
+            f"Request failed with status code {status}"
+        )
