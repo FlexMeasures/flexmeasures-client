@@ -269,16 +269,16 @@ class FlexMeasuresClient:
         )
         check_for_status(status, 200)
 
-        return response, status
+        return response
 
     async def get_assets(self):
         """Get all the assets available to the current user"""
         response, status = await self.request(uri="assets", method="GET")
         check_for_status(status, 200)
-        return response, status
+        return response
 
     async def get_sensors(self):
         """Get all the sensors available to the current user"""
         response, status = await self.request(uri="sensors", method="GET")
         check_for_status(status, 200)
-        return response, status
+        return response

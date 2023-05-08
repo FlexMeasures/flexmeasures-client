@@ -275,7 +275,7 @@ async def test_get_assets() -> None:
             ],
         )
 
-        response, _status = await flexmeasures_client.get_assets()
+        response = await flexmeasures_client.get_assets()
         assert len(response) == 1
         assert response[0]["account_id"] == 2
 
@@ -302,7 +302,7 @@ async def test_get_sensors() -> None:
             ],
         )
 
-        response, _status = await flexmeasures_client.get_sensors()
+        response = await flexmeasures_client.get_sensors()
         assert len(response) == 1
         assert response[0]["entity_address"] == "ea1.2023-06.localhost:fm1.2"
 
@@ -320,10 +320,8 @@ async def test_get_sensors2() -> None:
             payload={"error": "9999 error test"},
         )
 
-        # response, _status = await flexmeasures_client.get_sensors()
-
         with pytest.raises(
-            ConnectionError,match="Error occurred while communicating with the API."
+            ConnectionError, match="Error occurred while communicating with the API."
         ):
             await flexmeasures_client.get_sensors()
 
