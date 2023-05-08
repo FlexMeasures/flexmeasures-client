@@ -1,6 +1,8 @@
 import asyncio
+
 import pytest
-from aioresponses import aioresponses, CallbackResult
+from aioresponses import CallbackResult, aioresponses
+
 from flexmeasures_client.client import FlexMeasuresClient
 
 
