@@ -11,14 +11,12 @@ import pandas as pd
 from aiohttp.client import ClientError, ClientSession
 from yarl import URL
 
-from flexmeasures_client.constants import API_VERSION, CONTENT_TYPE_HEADERS
+from flexmeasures_client.constants import API_VERSIOM, CONTENT_TYPE_HEADERS
 from flexmeasures_client.response_handling import (
     check_content_type,
     check_for_status,
     check_response,
 )
-
-from flexmeasures_client.constants import CONTENT_TYPE_HEADERS, API_VERSIOM
 
 MAX_POLLING_STEPS: int = 10  # seconds
 POLLING_TIMEOUT = 200.0  # seconds

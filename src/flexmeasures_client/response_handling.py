@@ -1,10 +1,11 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+
 import asyncio
+from typing import TYPE_CHECKING
+
 from aiohttp import ContentTypeError
 
 from flexmeasures_client.constants import CONTENT_TYPE
-
 
 if TYPE_CHECKING:  # Only imports the below statements during type checking
     from flexmeasures_client.client import FlexMeasuresClient
@@ -56,6 +57,4 @@ def check_content_type(response):
 
 def check_for_status(status, expected_status):
     if status != expected_status:
-        raise ValueError(
-            f"Request failed with status code {status}"
-        )
+        raise ValueError(f"Request failed with status code {status}")
