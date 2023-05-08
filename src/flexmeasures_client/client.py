@@ -4,13 +4,14 @@ import asyncio
 import socket
 from dataclasses import dataclass
 from typing import Any, cast
+from datetime import timedelta, datetime
 
 import async_timeout
 import pandas as pd
 from aiohttp.client import ClientError, ClientSession
 from yarl import URL
 
-from flexmeasures_client.constants import API_VERSIOM, CONTENT_TYPE_HEADERS
+from flexmeasures_client.constants import API_VERSION, CONTENT_TYPE_HEADERS
 from flexmeasures_client.response_handling import (
     check_content_type,
     check_for_status,
@@ -33,11 +34,8 @@ class FlexMeasuresClient:
     host: str = "localhost:5000"
     scheme: str = ""
     ssl: bool | None = None
-    api_version: str = API_VERSIOM
+    api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
-    consumption_price_sensor: int = (
-        3  # TODO find sensor and use sensor through API or set in config
-    )
     reauth_once: bool = True
 
     polling_step: int = 0
@@ -147,7 +145,7 @@ class FlexMeasuresClient:
             self.session = ClientSession()
 
     async def get_headers(self, include_auth: bool) -> dict:
-        """If the request needs to be authenticated check if there is a access_token or request one. Then create the headers dict"""  # noqa: E501
+        """Create HTTP headers dictionary with content type and, optionally, access token."""  # noqa: E501
         headers = CONTENT_TYPE_HEADERS
         if include_auth:
             if self.access_token is None:
@@ -179,8 +177,8 @@ class FlexMeasuresClient:
     async def post_measurements(
         self,
         sensor_id: int,
-        start: str,
-        duration: str,
+        start: str | datetime,
+        duration: str | timedelta,
         values: list[float],
         unit: str,
         entity_address: str,
@@ -209,7 +207,7 @@ class FlexMeasuresClient:
     async def trigger_storage_schedule(
         self,
         sensor_id: int,
-        start: str,
+        start: str | datetime,
         soc_unit: str,
         soc_at_start: float,
         soc_targets: list,
@@ -253,7 +251,7 @@ class FlexMeasuresClient:
         self,
         sensor_id: int,
         schedule_id: str,
-        duration: str,
+        duration: str | timedelta,
     ):
         """Get schedule with given ID."""
         response, status = await self.request(
