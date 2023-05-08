@@ -1,13 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-
-from aiohttp import ContentTypeError
 import asyncio
-from typing import TYPE_CHECKING
-
 from aiohttp import ContentTypeError
 
 from flexmeasures_client.constants import CONTENT_TYPE
+
 
 if TYPE_CHECKING:  # Only imports the below statements during type checking
     from flexmeasures_client.client import FlexMeasuresClient
