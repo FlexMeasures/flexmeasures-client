@@ -35,7 +35,7 @@ async def check_response(self: FlexMeasuresClient, response):
     ):
         # can be removed in a later version GH issue #645 of the FlexMeasures repo
         print(
-            f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."
+            f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."  # noqa: E501
         )
         self.polling_step += 1
         await asyncio.sleep(self.polling_interval)
