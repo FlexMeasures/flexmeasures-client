@@ -16,10 +16,7 @@ from flexmeasures_client.response_handling import (
     check_for_status,
 )
 
-CONTENT_TYPE_HEADERS = {
-    "Content-Type": "application/json",
-}
-API_VERSIOM = "v3_0"
+from flexmeasures_client.constants import CONTENT_TYPE_HEADERS, API_VERSIOM
 
 MAX_POLLING_STEPS: int = 10  # seconds
 POLLING_TIMEOUT = 200.0  # seconds

@@ -1,8 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-
-from aiohttp import ContentTypeError
 import asyncio
+from aiohttp import ContentTypeError
+
+from flexmeasures_client.constants import CONTENT_TYPE
+
 
 if TYPE_CHECKING:  # Only imports the below statements during type checking
     from flexmeasures_client.client import FlexMeasuresClient
@@ -42,7 +44,7 @@ async def check_response(self: FlexMeasuresClient, response):
 
 def check_content_type(response):
     content_type = response.headers.get("Content-Type", "")
-    if "application/json" not in content_type:
+    if CONTENT_TYPE not in content_type:
         text = response.text()
         raise ContentTypeError(
             "Unexpected content type response from the API",
