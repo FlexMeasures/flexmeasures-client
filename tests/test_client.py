@@ -154,12 +154,13 @@ async def test_trigger_storage_schedule() -> None:
         m.post(
             "http://localhost:5000/api/v3_0/sensors/3/schedules/trigger",
             status=200,
-            payload={"test": "test"},
+            payload={"schedule": "test_schedule_id"},
         )
 
-        await flexmeasures_client.trigger_storage_schedule(
+        schedule_id = await flexmeasures_client.trigger_storage_schedule(
             sensor_id=3,
             start="2023-03-26T10:00+02:00",
+            duration="PT12H",
             soc_unit="kWh",
             soc_at_start=50,
             soc_targets=[
@@ -171,11 +172,14 @@ async def test_trigger_storage_schedule() -> None:
             consumption_price_sensor=3,
         )
 
+        assert schedule_id == "test_schedule_id"
+
         m.assert_called_once_with(
             method="POST",
             headers={"Content-Type": "application/json", "Authorization": "test-token"},
             json={
                 "start": "2023-03-26T10:00:00+02:00",
+                "duration": "P0DT12H0M0S",
                 "flex-model": {
                     "soc-unit": "kWh",
                     "soc-at-start": 50,
