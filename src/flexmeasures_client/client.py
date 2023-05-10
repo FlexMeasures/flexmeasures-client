@@ -211,7 +211,7 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         soc_unit: str,
         soc_at_start: float,
-        soc_targets: list | None = None,
+        soc_targets: list = list(),
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,
