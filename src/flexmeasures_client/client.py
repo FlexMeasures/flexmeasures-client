@@ -208,6 +208,7 @@ class FlexMeasuresClient:
         self,
         sensor_id: int,
         start: str | datetime,
+        duration: str | timedelta,
         soc_unit: str,
         soc_at_start: float,
         soc_targets: list = [],
