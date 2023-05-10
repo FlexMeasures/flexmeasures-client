@@ -208,9 +208,10 @@ class FlexMeasuresClient:
         self,
         sensor_id: int,
         start: str | datetime,
+        duration: str | timedelta,
         soc_unit: str,
         soc_at_start: float,
-        soc_targets: list,
+        soc_targets: list | None = None,
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,
@@ -220,6 +221,7 @@ class FlexMeasuresClient:
             "start": pd.Timestamp(
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
+            "duration": pd.Timedelta(duration).isoformat(),
             "flex-model": {
                 "soc-unit": soc_unit,
                 "soc-at-start": soc_at_start,
