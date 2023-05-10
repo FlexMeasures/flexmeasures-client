@@ -154,10 +154,10 @@ async def test_trigger_storage_schedule() -> None:
         m.post(
             "http://localhost:5000/api/v3_0/sensors/3/schedules/trigger",
             status=200,
-            payload={"test": "test"},
+            payload={"schedule": "test_schedule_id"},
         )
 
-        await flexmeasures_client.trigger_storage_schedule(
+        schedule_id = await flexmeasures_client.trigger_storage_schedule(
             sensor_id=3,
             start="2023-03-26T10:00+02:00",
             duration="PT12H",
@@ -171,6 +171,8 @@ async def test_trigger_storage_schedule() -> None:
             ],
             consumption_price_sensor=3,
         )
+
+        assert schedule_id == "test_schedule_id"
 
         m.assert_called_once_with(
             method="POST",
