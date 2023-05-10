@@ -249,6 +249,8 @@ class FlexMeasuresClient:
         check_for_status(status, 200)
         print("Schedule triggered successfully.")
 
+        return response.get("schedule")
+
     async def get_schedule(
         self,
         sensor_id: int,
