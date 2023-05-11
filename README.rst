@@ -26,18 +26,38 @@
 .. image:: https://img.shields.io/badge/-PyScaffold-005CA0?logo=pyscaffold
     :alt: Project generated with PyScaffold
     :target: https://pyscaffold.org/
+.. image::https://img.shields.io/badge/python-3.9+-blue.svg
+    :target: https://www.python.org/downloads/
 
 |
 
 ===================
-flexmeasures-client
+FlexMeasures Client
 ===================
 
 
-    Add a short description here!
+The FlexMeasures Client provides a python package to connect to a `FlexMeasures <https://github.com/FlexMeasures/flexmeasures>_` server to manage flexible assets.
+
+The Flexmeasures Client package provides functionality for authentication, posting sensor data, triggering schedules and retrieving schedules from a FlexMeasures instance through the API.  
 
 
-A longer description of your project goes here...
+Getting Started
+===============
+
+Install using ``pip``::
+
+    pip install flexmeasures-client
+
+Initialize client::
+
+    from client import FlexMeasuresClient
+    client = FlexMeasuresClient(email="email@email.com", password="pw"
+
+Retrieve available assets::
+
+    await fm.get_assets()
+
+
 
 
 .. _pyscaffold-notes:
