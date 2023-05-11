@@ -1,16 +1,25 @@
 import asyncio
-
+from logging import log
 import pytest
 from aioresponses import CallbackResult, aioresponses
+import re
 
 from flexmeasures_client.client import FlexMeasuresClient
 
 
-def test__init__():
-    flexmeasures_localhost = FlexMeasuresClient("password", "email")
+@pytest.mark.parametrize(
+    "ssl, host, api_version, email, password",
+    [
+        (False, "localhost:5000", "v3_0", "test@test.test", "password"),
+        (True, "test_host.test", "v3_0", "test@test.test", "password"),
+        (True, "localhost:5000", "v3_0", "test@test.test", "password")
+    ],
+)
+def test__init__(ssl, host, api_version, email, password):
+    flexmeasures_localhost = FlexMeasuresClient("password", "test@test.test")
     assert flexmeasures_localhost.__dict__ == {
         "password": "password",
-        "email": "email",
+        "email": "test@test.test",
         "access_token": None,
         "host": "localhost:5000",
         "scheme": "http",
@@ -27,11 +36,11 @@ def test__init__():
     }
 
     flexmeasures_not_localhost = FlexMeasuresClient(
-        "password", "email", host="test_host.test"
+        "password", "test@test.test", host="test_host.test"
     )
     assert flexmeasures_not_localhost.__dict__ == {
         "password": "password",
-        "email": "email",
+        "email": "test@test.test",
         "access_token": None,
         "host": "test_host.test",
         "scheme": "https",
@@ -48,11 +57,11 @@ def test__init__():
     }
 
     flexmeasures_custom_ssl_and_scheme = FlexMeasuresClient(
-        "password", "email", ssl=True, scheme="test"
+        "password", "test@test.test", ssl=True, scheme="test"
     )
     assert flexmeasures_custom_ssl_and_scheme.__dict__ == {
         "password": "password",
-        "email": "email",
+        "email": "test@test.test",
         "access_token": None,
         "host": "localhost:5000",
         "scheme": "test",
@@ -68,9 +77,22 @@ def test__init__():
         "session": None,
     }
 
+def test_regex():
+    if not re.match(r"http\:\/\/|https\:\/\/", "localhost"):
+        print("test")
+        log(1, "TEst")
+
+    else:
+        print("else")
+    print(re.match(r"http\:\/\/|https\:\/\/", "localhost"))
+    print("test2")
+    assert 1==2
+    
+    
+
 
 def test_build_url():
-    flexmeasures_client = FlexMeasuresClient("password", "email")
+    flexmeasures_client = FlexMeasuresClient("password", "test@test.test")
     url = flexmeasures_client.build_url(uri="endpoint", path="/path/")
     assert url.human_repr() == "http://localhost:5000/path/endpoint"
 

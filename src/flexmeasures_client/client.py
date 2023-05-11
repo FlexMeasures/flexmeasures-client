@@ -5,6 +5,7 @@ import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
+import re
 
 import async_timeout
 import pandas as pd
@@ -22,6 +23,7 @@ MAX_POLLING_STEPS: int = 10  # seconds
 POLLING_TIMEOUT = 200.0  # seconds
 REQUEST_TIMEOUT = 20.0  # seconds
 POLLING_INTERVAL = 10.0  # seconds
+API_VERSIONS_LIST = ("v1", "v1_1", "v1_2", "v1_3", "v2_0", "v3_0")
 
 
 @dataclass
@@ -46,10 +48,25 @@ class FlexMeasuresClient:
     session: ClientSession | None = None
 
     def __post_init__(self):
-        if not self.scheme:
-            self.scheme: str = "http" if "localhost" in self.host else "https"
+        if not re.match(r".+\@.+\..+", self.email):
+            raise ValueError("not an email address format string")
+        if self.api_version not in API_VERSIONS_LIST:
+            raise ValueError(f"version not in versions list: {API_VERSIONS_LIST}")
+        # if ssl then scheme is https.
+        if re.match(r"http\:\/\/|https\:\/\/", self.host):
+            print(self.host)
+            raise ValueError("scheme should not be included in host")
+        if self.scheme not in ["","http://","https://"]:
+            raise ValueError("scheme has to be http or https or ''")
+            
+
+
         if self.ssl is None:
             self.ssl: bool = False if "localhost" in self.host else True
+        if self.ssl:
+            self.scheme = "https"
+        if not self.scheme:
+            self.scheme: str = "http" if "localhost" in self.host else "https"
 
     async def close(self):
         await self.session.close()
@@ -211,12 +228,14 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         soc_unit: str,
         soc_at_start: float,
-        soc_targets: list = [],
+        soc_targets: list | None = None,
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,
     ) -> str:
         """Post schedule trigger with initial and target states of charge (soc)."""
+        if not soc_targets:
+            soc_targets = []
         message = {
             "start": pd.Timestamp(
                 start
@@ -229,6 +248,7 @@ class FlexMeasuresClient:
             },
             "flex-context": {},
         }
+
 
         # Set optional flex context
         if consumption_price_sensor is not None:
