@@ -26,18 +26,82 @@
 .. image:: https://img.shields.io/badge/-PyScaffold-005CA0?logo=pyscaffold
     :alt: Project generated with PyScaffold
     :target: https://pyscaffold.org/
+.. image::https://img.shields.io/badge/python-3.9+-blue.svg
+    :target: https://www.python.org/downloads/
 
 |
 
 ===================
-flexmeasures-client
+FlexMeasures Client
 ===================
 
 
-    Add a short description here!
+The FlexMeasures Client provides a python package to connect to a `FlexMeasures <https://github.com/FlexMeasures/flexmeasures>`_ server to manage flexible assets.
+
+The Flexmeasures Client package provides functionality for authentication, posting sensor data, triggering schedules and retrieving schedules from a FlexMeasures instance through the API.  
 
 
-A longer description of your project goes here...
+Getting Started
+===============
+
+To get started using the FlexMeasures Client package first an account needs to be registered with a FlexMeasures instance or a local FlexMeasures instance needs to be created. Registring a to a FlexMeasures instance can be done through `Seita BV <https://seita.nl/>`_. To create a local instance of FlexMeasures follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_. 
+
+In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
+
+Install using ``pip``::
+
+    pip install flexmeasures-client
+
+Initialization and Authentication::
+
+    from client import FlexMeasuresClient
+    client = FlexMeasuresClient(email="email@email.com", password="pw")
+
+Retrieve available assets and sensors::
+
+    assets = await client.get_assets()
+    sensors = await client.get_sensors()
+
+Post a measurement from a sensor::
+
+    await client.post_measurements(
+            sensor_id=<sensor_id>, # integer
+            start="2023-03-26T10:00+02:00", #iso datetime
+            duration="PT6H", # iso timedelta
+            values=[1,2,3,4], # list
+            unit="kWh", 
+            entity_address=<sensor_entity_address>, # string
+        )
+
+With FlexMeasures a schedule can be requested to optimize at what time the flexible assets can be activated to optimize for price of energy or emissions. The calculation of the schedule can take some time depending on the complexity of the calculations and therefore the requests have been split in a trigger for the schedule and a retrieve schedule call.
+Trigger a schedule::
+
+    schedule_uuid = await flexmeasures_client.trigger_storage_schedule(
+            sensor_id=<sensor_id>, # int
+            start="2023-03-26T10:00+02:00", # iso datetime
+            duration="PT12H", #iso timedelta
+            soc_unit="kWh",
+            soc_at_start=50, # percentage
+            soc_targets=[
+                {
+                    "value": 100, #percentage
+                    "datetime": "2023-03-03T11:00+02:00", # iso datetime
+                }
+            ],
+            consumption_price_sensor=<consumption_price_sensor_id>, # int 
+        )
+
+Retrieve schedule::
+
+    schedule = await flexmeasures_client.get_schedule(
+                sensor_id=<sensor_id>, #int
+                schedule_id="<schedule_uuid>", # uuid
+                duration="PT45M" # iso timedelta
+            )
+
+The schedule returns a Pandas ``DataFrame`` that can be used to regulate the flexible assets.
+
+
 
 
 .. _pyscaffold-notes:
