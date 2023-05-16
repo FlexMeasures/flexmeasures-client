@@ -1,8 +1,32 @@
 import asyncio
+from datetime import datetime
 
 import aiohttp
-from python_s2_protocol.common.messages import Handshake
-from python_s2_protocol.common.schemas import EnergyManagementRole
+import pytz
+from python_s2_protocol.common.messages import (
+    Handshake,
+    ReceptionStatus,
+    ReceptionStatusValues,
+    ResourceManagerDetails,
+)
+from python_s2_protocol.common.schemas import (
+    Commodity,
+    CommodityQuantity,
+    ControlType,
+    Duration,
+    EnergyManagementRole,
+    NumberRange,
+    PowerRange,
+    Role,
+    RoleType,
+)
+from python_s2_protocol.FRBC.messages import FRBCSystemDescription
+from python_s2_protocol.FRBC.schemas import (
+    FRBCActuatorDescription,
+    FRBCOperationMode,
+    FRBCOperationModeElement,
+    FRBCStorageDescription,
+)
 
 from flexmeasures_client.s2.utils import get_unique_id
 
@@ -16,25 +40,111 @@ async def main_s2():
                 supported_protocol_versions=["0.1.0"],
             )
 
+            print("SENDING: ", message.json())
+
             await ws.send_json(message.json())
 
             response = await ws.receive()
 
-            message = Handshake(
+            print("RECEIVING: ", response.json())
+
+            # send resource manager details
+
+            resource_manager_details_message = ResourceManagerDetails(
                 message_id=get_unique_id(),
-                role=EnergyManagementRole.RM,
-                supported_protocol_versions=["0.1.0"],
+                resource_id=get_unique_id(),
+                roles=[
+                    Role(role=RoleType.ENERGY_STORAGE, commodity=Commodity.ELECTRICITY)
+                ],
+                instruction_processing_delay=Duration(__root__=1.0),
+                available_control_types=[
+                    ControlType.FILL_RATE_BASED_CONTROL,
+                    ControlType.NO_SELECTION,
+                ],
+                provides_forecast=True,
+                provides_power_measurement_types=[
+                    CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC
+                ],
             ).json()
 
-            print("REQUEST: ", message)
-
             print("Sending message...")
-            await ws.send_json(message)
+            await ws.send_json(resource_manager_details_message)
             print("Message sent.")
 
             response = await ws.receive()
 
-            print("RESPONSE: ", response.data)
+            print(response.json())
+
+            # Let the server activate the control type
+            control_type = await ws.receive()
+            print(control_type)
+            control_type = control_type.json()
+
+            print("ACTIVATE CONTROL_TYPE: ", control_type)
+
+            message = ReceptionStatus(
+                subject_message_id=control_type["message_id"],
+                status=ReceptionStatusValues.OK,
+            )
+
+            await ws.send_json(message.json())
+
+            electric_power = CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC
+
+            # send system description
+            operation_mode_element = FRBCOperationModeElement(
+                fill_level_range=NumberRange(start_of_range=0.0, end_of_range=0.5),
+                fill_rate=NumberRange(start_of_range=-0.5, end_of_range=0.5),
+                power_ranges=[
+                    PowerRange(
+                        start_of_range=-0.5,
+                        end_of_range=0.5,
+                        commodity_quantity=electric_power,
+                    )
+                ],
+            )
+
+            operation_mode = FRBCOperationMode(
+                id=get_unique_id(),
+                elements=[operation_mode_element],
+                abnormal_condition_only=False,
+            )
+
+            actuator = FRBCActuatorDescription(
+                id=get_unique_id(),
+                supported_commodities=[Commodity.ELECTRICITY],
+                operation_modes=[operation_mode],
+                transitions=[],
+                timers=[],
+            )
+
+            storage = FRBCStorageDescription(
+                provides_leakage_behaviour=False,
+                provides_fill_level_target_profile=False,
+                provides_usage_forecast=False,
+                fill_level_range=NumberRange(start_of_range=0.05, end_of_range=0.45),
+            )
+
+            today = (
+                pytz.timezone("Europe/Amsterdam")
+                .localize(datetime.now())
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+            )
+
+            print("TODAY: ", today)
+
+            system_description_message = FRBCSystemDescription(
+                message_id=get_unique_id(),
+                valid_from=today,
+                actuators=[actuator],
+                storage=storage,
+            ).json()
+
+            await ws.send_json(system_description_message)
+
+            for i in range(10):
+                msg = await ws.receive()
+                print("RECEIVED: ", msg.json())
 
             await ws.close()
 
@@ -51,4 +161,4 @@ async def main_websocket():
                 await ws.close()
 
 
-asyncio.run(main_websocket())
+asyncio.run(main_s2())

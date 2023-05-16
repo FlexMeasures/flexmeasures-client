@@ -1,13 +1,16 @@
 from collections import OrderedDict
-from typing import Type
+from typing import Mapping, TypeVar
 from uuid import uuid4
 
 import pydantic
 from python_s2_protocol.common.messages import ReceptionStatus
 from python_s2_protocol.common.schemas import ReceptionStatusValues
 
+KT = TypeVar("KT")
+VT = TypeVar("VT")
 
-class SizeLimitOrderedDict(OrderedDict):
+
+class SizeLimitOrderedDict(OrderedDict, Mapping[KT, VT]):
     _max_size = None
 
     def __init__(self, *args, max_size=100, **kwargs):
@@ -18,7 +21,7 @@ class SizeLimitOrderedDict(OrderedDict):
         while len(self) > self._max_size:
             self.popitem()
 
-    def __setitem__(self, __key, __value) -> None:
+    def __setitem__(self, __key: KT, __value: VT) -> None:
         if len(self) == self._max_size:
             self.popitem()
 
@@ -44,7 +47,7 @@ def get_validation_error_summary(error: pydantic.ValidationError) -> str:
     return error_summary[1:]  # skipping the first \n
 
 
-def get_message_id(message: Type[pydantic.BaseModel]) -> str:
+def get_message_id(message: pydantic.BaseModel) -> str:
     """
     This function returns the message_id if it is found in the message,
     else it tries to get the subject_message_id, which is present in
@@ -57,7 +60,7 @@ def get_message_id(message: Type[pydantic.BaseModel]) -> str:
 
 
 def get_reception_status(
-    subject_message: Type[pydantic.BaseModel],
+    subject_message: pydantic.BaseModel,
     status: ReceptionStatusValues = ReceptionStatusValues.OK,
 ):
     """

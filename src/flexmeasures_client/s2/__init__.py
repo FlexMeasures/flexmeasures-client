@@ -25,15 +25,12 @@ class Tag:
     message_type: str
 
 
-def register(schema: Type[pydantic.BaseModel], message_type: str) -> Callable:
+def register(schema: Type[pydantic.BaseModel]) -> Callable:
     """
     Adds a tag with the message_type to the function that decorates.
     Moreover, it validates and converts the dict representation
     of the message into its pydantic class equivalent, running the
     data validation.
-
-    TODO: use `message_type = schema.__fields__["message_type"].default`
-    to infer message_type when not given
     """
 
     def wrapper(func: Callable) -> Callable:
@@ -45,7 +42,8 @@ def register(schema: Type[pydantic.BaseModel], message_type: str) -> Callable:
                 self = args[0]
 
                 # TODO: implement function __hash__ in ID that returns
-                # the value of __root__
+                # the value of __root__, this way we would be able to use
+                # the ID as key directly
                 self.incoming_messages[
                     get_message_id(incoming_message)
                 ] = incoming_message
@@ -65,6 +63,7 @@ def register(schema: Type[pydantic.BaseModel], message_type: str) -> Callable:
                     status=ReceptionStatusValues.INVALID_DATA,
                 )  # TODO: Discuss status
 
+        message_type = schema.__fields__.get("message_type").default
         setattr(wrap, "_tag", Tag(message_type))
 
         return wrap
@@ -78,7 +77,7 @@ class Handler:
     outgoing_messages: SizeLimitOrderedDict
     incoming_messages: SizeLimitOrderedDict
 
-    objects_revoked: deque
+    _objects_revoked: deque
 
     success_callbacks: Dict[str, Callable]
     failure_callbacks: Dict[str, Callable]
@@ -112,9 +111,15 @@ class Handler:
 
         self.outgoing_messages_status = SizeLimitOrderedDict(max_size=max_size)
 
-        self.discovery()
+        self.discover()
 
-    def discovery(self):
+    def is_revoked(self, message_id: str):
+        return message_id in self._objects_revoked
+
+    def revoke_message(self, message_id: str):
+        self._objects_revoked.append(message_id)
+
+    def discover(self):
         """
         Discovers which class method hasn't been tagged by the decorator
         @register
@@ -146,7 +151,7 @@ class Handler:
         """
         self.register_callback(self.failure_callbacks, message_id, callback, **kwargs)
 
-    def supports_message(self, message: Dict | pydantic.BaseModel) -> bool:
+    def supports_message(self, message: Dict | pydantic.BaseModel | str) -> bool:
         """
         Checks if a message is supported by the Handler.
         """
@@ -156,12 +161,14 @@ class Handler:
 
         if isinstance(message, pydantic.BaseModel):
             message_type = message.message_type
-        else:
+        elif isinstance(message, dict):
             message_type = message.get("message_type")
+        elif isinstance(message, dict):
+            message_type = json.loads(message).get("message_type")
 
         return message_type in self.message_handlers
 
-    def handle_message(self, message: pydantic.BaseModel) -> dict:
+    def handle_message(self, message: pydantic.BaseModel | str | Dict) -> dict:
         """
         Calls the handler linked to the message_type and converts the output
         to a serialized dict, i.e, it converts all the inner objects to Python
@@ -170,16 +177,17 @@ class Handler:
         :returns serialized_output_message:
         """
 
-        output_message = self.message_handlers[message.get("message_type")](message)
+        if isinstance(message, pydantic.BaseModel):
+            message = json.loads(message.json())
 
-        # Pending for pydantic V2 to implemen model.model_dump(mode="json") in
-        # PR #1409 (https://github.com/pydantic/pydantic/issues/1409)
-        if output_message:  # e.g of return None is handling ReceptionStatus
-            output_message = json.loads(output_message.json())
+        if isinstance(message, str):
+            message = json.loads(message)
+
+        output_message = self.message_handlers[message.get("message_type")](message)
 
         return output_message
 
-    @register(ReceptionStatus, "ReceptionStatus")
+    @register(ReceptionStatus)
     def handle_response_status(self, message: ReceptionStatus):
         """
         If defined, it calls the success_callbacks or failure_callbacks depending
@@ -211,7 +219,7 @@ class Handler:
         if callback is None and (message.status != ReceptionStatusValues.OK):
             self.success_callbacks.pop(message.subject_message_id.__root__, None)
 
-    @register(RevokeObject, "RevokeObject")
+    @register(RevokeObject)
     def handle_revoke_object(self, message: RevokeObject):
         """
         Stores the revoked object ID into the objects_revoked list
