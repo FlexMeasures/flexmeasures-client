@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
-import re
 
 import async_timeout
 import pandas as pd
@@ -59,8 +59,9 @@ class FlexMeasuresClient:
             self.scheme = "http"
         if re.match(r"http\:\/\/|https\:\/\/", self.host):
             print(self.host)
-            raise ValueError("scheme is inferred from ssl and can not be passed in the host")
-
+            raise ValueError(
+                "scheme is inferred from ssl and can not be passed in the host"
+            )
 
     async def close(self):
         await self.session.close()

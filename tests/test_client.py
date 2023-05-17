@@ -1,14 +1,13 @@
 import asyncio
-from logging import log
+
 import pytest
 from aioresponses import CallbackResult, aioresponses
-import re
 
 from flexmeasures_client.client import FlexMeasuresClient
 
 
 @pytest.mark.parametrize(
-    "ssl, host, api_version, email, password, asserted_ssl, asserted_host, asserted_version , asserted_scheme",
+    "ssl, host, api_version, email, password, asserted_ssl, asserted_host, asserted_version , asserted_scheme",  # noqa: E501
     [
         (
             False,
@@ -103,8 +102,7 @@ def test__init__(
 )
 def test__post_init__(kwargs, error_type, error_text):
     with pytest.raises(error_type, match=error_text):
-        flexmeasures = FlexMeasuresClient("password", **kwargs)
-
+        FlexMeasuresClient("password", **kwargs)
 
 
 def test_build_url():
