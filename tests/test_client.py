@@ -84,25 +84,38 @@ def test__init__(
     "kwargs, error_type, error_text",
     [
         (
-            {"email": "no_at_in_address.at"},
+            {"email": "no_at_in_address.at", "password": "test_password"},
             ValueError,
             "not an email address format string",
         ),
         (
-            {"host": "http://test", "email": "test@test.test"},
+            {
+                "host": "http://test",
+                "email": "test@test.test",
+                "password": "test_password",
+            },
             ValueError,
             "scheme is inferred from ssl and can not be passed in the host",
         ),
         (
-            {"api_version": "v123", "email": "test@test.test"},
+            {
+                "api_version": "v123",
+                "email": "test@test.test",
+                "password": "test_password",
+            },
             ValueError,
             "version not in versions list:",
+        ),
+        (
+            {"password": "", "email": "test@test.test"},
+            ValueError,
+            "password can not be empty",
         ),
     ],
 )
 def test__post_init__(kwargs, error_type, error_text):
     with pytest.raises(error_type, match=error_text):
-        FlexMeasuresClient("password", **kwargs)
+        FlexMeasuresClient(**kwargs)
 
 
 def test_build_url():

@@ -49,7 +49,7 @@ class FlexMeasuresClient:
     def __post_init__(self):
         if not re.match(r".+\@.+\..+", self.email):
             print(self.email)
-            raise ValueError("not an email address format string")
+            raise ValueError(f"{self.email} is not an email address format string")
         if self.api_version not in API_VERSIONS_LIST:
             raise ValueError(f"version not in versions list: {API_VERSIONS_LIST}")
         # if ssl then scheme is https.
@@ -58,10 +58,11 @@ class FlexMeasuresClient:
         else:
             self.scheme = "http"
         if re.match(r"http\:\/\/|https\:\/\/", self.host):
-            print(self.host)
             raise ValueError(
                 "scheme is inferred from ssl and can not be passed in the host"
             )
+        if len(self.password) < 1:
+            raise ValueError("password can not be empty")
 
     async def close(self):
         await self.session.close()
