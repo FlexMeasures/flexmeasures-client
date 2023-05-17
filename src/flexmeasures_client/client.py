@@ -34,8 +34,7 @@ class FlexMeasuresClient:
     email: str
     access_token: str = None
     host: str = "localhost:5000"
-    scheme: str = ""
-    ssl: bool | None = None
+    ssl: bool = False
     api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
     reauth_once: bool = True
@@ -49,24 +48,19 @@ class FlexMeasuresClient:
 
     def __post_init__(self):
         if not re.match(r".+\@.+\..+", self.email):
+            print(self.email)
             raise ValueError("not an email address format string")
         if self.api_version not in API_VERSIONS_LIST:
             raise ValueError(f"version not in versions list: {API_VERSIONS_LIST}")
         # if ssl then scheme is https.
-        if re.match(r"http\:\/\/|https\:\/\/", self.host):
-            print(self.host)
-            raise ValueError("scheme should not be included in host")
-        if self.scheme not in ["","http://","https://"]:
-            raise ValueError("scheme has to be http or https or ''")
-            
-
-
-        if self.ssl is None:
-            self.ssl: bool = False if "localhost" in self.host else True
         if self.ssl:
             self.scheme = "https"
-        if not self.scheme:
-            self.scheme: str = "http" if "localhost" in self.host else "https"
+        else:
+            self.scheme = "http"
+        if re.match(r"http\:\/\/|https\:\/\/", self.host):
+            print(self.host)
+            raise ValueError("scheme is inferred from ssl and can not be passed in the host")
+
 
     async def close(self):
         await self.session.close()
@@ -248,7 +242,6 @@ class FlexMeasuresClient:
             },
             "flex-context": {},
         }
-
 
         # Set optional flex context
         if consumption_price_sensor is not None:

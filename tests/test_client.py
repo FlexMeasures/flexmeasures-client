@@ -8,44 +8,67 @@ from flexmeasures_client.client import FlexMeasuresClient
 
 
 @pytest.mark.parametrize(
-    "ssl, host, api_version, email, password",
+    "ssl, host, api_version, email, password, asserted_ssl, asserted_host, asserted_version , asserted_scheme",
     [
-        (False, "localhost:5000", "v3_0", "test@test.test", "password"),
-        (True, "test_host.test", "v3_0", "test@test.test", "password"),
-        (True, "localhost:5000", "v3_0", "test@test.test", "password")
+        (
+            False,
+            "localhost:5000",
+            "v3_0",
+            "test@test.test",
+            "password",
+            False,
+            "localhost:5000",
+            "v3_0",
+            "http",
+        ),
+        (
+            True,
+            "test_host.test",
+            "v3_0",
+            "test@test.test",
+            "password",
+            True,
+            "test_host.test",
+            "v3_0",
+            "https",
+        ),
+        (
+            True,
+            "localhost:5000",
+            "v3_0",
+            "test@test.test",
+            "password",
+            True,
+            "localhost:5000",
+            "v3_0",
+            "https",
+        ),
     ],
 )
-def test__init__(ssl, host, api_version, email, password):
-    flexmeasures_localhost = FlexMeasuresClient("password", "test@test.test")
-    assert flexmeasures_localhost.__dict__ == {
-        "password": "password",
-        "email": "test@test.test",
-        "access_token": None,
-        "host": "localhost:5000",
-        "scheme": "http",
-        "ssl": False,
-        "api_version": "v3_0",
-        "path": "/api/v3_0/",
-        "reauth_once": True,
-        "polling_step": 0,
-        "max_polling_steps": 10,
-        "polling_timeout": 200.0,
-        "request_timeout": 20.0,
-        "polling_interval": 10.0,
-        "session": None,
-    }
+def test__init__(
+    ssl,
+    host,
+    api_version,
+    email,
+    password,
+    asserted_ssl,
+    asserted_host,
+    asserted_version,
+    asserted_scheme,
+):
+    kwargs_dict = {"ssl": ssl, "host": host, "api_version": api_version}
+    kwargs = {k: v for k, v in kwargs_dict.items() if v is not None}
+    flexmeasures_localhost = FlexMeasuresClient("password", "test@test.test", **kwargs)
+    # flexmeasures = FlexMeasuresClient("")
 
-    flexmeasures_not_localhost = FlexMeasuresClient(
-        "password", "test@test.test", host="test_host.test"
-    )
-    assert flexmeasures_not_localhost.__dict__ == {
-        "password": "password",
-        "email": "test@test.test",
+    assert_dict = {
+        "password": password,
+        "email": email,
         "access_token": None,
-        "host": "test_host.test",
-        "scheme": "https",
-        "ssl": True,
-        "api_version": "v3_0",
+        "host": asserted_host,
+        "scheme": asserted_scheme,
+        "ssl": asserted_ssl,
+        "api_version": asserted_version,
         "path": "/api/v3_0/",
         "reauth_once": True,
         "polling_step": 0,
@@ -55,27 +78,34 @@ def test__init__(ssl, host, api_version, email, password):
         "polling_interval": 10.0,
         "session": None,
     }
+    assert flexmeasures_localhost.__dict__ == assert_dict
 
-    flexmeasures_custom_ssl_and_scheme = FlexMeasuresClient(
-        "password", "test@test.test", ssl=True, scheme="test"
-    )
-    assert flexmeasures_custom_ssl_and_scheme.__dict__ == {
-        "password": "password",
-        "email": "test@test.test",
-        "access_token": None,
-        "host": "localhost:5000",
-        "scheme": "test",
-        "ssl": True,
-        "api_version": "v3_0",
-        "path": "/api/v3_0/",
-        "reauth_once": True,
-        "polling_step": 0,
-        "max_polling_steps": 10,
-        "polling_timeout": 200.0,
-        "request_timeout": 20.0,
-        "polling_interval": 10.0,
-        "session": None,
-    }
+
+@pytest.mark.parametrize(
+    "kwargs, error_type, error_text",
+    [
+        (
+            {"email": "no_at_in_address.at"},
+            ValueError,
+            "not an email address format string",
+        ),
+        (
+            {"host": "http://test", "email": "test@test.test"},
+            ValueError,
+            "scheme is inferred from ssl and can not be passed in the host",
+        ),
+        (
+            {"api_version": "v123", "email": "test@test.test"},
+            ValueError,
+            "version not in versions list:",
+        ),
+    ],
+)
+def test__post_init__(kwargs, error_type, error_text):
+    with pytest.raises(error_type, match=error_text):
+        flexmeasures = FlexMeasuresClient("password", **kwargs)
+
+
 
 def test_regex():
     if not re.match(r"http\:\/\/|https\:\/\/", "localhost"):
@@ -86,9 +116,7 @@ def test_regex():
         print("else")
     print(re.match(r"http\:\/\/|https\:\/\/", "localhost"))
     print("test2")
-    assert 1==2
-    
-    
+    assert 1 == 2
 
 
 def test_build_url():
@@ -127,7 +155,9 @@ async def test_get_access_token() -> None:
 @pytest.mark.asyncio
 async def test_post_measurements() -> None:
     with aioresponses() as m:
-        flexmeasures_client = FlexMeasuresClient("test", "test")
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
         flexmeasures_client.access_token = "test-token"
         m.post(
             "http://localhost:5000/api/v3_0/sensors/data",
@@ -171,7 +201,9 @@ async def test_post_measurements() -> None:
 @pytest.mark.asyncio
 async def test_trigger_storage_schedule() -> None:
     with aioresponses() as m:
-        flexmeasures_client = FlexMeasuresClient("test", "test")
+        flexmeasures_client = flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
         flexmeasures_client.access_token = "test-token"
         m.post(
             "http://localhost:5000/api/v3_0/sensors/3/schedules/trigger",
@@ -264,9 +296,9 @@ async def test_get_schedule_timeout() -> None:
             callback=callback,
             repeat=True,
         )
-        flexmeasures_client = FlexMeasuresClient(
-            "test",
-            "test",
+        flexmeasures_client = flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
             polling_timeout=0.5,
             request_timeout=0.2,
             polling_interval=0.1,
@@ -282,7 +314,9 @@ async def test_get_schedule_timeout() -> None:
 @pytest.mark.asyncio
 async def test_get_assets() -> None:
     with aioresponses() as m:
-        flexmeasures_client = FlexMeasuresClient("test", "test")
+        flexmeasures_client = flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
         flexmeasures_client.access_token = "test-token"
         m.get(
             "http://localhost:5000/api/v3_0/assets",
@@ -310,7 +344,9 @@ async def test_get_assets() -> None:
 @pytest.mark.asyncio
 async def test_get_sensors() -> None:
     with aioresponses() as m:
-        flexmeasures_client = FlexMeasuresClient("test", "test")
+        flexmeasures_client = flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
         flexmeasures_client.access_token = "test-token"
         m.get(
             "http://localhost:5000/api/v3_0/sensors",
@@ -337,7 +373,9 @@ async def test_get_sensors() -> None:
 @pytest.mark.asyncio
 async def test_get_sensors2() -> None:
     with aioresponses() as m:
-        flexmeasures_client = FlexMeasuresClient("test", "test")
+        flexmeasures_client = flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
         flexmeasures_client.access_token = "test-token"
         m.get(
             "http://localhost:5000/api/v3_0/sensors",
