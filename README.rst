@@ -38,13 +38,13 @@ FlexMeasures Client
 
 The FlexMeasures Client provides a python package to connect to a `FlexMeasures <https://github.com/FlexMeasures/flexmeasures>`_ server to manage flexible assets.
 
-The Flexmeasures Client package provides functionality for authentication, posting sensor data, triggering schedules and retrieving schedules from a FlexMeasures instance through the API.  
+The Flexmeasures Client package provides functionality for authentication, posting sensor data, triggering schedules and retrieving schedules from a FlexMeasures instance through the API.
 
 
 Getting Started
 ===============
 
-To get started using the FlexMeasures Client package first an account needs to be registered with a FlexMeasures instance or a local FlexMeasures instance needs to be created. Registring a to a FlexMeasures instance can be done through `Seita BV <https://seita.nl/>`_. To create a local instance of FlexMeasures follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_. 
+To get started using the FlexMeasures Client package first an account needs to be registered with a FlexMeasures instance or a local FlexMeasures instance needs to be created. Registring a to a FlexMeasures instance can be done through `Seita BV <https://seita.nl/>`_. To create a local instance of FlexMeasures follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
 
 In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
 
@@ -69,7 +69,7 @@ Post a measurement from a sensor::
             start="2023-03-26T10:00+02:00", #iso datetime
             duration="PT6H", # iso timedelta
             values=[1,2,3,4], # list
-            unit="kWh", 
+            unit="kWh",
             entity_address=<sensor_entity_address>, # string
         )
 
@@ -88,7 +88,7 @@ Trigger a schedule::
                     "datetime": "2023-03-03T11:00+02:00", # iso datetime
                 }
             ],
-            consumption_price_sensor=<consumption_price_sensor_id>, # int 
+            consumption_price_sensor=<consumption_price_sensor_id>, # int
         )
 
 The ``trigger_storage_schedule`` return a ``schedule_uuid``. This can be used to retrieve the schedule. The client will re-try if until the schedule is available or the ``MAX_POLLING_STEPS`` of ``10`` is reached. Retrieve schedule::
