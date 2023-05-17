@@ -107,18 +107,6 @@ def test__post_init__(kwargs, error_type, error_text):
 
 
 
-def test_regex():
-    if not re.match(r"http\:\/\/|https\:\/\/", "localhost"):
-        print("test")
-        log(1, "TEst")
-
-    else:
-        print("else")
-    print(re.match(r"http\:\/\/|https\:\/\/", "localhost"))
-    print("test2")
-    assert 1 == 2
-
-
 def test_build_url():
     flexmeasures_client = FlexMeasuresClient("password", "test@test.test")
     url = flexmeasures_client.build_url(uri="endpoint", path="/path/")
