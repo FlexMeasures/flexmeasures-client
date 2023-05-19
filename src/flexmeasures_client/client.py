@@ -95,7 +95,8 @@ class FlexMeasuresClient:
                                 headers=headers,
                                 json=json,
                             )
-                            break
+                            if response.status < 300:
+                                break
                     except asyncio.TimeoutError:
                         print(
                             f"Client request timeout occurred while connecting to the API. Retrying in {self.polling_interval} seconds..."  # noqa: E501
@@ -137,6 +138,8 @@ class FlexMeasuresClient:
             response,
         )
         print(response.headers)
+        print(response)
+        print(await response.json())
         return response
 
     def start_session(self):
