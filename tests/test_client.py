@@ -199,13 +199,28 @@ async def test_trigger_storage_schedule() -> None:
 
 @pytest.mark.asyncio
 async def test_get_schedule() -> None:
-    # todo: relies on https://github.com/pnuckowski/aioresponses/pull/237
+    # todo: relies on https://github.com/pnuckowski/aioresponses/pull/237 to use repeat instead of 3 times the same aioresponse. # noqa: E501
     with aioresponses() as m:
+        # m.get(
+        #     "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+        #     status=400,
+        #     payload={"message": "Scheduling job waiting"},
+        #     repeat=3
+        # )
         m.get(
             "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
             status=400,
             payload={"message": "Scheduling job waiting"},
-            repeat=3,
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+            status=400,
+            payload={"message": "Scheduling job waiting"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+            status=400,
+            payload={"message": "Scheduling job waiting"},
         )
         m.get(
             "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
@@ -218,14 +233,17 @@ async def test_get_schedule() -> None:
             },
         )
         flexmeasures_client = FlexMeasuresClient(
-            "test", "test", request_timeout=2, polling_interval=0.2, access_token="skip-auth"
+            "test",
+            "test",
+            request_timeout=2,
+            polling_interval=0.2,
+            access_token="skip-auth",
         )
 
         schedule = await flexmeasures_client.get_schedule(
             sensor_id=1, schedule_id="some-uuid", duration="PT45M"
         )
     assert schedule["values"] == [2.15, 3, 2]
-    assert 1==2
     await flexmeasures_client.close()
 
 
