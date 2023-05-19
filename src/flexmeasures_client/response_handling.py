@@ -38,6 +38,7 @@ async def check_response(self: FlexMeasuresClient, response):
             f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."  # noqa: E501
         )
         self.polling_step += 1
+        print(self.polling_step)
         await asyncio.sleep(self.polling_interval)
     else:
         response.raise_for_status()
