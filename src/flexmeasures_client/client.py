@@ -82,7 +82,6 @@ class FlexMeasuresClient:
         self.start_session()
 
         polling_step = 0
-        # self.polling_step = 0
         self.reauth_once = True  # reset this counter once when starting polling
         try:
             async with async_timeout.timeout(self.polling_timeout):
