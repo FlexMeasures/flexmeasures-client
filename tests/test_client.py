@@ -57,8 +57,7 @@ def test__init__(
 ):
     kwargs_dict = {"ssl": ssl, "host": host, "api_version": api_version}
     kwargs = {k: v for k, v in kwargs_dict.items() if v is not None}
-    flexmeasures_localhost = FlexMeasuresClient("password", "test@test.test", **kwargs)
-    # flexmeasures = FlexMeasuresClient("")
+    flexmeasures_client = FlexMeasuresClient("password", "test@test.test", **kwargs)
 
     assert_dict = {
         "password": password,
@@ -77,7 +76,7 @@ def test__init__(
         "polling_interval": 10.0,
         "session": None,
     }
-    assert flexmeasures_localhost.__dict__ == assert_dict
+    assert flexmeasures_client.__dict__ == assert_dict
 
 
 @pytest.mark.parametrize(
@@ -200,7 +199,7 @@ async def test_post_measurements() -> None:
 @pytest.mark.asyncio
 async def test_trigger_storage_schedule() -> None:
     with aioresponses() as m:
-        flexmeasures_client = flexmeasures_client = FlexMeasuresClient(
+        flexmeasures_client = FlexMeasuresClient(
             email="test@test.test", password="test"
         )
         flexmeasures_client.access_token = "test-token"
@@ -295,7 +294,7 @@ async def test_get_schedule_timeout() -> None:
             callback=callback,
             repeat=True,
         )
-        flexmeasures_client = flexmeasures_client = FlexMeasuresClient(
+        flexmeasures_client = FlexMeasuresClient(
             email="test@test.test",
             password="test",
             polling_timeout=0.5,
@@ -313,7 +312,7 @@ async def test_get_schedule_timeout() -> None:
 @pytest.mark.asyncio
 async def test_get_assets() -> None:
     with aioresponses() as m:
-        flexmeasures_client = flexmeasures_client = FlexMeasuresClient(
+        flexmeasures_client = FlexMeasuresClient(
             email="test@test.test", password="test"
         )
         flexmeasures_client.access_token = "test-token"
@@ -343,7 +342,7 @@ async def test_get_assets() -> None:
 @pytest.mark.asyncio
 async def test_get_sensors() -> None:
     with aioresponses() as m:
-        flexmeasures_client = flexmeasures_client = FlexMeasuresClient(
+        flexmeasures_client = FlexMeasuresClient(
             email="test@test.test", password="test"
         )
         flexmeasures_client.access_token = "test-token"
@@ -372,7 +371,7 @@ async def test_get_sensors() -> None:
 @pytest.mark.asyncio
 async def test_get_sensors2() -> None:
     with aioresponses() as m:
-        flexmeasures_client = flexmeasures_client = FlexMeasuresClient(
+        flexmeasures_client = FlexMeasuresClient(
             email="test@test.test", password="test"
         )
         flexmeasures_client.access_token = "test-token"
