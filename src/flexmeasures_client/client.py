@@ -23,7 +23,7 @@ MAX_POLLING_STEPS: int = 10  # seconds
 POLLING_TIMEOUT = 200.0  # seconds
 REQUEST_TIMEOUT = 20.0  # seconds
 POLLING_INTERVAL = 10.0  # seconds
-API_VERSIONS_LIST = ("v1", "v1_1", "v1_2", "v1_3", "v2_0", "v3_0")
+API_VERSIONS_LIST = ("v3_0",)
 
 
 @dataclass
