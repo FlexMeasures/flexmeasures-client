@@ -70,7 +70,7 @@ class FlexMeasuresClient:
                 f"To use https:// set ssl=True and host={host_without_scheme}"
             )
         if len(self.password) < 1:
-            raise ValueError("password can not be empty")
+            raise ValueError("password cannot be empty")
 
     async def close(self):
         await self.session.close()

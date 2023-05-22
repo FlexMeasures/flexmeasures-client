@@ -118,7 +118,7 @@ def test__init__(
         (
             {"password": "", "email": "test@test.test"},
             ValueError,
-            "password can not be empty",
+            "password cannot be empty",
         ),
     ],
 )
