@@ -94,7 +94,17 @@ def test__init__(
                 "password": "test_password",
             },
             ValueError,
-            "scheme is inferred from ssl and can not be passed in the host",
+            "http:// should not be included in http://test." "Instead use host=test",
+        ),
+        (
+            {
+                "host": "https://test",
+                "email": "test@test.test",
+                "password": "test_password",
+            },
+            ValueError,
+            "https:// should not be included in https://test."
+            "To use https:// set ssl=True and host=test",
         ),
         (
             {

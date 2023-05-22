@@ -57,9 +57,17 @@ class FlexMeasuresClient:
             self.scheme = "https"
         else:
             self.scheme = "http"
-        if re.match(r"http\:\/\/|https\:\/\/", self.host):
+        if re.match(r"^http\:\/\/", self.host):
+            host_without_scheme = self.host.removeprefix("http://")
             raise ValueError(
-                "scheme is inferred from ssl and can not be passed in the host"
+                f"http:// should not be included in {self.host}."
+                f"Instead use host={host_without_scheme}"
+            )
+        if re.match(r"^https\:\/\/", self.host):
+            host_without_scheme = self.host.removeprefix("https://")
+            raise ValueError(
+                f"https:// should not be included in {self.host}."
+                f"To use https:// set ssl=True and host={host_without_scheme}"
             )
         if len(self.password) < 1:
             raise ValueError("password can not be empty")
