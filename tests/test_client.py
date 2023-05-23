@@ -294,8 +294,8 @@ async def test_get_schedule() -> None:
             },
         )
         flexmeasures_client = FlexMeasuresClient(
-            "test",
-            "test",
+            email="test@test.test",
+            password="test",
             request_timeout=2,
             polling_interval=0.2,
             access_token="skip-auth",
