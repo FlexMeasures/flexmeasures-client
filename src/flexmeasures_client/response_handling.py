@@ -45,6 +45,7 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
 
 
 def check_content_type(response):
+    """Check if response is in format application/json"""
     content_type = response.headers.get("Content-Type", "")
     if CONTENT_TYPE not in content_type:
         text = response.text()
@@ -55,5 +56,6 @@ def check_content_type(response):
 
 
 def check_for_status(status, expected_status):
+    """Check if status is expected"""
     if status != expected_status:
         raise ValueError(f"Request failed with status code {status}")

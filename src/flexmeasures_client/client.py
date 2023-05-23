@@ -73,6 +73,7 @@ class FlexMeasuresClient:
             raise ValueError("password cannot be empty")
 
     async def close(self):
+        """Function to close FlexMeasuresClient session when all requests are done"""
         await self.session.close()
 
     async def request(
@@ -172,6 +173,7 @@ class FlexMeasuresClient:
         return headers
 
     def build_url(self, uri: str, path: str = path):
+        """Build url for request"""
         url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
             URL(uri),
         )
@@ -213,7 +215,7 @@ class FlexMeasuresClient:
         if prior:
             json["prior"] = prior
 
-        response, status = await self.request(
+        _response, status = await self.request(
             uri="sensors/data",
             json=json,
         )
