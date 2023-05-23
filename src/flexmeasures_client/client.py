@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import asyncio
 import re
 import socket
@@ -96,7 +97,6 @@ class FlexMeasuresClient:
         - the client polling timed out (as indicated by the client's self.polling_timeout)
         """  # noqa: E501
         url = self.build_url(uri, path=path)
-        print(url)
 
         headers = await self.get_headers(include_auth=include_auth)
         self.start_session()
@@ -119,9 +119,8 @@ class FlexMeasuresClient:
                             if response.status < 300:
                                 break
                     except asyncio.TimeoutError:
-                        print(
-                            f"Client request timeout occurred while connecting to the API. Retrying in {self.polling_interval} seconds..."  # noqa: E501
-                        )
+                        message = f"Client request timeout occurred while connecting to the API. Retrying in {self.polling_interval} seconds..."  # noqa: E501
+                        logging.info(message)
                         polling_step += 1
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
@@ -156,9 +155,6 @@ class FlexMeasuresClient:
             ssl=self.ssl,
         )
         polling_step = await check_response(self, response, polling_step)
-        print(response.headers)
-        print(response)
-        print(await response.json())
         return response
 
     def start_session(self):
@@ -173,7 +169,6 @@ class FlexMeasuresClient:
             if self.access_token is None:
                 await self.get_access_token()
             headers |= {"Authorization": self.access_token}
-        print(headers)
         return headers
 
     def build_url(self, uri: str, path: str = path):
@@ -193,7 +188,6 @@ class FlexMeasuresClient:
             },
             include_auth=False,
         )
-        print(response, _status)
         self.access_token = response["auth_token"]
 
     async def post_measurements(
@@ -224,7 +218,7 @@ class FlexMeasuresClient:
             json=json,
         )
         check_for_status(status, 200)
-        print("Sensor data sent successfully.")
+        logging.info("Sensor data sent successfully.")
 
     async def trigger_storage_schedule(
         self,
@@ -271,7 +265,7 @@ class FlexMeasuresClient:
             json=message,
         )
         check_for_status(status, 200)
-        print("Schedule triggered successfully.")
+        logging.info("Schedule triggered successfully.")
 
         return response.get("schedule")
 

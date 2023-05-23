@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import asyncio
 from typing import TYPE_CHECKING
 
@@ -34,9 +35,8 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
         or "Scheduling job in progress" in payload.get("message", "")
     ):
         # can be removed in a later version GH issue #645 of the FlexMeasures repo
-        print(
-            f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."  # noqa: E501
-        )
+        message = f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."  # noqa: E501
+        logging.info(message)
         polling_step += 1
         await asyncio.sleep(self.polling_interval)
     else:
