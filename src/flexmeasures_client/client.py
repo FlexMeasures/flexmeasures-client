@@ -39,7 +39,6 @@ class FlexMeasuresClient:
     path: str = f"/api/{api_version}/"
     reauth_once: bool = True
 
-    polling_step: int = 0
     max_polling_steps: int = MAX_POLLING_STEPS
     polling_timeout: float = POLLING_TIMEOUT  # seconds
     request_timeout: float = REQUEST_TIMEOUT  # seconds
@@ -102,11 +101,11 @@ class FlexMeasuresClient:
         headers = await self.get_headers(include_auth=include_auth)
         self.start_session()
 
-        self.polling_step = 0
+        polling_step = 0
         self.reauth_once = True  # reset this counter once when starting polling
         try:
             async with async_timeout.timeout(self.polling_timeout):
-                while self.polling_step < self.max_polling_steps:
+                while polling_step < self.max_polling_steps:
                     try:
                         async with async_timeout.timeout(self.request_timeout):
                             response = await self.request_once(
@@ -115,13 +114,15 @@ class FlexMeasuresClient:
                                 params=params,
                                 headers=headers,
                                 json=json,
+                                polling_step=polling_step,
                             )
-                            break
+                            if response.status < 300:
+                                break
                     except asyncio.TimeoutError:
                         print(
                             f"Client request timeout occurred while connecting to the API. Retrying in {self.polling_interval} seconds..."  # noqa: E501
                         )
-                        self.polling_step += 1
+                        polling_step += 1
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
                         raise ConnectionError(
@@ -143,6 +144,7 @@ class FlexMeasuresClient:
         params: dict[str, Any] | None = None,
         headers: dict | None = None,
         json: dict | None = None,
+        polling_step: int = 0,
     ):
         """Sends a single request to FlexMeasures and checks the response"""
         response = await self.session.request(
@@ -153,11 +155,10 @@ class FlexMeasuresClient:
             json=json,
             ssl=self.ssl,
         )
-        await check_response(
-            self,
-            response,
-        )
+        polling_step = await check_response(self, response, polling_step)
         print(response.headers)
+        print(response)
+        print(await response.json())
         return response
 
     def start_session(self):
