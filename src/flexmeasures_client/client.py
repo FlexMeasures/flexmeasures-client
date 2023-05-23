@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -22,6 +23,7 @@ MAX_POLLING_STEPS: int = 10  # seconds
 POLLING_TIMEOUT = 200.0  # seconds
 REQUEST_TIMEOUT = 20.0  # seconds
 POLLING_INTERVAL = 10.0  # seconds
+API_VERSIONS_LIST = ("v3_0",)
 
 
 @dataclass
@@ -32,8 +34,7 @@ class FlexMeasuresClient:
     email: str
     access_token: str = None
     host: str = "localhost:5000"
-    scheme: str = ""
-    ssl: bool | None = None
+    ssl: bool = False
     api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
     reauth_once: bool = True
@@ -45,10 +46,30 @@ class FlexMeasuresClient:
     session: ClientSession | None = None
 
     def __post_init__(self):
-        if not self.scheme:
-            self.scheme: str = "http" if "localhost" in self.host else "https"
-        if self.ssl is None:
-            self.ssl: bool = False if "localhost" in self.host else True
+        if not re.match(r".+\@.+\..+", self.email):
+            print(self.email)
+            raise ValueError(f"{self.email} is not an email address format string")
+        if self.api_version not in API_VERSIONS_LIST:
+            raise ValueError(f"version not in versions list: {API_VERSIONS_LIST}")
+        # if ssl then scheme is https.
+        if self.ssl:
+            self.scheme = "https"
+        else:
+            self.scheme = "http"
+        if re.match(r"^http\:\/\/", self.host):
+            host_without_scheme = self.host.removeprefix("http://")
+            raise ValueError(
+                f"http:// should not be included in {self.host}."
+                f"Instead use host={host_without_scheme}"
+            )
+        if re.match(r"^https\:\/\/", self.host):
+            host_without_scheme = self.host.removeprefix("https://")
+            raise ValueError(
+                f"https:// should not be included in {self.host}."
+                f"To use https:// set ssl=True and host={host_without_scheme}"
+            )
+        if len(self.password) < 1:
+            raise ValueError("password cannot be empty")
 
     async def close(self):
         await self.session.close()
@@ -212,12 +233,14 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         soc_unit: str,
         soc_at_start: float,
-        soc_targets: list = [],
+        soc_targets: list | None = None,
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,
     ) -> str:
         """Post schedule trigger with initial and target states of charge (soc)."""
+        if not soc_targets:
+            soc_targets = []
         message = {
             "start": pd.Timestamp(
                 start
