@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import logging
 import asyncio
+import logging
 import re
 import socket
 from dataclasses import dataclass
@@ -48,7 +48,6 @@ class FlexMeasuresClient:
 
     def __post_init__(self):
         if not re.match(r".+\@.+\..+", self.email):
-            print(self.email)
             raise ValueError(f"{self.email} is not an email address format string")
         if self.api_version not in API_VERSIONS_LIST:
             raise ValueError(f"version not in versions list: {API_VERSIONS_LIST}")
