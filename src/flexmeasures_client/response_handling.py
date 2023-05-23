@@ -11,7 +11,7 @@ if TYPE_CHECKING:  # Only imports the below statements during type checking
     from flexmeasures_client.client import FlexMeasuresClient
 
 
-async def check_response(self: FlexMeasuresClient, response):
+async def check_response(self: FlexMeasuresClient, response, polling_step: int):
     """
     <300: passes
     401: reauthenticate
@@ -27,7 +27,7 @@ async def check_response(self: FlexMeasuresClient, response):
         self.get_access_token()
         self.reauth_once = False
     elif status == 503 and "Retry-After" in headers:
-        self.polling_step += 1
+        polling_step += 1
         await asyncio.sleep(self.polling_interval)
     elif status == 400 and (
         "Scheduling job waiting" in payload.get("message", "")
@@ -37,11 +37,11 @@ async def check_response(self: FlexMeasuresClient, response):
         print(
             f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."  # noqa: E501
         )
-        self.polling_step += 1
-        print(self.polling_step)
+        polling_step += 1
         await asyncio.sleep(self.polling_interval)
     else:
         response.raise_for_status()
+    return polling_step
 
 
 def check_content_type(response):
