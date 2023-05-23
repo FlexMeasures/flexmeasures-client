@@ -38,7 +38,6 @@ class FlexMeasuresClient:
     path: str = f"/api/{api_version}/"
     reauth_once: bool = True
 
-    # polling_step: int = 0
     max_polling_steps: int = MAX_POLLING_STEPS
     polling_timeout: float = POLLING_TIMEOUT  # seconds
     request_timeout: float = REQUEST_TIMEOUT  # seconds
