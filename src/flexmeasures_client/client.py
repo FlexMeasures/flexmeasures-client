@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -22,6 +24,7 @@ MAX_POLLING_STEPS: int = 10  # seconds
 POLLING_TIMEOUT = 200.0  # seconds
 REQUEST_TIMEOUT = 20.0  # seconds
 POLLING_INTERVAL = 10.0  # seconds
+API_VERSIONS_LIST = ("v3_0",)
 
 
 @dataclass
@@ -32,13 +35,11 @@ class FlexMeasuresClient:
     email: str
     access_token: str = None
     host: str = "localhost:5000"
-    scheme: str = ""
-    ssl: bool | None = None
+    ssl: bool = False
     api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
     reauth_once: bool = True
 
-    polling_step: int = 0
     max_polling_steps: int = MAX_POLLING_STEPS
     polling_timeout: float = POLLING_TIMEOUT  # seconds
     request_timeout: float = REQUEST_TIMEOUT  # seconds
@@ -46,12 +47,32 @@ class FlexMeasuresClient:
     session: ClientSession | None = None
 
     def __post_init__(self):
-        if not self.scheme:
-            self.scheme: str = "http" if "localhost" in self.host else "https"
-        if self.ssl is None:
-            self.ssl: bool = False if "localhost" in self.host else True
+        if not re.match(r".+\@.+\..+", self.email):
+            raise ValueError(f"{self.email} is not an email address format string")
+        if self.api_version not in API_VERSIONS_LIST:
+            raise ValueError(f"version not in versions list: {API_VERSIONS_LIST}")
+        # if ssl then scheme is https.
+        if self.ssl:
+            self.scheme = "https"
+        else:
+            self.scheme = "http"
+        if re.match(r"^http\:\/\/", self.host):
+            host_without_scheme = self.host.removeprefix("http://")
+            raise ValueError(
+                f"http:// should not be included in {self.host}."
+                f"Instead use host={host_without_scheme}"
+            )
+        if re.match(r"^https\:\/\/", self.host):
+            host_without_scheme = self.host.removeprefix("https://")
+            raise ValueError(
+                f"https:// should not be included in {self.host}."
+                f"To use https:// set ssl=True and host={host_without_scheme}"
+            )
+        if len(self.password) < 1:
+            raise ValueError("password cannot be empty")
 
     async def close(self):
+        """Function to close FlexMeasuresClient session when all requests are done"""
         await self.session.close()
 
     async def request(
@@ -76,16 +97,15 @@ class FlexMeasuresClient:
         - the client polling timed out (as indicated by the client's self.polling_timeout)
         """  # noqa: E501
         url = self.build_url(uri, path=path)
-        print(url)
 
         headers = await self.get_headers(include_auth=include_auth)
         self.start_session()
 
-        self.polling_step = 0
+        polling_step = 0
         self.reauth_once = True  # reset this counter once when starting polling
         try:
             async with async_timeout.timeout(self.polling_timeout):
-                while self.polling_step < self.max_polling_steps:
+                while polling_step < self.max_polling_steps:
                     try:
                         async with async_timeout.timeout(self.request_timeout):
                             response = await self.request_once(
@@ -94,13 +114,14 @@ class FlexMeasuresClient:
                                 params=params,
                                 headers=headers,
                                 json=json,
+                                polling_step=polling_step,
                             )
-                            break
+                            if response.status < 300:
+                                break
                     except asyncio.TimeoutError:
-                        print(
-                            f"Client request timeout occurred while connecting to the API. Retrying in {self.polling_interval} seconds..."  # noqa: E501
-                        )
-                        self.polling_step += 1
+                        message = f"Client request timeout occurred while connecting to the API. Retrying in {self.polling_interval} seconds..."  # noqa: E501
+                        logging.info(message)
+                        polling_step += 1
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
                         raise ConnectionError(
@@ -122,6 +143,7 @@ class FlexMeasuresClient:
         params: dict[str, Any] | None = None,
         headers: dict | None = None,
         json: dict | None = None,
+        polling_step: int = 0,
     ):
         """Sends a single request to FlexMeasures and checks the response"""
         response = await self.session.request(
@@ -132,11 +154,7 @@ class FlexMeasuresClient:
             json=json,
             ssl=self.ssl,
         )
-        await check_response(
-            self,
-            response,
-        )
-        print(response.headers)
+        polling_step = await check_response(self, response, polling_step)
         return response
 
     def start_session(self):
@@ -151,10 +169,10 @@ class FlexMeasuresClient:
             if self.access_token is None:
                 await self.get_access_token()
             headers |= {"Authorization": self.access_token}
-        print(headers)
         return headers
 
     def build_url(self, uri: str, path: str = path):
+        """Build url for request"""
         url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
             URL(uri),
         )
@@ -171,7 +189,6 @@ class FlexMeasuresClient:
             },
             include_auth=False,
         )
-        print(response, _status)
         self.access_token = response["auth_token"]
 
     async def post_measurements(
@@ -197,12 +214,12 @@ class FlexMeasuresClient:
         if prior:
             json["prior"] = prior
 
-        response, status = await self.request(
+        _response, status = await self.request(
             uri="sensors/data",
             json=json,
         )
         check_for_status(status, 200)
-        print("Sensor data sent successfully.")
+        logging.info("Sensor data sent successfully.")
 
     async def trigger_storage_schedule(
         self,
@@ -211,12 +228,14 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         soc_unit: str,
         soc_at_start: float,
-        soc_targets: list = [],
+        soc_targets: list | None = None,
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,
     ) -> str:
         """Post schedule trigger with initial and target states of charge (soc)."""
+        if not soc_targets:
+            soc_targets = []
         message = {
             "start": pd.Timestamp(
                 start
@@ -247,7 +266,7 @@ class FlexMeasuresClient:
             json=message,
         )
         check_for_status(status, 200)
-        print("Schedule triggered successfully.")
+        logging.info("Schedule triggered successfully.")
 
         return response.get("schedule")
 
