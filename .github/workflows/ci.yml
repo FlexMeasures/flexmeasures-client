@@ -121,7 +121,7 @@ jobs:
     if: ${{ github.event_name == 'push' && contains(github.ref, 'refs/tags/test') }}
     runs-on: ubuntu-latest
     environment:
-      name: pypi
+      name: testpypi
       url: https://test.pypi.org/project/flexmeasures-client
     permissions:
       id-token: write
@@ -135,5 +135,5 @@ jobs:
       - name: Publish Package
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          repository-url: https://test.pypi.org/legacy/
+          repository-url: https://test.pypi.org/project/flexmeasures-client
         # run: pipx run tox -e publish
