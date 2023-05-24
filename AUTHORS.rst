@@ -3,5 +3,5 @@ Contributors
 ============
 
 * Victor
-* Felix 
+* Felix
 * Guus
