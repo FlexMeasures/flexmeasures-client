@@ -59,7 +59,7 @@ jobs:
         python:
           - "3.9"
         # - "3.7"  # oldest Python supported by PSF
-        # - "3.11"  # newest Python that is stable
+          - "3.11"  # newest Python that is stable
         platform:
         - ubuntu-latest
         # - macos-latest
@@ -95,10 +95,36 @@ jobs:
     steps:
       - run: echo "Finished checks"
 
-  publish:
+  # publish:
+  #   needs: finalize
+  #   if: ${{ github.event_name == 'push' && contains(github.ref, 'refs/tags/v') }}
+  #   runs-on: ubuntu-latest
+  #   environment:
+  #     name: pypi
+  #     url: https://pypi.org/project/flexmeasures-client
+  #   permissions:
+  #     id-token: write
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - uses: actions/setup-python@v4
+  #       with: {python-version: "3.11"}
+  #     - name: Retrieve pre-built distribution files
+  #       uses: actions/download-artifact@v3
+  #       with: {name: python-distribution-files, path: dist/}
+  #     - name: Publish Package
+  #       uses: pypa/gh-action-pypi-publish@release/v1
+  #       with:
+  #       # run: pipx run tox -e publish
+
+  test-publish:
     needs: finalize
-    if: ${{ github.event_name == 'push' && contains(github.ref, 'refs/tags/') }}
+    if: ${{ github.event_name == 'push' && contains(github.ref, 'refs/tags/test') }}
     runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://test.pypi.org/project/flexmeasures-client
+    permissions:
+      id-token: write
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
@@ -107,11 +133,7 @@ jobs:
         uses: actions/download-artifact@v3
         with: {name: python-distribution-files, path: dist/}
       - name: Publish Package
-        env:
-          # TODO: Set your PYPI_TOKEN as a secret using GitHub UI
-          # - https://pypi.org/help/#apitoken
-          # - https://docs.github.com/en/actions/security-guides/encrypted-secrets
-          TWINE_REPOSITORY: pypi
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
-        run: pipx run tox -e publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+        # run: pipx run tox -e publish
