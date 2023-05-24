@@ -9,7 +9,7 @@ on:
     # Avoid using all the resources/limits available by checking only
     # relevant branches and tags. Other branches can be checked via PRs.
     branches: [main]
-    tags: ['v[0-9]*', '[0-9]+.[0-9]+*', 'test*']  # Match tags that resemble a version
+    tags: ['^v[0-9]+\.[0-9]+\.[0-9]+$']  # Match tags that resemble a version
   pull_request:  # Run in every PR
   workflow_dispatch:  # Allow manually triggering the workflow
   schedule:
@@ -95,13 +95,33 @@ jobs:
     steps:
       - run: echo "Finished checks"
 
-  # publish:
+  publish:
+    needs: finalize
+    if: ${{ github.event_name == 'push' && contains(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://pypi.org/project/flexmeasures-client/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with: {python-version: "3.11"}
+      - name: Retrieve pre-built distribution files
+        uses: actions/download-artifact@v3
+        with: {name: python-distribution-files, path: dist/}
+      - name: Publish Package
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # run: pipx run tox -e publish
+
+  # test-publish:
   #   needs: finalize
-  #   if: ${{ github.event_name == 'push' && contains(github.ref, 'refs/tags/v') }}
+  #   if: ${{ github.event_name == 'push' && contains(github.ref, 'refs/tags/test') }}
   #   runs-on: ubuntu-latest
   #   environment:
-  #     name: pypi
-  #     url: https://pypi.org/project/flexmeasures-client
+  #     name: testpypi
+  #     url: https://test.pypi.org/project/flexmeasures-client/
   #   permissions:
   #     id-token: write
   #   steps:
@@ -114,26 +134,5 @@ jobs:
   #     - name: Publish Package
   #       uses: pypa/gh-action-pypi-publish@release/v1
   #       with:
+  #         repository-url: https://test.pypi.org/legacy/
   #       # run: pipx run tox -e publish
-
-  test-publish:
-    needs: finalize
-    if: ${{ github.event_name == 'push' && contains(github.ref, 'refs/tags/test') }}
-    runs-on: ubuntu-latest
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/project/flexmeasures-client/
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with: {python-version: "3.11"}
-      - name: Retrieve pre-built distribution files
-        uses: actions/download-artifact@v3
-        with: {name: python-distribution-files, path: dist/}
-      - name: Publish Package
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-        # run: pipx run tox -e publish
