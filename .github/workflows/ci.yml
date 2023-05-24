@@ -135,5 +135,5 @@ jobs:
       - name: Publish Package
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          repository-url: https://test.pypi.org/project/flexmeasures-client/
+          repository-url: https://test.pypi.org/legacy/
         # run: pipx run tox -e publish
