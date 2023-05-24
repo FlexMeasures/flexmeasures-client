@@ -2,4 +2,6 @@
 Contributors
 ============
 
-* victor <victor@seita.nl>
+* Victor
+* Felix
+* Guus
