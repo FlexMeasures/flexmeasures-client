@@ -18,7 +18,7 @@ def compute_factor(operation_mode: FRBCOperationMode, fill_level, fill_rate):
         start_fill_level = element.fill_level_range.start_of_range
         end_fill_level = element.fill_level_range.end_of_range
 
-        # opotential ptimization if we assume that the operation_mode_elements are
+        # potential optimization if we assume that the operation_mode_elements are
         # sorted by fill_level
         # if fill_level < start_fill_rate:
         #   return  # TODO: raise error -> cannot find
