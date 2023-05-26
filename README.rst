@@ -137,24 +137,24 @@ The S2 Protocol integration is still under active development. Please, beware th
 Run Demo
 =========
 
-Run the following commands in the flexmeasures folder to create a toy-account and an admin user:
+Run the following commands in the flexmeasures folder to create a toy-account and an admin user::
 
     flexmeasures add toy-account
     flexmeasures add user --username admin --account-id 1 --email admin@mycompany.io --roles admin
 
-Launch server:
+Launch server::
 
     flexmeasures run
 
-To load the data, run the following command in the flexmeasures-client repository:
+To load the data, run the following command in the flexmeasures-client repository::
 
     python src/flexmeasures_client/s2/script/demo_setup.py
 
-Start the S2 server:
+Start the S2 server::
 
     python src/flexmeasures_client/s2/script/websockets_server.py
 
-In a separate window, start the S2 Client:
+In a separate window, start the S2 Client::
 
     python src/flexmeasures_client/s2/script/websockets_client.py
 
