@@ -84,23 +84,29 @@ class FRBC(ControlTypeHandler):
 
 
 class FRBCTest(FRBC):
+    """Dummy class to simulate the triggering of a schedule."""
+
     async def trigger_schedule(self, system_description_id: str):
-        """Translates S2 System Description into FM API calls"""
+        """Creates schedule consisting on just a dummy instruction
+
+        :param system_description_id: system description to based the schedule on
+        """
 
         system_description: FRBCSystemDescription = self._system_description_historic[
             system_description_id
         ]
 
+        actuator = system_description.actuators[0]
+
         instruction = FRBCInstruction(
             message_id=get_unique_id(),
             id=get_unique_id(),
-            actuator_id=system_description.actuators[0].id.__root__,
-            operation_mode=system_description.actuators[0]
-            .operation_modes[0]
-            .id.__root__,
+            actuator_id=actuator.id.__root__,
+            operation_mode=actuator.operation_modes[0].id.__root__,
             operation_mode_factor=0.5,
             execution_time=system_description.valid_from,
             abnormal_condition=False,
         )
 
+        # put instruction into the sending queue
         await self._sending_queue.put(instruction)
