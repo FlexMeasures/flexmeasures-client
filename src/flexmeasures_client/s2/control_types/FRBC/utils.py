@@ -58,11 +58,26 @@ def fm_schedule_to_instructions(
     start = datetime.fromisoformat(schedule.get("start"))
     deltaT = pd.Timedelta(schedule.get("duration")) / len(values)
 
+    actuators = system_description.actuators
+
     # assuming there's only 1 actuator
-    actuator = system_description.actuators[0]
+    if len(actuators) > 1:
+        print(f"This CEM only supports 1 actuator but {len(actuators)} where provided")
+        return []
+
+    actuator = actuators[0]
+
+    operation_modes = actuator.operation_modes
+
+    # assuming there's only 1 operation_modes
+    if len(operation_modes) > 1:
+        print(
+            f"This CEM only supports 1 operation_modes but {len(operation_modes)} where provided"  # noqa: E501
+        )
+        return []
 
     # assuming there's only 1 operation mode in the actuator
-    operation_mode = actuator.operation_modes[0]
+    operation_mode = operation_modes[0]
 
     fill_level = initial_fill_level
 
