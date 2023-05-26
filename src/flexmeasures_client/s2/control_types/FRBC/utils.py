@@ -89,7 +89,6 @@ def fm_schedule_to_instructions(
             print("OPERATION MODE FACTOR: ", operation_mode_factor)
             # operation_mode_factor = 0.3
 
-            # TODO: update fill_level
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
                 id=get_unique_id(),
