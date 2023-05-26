@@ -1,5 +1,7 @@
 from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 
+from client import FlexMeasuresClient
+
 try:
     # Change here if project is renamed and does not equal the package name
     dist_name = "flexmeasures-client"
