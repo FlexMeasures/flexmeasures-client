@@ -1,6 +1,6 @@
 from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 
-from client import FlexMeasuresClient  # noqa F401
+from flexmeasures_client.client import FlexMeasuresClient  # noqa F401
 
 try:
     # Change here if project is renamed and does not equal the package name
