@@ -22,36 +22,36 @@ from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
 class FRBC(ControlTypeHandler):
     _control_type = ControlType.FILL_RATE_BASED_CONTROL
 
-    _system_description_historic: SizeLimitOrderedDict[str, FRBCSystemDescription]
+    _system_description_history: SizeLimitOrderedDict[str, FRBCSystemDescription]
 
-    _fill_level_target_profile_historic: SizeLimitOrderedDict[
+    _fill_level_target_profile_history: SizeLimitOrderedDict[
         str, FRBCFillLevelTargetProfile
     ]
-    _leakage_behaviour_historic: SizeLimitOrderedDict[str, FRBCLeakageBehaviour]
-    _usage_forecast_historic: SizeLimitOrderedDict[str, FRBCUsageForecast]
+    _leakage_behaviour_history: SizeLimitOrderedDict[str, FRBCLeakageBehaviour]
+    _usage_forecast_history: SizeLimitOrderedDict[str, FRBCUsageForecast]
 
-    _timer_status_historic: SizeLimitOrderedDict[str, FRBCTimerStatus]
-    _actuator_status_historic: SizeLimitOrderedDict[str, FRBCActuatorStatus]
-    _storage_status_historic: SizeLimitOrderedDict[str, FRBCStorageStatus]
+    _timer_status_history: SizeLimitOrderedDict[str, FRBCTimerStatus]
+    _actuator_status_history: SizeLimitOrderedDict[str, FRBCActuatorStatus]
+    _storage_status_history: SizeLimitOrderedDict[str, FRBCStorageStatus]
 
     def __init__(self, max_size: int = 100) -> None:
         super().__init__(max_size)
 
-        self._system_description_historic = SizeLimitOrderedDict(max_size=max_size)
+        self._system_description_history = SizeLimitOrderedDict(max_size=max_size)
 
-        self._fill_level_target_profile_historic = SizeLimitOrderedDict(
+        self._fill_level_target_profile_history = SizeLimitOrderedDict(
             max_size=max_size
         )
-        self._leakage_behaviour_historic = SizeLimitOrderedDict(max_size=max_size)
-        self._usage_forecast_historic = SizeLimitOrderedDict(max_size=max_size)
+        self._leakage_behaviour_history = SizeLimitOrderedDict(max_size=max_size)
+        self._usage_forecast_history = SizeLimitOrderedDict(max_size=max_size)
 
-        self._timer_status_historic = SizeLimitOrderedDict(max_size=max_size)
-        self._actuator_status_historic = SizeLimitOrderedDict(max_size=max_size)
-        self._storage_status_historic = SizeLimitOrderedDict(max_size=max_size)
+        self._timer_status_history = SizeLimitOrderedDict(max_size=max_size)
+        self._actuator_status_history = SizeLimitOrderedDict(max_size=max_size)
+        self._storage_status_history = SizeLimitOrderedDict(max_size=max_size)
 
-        self._system_description_historic = SizeLimitOrderedDict(max_size=max_size)
-        self._leakage_behaviour_historic = SizeLimitOrderedDict(max_size=max_size)
-        self._usage_forecast_historic = SizeLimitOrderedDict(max_size=max_size)
+        self._system_description_history = SizeLimitOrderedDict(max_size=max_size)
+        self._leakage_behaviour_history = SizeLimitOrderedDict(max_size=max_size)
+        self._usage_forecast_history = SizeLimitOrderedDict(max_size=max_size)
 
     @register(FRBCSystemDescription)
     def handle_system_description(
@@ -60,7 +60,7 @@ class FRBC(ControlTypeHandler):
         system_description_id = message.message_id.__root__
 
         # store system_description message for later
-        self._system_description_historic[system_description_id] = message
+        self._system_description_history[system_description_id] = message
 
         # schedule trigger_schedule to run soon concurrently
         asyncio.create_task(self.trigger_schedule(system_description_id))
@@ -92,7 +92,7 @@ class FRBCTest(FRBC):
         :param system_description_id: system description to based the schedule on
         """
 
-        system_description: FRBCSystemDescription = self._system_description_historic[
+        system_description: FRBCSystemDescription = self._system_description_history[
             system_description_id
         ]
 

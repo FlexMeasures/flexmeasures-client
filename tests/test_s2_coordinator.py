@@ -168,11 +168,11 @@ async def test_cem():  # TODO: move into different test functions
     assert (
         cem._control_types_handlers[
             ControlType.FILL_RATE_BASED_CONTROL
-        ]._system_description_historic[system_description_message.message_id.__root__]
+        ]._system_description_history[system_description_message.message_id.__root__]
         == system_description_message
     ), (
         "the FRBC.SystemDescription message should be stored"
-        "in the frbc.system_description_historic variable"
+        "in the frbc.system_description_history variable"
     )
 
     # change of control type is not performed in case that the RM answers

@@ -27,7 +27,7 @@ class FRBCSimple(FRBC):
     async def trigger_schedule(self, system_description_id: str):
         """Translates S2 System Description into FM API calls"""
 
-        system_description: FRBCSystemDescription = self._system_description_historic[
+        system_description: FRBCSystemDescription = self._system_description_history[
             system_description_id
         ]
 
