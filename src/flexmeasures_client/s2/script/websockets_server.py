@@ -14,9 +14,8 @@ async def rm_details_watchdog(ws, cem: CEM):
     """This function will define a service in Home Assistant, or could
      be a HTTP endpoint to trigger schedules.
 
-    Args:
-        ws (_type_): _description_
-        cem (CEM): _description_
+    :param ws: websocket object
+    :param cem: Customer Energy Manager petitions handler
     """
 
     # wait to get resource manager details
