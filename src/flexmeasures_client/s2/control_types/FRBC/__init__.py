@@ -67,6 +67,16 @@ class FRBC(ControlTypeHandler):
 
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
+    @register(FRBCStorageStatus)
+    def handle_storage_status_history(
+        self, message: FRBCStorageStatus
+    ) -> pydantic.BaseModel:
+        message_id = message.message_id.__root__
+
+        self._storage_status_history[message_id] = message
+
+        return get_reception_status(message, status=ReceptionStatusValues.OK)
+
     @register(FRBCLeakageBehaviour)
     def handle_leakage_behaviour(
         self, message: FRBCLeakageBehaviour

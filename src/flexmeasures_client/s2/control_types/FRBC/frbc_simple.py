@@ -1,4 +1,3 @@
-import asyncio
 from datetime import timedelta
 
 from python_s2_protocol.FRBC.messages import FRBCSystemDescription
@@ -34,6 +33,14 @@ class FRBCSimple(FRBC):
         # fill_level_range = system_description.storage.fill_level_range
         soc_at_start = 0.221  # TODO: take the most recent
 
+        if len(self._storage_status_history) > 0:
+            soc_at_start = list(self._storage_status_history.values())[
+                -1
+            ].present_fill_level
+        else:
+            print("Can't trigger schedule without knowing the status of the storage...")
+            return
+
         # call schedule
         schedule_id = await self._fm_client.trigger_storage_schedule(
             start=system_description.valid_from,  # TODO: localize datetime
@@ -47,7 +54,7 @@ class FRBCSimple(FRBC):
             # this needs chages on the client
         )
 
-        await asyncio.sleep(5)  # TODO: fine tune polling timing
+        # await asyncio.sleep(5)  # TODO: fine tune polling timing
 
         # wait for the schedule to finish
         schedule = await self._fm_client.get_schedule(

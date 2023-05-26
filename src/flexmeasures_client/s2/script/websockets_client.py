@@ -20,7 +20,7 @@ from python_s2_protocol.common.schemas import (
     Role,
     RoleType,
 )
-from python_s2_protocol.FRBC.messages import FRBCSystemDescription
+from python_s2_protocol.FRBC.messages import FRBCStorageStatus, FRBCSystemDescription
 from python_s2_protocol.FRBC.schemas import (
     FRBCActuatorDescription,
     FRBCOperationMode,
@@ -40,7 +40,7 @@ async def main_s2():
                 supported_protocol_versions=["0.1.0"],
             )
 
-            print("SENDING: ", message.json())
+            print("SENDING: HANDSHAKE")
 
             await ws.send_json(message.json())
 
@@ -67,29 +67,43 @@ async def main_s2():
                 ],
             ).json()
 
-            print("Sending message...")
+            print("SENDING: ResourceManagerDetails")
+
             await ws.send_json(resource_manager_details_message)
-            print("Message sent.")
 
             response = await ws.receive()
 
-            print(response.json())
+            print("RECEIVING: ", response.json())
 
             # Let the server activate the control type
             control_type = await ws.receive()
-            print(control_type)
+
             control_type = control_type.json()
 
-            print("ACTIVATE CONTROL_TYPE: ", control_type)
+            print("RECEIVING: ", control_type)
 
             message = ReceptionStatus(
                 subject_message_id=control_type["message_id"],
                 status=ReceptionStatusValues.OK,
             )
 
+            print("SENDING: ReceptionStatus")
             await ws.send_json(message.json())
 
             electric_power = CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC
+
+            # send storage status
+            storage_status = FRBCStorageStatus(
+                message_id=get_unique_id(), present_fill_level=0.4
+            )
+
+            print("SENDING: FRBC.StorageStatus")
+
+            await ws.send_json(storage_status.json())
+
+            response = await ws.receive()
+
+            print("RECEIVING: ", response.json())
 
             # send system description
             operation_mode_element = FRBCOperationModeElement(
@@ -125,24 +139,25 @@ async def main_s2():
                 fill_level_range=NumberRange(start_of_range=0.05, end_of_range=0.45),
             )
 
-            today = (
-                pytz.timezone("Europe/Amsterdam")
-                .localize(datetime.now())
-                .replace(hour=0, minute=0, second=0, microsecond=0)
+            valid_from = pytz.timezone("Europe/Amsterdam").localize(
+                datetime(2023, 5, 14)
             )
-
-            print("TODAY: ", today)
 
             system_description_message = FRBCSystemDescription(
                 message_id=get_unique_id(),
-                valid_from=today,
+                valid_from=valid_from,
                 actuators=[actuator],
                 storage=storage,
             ).json()
 
+            print("SENDING: FRBC.SystemDescription")
+
             await ws.send_json(system_description_message)
 
-            for i in range(10):
+            msg = await ws.receive()
+            print("RECEIVED: ", msg.json())
+
+            for i in range(6):
                 msg = await ws.receive()
                 print("RECEIVED: ", msg.json())
 
