@@ -61,7 +61,7 @@ def fm_schedule_to_instructions(
     actuators = system_description.actuators
 
     # assuming there's only 1 actuator
-    if len(actuators) > 1:
+    if len(actuators) != 1:
         print(f"This CEM only supports 1 actuator but {len(actuators)} where provided")
         return []
 
@@ -70,7 +70,7 @@ def fm_schedule_to_instructions(
     operation_modes = actuator.operation_modes
 
     # assuming there's only 1 operation_modes
-    if len(operation_modes) > 1:
+    if len(operation_modes) != 1:
         print(
             f"This CEM only supports 1 operation_modes but {len(operation_modes)} where provided"  # noqa: E501
         )
