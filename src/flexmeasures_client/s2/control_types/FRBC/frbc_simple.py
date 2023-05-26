@@ -54,8 +54,6 @@ class FRBCSimple(FRBC):
             # this needs chages on the client
         )
 
-        # await asyncio.sleep(5)  # TODO: fine tune polling timing
-
         # wait for the schedule to finish
         schedule = await self._fm_client.get_schedule(
             sensor_id=self._power_sensor_id,
