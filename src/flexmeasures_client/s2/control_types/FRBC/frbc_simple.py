@@ -30,9 +30,6 @@ class FRBCSimple(FRBC):
             system_description_id
         ]
 
-        # fill_level_range = system_description.storage.fill_level_range
-        soc_at_start = 0.221  # TODO: take the most recent
-
         if len(self._storage_status_history) > 0:
             soc_at_start = list(self._storage_status_history.values())[
                 -1
