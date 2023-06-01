@@ -415,3 +415,70 @@ async def test_get_sensors2() -> None:
             await flexmeasures_client.get_sensors()
 
     await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_and_get_schedule() -> None:
+    # todo: relies on https://github.com/pnuckowski/aioresponses/pull/237 to use repeat instead of 3 times the same aioresponse. # noqa: E501
+    with aioresponses() as m:
+        # m.get(
+        #     "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+        #     status=400,
+        #     payload={"message": "Scheduling job waiting"},
+        #     repeat=3
+        # )
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            status=200,
+            payload={"schedule": "schedule-uuid"},
+        )
+
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid",
+            status=400,
+            payload={"message": "Scheduling job waiting"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid",
+            status=400,
+            payload={"message": "Scheduling job waiting"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid",
+            status=400,
+            payload={"message": "Scheduling job waiting"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid",
+            status=200,
+            payload={
+                "values": [2.15, 3, 2],
+                "start": "2015-06-02T10:00:00+00:00",
+                "duration": "PT45M",
+                "unit": "MW",
+            },
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            request_timeout=2,
+            polling_interval=0.2,
+            access_token="skip-auth",
+        )
+
+        schedule = await flexmeasures_client.trigger_and_get_schedule(
+            sensor_id=1,
+            start="2015-06-02T10:00:00+00:00",
+            duration="PT45M",
+            soc_unit="MW",
+            soc_at_start=50,
+            soc_targets=[
+                {
+                    "value": 100,
+                    "datetime": "2023-03-03T11:00+02:00",
+                }
+            ],
+            consumption_price_sensor=3,
+        )
+    assert schedule["values"] == [2.15, 3, 2]
+    await flexmeasures_client.close()
