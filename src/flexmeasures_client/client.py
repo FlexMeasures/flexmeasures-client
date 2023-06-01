@@ -312,8 +312,20 @@ class FlexMeasuresClient:
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,
     ):
-        schedule_id = await self.trigger_storage_schedule(sensor_id=sensor_id, start=start, duration=duration, soc_unit=soc_unit, soc_at_start=soc_at_start, soc_targets=soc_targets, consumption_price_sensor=consumption_price_sensor, production_price_sensor=production_price_sensor, inflexible_device_sensors=inflexible_device_sensors)
+        schedule_id = await self.trigger_storage_schedule(
+            sensor_id=sensor_id,
+            start=start,
+            duration=duration,
+            soc_unit=soc_unit,
+            soc_at_start=soc_at_start,
+            soc_targets=soc_targets,
+            consumption_price_sensor=consumption_price_sensor,
+            production_price_sensor=production_price_sensor,
+            inflexible_device_sensors=inflexible_device_sensors,
+        )
 
-        schedule = await self.get_schedule(sensor_id=sensor_id, schedule_id=schedule_id, duration=duration)
+        schedule = await self.get_schedule(
+            sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
+        )
 
         return schedule
