@@ -299,3 +299,33 @@ class FlexMeasuresClient:
         response, status = await self.request(uri="sensors", method="GET")
         check_for_status(status, 200)
         return response
+
+    async def trigger_and_get_schedule(
+        self,
+        sensor_id: int,
+        start: str | datetime,
+        duration: str | timedelta,
+        soc_unit: str,
+        soc_at_start: float,
+        soc_targets: list | None = None,
+        consumption_price_sensor: int | None = None,
+        production_price_sensor: int | None = None,
+        inflexible_device_sensors: list[int] | None = None,
+    ):
+        schedule_id = await self.trigger_storage_schedule(
+            sensor_id=sensor_id,
+            start=start,
+            duration=duration,
+            soc_unit=soc_unit,
+            soc_at_start=soc_at_start,
+            soc_targets=soc_targets,
+            consumption_price_sensor=consumption_price_sensor,
+            production_price_sensor=production_price_sensor,
+            inflexible_device_sensors=inflexible_device_sensors,
+        )
+
+        schedule = await self.get_schedule(
+            sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
+        )
+
+        return schedule
