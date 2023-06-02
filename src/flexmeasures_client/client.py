@@ -244,12 +244,14 @@ class FlexMeasuresClient:
             "duration": pd.Timedelta(duration).isoformat(),
             "flex-model": {
                 "soc-unit": soc_unit,
-                "soc-max": soc_max,
                 "soc-at-start": soc_at_start,
                 "soc-targets": soc_targets,
             },
             "flex-context": {},
         }
+
+        if soc_max:
+            message["flex-model"]["soc-max"] = soc_max
 
         # Set optional flex context
         if consumption_price_sensor is not None:
