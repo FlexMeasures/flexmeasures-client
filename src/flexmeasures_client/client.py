@@ -329,3 +329,32 @@ class FlexMeasuresClient:
         )
 
         return schedule
+
+    async def get_sensor_data(
+        self,
+        sensor_id: int,
+        start: str | datetime,
+        duration: str | timedelta,
+        unit: str,
+        entity_address: str,
+        resolution: str | timedelta,
+    ):
+        """Post sensor data for the given time range."""
+        json = dict(
+            sensor=f"{entity_address}.{sensor_id}",
+            start=pd.Timestamp(
+                start
+            ).isoformat(),  # for example: 2021-10-13T00:00+02:00
+            duration=pd.Timedelta(duration).isoformat(),  # for example: PT1H
+            unit=unit,
+            resolution=resolution,
+        )
+
+        response, status = await self.request(
+            uri="sensors/data", method="GET", params=json
+        )
+        check_for_status(status, 200)
+
+        print(response)
+
+        return response

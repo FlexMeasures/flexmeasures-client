@@ -482,3 +482,44 @@ async def test_trigger_and_get_schedule() -> None:
         )
     assert schedule["values"] == [2.15, 3, 2]
     await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_sensor_data() -> None:
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        flexmeasures_client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/data?duration=P0DT0H45M0S&resolution=PT15M&sensor=ea1.2023-06.localhost%253Afm1.2&start=2023-06-01T10%253A00%253A00%252B02%253A00&unit=MW",  # noqa: E501
+            status=200,
+            payload={
+                "duration": "PT45M",
+                "message": "Request has been processed.",
+                "resolution": "PT15M",
+                "start": "2023-06-01T10:00:00+02:00",
+                "status": "PROCESSED",
+                "unit": "MW",
+                "values": [8.5, 8.5, 8.5],
+            },
+        )
+
+        sensor_id = 2
+        start = "2023-06-01T10:00:00+02:00"
+        duration = "PT45M"
+        unit = "MW"
+        entity_address = "ea1.2023-06.localhost:fm1"
+        resolution = "PT15M"
+
+        response = await flexmeasures_client.get_sensor_data(
+            sensor_id=sensor_id,
+            start=start,
+            duration=duration,
+            unit=unit,
+            entity_address=entity_address,
+            resolution=resolution,
+        )
+        assert response["values"] == [8.5, 8.5, 8.5]
+
+    await flexmeasures_client.close()
