@@ -246,15 +246,15 @@ class FlexMeasuresClient:
             "flex-model": {
                 "soc-unit": soc_unit,
                 "soc-at-start": soc_at_start,
-                "soc-max": soc_max,
-                "soc-min": soc_min,
                 "soc-targets": soc_targets,
             },
             "flex-context": {},
         }
 
-        if soc_max:
+        if soc_max is not None:
             message["flex-model"]["soc-max"] = soc_max
+        if soc_min is not None:
+            message["flex-model"]["soc-min"] = soc_min
 
         # Set optional flex context
         if consumption_price_sensor is not None:
