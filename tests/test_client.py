@@ -259,8 +259,10 @@ async def test_trigger_storage_schedule() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_schedule() -> None:
+async def test_get_schedule_polling() -> None:
     # todo: relies on https://github.com/pnuckowski/aioresponses/pull/237 to use repeat instead of 3 times the same aioresponse. # noqa: E501
+
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid?duration=P0DT0H45M0S"  # noqa 501
     with aioresponses() as m:
         # m.get(
         #     "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
@@ -269,22 +271,22 @@ async def test_get_schedule() -> None:
         #     repeat=3
         # )
         m.get(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+            url=url,
             status=400,
             payload={"message": "Scheduling job waiting"},
         )
         m.get(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+            url=url,
             status=400,
             payload={"message": "Scheduling job waiting"},
         )
         m.get(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+            url=url,
             status=400,
             payload={"message": "Scheduling job waiting"},
         )
         m.get(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+            url=url,
             status=200,
             payload={
                 "values": [2.15, 3, 2],
@@ -420,6 +422,8 @@ async def test_get_sensors2() -> None:
 @pytest.mark.asyncio
 async def test_trigger_and_get_schedule() -> None:
     # todo: relies on https://github.com/pnuckowski/aioresponses/pull/237 to use repeat instead of 3 times the same aioresponse. # noqa: E501
+
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid?duration=P0DT0H45M0S"  # noqa 501
     with aioresponses() as m:
         # m.get(
         #     "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
@@ -434,22 +438,22 @@ async def test_trigger_and_get_schedule() -> None:
         )
 
         m.get(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid",
+            url=url,
             status=400,
             payload={"message": "Scheduling job waiting"},
         )
         m.get(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid",
+            url=url,
             status=400,
             payload={"message": "Scheduling job waiting"},
         )
         m.get(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid",
+            url=url,
             status=400,
             payload={"message": "Scheduling job waiting"},
         )
         m.get(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid",
+            url=url,
             status=200,
             payload={
                 "values": [2.15, 3, 2],

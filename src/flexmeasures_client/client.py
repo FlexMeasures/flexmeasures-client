@@ -280,7 +280,7 @@ class FlexMeasuresClient:
         response, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
             method="GET",
-            json={
+            params={
                 "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
             },
         )
