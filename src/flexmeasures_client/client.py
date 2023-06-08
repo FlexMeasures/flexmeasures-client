@@ -228,6 +228,8 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         soc_unit: str,
         soc_at_start: float,
+        soc_max: float | None = None,
+        soc_min: float | None = None,
         soc_targets: list | None = None,
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
@@ -248,6 +250,11 @@ class FlexMeasuresClient:
             },
             "flex-context": {},
         }
+
+        if soc_max is not None:
+            message["flex-model"]["soc-max"] = soc_max
+        if soc_min is not None:
+            message["flex-model"]["soc-min"] = soc_min
 
         # Set optional flex context
         if consumption_price_sensor is not None:
@@ -307,6 +314,8 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         soc_unit: str,
         soc_at_start: float,
+        soc_max: float | None = None,
+        soc_min: float | None = None,
         soc_targets: list | None = None,
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
@@ -318,6 +327,8 @@ class FlexMeasuresClient:
             duration=duration,
             soc_unit=soc_unit,
             soc_at_start=soc_at_start,
+            soc_max=soc_max,
+            soc_min=soc_min,
             soc_targets=soc_targets,
             consumption_price_sensor=consumption_price_sensor,
             production_price_sensor=production_price_sensor,

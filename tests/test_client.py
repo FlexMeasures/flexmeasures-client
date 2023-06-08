@@ -224,6 +224,8 @@ async def test_trigger_storage_schedule() -> None:
             duration="PT12H",
             soc_unit="kWh",
             soc_at_start=50,
+            soc_max=400,
+            soc_min=20,
             soc_targets=[
                 {
                     "value": 100,
@@ -244,6 +246,8 @@ async def test_trigger_storage_schedule() -> None:
                 "flex-model": {
                     "soc-unit": "kWh",
                     "soc-at-start": 50,
+                    "soc-max": 400,
+                    "soc-min": 20,
                     "soc-targets": [
                         {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
                     ],
