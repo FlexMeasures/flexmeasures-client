@@ -29,7 +29,7 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
         pass
     elif status == 401:
         message = f"""Authentication failed with"
-        status: {status} 
+        status: {status}
         headers: {headers}
         payload: {payload}.
         Re-authenticating!
@@ -52,7 +52,7 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
         await asyncio.sleep(self.polling_interval)
     else:
         message = f"""
-        status: {status} 
+        status: {status}
         headers: {headers}
         payload: {payload}.
         """
