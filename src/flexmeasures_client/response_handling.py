@@ -22,11 +22,19 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
     status = response.status
     payload = await response.json()
     headers = response.headers
-    print(payload)
-    print(status)
+    logging.debug(status)
+    logging.debug(payload)
+    logging.debug(headers)
     if status < 300:
         pass
     elif status == 401:
+        message = f"""Authentication failed with"
+        status: {status} 
+        headers: {headers}
+        payload: {payload}.
+        Re-authenticating!
+        """
+        logging.info(message)
         await self.get_access_token()
         self.reauth_once = False
         # TODO fix reauth infinite loop issue.
@@ -43,6 +51,12 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
         polling_step += 1
         await asyncio.sleep(self.polling_interval)
     else:
+        message = f"""
+        status: {status} 
+        headers: {headers}
+        payload: {payload}.
+        """
+        logging.info(message)
         response.raise_for_status()
     return polling_step
 
