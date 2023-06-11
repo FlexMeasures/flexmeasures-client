@@ -290,7 +290,12 @@ class FlexMeasuresClient:
         """Get schedule with given ID.
 
         :returns: schedule as dictionary, for example:
-                  {'values': [2.15, 3, 2], 'start': '2015-06-02T10:00:00+00:00', 'duration': 'PT45M', 'unit': 'MW'}
+                  {
+                      'values': [2.15, 3, 2],
+                      'start': '2015-06-02T10:00:00+00:00',
+                      'duration': 'PT45M',
+                      'unit': 'MW'
+                  }
         """
         schedule, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
@@ -337,7 +342,12 @@ class FlexMeasuresClient:
         """Trigger a schedule and then fetch it.
 
         :returns: schedule as dictionary, for example:
-                  {'values': [2.15, 3, 2], 'start': '2015-06-02T10:00:00+00:00', 'duration': 'PT45M', 'unit': 'MW'}
+                  {
+                      'values': [2.15, 3, 2],
+                      'start': '2015-06-02T10:00:00+00:00',
+                      'duration': 'PT45M',
+                      'unit': 'MW'
+                  }
         """
         schedule_id = await self.trigger_storage_schedule(
             sensor_id=sensor_id,
@@ -370,7 +380,12 @@ class FlexMeasuresClient:
         """Post sensor data for the given time range.
 
         :returns: sensor data as dictionary, for example:
-                  {'values': [2.15, 3, 2], 'start': '2015-06-02T10:00:00+00:00', 'duration': 'PT45M', 'unit': 'MW'}
+                  {
+                      'values': [2.15, 3, 2],
+                      'start': '2015-06-02T10:00:00+00:00',
+                      'duration': 'PT45M',
+                      'unit': 'MW'
+                  }
         """
         json = dict(
             sensor=f"{entity_address}.{sensor_id}",
