@@ -26,10 +26,12 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
     print(status)
     if status < 300:
         pass
-    elif status == 401:
+    elif status == 401 and payload.get("status") == "UNAUTHORIZED":
         await self.get_access_token()
         self.reauth_once = False
         # TODO fix reauth infinite loop issue.
+    elif status in [401, 404]:
+        raise ValueError(" ,".join(payload.get("errors")))
     elif status == 503 and "Retry-After" in headers:
         polling_step += 1
         await asyncio.sleep(self.polling_interval)
