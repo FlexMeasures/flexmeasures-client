@@ -34,7 +34,7 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
         payload: {payload}.
         Re-authenticating!
         """
-        logging.info(message)
+        logging.debug(message)
         await self.get_access_token()
         self.reauth_once = False
         # TODO fix reauth infinite loop issue.
@@ -47,7 +47,7 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
     ):
         # can be removed in a later version GH issue #645 of the FlexMeasures repo
         message = f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."  # noqa: E501
-        logging.info(message)
+        logging.debug(message)
         polling_step += 1
         await asyncio.sleep(self.polling_interval)
     else:
@@ -56,7 +56,7 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
         headers: {headers}
         payload: {payload}.
         """
-        logging.info(message)
+        logging.error(message)
         response.raise_for_status()
     return polling_step
 

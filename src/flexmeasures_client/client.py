@@ -97,14 +97,18 @@ class FlexMeasuresClient:
         - the client polling timed out (as indicated by the client's self.polling_timeout)
         """  # noqa: E501
         url = self.build_url(uri, path=path)
+        headers = await self.get_headers(include_auth=include_auth)
+
         url_msg = f"url: {url}"
-        json_msg = f"url: {url}"
+        json_msg = f"payload: {json}"
         method_msg = f"method: {method}"
+        headers_msg = f"headers: {headers}"
         logging.debug(url_msg)
         logging.debug(json_msg)
         logging.debug(method_msg)
+        logging.debug(headers_msg)
 
-        headers = await self.get_headers(include_auth=include_auth)
+        
         self.start_session()
 
         polling_step = 0
@@ -126,7 +130,7 @@ class FlexMeasuresClient:
                                 break
                     except asyncio.TimeoutError:
                         message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {self.polling_interval} seconds..."  # noqa: E501
-                        logging.info(message)
+                        logging.debug(message)
                         polling_step += 1
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
@@ -361,6 +365,5 @@ class FlexMeasuresClient:
         )
         check_for_status(status, 200)
 
-        print(response)
 
         return response
