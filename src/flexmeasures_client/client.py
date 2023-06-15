@@ -33,12 +33,13 @@ class FlexMeasuresClient:
 
     password: str
     email: str
-    access_token: str = None
+    #access_token: str = None
     host: str = "localhost:5000"
     ssl: bool = False
     api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
     reauth_once: bool = True
+    unauthorized = False
 
     max_polling_steps: int = MAX_POLLING_STEPS
     polling_timeout: float = POLLING_TIMEOUT  # seconds
@@ -99,10 +100,13 @@ class FlexMeasuresClient:
         url = self.build_url(uri, path=path)
 
         headers = await self.get_headers(include_auth=include_auth)
+        print(headers)
+        print(url)
+        print(json)
         self.start_session()
 
-        polling_step = 0
-        self.reauth_once = True  # reset this counter once when starting polling
+        polling_step = 0 # reset this counter once when starting polling
+        self.reauth_once = True
         try:
             async with async_timeout.timeout(self.polling_timeout):
                 while polling_step < self.max_polling_steps:
@@ -154,7 +158,13 @@ class FlexMeasuresClient:
             json=json,
             ssl=self.ssl,
         )
-        polling_step = await check_response(self, response, polling_step)
+        task = asyncio.create_task(check_response(self, response, polling_step))
+        done, _ = await asyncio.wait([task])
+        for i in done:
+            polling_step = i.result()
+            print("result")
+            print(i.result())
+        #polling_step = await check_response(self, response, polling_step)
         return response
 
     def start_session(self):
@@ -189,6 +199,7 @@ class FlexMeasuresClient:
             },
             include_auth=False,
         )
+        print("setting access token")
         self.access_token = response["auth_token"]
 
     async def post_measurements(
@@ -369,3 +380,6 @@ class FlexMeasuresClient:
         print(response)
 
         return response
+
+    async def set_access_token(self, access_token):
+        self.access_token = access_token

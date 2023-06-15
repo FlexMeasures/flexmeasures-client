@@ -26,8 +26,10 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
     print(status)
     if status < 300:
         pass
+        # self.unauthorized = False
     elif status == 401 and payload.get("status") == "UNAUTHORIZED":
-        await self.get_access_token()
+        print(payload)
+        self.get_access_token()
         self.reauth_once = False
         # TODO fix reauth infinite loop issue.
     elif status in [401, 404]:

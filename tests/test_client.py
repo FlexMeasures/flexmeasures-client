@@ -531,3 +531,100 @@ async def test_get_sensor_data() -> None:
         assert response["values"] == [8.5, 8.5, 8.5]
 
     await flexmeasures_client.close()
+
+
+# @pytest.mark.parametrize(
+#     "email, password, access_token",  # noqa: E501
+#     [
+#         ("test@test.test", "password", None),
+#         ("test@test.test", "wrong_password", None),
+#         ("test@test.test", "password", "wrong_access_token"),
+#         ("wrong_email@test.test", "password", None),
+#     ],
+# )
+# @pytest.mark.asyncio
+# async def test_reauth(email, password, access_token) -> None:
+#     with aioresponses() as m:
+#         m.get(
+#             "http://localhost:5000/api/v3_0/sensors",
+#             status=401,
+#             payload={"status": "UNAUTHORIZED"},
+#         )
+#         m.post(
+#             "http://localhost:5000/api/requestAuthToken",
+#             status=200,
+#             payload={"auth_token": "test-token"},
+#         )
+#         flexmeasures_client = FlexMeasuresClient(
+#             email=email, password=password, access_token=access_token
+#         )
+
+#         await flexmeasures_client.get_sensors()
+
+#         m.assert_called_once_with(
+#             "http://localhost:5000/api/requestAuthToken",
+#             method="POST",
+#             json={"email": email, "password": password},
+#             headers={
+#                 "Content-Type": "application/json",
+#             },
+#             params=None,
+#             ssl=False,
+#         )
+#     await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_reauth_with_access_token() -> None:
+    with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=401,
+            payload={"status": "UNAUTHORIZED"},
+        )
+        m.post(
+            "http://localhost:5000/api/requestAuthToken",
+            status=200,
+            payload={"auth_token": "test-token"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=401,
+            payload={"status": "UNAUTHORIZED"},
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="password", access_token="wrong-token"
+        )
+
+        await flexmeasures_client.get_sensors()
+
+    await flexmeasures_client.close()
+
+
+@pytest.mark.parametrize(
+    "email, password, payload, error",  # noqa: E501
+    [
+        ("test@test.test", "wrong_password",{'errors': ['User password does not match.'], 'status': 401}, "User password does not match."),
+        ("wrong_email@test.test", "password", {'errors': ["User with email 'wrong_email@test.test' does not exist"], 'status': 404}, "User with email 'wrong_email@test.test' does not exist"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_reauth_wrong_cred(email, password, payload, error) -> None:
+    with aioresponses() as m:
+        m.post(
+            "http://localhost:5000/api/requestAuthToken",
+            status=401,
+            payload=payload,
+        )
+
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="password"
+        )
+
+        
+        with pytest.raises(
+            ValueError, match=error
+        ):
+            await flexmeasures_client.get_sensors()
+
+    await flexmeasures_client.close()
