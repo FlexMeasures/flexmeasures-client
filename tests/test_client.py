@@ -366,9 +366,9 @@ async def test_get_assets() -> None:
             ],
         )
 
-        response = await flexmeasures_client.get_assets()
-        assert len(response) == 1
-        assert response[0]["account_id"] == 2
+        assets = await flexmeasures_client.get_assets()
+        assert len(assets) == 1
+        assert assets[0]["account_id"] == 2
 
     await flexmeasures_client.close()
 
@@ -395,9 +395,9 @@ async def test_get_sensors() -> None:
             ],
         )
 
-        response = await flexmeasures_client.get_sensors()
-        assert len(response) == 1
-        assert response[0]["entity_address"] == "ea1.2023-06.localhost:fm1.2"
+        sensors = await flexmeasures_client.get_sensors()
+        assert len(sensors) == 1
+        assert sensors[0]["entity_address"] == "ea1.2023-06.localhost:fm1.2"
 
     await flexmeasures_client.close()
 
@@ -520,7 +520,7 @@ async def test_get_sensor_data() -> None:
         entity_address = "ea1.2023-06.localhost:fm1"
         resolution = "PT15M"
 
-        response = await flexmeasures_client.get_sensor_data(
+        sensor_data = await flexmeasures_client.get_sensor_data(
             sensor_id=sensor_id,
             start=start,
             duration=duration,
@@ -528,6 +528,6 @@ async def test_get_sensor_data() -> None:
             entity_address=entity_address,
             resolution=resolution,
         )
-        assert response["values"] == [8.5, 8.5, 8.5]
+        assert sensor_data["values"] == [8.5, 8.5, 8.5]
 
     await flexmeasures_client.close()
