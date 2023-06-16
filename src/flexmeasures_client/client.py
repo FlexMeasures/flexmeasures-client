@@ -101,9 +101,7 @@ class FlexMeasuresClient:
         """  # noqa: E501
         url = self.build_url(uri, path=path)
         await self.get_headers(include_auth=include_auth)
-        print(self.headers)
-        print(url)
-        print(json)
+
         self.start_session()
 
         polling_step = 0  # reset this counter once when starting polling
@@ -151,8 +149,7 @@ class FlexMeasuresClient:
         polling_step: int = 0,
     ):
         """Sends a single request to FlexMeasures and checks the response"""
-        print("====== HEADERS =========")
-        print(headers)
+
         response = await self.session.request(
             method=method,
             url=url,
@@ -161,13 +158,8 @@ class FlexMeasuresClient:
             json=json,
             ssl=self.ssl,
         )
-        task = asyncio.create_task(check_response(self, response, polling_step))
-        done, _ = await asyncio.wait([task])
-        for i in done:
-            polling_step = i.result()
-            print("result")
-            print(i.result())
-        # polling_step = await check_response(self, response, polling_step)
+
+        polling_step = await check_response(self, response, polling_step)
         return response
 
     def start_session(self):
@@ -195,7 +187,6 @@ class FlexMeasuresClient:
 
     async def get_access_token(self):
         """Get access token and store it on the FlexMeasuresClient."""
-        await self.get_headers(include_auth=False)
         response, _status = await self.request(
             uri="requestAuthToken",
             path="/api/",
@@ -205,7 +196,7 @@ class FlexMeasuresClient:
             },
             include_auth=False,
         )
-        print("setting access token")
+
         self.access_token = response["auth_token"]
 
     async def post_measurements(
@@ -383,9 +374,4 @@ class FlexMeasuresClient:
         )
         check_for_status(status, 200)
 
-        print(response)
-
         return response
-
-    async def set_access_token(self, access_token):
-        self.access_token = access_token

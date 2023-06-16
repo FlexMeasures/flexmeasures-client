@@ -22,13 +22,10 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
     status = response.status
     payload = await response.json()
     headers = response.headers
-    print(payload)
-    print(status)
     if status < 300:
         pass
         # self.unauthorized = False
     elif status == 401 and payload.get("status") == "UNAUTHORIZED":
-        print(payload)
         await self.get_access_token()
         await self.get_headers(include_auth=True)
         self.reauth_once = False
