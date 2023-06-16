@@ -589,14 +589,21 @@ async def test_reauth_with_access_token() -> None:
         )
         m.get(
             "http://localhost:5000/api/v3_0/sensors",
-            status=401,
-            payload={"status": "UNAUTHORIZED"},
+            status=200,
+            payload=[],
         )
         flexmeasures_client = FlexMeasuresClient(
             email="test@test.test", password="password", access_token="wrong-token"
         )
 
         await flexmeasures_client.get_sensors()
+        m.assert_called_once_with(
+            "http://localhost:5000/api/v3_0/sensors",
+            method="GET",
+            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            params=None,
+            ssl=False,
+        )
 
     await flexmeasures_client.close()
 
@@ -604,8 +611,21 @@ async def test_reauth_with_access_token() -> None:
 @pytest.mark.parametrize(
     "email, password, payload, error",  # noqa: E501
     [
-        ("test@test.test", "wrong_password",{'errors': ['User password does not match.'], 'status': 401}, "User password does not match."),
-        ("wrong_email@test.test", "password", {'errors': ["User with email 'wrong_email@test.test' does not exist"], 'status': 404}, "User with email 'wrong_email@test.test' does not exist"),
+        (
+            "test@test.test",
+            "wrong_password",
+            {"errors": ["User password does not match."], "status": 401},
+            "User password does not match.",
+        ),
+        (
+            "wrong_email@test.test",
+            "password",
+            {
+                "errors": ["User with email 'wrong_email@test.test' does not exist"],
+                "status": 404,
+            },
+            "User with email 'wrong_email@test.test' does not exist",
+        ),
     ],
 )
 @pytest.mark.asyncio
@@ -617,14 +637,9 @@ async def test_reauth_wrong_cred(email, password, payload, error) -> None:
             payload=payload,
         )
 
-        flexmeasures_client = FlexMeasuresClient(
-            email="test@test.test", password="password"
-        )
+        flexmeasures_client = FlexMeasuresClient(email=email, password=password)
 
-        
-        with pytest.raises(
-            ValueError, match=error
-        ):
+        with pytest.raises(ValueError, match=error):
             await flexmeasures_client.get_sensors()
 
     await flexmeasures_client.close()
