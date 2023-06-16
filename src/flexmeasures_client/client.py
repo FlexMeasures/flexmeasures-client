@@ -108,7 +108,6 @@ class FlexMeasuresClient:
         logging.debug(method_msg)
         logging.debug(headers_msg)
 
-        
         self.start_session()
 
         polling_step = 0
@@ -364,6 +363,5 @@ class FlexMeasuresClient:
             uri="sensors/data", method="GET", params=json
         )
         check_for_status(status, 200)
-
 
         return response
