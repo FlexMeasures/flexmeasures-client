@@ -149,7 +149,6 @@ class FlexMeasuresClient:
         polling_step: int = 0,
     ):
         """Sends a single request to FlexMeasures and checks the response"""
-
         response = await self.session.request(
             method=method,
             url=url,
@@ -158,7 +157,6 @@ class FlexMeasuresClient:
             json=json,
             ssl=self.ssl,
         )
-
         polling_step = await check_response(self, response, polling_step)
         return response
 
@@ -196,7 +194,6 @@ class FlexMeasuresClient:
             },
             include_auth=False,
         )
-
         self.access_token = response["auth_token"]
 
     async def post_measurements(
