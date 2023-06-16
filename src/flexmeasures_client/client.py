@@ -33,7 +33,7 @@ class FlexMeasuresClient:
 
     password: str
     email: str
-    #access_token: str = None
+    # access_token: str = None
     host: str = "localhost:5000"
     ssl: bool = False
     api_version: str = API_VERSION
@@ -105,7 +105,7 @@ class FlexMeasuresClient:
         print(json)
         self.start_session()
 
-        polling_step = 0 # reset this counter once when starting polling
+        polling_step = 0  # reset this counter once when starting polling
         self.reauth_once = True
         try:
             async with async_timeout.timeout(self.polling_timeout):
@@ -164,7 +164,7 @@ class FlexMeasuresClient:
             polling_step = i.result()
             print("result")
             print(i.result())
-        #polling_step = await check_response(self, response, polling_step)
+        # polling_step = await check_response(self, response, polling_step)
         return response
 
     def start_session(self):
