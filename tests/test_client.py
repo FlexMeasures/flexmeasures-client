@@ -74,6 +74,7 @@ def test__init__(
         "request_timeout": 20.0,
         "polling_interval": 10.0,
         "session": None,
+        "headers": {"Content-Type": "application/json"},
     }
     assert flexmeasures_client.__dict__ == assert_dict
 
@@ -597,12 +598,14 @@ async def test_reauth_with_access_token() -> None:
         )
 
         await flexmeasures_client.get_sensors()
-        m.assert_called_once_with(
+        m.assert_called_with(
             "http://localhost:5000/api/v3_0/sensors",
             method="GET",
             headers={"Content-Type": "application/json", "Authorization": "test-token"},
             params=None,
             ssl=False,
+            json=None,
+            allow_redirects=True,
         )
 
     await flexmeasures_client.close()

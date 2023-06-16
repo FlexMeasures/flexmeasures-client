@@ -40,6 +40,7 @@ class FlexMeasuresClient:
     path: str = f"/api/{api_version}/"
     reauth_once: bool = True
     access_token: str = None
+    headers: dict = None
 
     max_polling_steps: int = MAX_POLLING_STEPS
     polling_timeout: float = POLLING_TIMEOUT  # seconds
@@ -71,6 +72,7 @@ class FlexMeasuresClient:
             )
         if len(self.password) < 1:
             raise ValueError("password cannot be empty")
+        self.headers = CONTENT_TYPE_HEADERS
 
     async def close(self):
         """Function to close FlexMeasuresClient session when all requests are done"""
@@ -98,9 +100,8 @@ class FlexMeasuresClient:
         - the client polling timed out (as indicated by the client's self.polling_timeout)
         """  # noqa: E501
         url = self.build_url(uri, path=path)
-
-        headers = await self.get_headers(include_auth=include_auth)
-        print(headers)
+        await self.get_headers(include_auth=include_auth)
+        print(self.headers)
         print(url)
         print(json)
         self.start_session()
@@ -116,7 +117,7 @@ class FlexMeasuresClient:
                                 method=method,
                                 url=url,
                                 params=params,
-                                headers=headers,
+                                headers=self.headers,
                                 json=json,
                                 polling_step=polling_step,
                             )
@@ -150,6 +151,8 @@ class FlexMeasuresClient:
         polling_step: int = 0,
     ):
         """Sends a single request to FlexMeasures and checks the response"""
+        print("====== HEADERS =========")
+        print(headers)
         response = await self.session.request(
             method=method,
             url=url,
@@ -174,12 +177,14 @@ class FlexMeasuresClient:
 
     async def get_headers(self, include_auth: bool) -> dict:
         """Create HTTP headers dictionary with content type and, optionally, access token."""  # noqa: E501
-        headers = CONTENT_TYPE_HEADERS
+        self.headers = CONTENT_TYPE_HEADERS
         if include_auth:
             if self.access_token is None:
                 await self.get_access_token()
-            headers |= {"Authorization": self.access_token}
-        return headers
+            self.headers |= {"Authorization": self.access_token}
+        elif self.headers.get("Authorization"):
+            self.headers.pop("Authorization")
+        # return headers
 
     def build_url(self, uri: str, path: str = path):
         """Build url for request"""
@@ -190,6 +195,7 @@ class FlexMeasuresClient:
 
     async def get_access_token(self):
         """Get access token and store it on the FlexMeasuresClient."""
+        await self.get_headers(include_auth=False)
         response, _status = await self.request(
             uri="requestAuthToken",
             path="/api/",
