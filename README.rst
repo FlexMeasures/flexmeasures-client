@@ -40,6 +40,8 @@ The FlexMeasures Client provides a python package to connect to a `FlexMeasures 
 
 The Flexmeasures Client package provides functionality for authentication, posting sensor data, triggering schedules and retrieving schedules from a FlexMeasures instance through the API.
 
+As the Flexmeasures Client is still in active development and on version 0.1 it should me considered to be in beta.
+
 
 Getting Started
 ===============
@@ -73,18 +75,40 @@ Post a measurement from a sensor::
             entity_address=<sensor_entity_address>, # string
         )
 
-With FlexMeasures a schedule can be requested to optimize at what time the flexible assets can be activated to optimize for price of energy or emissions. The calculation of the schedule can take some time depending on the complexity of the calculations and therefore the requests have been split in a trigger for the schedule and a retrieve schedule call.
+With FlexMeasures a schedule can be requested to optimize at what time the flexible assets can be activated to optimize for price of energy or emissions.
+
+The calculation of the schedule can take some time depending on the complexity of the calculations. A polling function is used to check if a schedule is available after triggering the schedule.
+
+Trigger and retrieve a schedule::
+
+    schedule = await flexmeasures_client.trigger_and_get_schedule(
+            sensor_id=<sensor_id>, # int
+            start="2015-06-02T10:00:00+00:00", # iso datetime
+            duration="PT45M", # iso timedelta
+            soc_unit="MWh",
+            soc_at_start=50, # soc_units (MWh)
+            soc_targets=[
+                {
+                    "value": 100, # soc_units (MWh)
+                    "datetime": "2023-03-03T11:00+02:00", # iso datetime
+                }
+            ],
+            consumption_price_sensor=<consumption_price_sensor_id>, # int
+        )
+
+The trigger and get schedule function can also be separated to trigger the schedule first and later retrieve the schedule using the ``schedule_uuid``.
+
 Trigger a schedule::
 
     schedule_uuid = await flexmeasures_client.trigger_storage_schedule(
             sensor_id=<sensor_id>, # int
             start="2023-03-26T10:00+02:00", # iso datetime
-            duration="PT12H", #iso timedelta
+            duration="PT12H", # iso timedelta
             soc_unit="kWh",
-            soc_at_start=50, #soc_units (kWh)
+            soc_at_start=50, # soc_units (kWh)
             soc_targets=[
                 {
-                    "value": 100, #soc_units (kWh)
+                    "value": 100, # soc_units (kWh)
                     "datetime": "2023-03-03T11:00+02:00", # iso datetime
                 }
             ],
