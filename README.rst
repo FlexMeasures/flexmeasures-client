@@ -40,7 +40,7 @@ The FlexMeasures Client provides a python package to connect to a `FlexMeasures 
 
 The Flexmeasures Client package provides functionality for authentication, posting sensor data, triggering schedules and retrieving schedules from a FlexMeasures instance through the API.
 
-As the Flexmeasures Client is still in active development and on version 0.1 it should be considered in beta. 
+As the Flexmeasures Client is still in active development and on version 0.1 it should be considered in beta.
 
 
 Getting Started
