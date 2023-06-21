@@ -74,7 +74,6 @@ def test__init__(
         "request_timeout": 20.0,
         "polling_interval": 10.0,
         "session": None,
-        "headers": {"Content-Type": "application/json"},
     }
     assert flexmeasures_client.__dict__ == assert_dict
 

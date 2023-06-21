@@ -26,7 +26,6 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int) 
         pass
     elif status == 401 and payload.get("status") == "UNAUTHORIZED":
         await self.get_access_token()
-        await self.get_headers(include_auth=True)
         self.reauth_once = False
     elif status == 503 and "Retry-After" in headers:
         polling_step += 1

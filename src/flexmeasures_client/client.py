@@ -39,7 +39,6 @@ class FlexMeasuresClient:
     path: str = f"/api/{api_version}/"
     reauth_once: bool = True
     access_token: str = None
-    headers: dict = None
 
     max_polling_steps: int = MAX_POLLING_STEPS
     polling_timeout: float = POLLING_TIMEOUT  # seconds
@@ -71,7 +70,6 @@ class FlexMeasuresClient:
             )
         if len(self.password) < 1:
             raise ValueError("password cannot be empty")
-        self.headers = CONTENT_TYPE_HEADERS
 
     async def close(self):
         """Function to close FlexMeasuresClient session when all requests are done"""
@@ -99,7 +97,6 @@ class FlexMeasuresClient:
         - the client polling timed out (as indicated by the client's self.polling_timeout)
         """  # noqa: E501
         url = self.build_url(uri, path=path)
-        await self.get_headers(include_auth=include_auth)
 
         self.start_session()
 
@@ -108,13 +105,14 @@ class FlexMeasuresClient:
         try:
             async with async_timeout.timeout(self.polling_timeout):
                 while polling_step < self.max_polling_steps:
+                    headers = await self.get_headers(include_auth=include_auth)
                     try:
                         async with async_timeout.timeout(self.request_timeout):
                             response, polling_step = await self.request_once(
                                 method=method,
                                 url=url,
                                 params=params,
-                                headers=self.headers,
+                                headers=headers,
                                 json=json,
                                 polling_step=polling_step,
                             )
@@ -166,13 +164,12 @@ class FlexMeasuresClient:
 
     async def get_headers(self, include_auth: bool):
         """Create HTTP headers dictionary with content type and, optionally, access token."""  # noqa: E501
-        self.headers = CONTENT_TYPE_HEADERS
+        headers = CONTENT_TYPE_HEADERS
         if include_auth:
             if self.access_token is None:
                 await self.get_access_token()
-            self.headers |= {"Authorization": self.access_token}
-        elif self.headers.get("Authorization"):
-            self.headers.pop("Authorization")
+            headers |= {"Authorization": self.access_token}
+        return headers
 
     def build_url(self, uri: str, path: str = path) -> URL:
         """Build url for request"""
