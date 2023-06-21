@@ -29,7 +29,6 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
         await self.get_access_token()
         await self.get_headers(include_auth=True)
         self.reauth_once = False
-        # TODO fix reauth infinite loop issue.
     elif status in [401, 404]:
         raise ValueError(" ,".join(payload.get("errors")))
     elif status == 503 and "Retry-After" in headers:

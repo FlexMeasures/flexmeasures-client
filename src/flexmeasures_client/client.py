@@ -33,7 +33,6 @@ class FlexMeasuresClient:
 
     password: str
     email: str
-    # access_token: str = None
     host: str = "localhost:5000"
     ssl: bool = False
     api_version: str = API_VERSION
@@ -165,7 +164,7 @@ class FlexMeasuresClient:
         if self.session is None:
             self.session = ClientSession()
 
-    async def get_headers(self, include_auth: bool) -> dict:
+    async def get_headers(self, include_auth: bool):
         """Create HTTP headers dictionary with content type and, optionally, access token."""  # noqa: E501
         self.headers = CONTENT_TYPE_HEADERS
         if include_auth:
@@ -174,7 +173,6 @@ class FlexMeasuresClient:
             self.headers |= {"Authorization": self.access_token}
         elif self.headers.get("Authorization"):
             self.headers.pop("Authorization")
-        # return headers
 
     def build_url(self, uri: str, path: str = path):
         """Build url for request"""
