@@ -12,7 +12,9 @@ if TYPE_CHECKING:  # Only imports the below statements during type checking
     from flexmeasures_client.client import FlexMeasuresClient
 
 
-async def check_response(self: FlexMeasuresClient, response, polling_step: int) -> int:
+async def check_response(
+    self: FlexMeasuresClient, response, polling_step: int, reauth_once: bool
+) -> tuple[int, bool]:
     """
     <300: passes
     401: reauthenticate
@@ -24,9 +26,9 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int) 
     headers = response.headers
     if status < 300:
         pass
-    elif status == 401 and payload.get("status") == "UNAUTHORIZED":
+    elif status == 401 and reauth_once:
         await self.get_access_token()
-        self.reauth_once = False
+        reauth_once = False
     elif status == 503 and "Retry-After" in headers:
         polling_step += 1
         await asyncio.sleep(self.polling_interval)
@@ -45,7 +47,7 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int) 
     else:
         # otherwise, raise if the status does not indicate okay
         response.raise_for_status()
-    return polling_step
+    return polling_step, reauth_once
 
 
 def check_content_type(response):

@@ -101,20 +101,26 @@ class FlexMeasuresClient:
         self.start_session()
 
         polling_step = 0  # reset this counter once when starting polling
-        self.reauth_once = True
+        # we allow retrying once if we include authentication headers
+        reauth_once = self.reauth_once if include_auth else False
         try:
             async with async_timeout.timeout(self.polling_timeout):
                 while polling_step < self.max_polling_steps:
                     headers = await self.get_headers(include_auth=include_auth)
                     try:
                         async with async_timeout.timeout(self.request_timeout):
-                            response, polling_step = await self.request_once(
+                            (
+                                response,
+                                polling_step,
+                                reauth_once,
+                            ) = await self.request_once(
                                 method=method,
                                 url=url,
                                 params=params,
                                 headers=headers,
                                 json=json,
                                 polling_step=polling_step,
+                                reauth_once=reauth_once,
                             )
                             if response.status < 300:
                                 break
@@ -144,7 +150,8 @@ class FlexMeasuresClient:
         headers: dict | None = None,
         json: dict | None = None,
         polling_step: int = 0,
-    ) -> tuple[ClientResponse, int]:
+        reauth_once: bool = True,
+    ) -> tuple[ClientResponse, int, bool]:
         """Sends a single request to FlexMeasures and checks the response"""
         response = await self.session.request(
             method=method,
@@ -154,8 +161,10 @@ class FlexMeasuresClient:
             json=json,
             ssl=self.ssl,
         )
-        polling_step = await check_response(self, response, polling_step)
-        return response, polling_step
+        polling_step, reauth_once = await check_response(
+            self, response, polling_step, reauth_once
+        )
+        return response, polling_step, reauth_once
 
     def start_session(self):
         """If there is no session, start one"""
