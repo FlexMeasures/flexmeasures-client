@@ -110,7 +110,7 @@ class FlexMeasuresClient:
                 while polling_step < self.max_polling_steps:
                     try:
                         async with async_timeout.timeout(self.request_timeout):
-                            response = await self.request_once(
+                            response, polling_step = await self.request_once(
                                 method=method,
                                 url=url,
                                 params=params,
@@ -157,7 +157,7 @@ class FlexMeasuresClient:
             ssl=self.ssl,
         )
         polling_step = await check_response(self, response, polling_step)
-        return response
+        return response, polling_step
 
     def start_session(self):
         """If there is no session, start one"""
