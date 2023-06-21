@@ -141,7 +141,7 @@ class FlexMeasuresClient:
     async def request_once(
         self,
         method: str,
-        url: str,
+        url: URL,
         params: dict[str, Any] | None = None,
         headers: dict | None = None,
         json: dict | None = None,
@@ -174,7 +174,7 @@ class FlexMeasuresClient:
         elif self.headers.get("Authorization"):
             self.headers.pop("Authorization")
 
-    def build_url(self, uri: str, path: str = path):
+    def build_url(self, uri: str, path: str = path) -> URL:
         """Build url for request"""
         url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
             URL(uri),
