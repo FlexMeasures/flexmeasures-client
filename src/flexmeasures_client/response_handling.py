@@ -12,7 +12,7 @@ if TYPE_CHECKING:  # Only imports the below statements during type checking
     from flexmeasures_client.client import FlexMeasuresClient
 
 
-async def check_response(self: FlexMeasuresClient, response, polling_step: int):
+async def check_response(self: FlexMeasuresClient, response, polling_step: int) -> int:
     """
     <300: passes
     401: reauthenticate

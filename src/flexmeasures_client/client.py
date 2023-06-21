@@ -10,7 +10,7 @@ from typing import Any, cast
 
 import async_timeout
 import pandas as pd
-from aiohttp.client import ClientError, ClientSession
+from aiohttp.client import ClientError, ClientSession, ClientResponse
 from yarl import URL
 
 from flexmeasures_client.constants import API_VERSION, CONTENT_TYPE_HEADERS
@@ -146,7 +146,7 @@ class FlexMeasuresClient:
         headers: dict | None = None,
         json: dict | None = None,
         polling_step: int = 0,
-    ):
+    ) -> tuple[ClientResponse, int]:
         """Sends a single request to FlexMeasures and checks the response"""
         response = await self.session.request(
             method=method,
