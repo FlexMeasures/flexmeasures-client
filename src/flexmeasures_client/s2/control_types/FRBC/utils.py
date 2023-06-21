@@ -3,9 +3,12 @@ from math import isclose
 from typing import List
 
 import pandas as pd
-from python_s2_protocol.FRBC.messages import FRBCInstruction, FRBCSystemDescription
-from python_s2_protocol.FRBC.schemas import FRBCOperationMode
 
+from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
+    FRBCInstruction,
+    FRBCSystemDescription,
+)
+from flexmeasures_client.s2.python_s2_protocol.FRBC.schemas import FRBCOperationMode
 from flexmeasures_client.s2.utils import get_unique_id
 
 

@@ -2,14 +2,17 @@ from asyncio import Queue
 from typing import cast
 
 from pydantic import BaseModel
-from python_s2_protocol.common.messages import (
-    InstructionStatus,
-    InstructionStatusUpdate,
-)
-from python_s2_protocol.common.schemas import ControlType, ReceptionStatusValues
 
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2 import Handler, register
+from flexmeasures_client.s2.python_s2_protocol.common.messages import (
+    InstructionStatus,
+    InstructionStatusUpdate,
+)
+from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
+    ControlType,
+    ReceptionStatusValues,
+)
 from flexmeasures_client.s2.utils import SizeLimitOrderedDict, get_reception_status
 
 
