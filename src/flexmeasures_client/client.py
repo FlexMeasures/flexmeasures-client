@@ -10,7 +10,7 @@ from typing import Any
 
 import async_timeout
 import pandas as pd
-from aiohttp.client import ClientError, ClientSession
+from aiohttp.client import ClientError, ClientResponse, ClientSession
 from yarl import URL
 
 from flexmeasures_client.constants import API_VERSION, CONTENT_TYPE_HEADERS
@@ -33,12 +33,11 @@ class FlexMeasuresClient:
 
     password: str
     email: str
-    access_token: str = None
     host: str = "localhost:5000"
     ssl: bool = False
     api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
-    reauth_once: bool = True
+    access_token: str = None
 
     max_polling_steps: int = MAX_POLLING_STEPS
     polling_timeout: float = POLLING_TIMEOUT  # seconds
@@ -98,23 +97,29 @@ class FlexMeasuresClient:
         """  # noqa: E501
         url = self.build_url(uri, path=path)
 
-        headers = await self.get_headers(include_auth=include_auth)
         self.start_session()
 
-        polling_step = 0
-        self.reauth_once = True  # reset this counter once when starting polling
+        polling_step = 0  # reset this counter once when starting polling
+        # we allow retrying once if we include authentication headers
+        reauth_once = True if include_auth else False
         try:
             async with async_timeout.timeout(self.polling_timeout):
                 while polling_step < self.max_polling_steps:
+                    headers = await self.get_headers(include_auth=include_auth)
                     try:
                         async with async_timeout.timeout(self.request_timeout):
-                            response = await self.request_once(
+                            (
+                                response,
+                                polling_step,
+                                reauth_once,
+                            ) = await self.request_once(
                                 method=method,
                                 url=url,
                                 params=params,
                                 headers=headers,
                                 json=json,
                                 polling_step=polling_step,
+                                reauth_once=reauth_once,
                             )
                             if response.status < 300:
                                 break
@@ -139,12 +144,13 @@ class FlexMeasuresClient:
     async def request_once(
         self,
         method: str,
-        url: str,
+        url: URL,
         params: dict[str, Any] | None = None,
         headers: dict | None = None,
         json: dict | None = None,
         polling_step: int = 0,
-    ):
+        reauth_once: bool = True,
+    ) -> tuple[ClientResponse, int, bool]:
         """Sends a single request to FlexMeasures and checks the response"""
         response = await self.session.request(
             method=method,
@@ -154,8 +160,10 @@ class FlexMeasuresClient:
             json=json,
             ssl=self.ssl,
         )
-        polling_step = await check_response(self, response, polling_step)
-        return response
+        polling_step, reauth_once = await check_response(
+            self, response, polling_step, reauth_once
+        )
+        return response, polling_step, reauth_once
 
     def start_session(self):
         """If there is no session, start one"""
@@ -171,7 +179,7 @@ class FlexMeasuresClient:
             headers |= {"Authorization": self.access_token}
         return headers
 
-    def build_url(self, uri: str, path: str = path):
+    def build_url(self, uri: str, path: str = path) -> URL:
         """Build url for request"""
         url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
             URL(uri),
