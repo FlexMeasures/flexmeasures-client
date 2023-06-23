@@ -10,7 +10,7 @@ from typing import Any
 
 import async_timeout
 import pandas as pd
-from aiohttp.client import ClientError, ClientSession, ClientResponse
+from aiohttp.client import ClientError, ClientResponse, ClientSession
 from yarl import URL
 
 from flexmeasures_client.constants import API_VERSION, CONTENT_TYPE_HEADERS
