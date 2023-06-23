@@ -69,7 +69,6 @@ def test__init__(
         "ssl": asserted_ssl,
         "api_version": asserted_version,
         "path": "/api/v3_0/",
-        "reauth_once": True,
         "max_polling_steps": 10,
         "polling_timeout": 200.0,
         "request_timeout": 20.0,
@@ -535,10 +534,7 @@ async def test_get_sensor_data() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "reauth_once", [True, False]
-)
-async def test_reauth_with_access_token(reauth_once: bool) -> None:
+async def test_reauth_with_access_token() -> None:
     with aioresponses() as m:
         m.get(
             "http://localhost:5000/api/v3_0/sensors",
@@ -556,23 +552,19 @@ async def test_reauth_with_access_token(reauth_once: bool) -> None:
             payload=[],
         )
         flexmeasures_client = FlexMeasuresClient(
-            email="test@test.test", password="password", access_token="wrong-token", reauth_once=reauth_once
+            email="test@test.test", password="password", access_token="wrong-token"
         )
 
-        if reauth_once:
-            await flexmeasures_client.get_sensors()
-            m.assert_called_with(
-                "http://localhost:5000/api/v3_0/sensors",
-                method="GET",
-                headers={"Content-Type": "application/json", "Authorization": "test-token"},
-                params=None,
-                ssl=False,
-                json=None,
-                allow_redirects=True,
-            )
-        else:
-            with pytest.raises(ConnectionError):
-                await flexmeasures_client.get_sensors()
+        await flexmeasures_client.get_sensors()
+        m.assert_called_with(
+            "http://localhost:5000/api/v3_0/sensors",
+            method="GET",
+            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            params=None,
+            ssl=False,
+            json=None,
+            allow_redirects=True,
+        )
 
     await flexmeasures_client.close()
 

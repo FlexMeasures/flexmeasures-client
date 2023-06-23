@@ -37,7 +37,6 @@ class FlexMeasuresClient:
     ssl: bool = False
     api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
-    reauth_once: bool = True
     access_token: str = None
 
     max_polling_steps: int = MAX_POLLING_STEPS
@@ -102,7 +101,7 @@ class FlexMeasuresClient:
 
         polling_step = 0  # reset this counter once when starting polling
         # we allow retrying once if we include authentication headers
-        reauth_once = self.reauth_once if include_auth else False
+        reauth_once = True if include_auth else False
         try:
             async with async_timeout.timeout(self.polling_timeout):
                 while polling_step < self.max_polling_steps:
