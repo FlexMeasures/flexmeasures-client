@@ -6,7 +6,7 @@ import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 import async_timeout
 import pandas as pd
@@ -83,7 +83,7 @@ class FlexMeasuresClient:
         path: str = path,
         params: dict[str, Any] | None = None,
         include_auth: bool = True,
-    ) -> tuple[dict, int]:
+    ) -> tuple[dict | list, int]:
         """Send a request to FlexMeasures.
 
         Retries if:
@@ -139,7 +139,7 @@ class FlexMeasuresClient:
 
         check_content_type(response)
 
-        return cast(dict[str, Any], await response.json()), response.status
+        return await response.json(), response.status
 
     async def request_once(
         self,
@@ -170,7 +170,7 @@ class FlexMeasuresClient:
         if self.session is None:
             self.session = ClientSession()
 
-    async def get_headers(self, include_auth: bool):
+    async def get_headers(self, include_auth: bool) -> dict:
         """Create HTTP headers dictionary with content type and, optionally, access token."""  # noqa: E501
         headers = CONTENT_TYPE_HEADERS
         if include_auth:
@@ -243,7 +243,10 @@ class FlexMeasuresClient:
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,
     ) -> str:
-        """Post schedule trigger with initial and target states of charge (soc)."""
+        """Post schedule trigger with initial and target states of charge (soc).
+
+        :returns: schedule ID (a UUID string)
+        """
         if not soc_targets:
             soc_targets = []
         message = {
@@ -283,16 +286,26 @@ class FlexMeasuresClient:
         check_for_status(status, 200)
         logging.info("Schedule triggered successfully.")
 
-        return response.get("schedule")
+        schedule_id: str = response.get("schedule")
+        return schedule_id
 
     async def get_schedule(
         self,
         sensor_id: int,
         schedule_id: str,
         duration: str | timedelta,
-    ):
-        """Get schedule with given ID."""
-        response, status = await self.request(
+    ) -> dict:
+        """Get schedule with given ID.
+
+        :returns: schedule as dictionary, for example:
+                  {
+                      'values': [2.15, 3, 2],
+                      'start': '2015-06-02T10:00:00+00:00',
+                      'duration': 'PT45M',
+                      'unit': 'MW'
+                  }
+        """
+        schedule, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
             method="GET",
             params={
@@ -300,20 +313,25 @@ class FlexMeasuresClient:
             },
         )
         check_for_status(status, 200)
+        return schedule
 
-        return response
+    async def get_assets(self) -> list[dict]:
+        """Get all the assets available to the current user.
 
-    async def get_assets(self):
-        """Get all the assets available to the current user"""
-        response, status = await self.request(uri="assets", method="GET")
+        :returns: list of assets as dictionaries
+        """
+        assets, status = await self.request(uri="assets", method="GET")
         check_for_status(status, 200)
-        return response
+        return assets
 
-    async def get_sensors(self):
-        """Get all the sensors available to the current user"""
-        response, status = await self.request(uri="sensors", method="GET")
+    async def get_sensors(self) -> list[dict]:
+        """Get all the sensors available to the current user.
+
+        :returns: list of sensors as dictionaries
+        """
+        sensors, status = await self.request(uri="sensors", method="GET")
         check_for_status(status, 200)
-        return response
+        return sensors
 
     async def trigger_and_get_schedule(
         self,
@@ -328,7 +346,17 @@ class FlexMeasuresClient:
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,
-    ):
+    ) -> dict:
+        """Trigger a schedule and then fetch it.
+
+        :returns: schedule as dictionary, for example:
+                  {
+                      'values': [2.15, 3, 2],
+                      'start': '2015-06-02T10:00:00+00:00',
+                      'duration': 'PT45M',
+                      'unit': 'MW'
+                  }
+        """
         schedule_id = await self.trigger_storage_schedule(
             sensor_id=sensor_id,
             start=start,
@@ -346,7 +374,6 @@ class FlexMeasuresClient:
         schedule = await self.get_schedule(
             sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
         )
-
         return schedule
 
     async def get_sensor_data(
@@ -357,8 +384,17 @@ class FlexMeasuresClient:
         unit: str,
         entity_address: str,
         resolution: str | timedelta,
-    ):
-        """Post sensor data for the given time range."""
+    ) -> dict:
+        """Post sensor data for the given time range.
+
+        :returns: sensor data as dictionary, for example:
+                  {
+                      'values': [2.15, 3, 2],
+                      'start': '2015-06-02T10:00:00+00:00',
+                      'duration': 'PT45M',
+                      'unit': 'MW'
+                  }
+        """
         json = dict(
             sensor=f"{entity_address}.{sensor_id}",
             start=pd.Timestamp(
@@ -373,5 +409,6 @@ class FlexMeasuresClient:
             uri="sensors/data", method="GET", params=json
         )
         check_for_status(status, 200)
-
-        return response
+        data_fields = ("values", "start", "duration", "unit")
+        sensor_data = {k: v for k, v in response.items() if k in data_fields}
+        return sensor_data
