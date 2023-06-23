@@ -1,7 +1,6 @@
 import asyncio
 
 import pytest
-from aiohttp import ClientResponseError
 from aioresponses import CallbackResult, aioresponses
 
 from flexmeasures_client.client import FlexMeasuresClient
