@@ -1,9 +1,10 @@
 from datetime import timedelta
 
-from python_s2_protocol.FRBC.messages import FRBCSystemDescription
-
 from flexmeasures_client.s2.control_types.FRBC import FRBC
 from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
+from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
+    FRBCSystemDescription,
+)
 
 
 class FRBCSimple(FRBC):

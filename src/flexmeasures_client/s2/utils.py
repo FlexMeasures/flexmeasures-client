@@ -3,8 +3,11 @@ from typing import Mapping, TypeVar
 from uuid import uuid4
 
 import pydantic
-from python_s2_protocol.common.messages import ReceptionStatus
-from python_s2_protocol.common.schemas import ReceptionStatusValues
+
+from flexmeasures_client.s2.python_s2_protocol.common.messages import ReceptionStatus
+from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
+    ReceptionStatusValues,
+)
 
 KT = TypeVar("KT")
 VT = TypeVar("VT")
