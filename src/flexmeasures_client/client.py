@@ -99,15 +99,6 @@ class FlexMeasuresClient:
         url = self.build_url(uri, path=path)
         headers = await self.get_headers(include_auth=include_auth)
 
-        url_msg = f"url: {url}"
-        json_msg = f"payload: {json}"
-        method_msg = f"method: {method}"
-        headers_msg = f"headers: {headers}"
-        logging.debug(url_msg)
-        logging.debug(json_msg)
-        logging.debug(method_msg)
-        logging.debug(headers_msg)
-
         self.start_session()
 
         polling_step = 0
@@ -154,6 +145,17 @@ class FlexMeasuresClient:
         json: dict | None = None,
         polling_step: int = 0,
     ):
+        url_msg = f"url: {url}"
+        json_msg = f"payload: {json}"
+        params_msg = f"params: {params}"
+        method_msg = f"method: {method}"
+        headers_msg = f"headers: {headers}"
+        logging.debug("===== Request =====")
+        logging.debug(url_msg)
+        logging.debug(json_msg)
+        logging.debug(params_msg)
+        logging.debug(method_msg)
+        logging.debug(headers_msg)
         """Sends a single request to FlexMeasures and checks the response"""
         response = await self.session.request(
             method=method,
@@ -163,6 +165,11 @@ class FlexMeasuresClient:
             json=json,
             ssl=self.ssl,
         )
+        payload = await response.json()
+        logging.debug("===== Response =====")
+        logging.debug(response.status)
+        logging.debug(payload)
+        logging.debug(response.headers)
         polling_step = await check_response(self, response, polling_step)
         return response
 

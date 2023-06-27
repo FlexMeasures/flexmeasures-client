@@ -22,9 +22,6 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
     status = response.status
     payload = await response.json()
     headers = response.headers
-    logging.debug(status)
-    logging.debug(payload)
-    logging.debug(headers)
     if status < 300:
         pass
     elif status == 401:
