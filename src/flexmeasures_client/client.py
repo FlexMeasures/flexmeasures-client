@@ -156,6 +156,7 @@ class FlexMeasuresClient:
         logging.debug(params_msg)
         logging.debug(method_msg)
         logging.debug(headers_msg)
+        logging.debug("=" * 14)
         """Sends a single request to FlexMeasures and checks the response"""
         response = await self.session.request(
             method=method,
@@ -166,10 +167,15 @@ class FlexMeasuresClient:
             ssl=self.ssl,
         )
         payload = await response.json()
+        status_msg = f"status: {response.status}"
+        response_payload_msg = f"payload: {payload}"
+        headers_msg = f"headers: {response.headers}"
+
         logging.debug("===== Response =====")
-        logging.debug(response.status)
-        logging.debug(payload)
-        logging.debug(response.headers)
+        logging.debug(status_msg)
+        logging.debug(response_payload_msg)
+        logging.debug(headers_msg)
+        logging.debug("=" * 14)
         polling_step = await check_response(self, response, polling_step)
         return response
 
