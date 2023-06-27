@@ -183,7 +183,6 @@ class FlexMeasuresClient:
         logging.debug(response_payload_msg)
         logging.debug(headers_msg)
         logging.debug("=" * 14)
-        polling_step = await check_response(self, response, polling_step)
 
         polling_step, reauth_once = await check_response(
             self, response, polling_step, reauth_once
