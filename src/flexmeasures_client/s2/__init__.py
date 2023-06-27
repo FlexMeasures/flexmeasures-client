@@ -7,12 +7,12 @@ from dataclasses import dataclass
 from typing import Callable, Dict, Type
 
 import pydantic
-from python_s2_protocol.common.messages import (
+
+from flexmeasures_client.s2.python_s2_protocol.common.messages import (
     ReceptionStatus,
     ReceptionStatusValues,
     RevokeObject,
 )
-
 from flexmeasures_client.s2.utils import (
     SizeLimitOrderedDict,
     get_message_id,

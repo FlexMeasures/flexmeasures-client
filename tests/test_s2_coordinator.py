@@ -1,14 +1,17 @@
 from datetime import datetime
 
 import pytest
-from python_s2_protocol.common.messages import (
+
+from flexmeasures_client.s2.cem import CEM
+from flexmeasures_client.s2.control_types.FRBC import FRBCTest
+from flexmeasures_client.s2.python_s2_protocol.common.messages import (
     EnergyManagementRole,
     Handshake,
     ReceptionStatus,
     ReceptionStatusValues,
     ResourceManagerDetails,
 )
-from python_s2_protocol.common.schemas import (
+from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
     Commodity,
     CommodityQuantity,
     ControlType,
@@ -18,16 +21,15 @@ from python_s2_protocol.common.schemas import (
     Role,
     RoleType,
 )
-from python_s2_protocol.FRBC.messages import FRBCSystemDescription
-from python_s2_protocol.FRBC.schemas import (
+from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
+    FRBCSystemDescription,
+)
+from flexmeasures_client.s2.python_s2_protocol.FRBC.schemas import (
     FRBCActuatorDescription,
     FRBCOperationMode,
     FRBCOperationModeElement,
     FRBCStorageDescription,
 )
-
-from flexmeasures_client.s2.cem import CEM
-from flexmeasures_client.s2.control_types.FRBC import FRBCTest
 from flexmeasures_client.s2.utils import get_unique_id
 
 

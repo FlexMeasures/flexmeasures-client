@@ -1,9 +1,14 @@
 import asyncio
 
 import pydantic
-from python_s2_protocol.common.messages import ReceptionStatusValues
-from python_s2_protocol.common.schemas import ControlType
-from python_s2_protocol.FRBC.messages import (
+
+from flexmeasures_client.s2 import SizeLimitOrderedDict, register
+from flexmeasures_client.s2.control_types import ControlTypeHandler
+from flexmeasures_client.s2.python_s2_protocol.common.messages import (
+    ReceptionStatusValues,
+)
+from flexmeasures_client.s2.python_s2_protocol.common.schemas import ControlType
+from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
     FRBCActuatorStatus,
     FRBCFillLevelTargetProfile,
     FRBCInstruction,
@@ -13,9 +18,6 @@ from python_s2_protocol.FRBC.messages import (
     FRBCTimerStatus,
     FRBCUsageForecast,
 )
-
-from flexmeasures_client.s2 import SizeLimitOrderedDict, register
-from flexmeasures_client.s2.control_types import ControlTypeHandler
 from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
 
 

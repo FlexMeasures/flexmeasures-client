@@ -12,7 +12,9 @@ if TYPE_CHECKING:  # Only imports the below statements during type checking
     from flexmeasures_client.client import FlexMeasuresClient
 
 
-async def check_response(self: FlexMeasuresClient, response, polling_step: int):
+async def check_response(
+    self: FlexMeasuresClient, response, polling_step: int, reauth_once: bool
+) -> tuple[int, bool]:
     """
     <300: passes
     401: reauthenticate
@@ -24,7 +26,7 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
     headers = response.headers
     if status < 300:
         pass
-    elif status == 401:
+    elif status == 401 and reauth_once:
         message = f"""Authentication failed with"
         status: {status}
         headers: {headers}
@@ -33,8 +35,7 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
         """
         logging.debug(message)
         await self.get_access_token()
-        self.reauth_once = False
-        # TODO fix reauth infinite loop issue.
+        reauth_once = False
     elif status == 503 and "Retry-After" in headers:
         polling_step += 1
         await asyncio.sleep(self.polling_interval)
@@ -47,6 +48,9 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
         logging.debug(message)
         polling_step += 1
         await asyncio.sleep(self.polling_interval)
+    elif payload.get("errors"):
+        # try to raise any error messages from the response
+        raise ValueError(" ,".join(payload.get("errors")))
     else:
         message = f"""
         status: {status}
@@ -54,8 +58,9 @@ async def check_response(self: FlexMeasuresClient, response, polling_step: int):
         payload: {payload}.
         """
         logging.error(message)
+        # otherwise, raise if the status does not indicate okay
         response.raise_for_status()
-    return polling_step
+    return polling_step, reauth_once
 
 
 def check_content_type(response):

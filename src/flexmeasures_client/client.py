@@ -6,11 +6,11 @@ import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 import async_timeout
 import pandas as pd
-from aiohttp.client import ClientError, ClientSession
+from aiohttp.client import ClientError, ClientResponse, ClientSession
 from yarl import URL
 
 from flexmeasures_client.constants import API_VERSION, CONTENT_TYPE_HEADERS
@@ -33,12 +33,11 @@ class FlexMeasuresClient:
 
     password: str
     email: str
-    access_token: str = None
     host: str = "localhost:5000"
     ssl: bool = False
     api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
-    reauth_once: bool = True
+    access_token: str = None
 
     max_polling_steps: int = MAX_POLLING_STEPS
     polling_timeout: float = POLLING_TIMEOUT  # seconds
@@ -84,7 +83,7 @@ class FlexMeasuresClient:
         path: str = path,
         params: dict[str, Any] | None = None,
         include_auth: bool = True,
-    ) -> tuple[dict, int]:
+    ) -> tuple[dict | list, int]:
         """Send a request to FlexMeasures.
 
         Retries if:
@@ -97,24 +96,30 @@ class FlexMeasuresClient:
         - the client polling timed out (as indicated by the client's self.polling_timeout)
         """  # noqa: E501
         url = self.build_url(uri, path=path)
-        headers = await self.get_headers(include_auth=include_auth)
 
         self.start_session()
 
-        polling_step = 0
-        self.reauth_once = True  # reset this counter once when starting polling
+        polling_step = 0  # reset this counter once when starting polling
+        # we allow retrying once if we include authentication headers
+        reauth_once = True if include_auth else False
         try:
             async with async_timeout.timeout(self.polling_timeout):
                 while polling_step < self.max_polling_steps:
+                    headers = await self.get_headers(include_auth=include_auth)
                     try:
                         async with async_timeout.timeout(self.request_timeout):
-                            response = await self.request_once(
+                            (
+                                response,
+                                polling_step,
+                                reauth_once,
+                            ) = await self.request_once(
                                 method=method,
                                 url=url,
                                 params=params,
                                 headers=headers,
                                 json=json,
                                 polling_step=polling_step,
+                                reauth_once=reauth_once,
                             )
                             if response.status < 300:
                                 break
@@ -134,17 +139,18 @@ class FlexMeasuresClient:
 
         check_content_type(response)
 
-        return cast(dict[str, Any], await response.json()), response.status
+        return await response.json(), response.status
 
     async def request_once(
         self,
         method: str,
-        url: str,
+        url: URL,
         params: dict[str, Any] | None = None,
         headers: dict | None = None,
         json: dict | None = None,
         polling_step: int = 0,
-    ):
+        reauth_once: bool = True,
+    ) -> tuple[ClientResponse, int, bool]:
         url_msg = f"url: {url}"
         json_msg = f"payload: {json}"
         params_msg = f"params: {params}"
@@ -157,6 +163,7 @@ class FlexMeasuresClient:
         logging.debug(method_msg)
         logging.debug(headers_msg)
         logging.debug("=" * 14)
+
         """Sends a single request to FlexMeasures and checks the response"""
         response = await self.session.request(
             method=method,
@@ -177,7 +184,11 @@ class FlexMeasuresClient:
         logging.debug(headers_msg)
         logging.debug("=" * 14)
         polling_step = await check_response(self, response, polling_step)
-        return response
+
+        polling_step, reauth_once = await check_response(
+            self, response, polling_step, reauth_once
+        )
+        return response, polling_step, reauth_once
 
     def start_session(self):
         """If there is no session, start one"""
@@ -193,7 +204,7 @@ class FlexMeasuresClient:
             headers |= {"Authorization": self.access_token}
         return headers
 
-    def build_url(self, uri: str, path: str = path):
+    def build_url(self, uri: str, path: str = path) -> URL:
         """Build url for request"""
         url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
             URL(uri),
@@ -250,12 +261,17 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         soc_unit: str,
         soc_at_start: float,
+        soc_max: float | None = None,
+        soc_min: float | None = None,
         soc_targets: list | None = None,
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,
     ) -> str:
-        """Post schedule trigger with initial and target states of charge (soc)."""
+        """Post schedule trigger with initial and target states of charge (soc).
+
+        :returns: schedule ID (a UUID string)
+        """
         if not soc_targets:
             soc_targets = []
         message = {
@@ -270,6 +286,11 @@ class FlexMeasuresClient:
             },
             "flex-context": {},
         }
+
+        if soc_max is not None:
+            message["flex-model"]["soc-max"] = soc_max
+        if soc_min is not None:
+            message["flex-model"]["soc-min"] = soc_min
 
         # Set optional flex context
         if consumption_price_sensor is not None:
@@ -290,16 +311,26 @@ class FlexMeasuresClient:
         check_for_status(status, 200)
         logging.info("Schedule triggered successfully.")
 
-        return response.get("schedule")
+        schedule_id: str = response.get("schedule")
+        return schedule_id
 
     async def get_schedule(
         self,
         sensor_id: int,
         schedule_id: str,
         duration: str | timedelta,
-    ):
-        """Get schedule with given ID."""
-        response, status = await self.request(
+    ) -> dict:
+        """Get schedule with given ID.
+
+        :returns: schedule as dictionary, for example:
+                  {
+                      'values': [2.15, 3, 2],
+                      'start': '2015-06-02T10:00:00+00:00',
+                      'duration': 'PT45M',
+                      'unit': 'MW'
+                  }
+        """
+        schedule, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
             method="GET",
             params={
@@ -307,20 +338,25 @@ class FlexMeasuresClient:
             },
         )
         check_for_status(status, 200)
+        return schedule
 
-        return response
+    async def get_assets(self) -> list[dict]:
+        """Get all the assets available to the current user.
 
-    async def get_assets(self):
-        """Get all the assets available to the current user"""
-        response, status = await self.request(uri="assets", method="GET")
+        :returns: list of assets as dictionaries
+        """
+        assets, status = await self.request(uri="assets", method="GET")
         check_for_status(status, 200)
-        return response
+        return assets
 
-    async def get_sensors(self):
-        """Get all the sensors available to the current user"""
-        response, status = await self.request(uri="sensors", method="GET")
+    async def get_sensors(self) -> list[dict]:
+        """Get all the sensors available to the current user.
+
+        :returns: list of sensors as dictionaries
+        """
+        sensors, status = await self.request(uri="sensors", method="GET")
         check_for_status(status, 200)
-        return response
+        return sensors
 
     async def trigger_and_get_schedule(
         self,
@@ -329,17 +365,31 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         soc_unit: str,
         soc_at_start: float,
+        soc_max: float | None = None,
+        soc_min: float | None = None,
         soc_targets: list | None = None,
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,
-    ):
+    ) -> dict:
+        """Trigger a schedule and then fetch it.
+
+        :returns: schedule as dictionary, for example:
+                  {
+                      'values': [2.15, 3, 2],
+                      'start': '2015-06-02T10:00:00+00:00',
+                      'duration': 'PT45M',
+                      'unit': 'MW'
+                  }
+        """
         schedule_id = await self.trigger_storage_schedule(
             sensor_id=sensor_id,
             start=start,
             duration=duration,
             soc_unit=soc_unit,
             soc_at_start=soc_at_start,
+            soc_max=soc_max,
+            soc_min=soc_min,
             soc_targets=soc_targets,
             consumption_price_sensor=consumption_price_sensor,
             production_price_sensor=production_price_sensor,
@@ -349,7 +399,6 @@ class FlexMeasuresClient:
         schedule = await self.get_schedule(
             sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
         )
-
         return schedule
 
     async def get_sensor_data(
@@ -360,8 +409,17 @@ class FlexMeasuresClient:
         unit: str,
         entity_address: str,
         resolution: str | timedelta,
-    ):
-        """Post sensor data for the given time range."""
+    ) -> dict:
+        """Post sensor data for the given time range.
+
+        :returns: sensor data as dictionary, for example:
+                  {
+                      'values': [2.15, 3, 2],
+                      'start': '2015-06-02T10:00:00+00:00',
+                      'duration': 'PT45M',
+                      'unit': 'MW'
+                  }
+        """
         json = dict(
             sensor=f"{entity_address}.{sensor_id}",
             start=pd.Timestamp(
@@ -376,5 +434,6 @@ class FlexMeasuresClient:
             uri="sensors/data", method="GET", params=json
         )
         check_for_status(status, 200)
-
-        return response
+        data_fields = ("values", "start", "duration", "unit")
+        sensor_data = {k: v for k, v in response.items() if k in data_fields}
+        return sensor_data
