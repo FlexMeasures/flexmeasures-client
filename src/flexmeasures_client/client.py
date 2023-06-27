@@ -124,8 +124,8 @@ class FlexMeasuresClient:
                             if response.status < 300:
                                 break
                     except asyncio.TimeoutError:
-                        message = f"Client request timeout occurred while connecting to the API. Retrying in {self.polling_interval} seconds..."  # noqa: E501
-                        logging.info(message)
+                        message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {self.polling_interval} seconds..."  # noqa: E501
+                        logging.debug(message)
                         polling_step += 1
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
@@ -151,6 +151,19 @@ class FlexMeasuresClient:
         polling_step: int = 0,
         reauth_once: bool = True,
     ) -> tuple[ClientResponse, int, bool]:
+        url_msg = f"url: {url}"
+        json_msg = f"payload: {json}"
+        params_msg = f"params: {params}"
+        method_msg = f"method: {method}"
+        headers_msg = f"headers: {headers}"
+        logging.debug("===== Request =====")
+        logging.debug(url_msg)
+        logging.debug(json_msg)
+        logging.debug(params_msg)
+        logging.debug(method_msg)
+        logging.debug(headers_msg)
+        logging.debug("=" * 14)
+
         """Sends a single request to FlexMeasures and checks the response"""
         response = await self.session.request(
             method=method,
@@ -160,6 +173,17 @@ class FlexMeasuresClient:
             json=json,
             ssl=self.ssl,
         )
+        payload = await response.json()
+        status_msg = f"status: {response.status}"
+        response_payload_msg = f"payload: {payload}"
+        headers_msg = f"headers: {response.headers}"
+
+        logging.debug("===== Response =====")
+        logging.debug(status_msg)
+        logging.debug(response_payload_msg)
+        logging.debug(headers_msg)
+        logging.debug("=" * 14)
+
         polling_step, reauth_once = await check_response(
             self, response, polling_step, reauth_once
         )

@@ -27,6 +27,13 @@ async def check_response(
     if status < 300:
         pass
     elif status == 401 and reauth_once:
+        message = f"""Authentication failed with"
+        status: {status}
+        headers: {headers}
+        payload: {payload}.
+        Re-authenticating!
+        """
+        logging.debug(message)
         await self.get_access_token()
         reauth_once = False
     elif status == 503 and "Retry-After" in headers:
@@ -38,13 +45,19 @@ async def check_response(
     ):
         # can be removed in a later version GH issue #645 of the FlexMeasures repo
         message = f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."  # noqa: E501
-        logging.info(message)
+        logging.debug(message)
         polling_step += 1
         await asyncio.sleep(self.polling_interval)
     elif payload.get("errors"):
         # try to raise any error messages from the response
         raise ValueError(" ,".join(payload.get("errors")))
     else:
+        message = f"""
+        status: {status}
+        headers: {headers}
+        payload: {payload}.
+        """
+        logging.error(message)
         # otherwise, raise if the status does not indicate okay
         response.raise_for_status()
     return polling_step, reauth_once
