@@ -436,3 +436,51 @@ class FlexMeasuresClient:
         data_fields = ("values", "start", "duration", "unit")
         sensor_data = {k: v for k, v in response.items() if k in data_fields}
         return sensor_data
+
+    async def get_sensor(self, sensor_id: int):
+        uri = f"sensors/{sensor_id}"
+        response, status = await self.request(uri=uri, method="GET")
+        check_for_status(status, 200)
+        return response
+
+    async def add_sensor(
+        self,
+        name: str,
+        event_resolution: str,
+        unit: str,
+        generic_asset_id: int,
+        **kwargs,
+    ):
+        sensor = dict(
+            name=name,
+            event_resolution=event_resolution,
+            unit=unit,
+            generic_asset_id=generic_asset_id,
+            **kwargs,
+        )
+        uri = "sensors"
+        response, status = await self.request(uri=uri, json=sensor, method="POST")
+        check_for_status(status, 201)
+        return response
+
+    async def add_asset(
+        self, name, account_id, latitude, longitude, generic_asset_type_id
+    ):
+        asset = dict(
+            name=name,
+            account_id=account_id,
+            latitude=latitude,
+            longitude=longitude,
+            generic_asset_type_id=generic_asset_type_id,
+        )
+
+        uri = "assets"
+        response, status = await self.request(uri=uri, json=asset, method="POST")
+        check_for_status(status, 201)
+        return response
+
+    async def update_asset(self, asset_id, updates):
+        uri = f"assets/{asset_id}"
+        response, status = await self.request(uri=uri, json=updates, method="PATCH")
+        check_for_status(status, 200)
+        return response
