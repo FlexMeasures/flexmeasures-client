@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import socket
@@ -437,7 +438,7 @@ class FlexMeasuresClient:
         sensor_data = {k: v for k, v in response.items() if k in data_fields}
         return sensor_data
 
-    async def get_sensor(self, sensor_id: int):
+    async def get_sensor(self, sensor_id: int) -> dict:
         uri = f"sensors/{sensor_id}"
         response, status = await self.request(uri=uri, method="GET")
         check_for_status(status, 200)
@@ -449,23 +450,33 @@ class FlexMeasuresClient:
         event_resolution: str,
         unit: str,
         generic_asset_id: int,
-        **kwargs,
-    ):
+        timezone: str | None = None,
+        attributes: dict | None = None,
+    ) -> dict:
         sensor = dict(
             name=name,
             event_resolution=event_resolution,
             unit=unit,
             generic_asset_id=generic_asset_id,
-            **kwargs,
         )
+        if timezone:
+            sensor["timezone"] = timezone
+        if attributes:
+            sensor["attributes"] = json.dumps(attributes)
         uri = "sensors"
         response, status = await self.request(uri=uri, json=sensor, method="POST")
         check_for_status(status, 201)
         return response
 
     async def add_asset(
-        self, name, account_id, latitude, longitude, generic_asset_type_id
-    ):
+        self,
+        name: str,
+        account_id: int,
+        latitude: float,
+        longitude: float,
+        generic_asset_type_id: int,
+        attributes: dict | None = None,
+    ) -> dict:
         asset = dict(
             name=name,
             account_id=account_id,
@@ -473,14 +484,22 @@ class FlexMeasuresClient:
             longitude=longitude,
             generic_asset_type_id=generic_asset_type_id,
         )
+        if attributes:
+            asset["attributes"] = json.dumps(attributes)
 
         uri = "assets"
         response, status = await self.request(uri=uri, json=asset, method="POST")
         check_for_status(status, 201)
         return response
 
-    async def update_asset(self, asset_id, updates):
+    async def update_asset(self, asset_id: int, updates: dict) -> dict:
         uri = f"assets/{asset_id}"
+        response, status = await self.request(uri=uri, json=updates, method="PATCH")
+        check_for_status(status, 200)
+        return response
+
+    async def update_sensor(self, sensor_id: int, updates: dict) -> dict:
+        uri = f"sensors/{sensor_id}"
         response, status = await self.request(uri=uri, json=updates, method="PATCH")
         check_for_status(status, 200)
         return response
