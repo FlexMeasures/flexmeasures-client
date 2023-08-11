@@ -375,12 +375,12 @@ class FlexMeasuresClient:
         """Trigger a schedule and then fetch it.
 
         :returns: schedule as dictionary, for example:
-                  {
-                      'values': [2.15, 3, 2],
-                      'start': '2015-06-02T10:00:00+00:00',
-                      'duration': 'PT45M',
-                      'unit': 'MW'
-                  }
+                {
+                    'values': [2.15, 3, 2],
+                    'start': '2015-06-02T10:00:00+00:00',
+                    'duration': 'PT45M',
+                    'unit': 'MW'
+                }
         """
         schedule_id = await self.trigger_storage_schedule(
             sensor_id=sensor_id,
@@ -410,15 +410,15 @@ class FlexMeasuresClient:
         entity_address: str,
         resolution: str | timedelta,
     ) -> dict:
-        """Post sensor data for the given time range.
+        """Get sensor data for the given time range.
 
         :returns: sensor data as dictionary, for example:
-                  {
-                      'values': [2.15, 3, 2],
-                      'start': '2015-06-02T10:00:00+00:00',
-                      'duration': 'PT45M',
-                      'unit': 'MW'
-                  }
+                {
+                    'values': [2.15, 3, 2],
+                    'start': '2015-06-02T10:00:00+00:00',
+                    'duration': 'PT45M',
+                    'unit': 'MW'
+                }
         """
         json = dict(
             sensor=f"{entity_address}.{sensor_id}",
@@ -439,6 +439,20 @@ class FlexMeasuresClient:
         return sensor_data
 
     async def get_sensor(self, sensor_id: int) -> dict:
+        """Get a single sensor
+
+        :returns: sensor as dictionary, for example:
+                {
+                    'attributes': '{}',
+                    'entity_address': 'ea1.2023-09.localhost:fm1.35',
+                    'event_resolution': 'PT5M',
+                    'generic_asset_id': 24,
+                    'id': 35,
+                    'name': 'availability',
+                    'timezone': 'Europe/Amsterdam',
+                    'unit': '%'
+                }
+        """
         uri = f"sensors/{sensor_id}"
         response, status = await self.request(uri=uri, method="GET")
         check_for_status(status, 200)
@@ -453,6 +467,20 @@ class FlexMeasuresClient:
         timezone: str | None = None,
         attributes: dict | None = None,
     ) -> dict:
+        """Post a sensor
+
+        :returns: sensor as dictionary, for example:
+                {
+                    'attributes': '{}',
+                    'entity_address': 'ea1.2023-09.localhost:fm1.35',
+                    'event_resolution': 'PT5M',
+                    'generic_asset_id': 24,
+                    'id': 35,
+                    'name': 'availability',
+                    'timezone': 'Europe/Amsterdam',
+                    'unit': '%'
+                }
+        """
         sensor = dict(
             name=name,
             event_resolution=event_resolution,
@@ -477,6 +505,20 @@ class FlexMeasuresClient:
         generic_asset_type_id: int,
         attributes: dict | None = None,
     ) -> dict:
+        """Post an asset
+
+        :returns: asset as dictionary, for example:
+                {
+                    'account_id': 2,
+                    'attributes': '{"sensors_to_show": [14, 37, 38, 39]}',
+                    'generic_asset_type_id': 5,
+                    'id': 25,
+                    'latitude': 51.999,
+                    'longitude': 4.4833,
+                    'name': 'Test Name Asset17',
+                    'status': 200
+                }
+        """
         asset = dict(
             name=name,
             account_id=account_id,
@@ -493,13 +535,42 @@ class FlexMeasuresClient:
         return response
 
     async def update_asset(self, asset_id: int, updates: dict) -> dict:
+        """Patch an asset
+
+        :returns: asset as dictionary, for example:
+                {
+                    'account_id': 2,
+                    'attributes': '{"sensors_to_show": [14, 37, 38, 39]}',
+                    'generic_asset_type_id': 5,
+                    'id': 25,
+                    'latitude': 51.999,
+                    'longitude': 4.4833,
+                    'name': 'Test Name Asset17',
+                    'status': 200
+                }
+        """
         uri = f"assets/{asset_id}"
         response, status = await self.request(uri=uri, json=updates, method="PATCH")
         check_for_status(status, 200)
         return response
 
     async def update_sensor(self, sensor_id: int, updates: dict) -> dict:
+        """Patch a sensor
+
+        :returns: sensor as dictionary, for example:
+                {
+                    'attributes': '{}',
+                    'entity_address': 'ea1.2023-09.localhost:fm1.35',
+                    'event_resolution': 'PT5M',
+                    'generic_asset_id': 24,
+                    'id': 35,
+                    'name': 'availability',
+                    'timezone': 'Europe/Amsterdam',
+                    'unit': '%'
+                }
+        """
         uri = f"sensors/{sensor_id}"
         response, status = await self.request(uri=uri, json=updates, method="PATCH")
+        # Raise ValueError
         check_for_status(status, 200)
         return response
