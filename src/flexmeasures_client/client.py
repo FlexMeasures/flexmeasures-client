@@ -234,7 +234,10 @@ class FlexMeasuresClient:
         entity_address: str,
         prior: str | None = None,
     ):
-        """Post sensor data for the given time range."""
+        """
+        Post sensor data for the given time range.
+        This function raises a ValueError when an unhandled status code is returned
+        """
         json = dict(
             sensor=f"{entity_address}.{sensor_id}",
             start=pd.Timestamp(
@@ -271,6 +274,8 @@ class FlexMeasuresClient:
         """Post schedule trigger with initial and target states of charge (soc).
 
         :returns: schedule ID (a UUID string)
+
+        This function raises a ValueError when an unhandled status code is returned
         """
         if not soc_targets:
             soc_targets = []
@@ -344,6 +349,8 @@ class FlexMeasuresClient:
         """Get all the assets available to the current user.
 
         :returns: list of assets as dictionaries
+
+        This function raises a ValueError when an unhandled status code is returned
         """
         assets, status = await self.request(uri="assets", method="GET")
         check_for_status(status, 200)
@@ -381,6 +388,7 @@ class FlexMeasuresClient:
                     'duration': 'PT45M',
                     'unit': 'MW'
                 }
+        This function raises a ValueError when an unhandled status code is returned
         """
         schedule_id = await self.trigger_storage_schedule(
             sensor_id=sensor_id,
@@ -409,6 +417,7 @@ class FlexMeasuresClient:
         unit: str,
         entity_address: str,
         resolution: str | timedelta,
+        **kwargs,
     ) -> dict:
         """Get sensor data for the given time range.
 
@@ -419,8 +428,10 @@ class FlexMeasuresClient:
                     'duration': 'PT45M',
                     'unit': 'MW'
                 }
+
+        This function raises a ValueError when an unhandled status code is returned
         """
-        json = dict(
+        params = dict(
             sensor=f"{entity_address}.{sensor_id}",
             start=pd.Timestamp(
                 start
@@ -428,10 +439,11 @@ class FlexMeasuresClient:
             duration=pd.Timedelta(duration).isoformat(),  # for example: PT1H
             unit=unit,
             resolution=resolution,
+            **kwargs,
         )
 
         response, status = await self.request(
-            uri="sensors/data", method="GET", params=json
+            uri="sensors/data", method="GET", params=params
         )
         check_for_status(status, 200)
         data_fields = ("values", "start", "duration", "unit")
@@ -452,6 +464,8 @@ class FlexMeasuresClient:
                     'timezone': 'Europe/Amsterdam',
                     'unit': '%'
                 }
+
+        This function raises a ValueError when an unhandled status code is returned
         """
         uri = f"sensors/{sensor_id}"
         response, status = await self.request(uri=uri, method="GET")
@@ -480,6 +494,8 @@ class FlexMeasuresClient:
                     'timezone': 'Europe/Amsterdam',
                     'unit': '%'
                 }
+
+        This function raises a ValueError when an unhandled status code is returned
         """
         sensor = dict(
             name=name,
@@ -518,6 +534,8 @@ class FlexMeasuresClient:
                     'name': 'Test Name Asset17',
                     'status': 200
                 }
+
+        This function raises a ValueError when an unhandled status code is returned
         """
         asset = dict(
             name=name,
@@ -548,6 +566,8 @@ class FlexMeasuresClient:
                     'name': 'Test Name Asset17',
                     'status': 200
                 }
+
+        This function raises a ValueError when an unhandled status code is returned
         """
         uri = f"assets/{asset_id}"
         response, status = await self.request(uri=uri, json=updates, method="PATCH")
@@ -568,6 +588,8 @@ class FlexMeasuresClient:
                     'timezone': 'Europe/Amsterdam',
                     'unit': '%'
                 }
+
+        This function raises a ValueError when an unhandled status code is returned
         """
         uri = f"sensors/{sensor_id}"
         response, status = await self.request(uri=uri, json=updates, method="PATCH")
