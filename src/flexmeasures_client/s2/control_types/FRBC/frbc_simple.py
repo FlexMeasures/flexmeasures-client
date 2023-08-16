@@ -1,3 +1,8 @@
+"""
+This control type is in a very EXPERIMENTAL stage.
+Used it at your own risk :)
+"""
+
 from datetime import datetime, timedelta
 
 import pytz
@@ -10,6 +15,8 @@ from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
     FRBCSystemDescription,
 )
 
+ENTITY_ADDRESS_PLACEHOLDER = "ea1.2023-07.localhost:fm1"
+
 
 class FRBCSimple(FRBC):
     _power_sensor_id: int
@@ -17,6 +24,7 @@ class FRBCSimple(FRBC):
     _soc_sensor_id: int
     _rm_discharge_sensor_id: int
     _schedule_duration: timedelta
+    _valid_from_shift: timedelta
 
     def __init__(
         self,
@@ -27,6 +35,7 @@ class FRBCSimple(FRBC):
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
+        valid_from_shift: timedelta = timedelta(days=1),
     ) -> None:
         super().__init__(max_size)
         self._power_sensor_id = power_sensor_id
@@ -35,6 +44,10 @@ class FRBCSimple(FRBC):
         self._soc_sensor_id = soc_sensor_id
         self._rm_discharge_sensor_id = rm_discharge_sensor_id
         self._timezone = pytz.timezone(timezone)
+
+        # delay the start of the schedule from the time `valid_from`
+        # of the FRBC.SystemDescritption.
+        self._valid_from_shift = valid_from_shift
 
     def now(self):
         return self._timezone.localize(datetime.now())
@@ -46,7 +59,7 @@ class FRBCSimple(FRBC):
             values=[status.present_fill_level],
             unit="MWh",
             duration=timedelta(minutes=1),
-            entity_address="ea1.2023-07.localhost:fm1",
+            entity_address=ENTITY_ADDRESS_PLACEHOLDER,
         )
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
@@ -67,7 +80,7 @@ class FRBCSimple(FRBC):
             values=[-power],
             unit="MWh",
             duration=timedelta(minutes=15),
-            entity_address="ea1.2023-07.localhost:fm1",
+            entity_address=ENTITY_ADDRESS_PLACEHOLDER,
         )
 
         # await self._fm_client.post_measurements(
@@ -105,7 +118,7 @@ class FRBCSimple(FRBC):
         # call schedule
         schedule_id = await self._fm_client.trigger_storage_schedule(
             start=system_description.valid_from
-            + timedelta(days=1),  # TODO: localize datetime
+            + self._valid_from_shift,  # TODO: localize datetime
             sensor_id=self._power_sensor_id,
             production_price_sensor=self._price_sensor_id,
             consumption_price_sensor=self._price_sensor_id,
