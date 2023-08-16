@@ -94,8 +94,8 @@ def fm_schedule_to_instructions(
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
                 id=get_unique_id(),
-                actuator_id=actuator.id.__root__,
-                operation_mode=operation_mode.id.__root__,
+                actuator_id=actuator.id.root,
+                operation_mode=operation_mode.id.root,
                 operation_mode_factor=operation_mode_factor,
                 execution_time=start,
                 abnormal_condition=False,

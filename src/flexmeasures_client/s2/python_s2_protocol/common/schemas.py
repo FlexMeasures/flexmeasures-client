@@ -5,32 +5,32 @@ from __future__ import annotations
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Extra, Field, conint, constr
+from pydantic import BaseModel, ConfigDict, Extra, Field, RootModel, conint
 
 
-class ID(BaseModel):
+class ID(RootModel):
     class Config:
         validate_assignment = True
 
-    __root__: constr(regex=r"[a-zA-Z0-9\-_:]{2,64}") = Field(
-        ..., description="An identifier expressed as a UUID", title="ID"
+    root: str = Field(
+        ...,
+        description="An identifier expressed as a UUID",
+        title="ID",
+        pattern=r"[a-zA-Z0-9\-_:]{2,64}",
     )
 
 
-class Duration(BaseModel):
+class Duration(RootModel):
     class Config:
         validate_assignment = True
 
-    __root__: conint(ge=0) = Field(
+    root: conint(ge=0) = Field(
         ..., description="Duration in milliseconds", title="Duration"
     )
 
 
 class NumberRange(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
     start_of_range: float = Field(
         ..., description="Number that defines the start of the range"
     )
@@ -60,10 +60,7 @@ class CommodityQuantity(Enum):
 
 
 class Timer(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
     id: ID = Field(
         ...,
         description="ID of the Timer. Must be unique in the scope of the OMBC.SystemDescription, FRBC.ActuatorDescription or DDBC.ActuatorDescription in which it is used.",
@@ -79,10 +76,7 @@ class Timer(BaseModel):
 
 
 class Transition(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
     id: ID = Field(
         ...,
         description="ID of the Transition. Must be unique in the scope of the OMBC.SystemDescription, FRBC.ActuatorDescription or DDBC.ActuatorDescription in which it is used.",
@@ -99,14 +93,14 @@ class Transition(BaseModel):
     start_timers: List[ID] = Field(
         ...,
         description="List of IDs of Timers that will be (re)started when this transition is initiated",
-        max_items=1000,
-        min_items=0,
+        max_length=1000,
+        min_length=0,
     )
     blocking_timers: List[ID] = Field(
         ...,
         description="List of IDs of Timers that block this Transition from initiating while at least one of these Timers is not yet finished",
-        max_items=1000,
-        min_items=0,
+        max_length=1000,
+        min_length=0,
     )
     transition_costs: Optional[float] = Field(
         None,
@@ -123,10 +117,7 @@ class Transition(BaseModel):
 
 
 class PowerRange(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
     start_of_range: float = Field(
         ..., description="Power value that defines the start of the range."
     )
@@ -154,10 +145,7 @@ class InstructionStatus(Enum):
 
 
 class PowerForecastValue(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
     value_upper_limit: Optional[float] = Field(
         None,
         description="The upper boundary of the range with 100\xa0% certainty the power value is in it",
@@ -189,24 +177,18 @@ class PowerForecastValue(BaseModel):
 
 
 class PowerForecastElement(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
     duration: Duration = Field(..., description="Duration of the PowerForecastElement")
     power_values: List[PowerForecastValue] = Field(
         ...,
         description="The values of power that are expected for the given period of time. There shall be at least one PowerForecastValue, and at most one PowerForecastValue per CommodityQuantity.",
-        max_items=10,
-        min_items=1,
+        max_length=10,
+        min_length=1,
     )
 
 
 class PowerValue(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
     commodity_quantity: CommodityQuantity = Field(
         ..., description="The power quantity the value refers to"
     )
@@ -345,10 +327,7 @@ class RoleType(Enum):
 
 
 class Role(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
     role: RoleType = Field(
         ..., description="Role type of the Resource Manager for the given commodity"
     )

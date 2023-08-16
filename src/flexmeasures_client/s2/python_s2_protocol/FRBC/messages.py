@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Extra, Field, constr
+from pydantic import BaseModel, ConfigDict, Extra, Field, constr
 
 from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
     ID,
@@ -22,11 +22,8 @@ from flexmeasures_client.s2.python_s2_protocol.FRBC.schemas import (
 
 
 class FRBCActuatorStatus(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("FRBC.ActuatorStatus", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["FRBC.ActuatorStatus"] = Field(default="FRBC.ActuatorStatus")
     message_id: ID = Field(..., description="ID of this message")
     actuator_id: ID = Field(
         ..., description="ID of the actuator this messages refers to"
@@ -49,11 +46,10 @@ class FRBCActuatorStatus(BaseModel):
 
 
 class FRBCFillLevelTargetProfile(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("FRBC.FillLevelTargetProfile", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["FRBC.FillLevelTargetProfile"] = Field(
+        default="FRBC.FillLevelTargetProfile"
+    )
     message_id: ID = Field(..., description="ID of this message")
     start_time: datetime = Field(
         ..., description="Time at which the FRBC.FillLevelTargetProfile starts."
@@ -61,17 +57,14 @@ class FRBCFillLevelTargetProfile(BaseModel):
     elements: List[FRBCFillLevelTargetProfileElement] = Field(
         ...,
         description="List of different fill levels that have to be targeted within a given duration. There shall be at least one element. Elements must be placed in chronological order.",
-        max_items=288,
-        min_items=1,
+        max_length=288,
+        min_length=1,
     )
 
 
 class FRBCInstruction(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("FRBC.Instruction", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["FRBC.Instruction"] = Field(default="FRBC.Instruction")
     message_id: ID = Field(..., description="ID of this message")
     id: ID = Field(
         ...,
@@ -97,11 +90,10 @@ class FRBCInstruction(BaseModel):
 
 
 class FRBCLeakageBehaviour(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("FRBC.LeakageBehaviour", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["FRBC.LeakageBehaviour"] = Field(
+        default="FRBC.LeakageBehaviour"
+    )
     message_id: ID = Field(..., description="ID of this message")
     valid_from: datetime = Field(
         ...,
@@ -110,17 +102,14 @@ class FRBCLeakageBehaviour(BaseModel):
     elements: List[FRBCLeakageBehaviourElement] = Field(
         ...,
         description="List of elements that model the leakage behaviour of the buffer. The fill_level_ranges of the elements must be contiguous.",
-        max_items=288,
-        min_items=1,
+        max_length=288,
+        min_length=1,
     )
 
 
 class FRBCStorageStatus(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("FRBC.StorageStatus", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["FRBC.StorageStatus"] = Field(default="FRBC.StorageStatus")
     message_id: ID = Field(..., description="ID of this message")
     present_fill_level: float = Field(
         ..., description="Present fill level of the Storage"
@@ -128,28 +117,24 @@ class FRBCStorageStatus(BaseModel):
 
 
 class FRBCSystemDescription(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("FRBC.SystemDescription", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["FRBC.SystemDescription"] = Field(
+        default="FRBC.SystemDescription"
+    )
     message_id: ID = Field(..., description="ID of this message")
     valid_from: datetime = Field(
         ...,
         description="Moment this FRBC.SystemDescription starts to be valid. If the system description is immediately valid, the DateTimeStamp should be now or in the past.",
     )
     actuators: List[FRBCActuatorDescription] = Field(
-        ..., description="Details of all Actuators.", max_items=10, min_items=1
+        ..., description="Details of all Actuators.", max_length=10, min_length=1
     )
     storage: FRBCStorageDescription = Field(..., description="Details of the storage.")
 
 
 class FRBCTimerStatus(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("FRBC.TimerStatus", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["FRBC.TimerStatus"] = Field(default="FRBC.TimerStatus")
     message_id: ID = Field(..., description="ID of this message")
     timer_id: ID = Field(..., description="The ID of the timer this message refers to")
     actuator_id: ID = Field(
@@ -162,11 +147,8 @@ class FRBCTimerStatus(BaseModel):
 
 
 class FRBCUsageForecast(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("FRBC.UsageForecast", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["FRBC.UsageForecast"] = Field(default="FRBC.UsageForecast")
     message_id: ID = Field(..., description="ID of this message")
     start_time: datetime = Field(
         ..., description="Time at which the FRBC.UsageForecast starts."
@@ -174,6 +156,6 @@ class FRBCUsageForecast(BaseModel):
     elements: List[FRBCUsageForecastElement] = Field(
         ...,
         description="Further elements that model the profile. There shall be at least one element. Elements must be placed in chronological order.",
-        max_items=288,
-        min_items=1,
+        max_length=288,
+        min_length=1,
     )
