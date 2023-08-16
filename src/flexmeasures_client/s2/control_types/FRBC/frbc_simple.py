@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 
 import pytz
 
-from flexmeasures_client.constants import ENTITY_ADDRESS_PLACEHOLDER
 from flexmeasures_client.s2.control_types.FRBC import FRBC
 from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
 from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
@@ -58,7 +57,6 @@ class FRBCSimple(FRBC):
             values=[status.present_fill_level],
             unit="MWh",
             duration=timedelta(minutes=1),
-            entity_address=ENTITY_ADDRESS_PLACEHOLDER,
         )
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
@@ -79,7 +77,6 @@ class FRBCSimple(FRBC):
             values=[-power],
             unit="MWh",
             duration=timedelta(minutes=15),
-            entity_address=ENTITY_ADDRESS_PLACEHOLDER,
         )
 
         # await self._fm_client.post_measurements(

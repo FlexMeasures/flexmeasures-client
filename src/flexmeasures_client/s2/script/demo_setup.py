@@ -12,7 +12,6 @@ client = FlexMeasuresClient(
 async def my_script():
     await client.post_measurements(
         sensor_id=2,
-        entity_address="ea1.2023-06.localhost:fm1",
         start="2023-05-14T00:00:00+02:00",
         duration="PT24H",
         unit="EUR/MWh",

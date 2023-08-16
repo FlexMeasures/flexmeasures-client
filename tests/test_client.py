@@ -176,7 +176,6 @@ async def test_post_measurements() -> None:
         duration = "PT6H"
         values = "test"
         unit = "test"
-        entity_address = "ea1.2022-04.nl.seita.flexmeasures:fm1"
 
         await flexmeasures_client.post_measurements(
             sensor_id=sensor_id,
@@ -184,14 +183,13 @@ async def test_post_measurements() -> None:
             duration=duration,
             values=values,
             unit=unit,
-            entity_address=entity_address,
         )
         m.assert_called_once_with(
             "http://localhost:5000/api/v3_0/sensors/data",
             method="POST",
             headers={"Content-Type": "application/json", "Authorization": "test-token"},
             json={
-                "sensor": "ea1.2022-04.nl.seita.flexmeasures:fm1.test",
+                "sensor": "ea1.1000-01.required-but-unused-field:fm1.test",
                 "start": "2023-03-26T10:00:00+02:00",
                 "duration": "P0DT6H0M0S",
                 "values": "test",
@@ -384,7 +382,7 @@ async def test_get_sensors() -> None:
             status=200,
             payload=[
                 {
-                    "entity_address": "ea1.2023-06.localhost:fm1.2",
+                    "entity_address": "ea1.1000-01.required-but-unused-field:fm1.2",
                     "event_resolution": 15,
                     "generic_asset_id": 3,
                     "name": "discharging",
@@ -396,7 +394,10 @@ async def test_get_sensors() -> None:
 
         sensors = await flexmeasures_client.get_sensors()
         assert len(sensors) == 1
-        assert sensors[0]["entity_address"] == "ea1.2023-06.localhost:fm1.2"
+        assert (
+            sensors[0]["entity_address"]
+            == "ea1.1000-01.required-but-unused-field:fm1.2"
+        )
 
     await flexmeasures_client.close()
 
@@ -499,7 +500,7 @@ async def test_get_sensor_data() -> None:
         )
         flexmeasures_client.access_token = "test-token"
         m.get(
-            "http://localhost:5000/api/v3_0/sensors/data?duration=P0DT0H45M0S&resolution=PT15M&sensor=ea1.2023-06.localhost%253Afm1.2&start=2023-06-01T10%253A00%253A00%252B02%253A00&unit=MW",  # noqa: E501
+            "http://localhost:5000/api/v3_0/sensors/data?duration=P0DT0H45M0S&resolution=PT15M&sensor=ea1.1000-01.required-but-unused-field%253Afm1.2&start=2023-06-01T10%253A00%253A00%252B02%253A00&unit=MW",  # noqa: E501
             status=200,
             payload={
                 "duration": "PT45M",
@@ -516,7 +517,6 @@ async def test_get_sensor_data() -> None:
         start = "2023-06-01T10:00:00+02:00"
         duration = "PT45M"
         unit = "MW"
-        entity_address = "ea1.2023-06.localhost:fm1"
         resolution = "PT15M"
 
         sensor_data = await flexmeasures_client.get_sensor_data(
@@ -524,7 +524,6 @@ async def test_get_sensor_data() -> None:
             start=start,
             duration=duration,
             unit=unit,
-            entity_address=entity_address,
             resolution=resolution,
         )
         assert sensor_data["values"] == [8.5, 8.5, 8.5]
