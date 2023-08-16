@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import socket
@@ -233,7 +234,10 @@ class FlexMeasuresClient:
         entity_address: str,
         prior: str | None = None,
     ):
-        """Post sensor data for the given time range."""
+        """
+        Post sensor data for the given time range.
+        This function raises a ValueError when an unhandled status code is returned
+        """
         json = dict(
             sensor=f"{entity_address}.{sensor_id}",
             start=pd.Timestamp(
@@ -270,6 +274,8 @@ class FlexMeasuresClient:
         """Post schedule trigger with initial and target states of charge (soc).
 
         :returns: schedule ID (a UUID string)
+
+        This function raises a ValueError when an unhandled status code is returned
         """
         if not soc_targets:
             soc_targets = []
@@ -343,6 +349,8 @@ class FlexMeasuresClient:
         """Get all the assets available to the current user.
 
         :returns: list of assets as dictionaries
+
+        This function raises a ValueError when an unhandled status code is returned
         """
         assets, status = await self.request(uri="assets", method="GET")
         check_for_status(status, 200)
@@ -374,12 +382,13 @@ class FlexMeasuresClient:
         """Trigger a schedule and then fetch it.
 
         :returns: schedule as dictionary, for example:
-                  {
-                      'values': [2.15, 3, 2],
-                      'start': '2015-06-02T10:00:00+00:00',
-                      'duration': 'PT45M',
-                      'unit': 'MW'
-                  }
+                {
+                    'values': [2.15, 3, 2],
+                    'start': '2015-06-02T10:00:00+00:00',
+                    'duration': 'PT45M',
+                    'unit': 'MW'
+                }
+        This function raises a ValueError when an unhandled status code is returned
         """
         schedule_id = await self.trigger_storage_schedule(
             sensor_id=sensor_id,
@@ -408,18 +417,21 @@ class FlexMeasuresClient:
         unit: str,
         entity_address: str,
         resolution: str | timedelta,
+        **kwargs,
     ) -> dict:
-        """Post sensor data for the given time range.
+        """Get sensor data for the given time range.
 
         :returns: sensor data as dictionary, for example:
-                  {
-                      'values': [2.15, 3, 2],
-                      'start': '2015-06-02T10:00:00+00:00',
-                      'duration': 'PT45M',
-                      'unit': 'MW'
-                  }
+                {
+                    'values': [2.15, 3, 2],
+                    'start': '2015-06-02T10:00:00+00:00',
+                    'duration': 'PT45M',
+                    'unit': 'MW'
+                }
+
+        This function raises a ValueError when an unhandled status code is returned
         """
-        json = dict(
+        params = dict(
             sensor=f"{entity_address}.{sensor_id}",
             start=pd.Timestamp(
                 start
@@ -427,12 +439,160 @@ class FlexMeasuresClient:
             duration=pd.Timedelta(duration).isoformat(),  # for example: PT1H
             unit=unit,
             resolution=resolution,
+            **kwargs,
         )
 
         response, status = await self.request(
-            uri="sensors/data", method="GET", params=json
+            uri="sensors/data", method="GET", params=params
         )
         check_for_status(status, 200)
         data_fields = ("values", "start", "duration", "unit")
         sensor_data = {k: v for k, v in response.items() if k in data_fields}
         return sensor_data
+
+    async def get_sensor(self, sensor_id: int) -> dict:
+        """Get a single sensor
+
+        :returns: sensor as dictionary, for example:
+                {
+                    'attributes': '{}',
+                    'entity_address': 'ea1.2023-09.localhost:fm1.35',
+                    'event_resolution': 'PT5M',
+                    'generic_asset_id': 24,
+                    'id': 35,
+                    'name': 'availability',
+                    'timezone': 'Europe/Amsterdam',
+                    'unit': '%'
+                }
+
+        This function raises a ValueError when an unhandled status code is returned
+        """
+        uri = f"sensors/{sensor_id}"
+        response, status = await self.request(uri=uri, method="GET")
+        check_for_status(status, 200)
+        return response
+
+    async def add_sensor(
+        self,
+        name: str,
+        event_resolution: str,
+        unit: str,
+        generic_asset_id: int,
+        timezone: str | None = None,
+        attributes: dict | None = None,
+    ) -> dict:
+        """Post a sensor
+
+        :returns: sensor as dictionary, for example:
+                {
+                    'attributes': '{}',
+                    'entity_address': 'ea1.2023-09.localhost:fm1.35',
+                    'event_resolution': 'PT5M',
+                    'generic_asset_id': 24,
+                    'id': 35,
+                    'name': 'availability',
+                    'timezone': 'Europe/Amsterdam',
+                    'unit': '%'
+                }
+
+        This function raises a ValueError when an unhandled status code is returned
+        """
+        sensor = dict(
+            name=name,
+            event_resolution=event_resolution,
+            unit=unit,
+            generic_asset_id=generic_asset_id,
+        )
+        if timezone:
+            sensor["timezone"] = timezone
+        if attributes:
+            sensor["attributes"] = json.dumps(attributes)
+        uri = "sensors"
+        response, status = await self.request(uri=uri, json=sensor, method="POST")
+        check_for_status(status, 201)
+        return response
+
+    async def add_asset(
+        self,
+        name: str,
+        account_id: int,
+        latitude: float,
+        longitude: float,
+        generic_asset_type_id: int,
+        attributes: dict | None = None,
+    ) -> dict:
+        """Post an asset
+
+        :returns: asset as dictionary, for example:
+                {
+                    'account_id': 2,
+                    'attributes': '{"sensors_to_show": [14, 37, 38, 39]}',
+                    'generic_asset_type_id': 5,
+                    'id': 25,
+                    'latitude': 51.999,
+                    'longitude': 4.4833,
+                    'name': 'Test Name Asset17',
+                    'status': 200
+                }
+
+        This function raises a ValueError when an unhandled status code is returned
+        """
+        asset = dict(
+            name=name,
+            account_id=account_id,
+            latitude=latitude,
+            longitude=longitude,
+            generic_asset_type_id=generic_asset_type_id,
+        )
+        if attributes:
+            asset["attributes"] = json.dumps(attributes)
+
+        uri = "assets"
+        response, status = await self.request(uri=uri, json=asset, method="POST")
+        check_for_status(status, 201)
+        return response
+
+    async def update_asset(self, asset_id: int, updates: dict) -> dict:
+        """Patch an asset
+
+        :returns: asset as dictionary, for example:
+                {
+                    'account_id': 2,
+                    'attributes': '{"sensors_to_show": [14, 37, 38, 39]}',
+                    'generic_asset_type_id': 5,
+                    'id': 25,
+                    'latitude': 51.999,
+                    'longitude': 4.4833,
+                    'name': 'Test Name Asset17',
+                    'status': 200
+                }
+
+        This function raises a ValueError when an unhandled status code is returned
+        """
+        uri = f"assets/{asset_id}"
+        response, status = await self.request(uri=uri, json=updates, method="PATCH")
+        check_for_status(status, 200)
+        return response
+
+    async def update_sensor(self, sensor_id: int, updates: dict) -> dict:
+        """Patch a sensor
+
+        :returns: sensor as dictionary, for example:
+                {
+                    'attributes': '{}',
+                    'entity_address': 'ea1.2023-09.localhost:fm1.35',
+                    'event_resolution': 'PT5M',
+                    'generic_asset_id': 24,
+                    'id': 35,
+                    'name': 'availability',
+                    'timezone': 'Europe/Amsterdam',
+                    'unit': '%'
+                }
+
+        This function raises a ValueError when an unhandled status code is returned
+        """
+        uri = f"sensors/{sensor_id}"
+        response, status = await self.request(uri=uri, json=updates, method="PATCH")
+        # Raise ValueError
+        check_for_status(status, 200)
+        return response
