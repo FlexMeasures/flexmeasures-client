@@ -41,15 +41,12 @@ class CEM(Handler):
     _fm_client: FlexMeasuresClient
     _sending_queue: Queue[pydantic.BaseModel]
 
-    def __init__(
-        self, sensor_id: int, fm_client: FlexMeasuresClient, logger: Logger = None
-    ) -> None:
+    def __init__(self, fm_client: FlexMeasuresClient, logger: Logger = None) -> None:
         """
         Customer Energy Manager (CEM)
         """
         super(CEM, self).__init__()
 
-        self._sensor_id = sensor_id
         self._fm_client = fm_client
         self._sending_queue = Queue()
         self._power_sensors = dict()

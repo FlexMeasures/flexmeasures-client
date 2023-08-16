@@ -1,8 +1,12 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
+
+import pytz
 
 from flexmeasures_client.s2.control_types.FRBC import FRBC
 from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
 from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
+    FRBCActuatorStatus,
+    FRBCStorageStatus,
     FRBCSystemDescription,
 )
 
@@ -10,12 +14,17 @@ from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
 class FRBCSimple(FRBC):
     _power_sensor_id: int
     _price_sensor_id: int
+    _soc_sensor_id: int
+    _rm_discharge_sensor_id: int
     _schedule_duration: timedelta
 
     def __init__(
         self,
         power_sensor_id: int,
+        soc_sensor_id: int,
+        rm_discharge_sensor_id: int,
         price_sensor_id: int,
+        timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
     ) -> None:
@@ -23,6 +32,60 @@ class FRBCSimple(FRBC):
         self._power_sensor_id = power_sensor_id
         self._price_sensor_id = price_sensor_id
         self._schedule_duration = schedule_duration
+        self._soc_sensor_id = soc_sensor_id
+        self._rm_discharge_sensor_id = rm_discharge_sensor_id
+        self._timezone = pytz.timezone(timezone)
+
+    def now(self):
+        return self._timezone.localize(datetime.now())
+
+    async def send_storage_status(self, status: FRBCStorageStatus):
+        await self._fm_client.post_measurements(
+            self._soc_sensor_id,
+            start=self.now(),
+            values=[status.present_fill_level],
+            unit="MWh",
+            duration=timedelta(minutes=1),
+            entity_address="ea1.2023-07.localhost:fm1",
+        )
+
+    async def send_actuator_status(self, status: FRBCActuatorStatus):
+        factor = status.operation_mode_factor
+        sd: FRBCSystemDescription = list(self._system_description_history.values())[-1]
+        fill_rate = sd.actuators[0].operation_modes[0].elements[0].fill_rate
+
+        power = (
+            fill_rate.start_of_range
+            + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
+        )
+
+        dt = status.transition_timestamp  # self.now()
+
+        await self._fm_client.post_measurements(
+            self._rm_discharge_sensor_id,
+            start=dt,
+            values=[-power],
+            unit="MWh",
+            duration=timedelta(minutes=15),
+            entity_address="ea1.2023-07.localhost:fm1",
+        )
+
+        # await self._fm_client.post_measurements(
+        #     self._soc_sensor_id
+        # )
+
+        # system_description = self.find_system_description_from_actuator()
+
+        # if system_description is None:
+        #     return
+
+        # #for a
+        # if system_description is not None:
+
+        # self._system_description_history[]
+        # status.active_operation_mode_id
+        # status.actuator_id
+        # status.operation_mode_factor
 
     async def trigger_schedule(self, system_description_id: str):
         """Translates S2 System Description into FM API calls"""
@@ -41,7 +104,8 @@ class FRBCSimple(FRBC):
 
         # call schedule
         schedule_id = await self._fm_client.trigger_storage_schedule(
-            start=system_description.valid_from,  # TODO: localize datetime
+            start=system_description.valid_from
+            + timedelta(days=1),  # TODO: localize datetime
             sensor_id=self._power_sensor_id,
             production_price_sensor=self._price_sensor_id,
             consumption_price_sensor=self._price_sensor_id,
