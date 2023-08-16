@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Extra, Field
+from pydantic import BaseModel, ConfigDict, Extra, Field
 
 from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
     ID,
@@ -25,11 +25,8 @@ from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
 
 
 class Handshake(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("Handshake", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["Handshake"] = Field(default="Handshake")
     message_id: ID = Field(..., description="ID of this message")
     role: EnergyManagementRole = Field(
         ..., description="The role of the sender of this message"
@@ -37,16 +34,13 @@ class Handshake(BaseModel):
     supported_protocol_versions: Optional[List[str]] = Field(
         None,
         description="Protocol versions supported by the sender of this message. This field is mandatory for the RM, but optional for the CEM.",
-        min_items=1,
+        min_length=1,
     )
 
 
 class HandshakeResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("HandshakeResponse", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["HandshakeResponse"] = Field(default="HandshakeResponse")
     message_id: ID = Field(..., description="ID of this message")
     selected_protocol_version: str = Field(
         ..., description="The protocol version the CEM selected for this session"
@@ -54,11 +48,10 @@ class HandshakeResponse(BaseModel):
 
 
 class InstructionStatusUpdate(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("InstructionStatusUpdate", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["InstructionStatusUpdate"] = Field(
+        default="InstructionStatusUpdate"
+    )
     message_id: ID = Field(..., description="ID of this message")
     instruction_id: ID = Field(
         ..., description="ID of this instruction (as provided by the CEM) "
@@ -72,11 +65,8 @@ class InstructionStatusUpdate(BaseModel):
 
 
 class PowerForecast(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("PowerForecast", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["PowerForecast"] = Field(default="PowerForecast")
     message_id: ID = Field(..., description="ID of this message")
     start_time: datetime = Field(
         ..., description="Start time of time period that is covered by the profile."
@@ -84,17 +74,14 @@ class PowerForecast(BaseModel):
     elements: List[PowerForecastElement] = Field(
         ...,
         description="Elements of which this forecast consists. Contains at least one element. Elements must be placed in chronological order.",
-        max_items=288,
-        min_items=1,
+        max_length=288,
+        min_length=1,
     )
 
 
 class PowerMeasurement(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("PowerMeasurement", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["PowerMeasurement"] = Field(default="PowerMeasurement")
     message_id: ID = Field(..., description="ID of this message")
     measurement_timestamp: datetime = Field(
         ..., description="Timestamp when PowerValues were measured."
@@ -102,17 +89,14 @@ class PowerMeasurement(BaseModel):
     values: List[PowerValue] = Field(
         ...,
         description="Array of measured PowerValues. Must contain at least one item and at most one item per ‘commodity_quantity’ (defined inside the PowerValue).",  # noqa: E501
-        max_items=10,
-        min_items=1,
+        max_length=10,
+        min_length=1,
     )
 
 
 class ReceptionStatus(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("ReceptionStatus", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["ReceptionStatus"] = Field(default="ReceptionStatus")
     subject_message_id: ID = Field(
         ..., description="The message this ReceptionStatus refers to"
     )
@@ -126,11 +110,10 @@ class ReceptionStatus(BaseModel):
 
 
 class ResourceManagerDetails(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("ResourceManagerDetails", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["ResourceManagerDetails"] = Field(
+        default="ResourceManagerDetails"
+    )
     message_id: ID = Field(..., description="ID of this message")
     resource_id: ID = Field(
         ...,
@@ -140,8 +123,8 @@ class ResourceManagerDetails(BaseModel):
     roles: List[Role] = Field(
         ...,
         description="Each Resource Manager provides one or more energy Roles",
-        max_items=3,
-        min_items=1,
+        max_length=3,
+        min_length=1,
     )
     manufacturer: Optional[str] = Field(None, description="Name of Manufacturer")
     model: Optional[str] = Field(
@@ -162,8 +145,8 @@ class ResourceManagerDetails(BaseModel):
     available_control_types: List[ControlType] = Field(
         ...,
         description="The control types supported by this Resource Manager.",
-        max_items=5,
-        min_items=1,
+        max_length=5,
+        min_length=1,
     )
     currency: Optional[Currency] = Field(
         None,
@@ -176,17 +159,14 @@ class ResourceManagerDetails(BaseModel):
     provides_power_measurement_types: List[CommodityQuantity] = Field(
         ...,
         description="Array of all CommodityQuantities that this Resource Manager can provide measurements for. ",  # noqa: E501
-        max_items=10,
-        min_items=1,
+        max_length=10,
+        min_length=1,
     )
 
 
 class RevokeObject(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("RevokeObject", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["RevokeObject"] = Field(default="RevokeObject")
     message_id: ID = Field(..., description="ID of this message")
     object_type: RevokableObjects = Field(
         ..., description="The type of object that needs to be revoked"
@@ -195,11 +175,8 @@ class RevokeObject(BaseModel):
 
 
 class SelectControlType(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("SelectControlType", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["SelectControlType"] = Field(default="SelectControlType")
     message_id: ID = Field(..., description="ID of this message")
     control_type: ControlType = Field(
         ...,
@@ -208,11 +185,8 @@ class SelectControlType(BaseModel):
 
 
 class SessionRequest(BaseModel):
-    class Config:
-        extra = Extra.forbid
-        validate_assignment = True
-
-    message_type: str = Field("SessionRequest", const=True)
+    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    message_type: Literal["SessionRequest"] = Field(default="SessionRequest")
     message_id: ID = Field(..., description="ID of this message")
     request: SessionRequestType = Field(..., description="The type of request")
     diagnostic_label: Optional[str] = Field(

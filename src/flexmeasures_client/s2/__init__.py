@@ -42,7 +42,7 @@ def register(schema: Type[pydantic.BaseModel]) -> Callable:
                 self = args[0]
 
                 # TODO: implement function __hash__ in ID that returns
-                # the value of __root__, this way we would be able to use
+                # the value of root, this way we would be able to use
                 # the ID as key directly
                 self.incoming_messages[
                     get_message_id(incoming_message)
@@ -63,7 +63,7 @@ def register(schema: Type[pydantic.BaseModel]) -> Callable:
                     status=ReceptionStatusValues.INVALID_DATA,
                 )  # TODO: Discuss status
 
-        message_type = schema.__fields__.get("message_type").default
+        message_type = schema.model_fields.get("message_type").default
         setattr(wrap, "_tag", Tag(message_type))
 
         return wrap
@@ -178,7 +178,7 @@ class Handler:
         """
 
         if isinstance(message, pydantic.BaseModel):
-            message = json.loads(message.json())
+            message = json.loads(message.model_dump_json())
 
         if isinstance(message, str):
             message = json.loads(message)
@@ -200,10 +200,8 @@ class Handler:
         callback_store = None
 
         # save acknowledgement status code
-        # TODO: implement function __hash__ in ID that returns the value of __root__
-        self.outgoing_messages_status[
-            message.subject_message_id.__root__
-        ] = message.status
+        # TODO: implement function __hash__ in ID that returns the value of root
+        self.outgoing_messages_status[message.subject_message_id.root] = message.status
 
         # choose which callback to call, depending on the ReceptionStatus value
         if message.status == ReceptionStatusValues.OK:
@@ -212,12 +210,12 @@ class Handler:
             callback_store = self.failure_callbacks
 
         # pop callback from callback_store and run it, if there exists one
-        if callback := callback_store.pop(message.subject_message_id.__root__, None):
+        if callback := callback_store.pop(message.subject_message_id.root, None):
             callback()
 
         # delete success callback related to this message
         if callback is None and (message.status != ReceptionStatusValues.OK):
-            self.success_callbacks.pop(message.subject_message_id.__root__, None)
+            self.success_callbacks.pop(message.subject_message_id.root, None)
 
     @register(RevokeObject)
     def handle_revoke_object(self, message: RevokeObject):
@@ -225,7 +223,7 @@ class Handler:
         Stores the revoked object ID into the objects_revoked list
         """
 
-        self.objects_revoked.append(message.object_id.__root__)
+        self.objects_revoked.append(message.object_id.root)
 
         return ReceptionStatus(
             subject_message_id=message.message_id, status=ReceptionStatusValues.OK

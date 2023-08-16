@@ -45,7 +45,7 @@ async def main_s2():
 
             print("SENDING: HANDSHAKE")
 
-            await ws.send_json(message.json())
+            await ws.send_json(message.model_dump_json())
 
             response = await ws.receive()
 
@@ -59,7 +59,7 @@ async def main_s2():
                 roles=[
                     Role(role=RoleType.ENERGY_STORAGE, commodity=Commodity.ELECTRICITY)
                 ],
-                instruction_processing_delay=Duration(__root__=1.0),
+                instruction_processing_delay=Duration(root=1.0),
                 available_control_types=[
                     ControlType.FILL_RATE_BASED_CONTROL,
                     ControlType.NO_SELECTION,
@@ -151,7 +151,7 @@ async def main_s2():
                 valid_from=valid_from,
                 actuators=[actuator],
                 storage=storage,
-            ).json()
+            ).model_dump_json()
 
             print("SENDING: FRBC.SystemDescription")
 

@@ -57,9 +57,9 @@ def get_message_id(message: pydantic.BaseModel) -> str:
     ReceptionStatus.
     """
     if hasattr(message, "message_id"):
-        return message.message_id.__root__
+        return message.message_id.root
     elif hasattr(message, "subject_message_id"):
-        return message.subject_message_id.__root__
+        return message.subject_message_id.root
 
 
 def get_reception_status(
@@ -71,5 +71,5 @@ def get_reception_status(
     `subject_message`. By default, the status ReceptionStatusValues.OK is sent.
     """
     return ReceptionStatus(
-        subject_message_id=subject_message.message_id.__root__, status=status
+        subject_message_id=subject_message.message_id.root, status=status
     )

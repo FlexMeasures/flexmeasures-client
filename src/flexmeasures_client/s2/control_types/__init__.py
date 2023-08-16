@@ -31,7 +31,7 @@ class ControlTypeHandler(Handler):
 
     @register(InstructionStatusUpdate)
     def handle_instruction_status_update(self, message: InstructionStatusUpdate):
-        instruction_id: str = cast(str, message.instruction_id.__root__)
+        instruction_id: str = cast(str, message.instruction_id.root)
 
         self._instruction_status_history[instruction_id] = message.status_type
 
