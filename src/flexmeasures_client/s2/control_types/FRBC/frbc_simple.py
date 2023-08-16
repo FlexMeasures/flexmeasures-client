@@ -15,8 +15,6 @@ from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
     FRBCSystemDescription,
 )
 
-ENTITY_ADDRESS_PLACEHOLDER = "ea1.2023-07.localhost:fm1"
-
 
 class FRBCSimple(FRBC):
     _power_sensor_id: int
@@ -59,7 +57,6 @@ class FRBCSimple(FRBC):
             values=[status.present_fill_level],
             unit="MWh",
             duration=timedelta(minutes=1),
-            entity_address=ENTITY_ADDRESS_PLACEHOLDER,
         )
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
@@ -80,7 +77,6 @@ class FRBCSimple(FRBC):
             values=[-power],
             unit="MWh",
             duration=timedelta(minutes=15),
-            entity_address=ENTITY_ADDRESS_PLACEHOLDER,
         )
 
         # await self._fm_client.post_measurements(

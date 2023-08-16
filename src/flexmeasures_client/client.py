@@ -14,7 +14,11 @@ import pandas as pd
 from aiohttp.client import ClientError, ClientResponse, ClientSession
 from yarl import URL
 
-from flexmeasures_client.constants import API_VERSION, CONTENT_TYPE_HEADERS
+from flexmeasures_client.constants import (
+    API_VERSION,
+    CONTENT_TYPE_HEADERS,
+    ENTITY_ADDRESS_PLACEHOLDER,
+)
 from flexmeasures_client.response_handling import (
     check_content_type,
     check_for_status,
@@ -231,7 +235,6 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         values: list[float],
         unit: str,
-        entity_address: str,
         prior: str | None = None,
     ):
         """
@@ -239,7 +242,7 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned
         """
         json = dict(
-            sensor=f"{entity_address}.{sensor_id}",
+            sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
             start=pd.Timestamp(
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
@@ -415,7 +418,6 @@ class FlexMeasuresClient:
         start: str | datetime,
         duration: str | timedelta,
         unit: str,
-        entity_address: str,
         resolution: str | timedelta,
         **kwargs,
     ) -> dict:
@@ -432,7 +434,7 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned
         """
         params = dict(
-            sensor=f"{entity_address}.{sensor_id}",
+            sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
             start=pd.Timestamp(
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
