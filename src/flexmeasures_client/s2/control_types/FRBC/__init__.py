@@ -69,13 +69,29 @@ class FRBC(ControlTypeHandler):
 
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
+    async def send_storage_status(self, status: FRBCStorageStatus):
+        raise NotImplementedError()
+
+    async def send_actuator_status(self, status: FRBCActuatorStatus):
+        raise NotImplementedError()
+
     @register(FRBCStorageStatus)
-    def handle_storage_status_history(
-        self, message: FRBCStorageStatus
-    ) -> pydantic.BaseModel:
+    def handle_storage_status(self, message: FRBCStorageStatus) -> pydantic.BaseModel:
         message_id = message.message_id.__root__
 
         self._storage_status_history[message_id] = message
+
+        asyncio.create_task(self.send_storage_status(message))
+
+        return get_reception_status(message, status=ReceptionStatusValues.OK)
+
+    @register(FRBCActuatorStatus)
+    def handle_actuator_status(self, message: FRBCActuatorStatus) -> pydantic.BaseModel:
+        message_id = message.message_id.__root__
+
+        self._actuator_status_history[message_id] = message
+
+        asyncio.create_task(self.send_actuator_status(message))
 
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
