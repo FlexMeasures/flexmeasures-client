@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 import pytz
 
+from flexmeasures_client.constants import ENTITY_ADDRESS_PLACEHOLDER
 from flexmeasures_client.s2.control_types.FRBC import FRBC
 from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
 from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
@@ -14,8 +15,6 @@ from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
     FRBCStorageStatus,
     FRBCSystemDescription,
 )
-
-ENTITY_ADDRESS_PLACEHOLDER = "ea1.2023-07.localhost:fm1"
 
 
 class FRBCSimple(FRBC):
