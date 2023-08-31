@@ -105,7 +105,7 @@ class CEM(Handler):
         response = None
 
         if isinstance(message, pydantic.BaseModel):
-            message = json.loads(message.model_dump_json())
+            message = json.loads(message.json())
 
         if isinstance(message, str):
             message = json.loads(message)
@@ -158,7 +158,7 @@ class CEM(Handler):
 
         # Pending for pydantic V2 to implement model.model_dump(mode="json") in
         # PR #1409 (https://github.com/pydantic/pydantic/issues/1409)
-        message = json.loads(message.model_dump_json())
+        message = json.loads(message.json())
 
         return message
 
