@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Extra, Field
+from pydantic import BaseModel, Extra, Field
 
 from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
     ID,
@@ -18,7 +18,10 @@ from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
 
 
 class FRBCFillLevelTargetProfileElement(BaseModel):
-    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    class Config:
+        extra = Extra.forbid
+        validate_assignment = True
+
     duration: Duration = Field(..., description="The duration of the element.")
     fill_level_range: NumberRange = Field(
         ...,
@@ -27,7 +30,10 @@ class FRBCFillLevelTargetProfileElement(BaseModel):
 
 
 class FRBCLeakageBehaviourElement(BaseModel):
-    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    class Config:
+        extra = Extra.forbid
+        validate_assignment = True
+
     fill_level_range: NumberRange = Field(
         ...,
         description="The fill level range for which this FRBC.LeakageBehaviourElement applies. The start of the range must be less than the end of the range.",
@@ -39,7 +45,10 @@ class FRBCLeakageBehaviourElement(BaseModel):
 
 
 class FRBCOperationModeElement(BaseModel):
-    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    class Config:
+        extra = Extra.forbid
+        validate_assignment = True
+
     fill_level_range: NumberRange = Field(
         ...,
         description="The range of the fill level for which this FRBC.OperationModeElement applies. The start of the NumberRange shall be smaller than the end of the NumberRange.",
@@ -51,8 +60,8 @@ class FRBCOperationModeElement(BaseModel):
     power_ranges: List[PowerRange] = Field(
         ...,
         description="The power produced or consumed by this operation mode. The start of each PowerRange is associated with an operation_mode_factor of 0, the end is associated with an operation_mode_factor of 1. In the array there must be at least one PowerRange, and at most one PowerRange per CommodityQuantity.",
-        max_length=10,
-        min_length=1,
+        max_items=10,
+        min_items=1,
     )
     running_costs: Optional[NumberRange] = Field(
         None,
@@ -61,7 +70,10 @@ class FRBCOperationModeElement(BaseModel):
 
 
 class FRBCOperationMode(BaseModel):
-    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    class Config:
+        extra = Extra.forbid
+        validate_assignment = True
+
     id: ID = Field(
         ...,
         description="ID of the FRBC.OperationMode. Must be unique in the scope of the FRBC.ActuatorDescription in which it is used.",
@@ -73,8 +85,8 @@ class FRBCOperationMode(BaseModel):
     elements: List[FRBCOperationModeElement] = Field(
         ...,
         description="List of FRBC.OperationModeElements, which describe the properties of this FRBC.OperationMode depending on the fill_level. The fill_level_ranges of the items in the Array must be contiguous.",
-        max_length=100,
-        min_length=1,
+        max_items=100,
+        min_items=1,
     )
     abnormal_condition_only: bool = Field(
         ...,
@@ -83,7 +95,10 @@ class FRBCOperationMode(BaseModel):
 
 
 class FRBCActuatorDescription(BaseModel):
-    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    class Config:
+        extra = Extra.forbid
+        validate_assignment = True
+
     id: ID = Field(
         ...,
         description="ID of the Actuator. Must be unique in the scope of the Resource Manager, for at least the duration of the session between Resource Manager and CEM.",
@@ -93,33 +108,33 @@ class FRBCActuatorDescription(BaseModel):
         description="Human readable name/description for the actuator. This element is only intended for diagnostic purposes and not for HMI applications.",
     )
     supported_commodities: List[Commodity] = Field(
-        ...,
-        description="List of all supported Commodities.",
-        max_length=4,
-        min_length=1,
+        ..., description="List of all supported Commodities.", max_items=4, min_items=1
     )
     operation_modes: List[FRBCOperationMode] = Field(
         ...,
         description="Provided FRBC.OperationModes associated with this actuator",
-        max_length=100,
-        min_length=1,
+        max_items=100,
+        min_items=1,
     )
     transitions: List[Transition] = Field(
         ...,
         description="Possible transitions between FRBC.OperationModes associated with this actuator.",
-        max_length=1000,
-        min_length=0,
+        max_items=1000,
+        min_items=0,
     )
     timers: List[Timer] = Field(
         ...,
         description="List of Timers associated with this actuator",
-        max_length=1000,
-        min_length=0,
+        max_items=1000,
+        min_items=0,
     )
 
 
 class FRBCStorageDescription(BaseModel):
-    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    class Config:
+        extra = Extra.forbid
+        validate_assignment = True
+
     diagnostic_label: Optional[str] = Field(
         None,
         description="Human readable name/description of the storage (e.g. hot water buffer or battery). This element is only intended for diagnostic purposes and not for HMI applications.",
@@ -147,7 +162,10 @@ class FRBCStorageDescription(BaseModel):
 
 
 class FRBCUsageForecastElement(BaseModel):
-    model_config = ConfigDict(validate_assigment=True, extra="forbid")
+    class Config:
+        extra = Extra.forbid
+        validate_assignment = True
+
     duration: Duration = Field(
         ..., description="Indicator for how long the given usage_rate is valid."
     )

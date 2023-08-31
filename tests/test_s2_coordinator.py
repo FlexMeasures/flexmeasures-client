@@ -73,7 +73,7 @@ async def test_cem():  # TODO: move into different test functions
         message_id=get_unique_id(),
         resource_id=get_unique_id(),
         roles=[Role(role=RoleType.ENERGY_STORAGE, commodity=Commodity.ELECTRICITY)],
-        instruction_processing_delay=Duration(root=1.0),
+        instruction_processing_delay=Duration(__root__=1.0),
         available_control_types=[
             ControlType.FILL_RATE_BASED_CONTROL,
             ControlType.NO_SELECTION,
@@ -170,7 +170,7 @@ async def test_cem():  # TODO: move into different test functions
     assert (
         cem._control_types_handlers[
             ControlType.FILL_RATE_BASED_CONTROL
-        ]._system_description_history[system_description_message.message_id.root]
+        ]._system_description_history[system_description_message.message_id.__root__]
         == system_description_message
     ), (
         "the FRBC.SystemDescription message should be stored"
