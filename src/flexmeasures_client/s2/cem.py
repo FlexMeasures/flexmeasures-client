@@ -69,6 +69,10 @@ class CEM(Handler):
     def is_closed(self):
         return self._is_closed
 
+    @property
+    def control_type(self):
+        return self._control_type
+
     def register_control_type(self, control_type_handler: ControlTypeHandler):
         """
         This method registers control types.
