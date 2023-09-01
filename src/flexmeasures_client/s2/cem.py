@@ -30,7 +30,7 @@ class CEM(Handler):
 
     _resource_manager_details: ResourceManagerDetails
 
-    _control_types_handlers: Dict[ControlType, ControlTypeHandler] = dict()
+    _control_types_handlers: Dict[ControlType, ControlTypeHandler] = None
     _control_type = None
     _is_closed = True
 
@@ -50,6 +50,7 @@ class CEM(Handler):
         self._fm_client = fm_client
         self._sending_queue = Queue()
         self._power_sensors = dict()
+        self._control_types_handlers = dict()
 
         if not logger:
             logger = Logger(__name__)
