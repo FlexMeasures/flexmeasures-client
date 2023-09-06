@@ -602,3 +602,57 @@ async def test_reauth_wrong_cred(email, password, payload, error) -> None:
             await flexmeasures_client.get_sensors()
 
     await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_update_sensor():
+    with aioresponses() as m:
+        m.patch(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={"testpayload": "test_payload"},
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="password",
+        )
+        flexmeasures_client.access_token = "test-token"
+        await flexmeasures_client.update_sensor(
+            sensor_id=1, updates={"attributes": {"key": "value"}}
+        )
+
+        m.assert_called_once_with(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            method="PATCH",
+            json={"attributes": '{"key": "value"}'},
+            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            params=None,
+            ssl=False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_assets():
+    with aioresponses() as m:
+        m.patch(
+            "http://localhost:5000/api/v3_0/assets/1",
+            status=200,
+            payload={"testpayload": "test_payload"},
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="password",
+        )
+        flexmeasures_client.access_token = "test-token"
+        await flexmeasures_client.update_asset(
+            asset_id=1, updates={"attributes": {"key": "value"}}
+        )
+
+        m.assert_called_once_with(
+            "http://localhost:5000/api/v3_0/assets/1",
+            method="PATCH",
+            json={"attributes": '{"key": "value"}'},
+            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            params=None,
+            ssl=False,
+        )
