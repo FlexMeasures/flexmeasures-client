@@ -572,6 +572,8 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned
         """
         uri = f"assets/{asset_id}"
+        if updates.get("attributes"):
+            updates["attributes"] = json.dumps(updates["attributes"])
         response, status = await self.request(uri=uri, json=updates, method="PATCH")
         check_for_status(status, 200)
         return response
@@ -594,6 +596,8 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned
         """
         uri = f"sensors/{sensor_id}"
+        if updates.get("attributes"):
+            updates["attributes"] = json.dumps(updates["attributes"])
         response, status = await self.request(uri=uri, json=updates, method="PATCH")
         # Raise ValueError
         check_for_status(status, 200)
