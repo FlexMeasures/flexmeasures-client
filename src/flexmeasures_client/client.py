@@ -605,13 +605,17 @@ class FlexMeasuresClient:
         schedule_id: str = response.get("schedule")
         return schedule_id
 
+    @staticmethod
     def storage_schedule_flexmodel(
-        self,
         soc_unit: str,
         soc_at_start: float,
         soc_max: float | None = None,
         soc_min: float | None = None,
         soc_targets: list | None = None,
+        roundtrip_efficiency: float | None = None,
+        storage_efficiency: float | None = None,
+        soc_minima: float | None = None,
+        soc_maxima: float | None = None,
     ):
         if not soc_targets:
             soc_targets = []
@@ -625,6 +629,14 @@ class FlexMeasuresClient:
             flex_model["soc-max"] = soc_max
         if soc_min is not None:
             flex_model["soc-min"] = soc_min
+        if roundtrip_efficiency is not None:
+            flex_model["roundtrip-efficiency"] = roundtrip_efficiency
+        if storage_efficiency is not None:
+            flex_model["storage-efficiency"] = storage_efficiency
+        if soc_minima is not None:
+            flex_model["soc-minima"] = soc_minima
+        if soc_maxima is not None:
+            flex_model["soc-maxima"] = soc_maxima
 
         return flex_model
 
