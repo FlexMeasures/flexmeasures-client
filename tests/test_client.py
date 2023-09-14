@@ -486,16 +486,7 @@ async def test_trigger_and_get_schedule() -> None:
             start="2015-06-02T10:00:00+00:00",
             duration="PT45M",
             flex_context={},
-            flex_model={}
-            # soc_unit="MW",
-            # soc_at_start=50,
-            # soc_targets=[
-            #     {
-            #         "value": 100,
-            #         "datetime": "2023-03-03T11:00+02:00",
-            #     }
-            # ],
-            # consumption_price_sensor=3,
+            flex_model={},
         )
     assert schedule["values"] == [2.15, 3, 2]
     await flexmeasures_client.close()
