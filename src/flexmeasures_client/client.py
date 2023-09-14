@@ -563,12 +563,9 @@ class FlexMeasuresClient:
         soc_minima: list | None = None,
         soc_maxima: list | None = None,
     ):
-        if not soc_targets:
-            soc_targets = []
         flex_model = {
             "soc-unit": soc_unit,
             "soc-at-start": soc_at_start,
-            "soc-targets": soc_targets,
         }
 
         if soc_max is not None:
@@ -579,10 +576,12 @@ class FlexMeasuresClient:
             flex_model["roundtrip-efficiency"] = roundtrip_efficiency
         if storage_efficiency is not None:
             flex_model["storage-efficiency"] = storage_efficiency
-        if soc_minima is not None:
+        if not soc_minima:
             flex_model["soc-minima"] = soc_minima
-        if soc_maxima is not None:
+        if not soc_maxima:
             flex_model["soc-maxima"] = soc_maxima
+        if not soc_targets:
+            flex_model["soc-targets"] = soc_targets
 
         return flex_model
 
