@@ -601,35 +601,3 @@ class FlexMeasuresClient:
             flex_context["inflexible-device-sensors"] = inflexible_device_sensors
 
         return flex_context
-
-    async def trigger_and_get_schedule_from_flex_model(
-        self,
-        sensor_id: int,
-        start: str | datetime,
-        duration: str | timedelta,
-        flex_model: dict,
-        flex_context: dict,
-    ) -> dict:
-        """Trigger a schedule and then fetch it.
-
-        :returns: schedule as dictionary, for example:
-                {
-                    'values': [2.15, 3, 2],
-                    'start': '2015-06-02T10:00:00+00:00',
-                    'duration': 'PT45M',
-                    'unit': 'MW'
-                }
-        This function raises a ValueError when an unhandled status code is returned
-        """
-        schedule_id = await self.trigger_schedule(
-            sensor_id=sensor_id,
-            start=start,
-            duration=duration,
-            flex_model=flex_model,
-            flex_context=flex_context,
-        )
-
-        schedule = await self.get_schedule(
-            sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
-        )
-        return schedule
