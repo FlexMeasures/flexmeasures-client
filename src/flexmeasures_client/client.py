@@ -260,68 +260,6 @@ class FlexMeasuresClient:
         check_for_status(status, 200)
         logging.info("Sensor data sent successfully.")
 
-    async def trigger_storage_schedule(
-        self,
-        sensor_id: int,
-        start: str | datetime,
-        duration: str | timedelta,
-        soc_unit: str,
-        soc_at_start: float,
-        soc_max: float | None = None,
-        soc_min: float | None = None,
-        soc_targets: list | None = None,
-        consumption_price_sensor: int | None = None,
-        production_price_sensor: int | None = None,
-        inflexible_device_sensors: list[int] | None = None,
-    ) -> str:
-        """Post schedule trigger with initial and target states of charge (soc).
-
-        :returns: schedule ID (a UUID string)
-
-        This function raises a ValueError when an unhandled status code is returned
-        """
-        if not soc_targets:
-            soc_targets = []
-        message = {
-            "start": pd.Timestamp(
-                start
-            ).isoformat(),  # for example: 2021-10-13T00:00+02:00
-            "duration": pd.Timedelta(duration).isoformat(),
-            "flex-model": {
-                "soc-unit": soc_unit,
-                "soc-at-start": soc_at_start,
-                "soc-targets": soc_targets,
-            },
-            "flex-context": {},
-        }
-
-        if soc_max is not None:
-            message["flex-model"]["soc-max"] = soc_max
-        if soc_min is not None:
-            message["flex-model"]["soc-min"] = soc_min
-
-        # Set optional flex context
-        if consumption_price_sensor is not None:
-            message["flex-context"][
-                "consumption-price-sensor"
-            ] = consumption_price_sensor
-        if production_price_sensor is not None:
-            message["flex-context"]["production-price-sensor"] = production_price_sensor
-        if inflexible_device_sensors is not None:
-            message["flex-context"][
-                "inflexible-device-sensors"
-            ] = inflexible_device_sensors
-
-        response, status = await self.request(
-            uri=f"sensors/{sensor_id}/schedules/trigger",
-            json=message,
-        )
-        check_for_status(status, 200)
-        logging.info("Schedule triggered successfully.")
-
-        schedule_id: str = response.get("schedule")
-        return schedule_id
-
     async def get_schedule(
         self,
         sensor_id: int,
@@ -373,14 +311,8 @@ class FlexMeasuresClient:
         sensor_id: int,
         start: str | datetime,
         duration: str | timedelta,
-        soc_unit: str,
-        soc_at_start: float,
-        soc_max: float | None = None,
-        soc_min: float | None = None,
-        soc_targets: list | None = None,
-        consumption_price_sensor: int | None = None,
-        production_price_sensor: int | None = None,
-        inflexible_device_sensors: list[int] | None = None,
+        flex_model: dict,
+        flex_context: dict,
     ) -> dict:
         """Trigger a schedule and then fetch it.
 
@@ -393,18 +325,12 @@ class FlexMeasuresClient:
                 }
         This function raises a ValueError when an unhandled status code is returned
         """
-        schedule_id = await self.trigger_storage_schedule(
+        schedule_id = await self.trigger_schedule(
             sensor_id=sensor_id,
             start=start,
             duration=duration,
-            soc_unit=soc_unit,
-            soc_at_start=soc_at_start,
-            soc_max=soc_max,
-            soc_min=soc_min,
-            soc_targets=soc_targets,
-            consumption_price_sensor=consumption_price_sensor,
-            production_price_sensor=production_price_sensor,
-            inflexible_device_sensors=inflexible_device_sensors,
+            flex_model=flex_model,
+            flex_context=flex_context,
         )
 
         schedule = await self.get_schedule(
@@ -602,3 +528,80 @@ class FlexMeasuresClient:
         # Raise ValueError
         check_for_status(status, 200)
         return response
+
+    async def trigger_schedule(
+        self,
+        sensor_id: int,
+        start: str | datetime,
+        duration: str | timedelta,
+        flex_model: dict,
+        flex_context: dict,
+    ):
+        message = {
+            "start": pd.Timestamp(
+                start
+            ).isoformat(),  # for example: 2021-10-13T00:00+02:00
+            "duration": pd.Timedelta(duration).isoformat(),
+            "flex-model": flex_model,
+            "flex-context": flex_context,
+        }
+        response, status = await self.request(
+            uri=f"sensors/{sensor_id}/schedules/trigger",
+            json=message,
+        )
+        check_for_status(status, 200)
+        logging.info("Schedule triggered successfully.")
+
+        schedule_id: str = response.get("schedule")
+        return schedule_id
+
+    @staticmethod
+    def create_storage_flex_model(
+        soc_unit: str,
+        soc_at_start: float,
+        soc_max: float | None = None,
+        soc_min: float | None = None,
+        soc_targets: list | None = None,
+        roundtrip_efficiency: float | None = None,
+        storage_efficiency: float | None = None,
+        soc_minima: list | None = None,
+        soc_maxima: list | None = None,
+    ):
+        flex_model = {
+            "soc-unit": soc_unit,
+            "soc-at-start": soc_at_start,
+        }
+
+        if soc_max is not None:
+            flex_model["soc-max"] = soc_max
+        if soc_min is not None:
+            flex_model["soc-min"] = soc_min
+        if roundtrip_efficiency is not None:
+            flex_model["roundtrip-efficiency"] = roundtrip_efficiency
+        if storage_efficiency is not None:
+            flex_model["storage-efficiency"] = storage_efficiency
+        if soc_minima:
+            flex_model["soc-minima"] = soc_minima
+        if soc_maxima:
+            flex_model["soc-maxima"] = soc_maxima
+        if soc_targets:
+            flex_model["soc-targets"] = soc_targets
+
+        return flex_model
+
+    @staticmethod
+    def create_storage_flex_context(
+        consumption_price_sensor: int | None = None,
+        production_price_sensor: int | None = None,
+        inflexible_device_sensors: list[int] | None = None,
+    ):
+        flex_context = {}
+        # Set optional flex context
+        if consumption_price_sensor is not None:
+            flex_context["consumption-price-sensor"] = consumption_price_sensor
+        if production_price_sensor is not None:
+            flex_context["production-price-sensor"] = production_price_sensor
+        if inflexible_device_sensors:
+            flex_context["inflexible-device-sensors"] = inflexible_device_sensors
+
+        return flex_context
