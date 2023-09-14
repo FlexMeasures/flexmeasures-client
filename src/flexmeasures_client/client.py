@@ -560,8 +560,8 @@ class FlexMeasuresClient:
         soc_targets: list | None = None,
         roundtrip_efficiency: float | None = None,
         storage_efficiency: float | None = None,
-        soc_minima: float | None = None,
-        soc_maxima: float | None = None,
+        soc_minima: list | None = None,
+        soc_maxima: list | None = None,
     ):
         if not soc_targets:
             soc_targets = []
