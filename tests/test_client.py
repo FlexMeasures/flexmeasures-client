@@ -214,7 +214,7 @@ async def test_trigger_schedule() -> None:
             status=200,
             payload={"schedule": "test_schedule_id"},
         )
-        flex_model = flexmeasures_client.storage_schedule_flex_model(
+        flex_model = flexmeasures_client.create_storage_flex_model(
             soc_unit="kWh",
             soc_at_start=50,
             soc_max=400,
@@ -227,7 +227,7 @@ async def test_trigger_schedule() -> None:
             ],
         )
 
-        flex_context = flexmeasures_client.storage_schedule_flex_context(
+        flex_context = flexmeasures_client.create_storage_flex_context(
             consumption_price_sensor=3,
         )
 

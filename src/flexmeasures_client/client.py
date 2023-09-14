@@ -552,7 +552,7 @@ class FlexMeasuresClient:
         return schedule_id
 
     @staticmethod
-    def storage_schedule_flex_model(
+    def create_storage_flex_model(
         soc_unit: str,
         soc_at_start: float,
         soc_max: float | None = None,
@@ -576,17 +576,17 @@ class FlexMeasuresClient:
             flex_model["roundtrip-efficiency"] = roundtrip_efficiency
         if storage_efficiency is not None:
             flex_model["storage-efficiency"] = storage_efficiency
-        if not soc_minima:
+        if soc_minima:
             flex_model["soc-minima"] = soc_minima
-        if not soc_maxima:
+        if soc_maxima:
             flex_model["soc-maxima"] = soc_maxima
-        if not soc_targets:
+        if soc_targets:
             flex_model["soc-targets"] = soc_targets
 
         return flex_model
 
     @staticmethod
-    def storage_schedule_flex_context(
+    def create_storage_flex_context(
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,
