@@ -597,7 +597,7 @@ class FlexMeasuresClient:
             flex_context["consumption-price-sensor"] = consumption_price_sensor
         if production_price_sensor is not None:
             flex_context["production-price-sensor"] = production_price_sensor
-        if inflexible_device_sensors is not None:
+        if inflexible_device_sensors:
             flex_context["inflexible-device-sensors"] = inflexible_device_sensors
 
         return flex_context
