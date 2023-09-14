@@ -260,48 +260,6 @@ class FlexMeasuresClient:
         check_for_status(status, 200)
         logging.info("Sensor data sent successfully.")
 
-    async def trigger_storage_schedule(
-        self,
-        sensor_id: int,
-        start: str | datetime,
-        duration: str | timedelta,
-        soc_unit: str,
-        soc_at_start: float,
-        soc_max: float | None = None,
-        soc_min: float | None = None,
-        soc_targets: list | None = None,
-        consumption_price_sensor: int | None = None,
-        production_price_sensor: int | None = None,
-        inflexible_device_sensors: list[int] | None = None,
-    ) -> str:
-        """Post schedule trigger with initial and target states of charge (soc).
-
-        :returns: schedule ID (a UUID string)
-
-        This function raises a ValueError when an unhandled status code is returned
-        """
-        flex_model = self.storage_schedule_flexmodel(
-            soc_at_start=soc_at_start,
-            soc_unit=soc_unit,
-            soc_max=soc_max,
-            soc_min=soc_min,
-            soc_targets=soc_targets,
-        )
-        flex_context = self.storage_schedule_flexcontext(
-            consumption_price_sensor=consumption_price_sensor,
-            production_price_sensor=production_price_sensor,
-            inflexible_device_sensors=inflexible_device_sensors,
-        )
-
-        schedule_id = await self.trigger_schedule(
-            sensor_id=sensor_id,
-            start=start,
-            duration=duration,
-            flex_model=flex_model,
-            flex_context=flex_context,
-        )
-        return schedule_id
-
     async def get_schedule(
         self,
         sensor_id: int,
@@ -353,14 +311,8 @@ class FlexMeasuresClient:
         sensor_id: int,
         start: str | datetime,
         duration: str | timedelta,
-        soc_unit: str,
-        soc_at_start: float,
-        soc_max: float | None = None,
-        soc_min: float | None = None,
-        soc_targets: list | None = None,
-        consumption_price_sensor: int | None = None,
-        production_price_sensor: int | None = None,
-        inflexible_device_sensors: list[int] | None = None,
+        flex_model: dict,
+        flex_context: dict,
     ) -> dict:
         """Trigger a schedule and then fetch it.
 
@@ -373,18 +325,12 @@ class FlexMeasuresClient:
                 }
         This function raises a ValueError when an unhandled status code is returned
         """
-        schedule_id = await self.trigger_storage_schedule(
+        schedule_id = await self.trigger_schedule(
             sensor_id=sensor_id,
             start=start,
             duration=duration,
-            soc_unit=soc_unit,
-            soc_at_start=soc_at_start,
-            soc_max=soc_max,
-            soc_min=soc_min,
-            soc_targets=soc_targets,
-            consumption_price_sensor=consumption_price_sensor,
-            production_price_sensor=production_price_sensor,
-            inflexible_device_sensors=inflexible_device_sensors,
+            flex_model=flex_model,
+            flex_context=flex_context,
         )
 
         schedule = await self.get_schedule(
@@ -606,7 +552,7 @@ class FlexMeasuresClient:
         return schedule_id
 
     @staticmethod
-    def storage_schedule_flexmodel(
+    def storage_schedule_flex_model(
         soc_unit: str,
         soc_at_start: float,
         soc_max: float | None = None,
@@ -641,7 +587,7 @@ class FlexMeasuresClient:
         return flex_model
 
     @staticmethod
-    def storage_schedule_flexcontext(
+    def storage_schedule_flex_context(
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,

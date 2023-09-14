@@ -203,7 +203,7 @@ async def test_post_measurements() -> None:
 
 
 @pytest.mark.asyncio
-async def test_trigger_storage_schedule() -> None:
+async def test_trigger_schedule() -> None:
     with aioresponses() as m:
         flexmeasures_client = FlexMeasuresClient(
             email="test@test.test", password="test"
@@ -214,11 +214,7 @@ async def test_trigger_storage_schedule() -> None:
             status=200,
             payload={"schedule": "test_schedule_id"},
         )
-
-        schedule_id = await flexmeasures_client.trigger_storage_schedule(
-            sensor_id=3,
-            start="2023-03-26T10:00+02:00",
-            duration="PT12H",
+        flex_model = flexmeasures_client.storage_schedule_flex_model(
             soc_unit="kWh",
             soc_at_start=50,
             soc_max=400,
@@ -229,7 +225,18 @@ async def test_trigger_storage_schedule() -> None:
                     "datetime": "2023-03-03T11:00+02:00",
                 }
             ],
+        )
+
+        flex_context = flexmeasures_client.storage_schedule_flex_context(
             consumption_price_sensor=3,
+        )
+
+        schedule_id = await flexmeasures_client.trigger_schedule(
+            sensor_id=3,
+            start="2023-03-26T10:00+02:00",
+            duration="PT12H",
+            flex_model=flex_model,
+            flex_context=flex_context,
         )
 
         assert schedule_id == "test_schedule_id"
@@ -478,15 +485,17 @@ async def test_trigger_and_get_schedule() -> None:
             sensor_id=1,
             start="2015-06-02T10:00:00+00:00",
             duration="PT45M",
-            soc_unit="MW",
-            soc_at_start=50,
-            soc_targets=[
-                {
-                    "value": 100,
-                    "datetime": "2023-03-03T11:00+02:00",
-                }
-            ],
-            consumption_price_sensor=3,
+            flex_context={},
+            flex_model={}
+            # soc_unit="MW",
+            # soc_at_start=50,
+            # soc_targets=[
+            #     {
+            #         "value": 100,
+            #         "datetime": "2023-03-03T11:00+02:00",
+            #     }
+            # ],
+            # consumption_price_sensor=3,
         )
     assert schedule["values"] == [2.15, 3, 2]
     await flexmeasures_client.close()
