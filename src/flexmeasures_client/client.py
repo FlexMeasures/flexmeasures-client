@@ -640,8 +640,8 @@ class FlexMeasuresClient:
 
         return flex_model
 
+    @staticmethod
     def storage_schedule_flexcontext(
-        self,
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
         inflexible_device_sensors: list[int] | None = None,
