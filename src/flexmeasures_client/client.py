@@ -605,3 +605,26 @@ class FlexMeasuresClient:
             flex_context["inflexible-device-sensors"] = inflexible_device_sensors
 
         return flex_context
+
+    @staticmethod
+    def convert_units(values: list[int | float], from_unit: str, to_unit: str) -> dict:
+        """Convert values between W, kW and MW, as required."""
+        if from_unit == "MW" and to_unit == "W":
+            values = [v * 10**6 for v in values]
+        elif (from_unit == "MW" and to_unit == "kW") or (
+            from_unit == "kW" and to_unit == "W"
+        ):
+            values = [v * 10**3 for v in values]
+        elif from_unit == to_unit:
+            pass
+        elif (from_unit == "W" and to_unit == "kW") or (
+            from_unit == "kW" and to_unit == "MW"
+        ):
+            values = [v * 10**-3 for v in values]
+        elif from_unit == "W" and to_unit == "MW":
+            values = [v * 10**-6 for v in values]
+        else:
+            raise NotImplementedError(
+                f"Power conversion from {from_unit} to {to_unit} is not supported."
+            )
+        return values
