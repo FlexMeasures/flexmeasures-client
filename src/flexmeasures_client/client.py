@@ -128,12 +128,17 @@ class FlexMeasuresClient:
                             )
                             if response.status < 300:
                                 break
+                            if response.status == 303:
+                                message = f"Redirect to fallback schedule: {response.headers['location']}"  # noqa: E501
+                                logging.debug(message)
+                                url = response.headers["location"]
                     except asyncio.TimeoutError:
                         message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {self.polling_interval} seconds..."  # noqa: E501
                         logging.debug(message)
                         polling_step += 1
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
+                        logging.debug(exception)
                         raise ConnectionError(
                             "Error occurred while communicating with the API."
                         ) from exception
@@ -177,6 +182,7 @@ class FlexMeasuresClient:
             headers=headers,
             json=json,
             ssl=self.ssl,
+            allow_redirects=False,
         )
         payload = await response.json()
         status_msg = f"status: {response.status}"
