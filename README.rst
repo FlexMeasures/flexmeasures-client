@@ -89,7 +89,7 @@ Trigger and retrieve a schedule::
             flex-model= {
                     "soc-unit": "kWh",
                     "soc-at-start": 50, # soc_units (kWh)
-                    "soc-max": 400, 
+                    "soc-max": 400,
                     "soc-min": 20,
                     "soc-targets": [
                         {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
@@ -109,7 +109,7 @@ Trigger a schedule::
             flex-model= {
                     "soc-unit": "kWh",
                     "soc-at-start": 50, # soc_units (kWh)
-                    "soc-max": 400, 
+                    "soc-max": 400,
                     "soc-min": 20,
                     "soc-targets": [
                         {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
