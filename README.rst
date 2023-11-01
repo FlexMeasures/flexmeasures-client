@@ -83,17 +83,18 @@ Trigger and retrieve a schedule::
 
     schedule = await flexmeasures_client.trigger_and_get_schedule(
             sensor_id=<sensor_id>, # int
-            start="2015-06-02T10:00:00+00:00", # iso datetime
-            duration="PT45M", # iso timedelta
-            soc_unit="MWh",
-            soc_at_start=50, # soc_units (MWh)
-            soc_targets=[
-                {
-                    "value": 100, # soc_units (MWh)
-                    "datetime": "2023-03-03T11:00+02:00", # iso datetime
-                }
-            ],
-            consumption_price_sensor=<consumption_price_sensor_id>, # int
+            start="2023-03-26T10:00+02:00", # iso datetime
+            duration="PT12H", # iso timedelta
+            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>, # int},
+            flex-model= {
+                    "soc-unit": "kWh",
+                    "soc-at-start": 50, # soc_units (kWh)
+                    "soc-max": 400,
+                    "soc-min": 20,
+                    "soc-targets": [
+                        {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
+                    ],
+               }
         )
 
 The trigger and get schedule function can also be separated to trigger the schedule first and later retrieve the schedule using the ``schedule_uuid``.
@@ -104,15 +105,16 @@ Trigger a schedule::
             sensor_id=<sensor_id>, # int
             start="2023-03-26T10:00+02:00", # iso datetime
             duration="PT12H", # iso timedelta
-            soc_unit="kWh",
-            soc_at_start=50, # soc_units (kWh)
-            soc_targets=[
-                {
-                    "value": 100, # soc_units (kWh)
-                    "datetime": "2023-03-03T11:00+02:00", # iso datetime
-                }
-            ],
-            consumption_price_sensor=<consumption_price_sensor_id>, # int
+            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>, # int},
+            flex-model= {
+                    "soc-unit": "kWh",
+                    "soc-at-start": 50, # soc_units (kWh)
+                    "soc-max": 400,
+                    "soc-min": 20,
+                    "soc-targets": [
+                        {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
+                    ],
+               }
         )
 
 The ``trigger_storage_schedule`` return a ``schedule_uuid``. This can be used to retrieve the schedule. The client will re-try if until the schedule is available or the ``MAX_POLLING_STEPS`` of ``10`` is reached. Retrieve schedule::
