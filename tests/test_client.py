@@ -154,6 +154,7 @@ async def test_get_access_token() -> None:
             },
             params=None,
             ssl=False,
+            allow_redirects=False,
         )
     await flexmeasures_client.close()
 
@@ -197,6 +198,7 @@ async def test_post_measurements() -> None:
             },
             params=None,
             ssl=False,
+            allow_redirects=False,
         )
 
     await flexmeasures_client.close()
@@ -261,6 +263,7 @@ async def test_trigger_schedule() -> None:
             url="http://localhost:5000/api/v3_0/sensors/3/schedules/trigger",
             params=None,
             ssl=False,
+            allow_redirects=False,
         )
 
     await flexmeasures_client.close()
@@ -561,7 +564,7 @@ async def test_reauth_with_access_token() -> None:
             params=None,
             ssl=False,
             json=None,
-            allow_redirects=True,
+            allow_redirects=False,
         )
 
     await flexmeasures_client.close()
@@ -628,6 +631,7 @@ async def test_update_sensor():
             headers={"Content-Type": "application/json", "Authorization": "test-token"},
             params=None,
             ssl=False,
+            allow_redirects=False,
         )
 
 
@@ -655,4 +659,75 @@ async def test_update_assets():
             headers={"Content-Type": "application/json", "Authorization": "test-token"},
             params=None,
             ssl=False,
+            allow_redirects=False,
         )
+
+
+@pytest.mark.asyncio
+async def test_get_fallback_schedule():
+    # todo: relies on https://github.com/pnuckowski/aioresponses/pull/237 to use repeat instead of 3 times the same aioresponse. # noqa: E501
+
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid?duration=P0DT0H45M0S"  # noqa: E501
+    redirect_url = "http://localhost:5000/api/v3_0/sensors/1/schedules/fallback-schedule?duration=P0DT0H45M0S"  # noqa: E501
+    with aioresponses() as m:
+        # m.get(
+        #     "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+        #     status=400,
+        #     payload={"message": "Scheduling job waiting"},
+        #     repeat=3
+        # )
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            status=200,
+            payload={"schedule": "schedule-uuid"},
+        )
+
+        m.get(
+            url=url,
+            status=303,
+            payload={"message": "Scheduling job waiting"},
+            headers={
+                "location": "http://localhost:5000/api/v3_0/sensors/1/schedules/fallback-schedule",  # noqa: E501
+            },
+        )
+        m.get(
+            url=redirect_url,
+            status=400,
+            payload={"message": "Scheduling job waiting"},
+        )
+        m.get(
+            url=redirect_url,
+            status=200,
+            payload={
+                "values": [2.15, 4, 1],
+                "start": "2015-06-02T10:00:00+00:00",
+                "duration": "PT45M",
+                "unit": "MW",
+            },
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            request_timeout=2,
+            polling_interval=0.2,
+            access_token="skip-auth",
+        )
+
+        schedule = await flexmeasures_client.trigger_and_get_schedule(
+            sensor_id=1,
+            start="2015-06-02T10:00:00+00:00",
+            duration="PT45M",
+            flex_context={},
+            flex_model={},
+        )
+        m.assert_called_with(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/fallback-schedule",
+            method="GET",
+            headers={"Content-Type": "application/json", "Authorization": "skip-auth"},
+            params={"duration": "P0DT0H45M0S"},
+            ssl=False,
+            allow_redirects=False,
+            json=None,
+        )
+    assert schedule["values"] == [2.15, 4, 1]
+    await flexmeasures_client.close()
