@@ -157,7 +157,7 @@ S2 Protocol
 Disclaimer
 ==========
 
-The `S2 Protocol <https://github.com/flexiblepower/s2-ws-json>`_ integration is still under active development. Please, beware that the logic and interfaces can change.
+The `S2 Protocol <https://s2standard.org/>`_ integration is still under active development. Please, beware that the logic and interfaces can change.
 
 
 Run Demo
