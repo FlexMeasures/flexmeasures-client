@@ -13,10 +13,11 @@ if TYPE_CHECKING:  # Only imports the below statements during type checking
 
 
 async def check_response(
-    self: FlexMeasuresClient, response, polling_step: int, reauth_once: bool
-) -> tuple[int, bool]:
+    self: FlexMeasuresClient, response, polling_step: int, reauth_once: bool, url: str
+) -> tuple[int, bool, str]:
     """
     <300: passes
+    303: redirect to new url
     401: reauthenticate
     todo: 503 + Retry-After header: poll again
     otherwise: call error_handler
@@ -26,6 +27,10 @@ async def check_response(
     headers = response.headers
     if status < 300:
         pass
+    elif response.status == 303:
+        message = f"Redirect to fallback schedule: {response.headers['location']}"  # noqa: E501
+        logging.debug(message)
+        url = response.headers["location"]
     elif status == 401 and reauth_once:
         message = f"""Authentication failed with"
         status: {status}
@@ -60,7 +65,7 @@ async def check_response(
         logging.error(message)
         # otherwise, raise if the status does not indicate okay
         response.raise_for_status()
-    return polling_step, reauth_once
+    return polling_step, reauth_once, url
 
 
 def check_content_type(response):
