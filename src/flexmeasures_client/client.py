@@ -271,7 +271,7 @@ class FlexMeasuresClient:
         sensor_id: int,
         schedule_id: str,
         duration: str | timedelta,
-    ) -> dict | list:
+    ) -> dict:
         """Get schedule with given ID.
 
         :returns: schedule as dictionary, for example:
@@ -290,6 +290,11 @@ class FlexMeasuresClient:
             },
         )
         check_for_status(status, 200)
+        if not isinstance(schedule, dict):
+            raise ContentTypeError(
+                f"Expected a schedule, but got {type(schedule)}",
+                schedule,
+            )
         return schedule
 
     async def get_assets(self) -> list[dict]:
@@ -301,6 +306,12 @@ class FlexMeasuresClient:
         """
         assets, status = await self.request(uri="assets", method="GET")
         check_for_status(status, 200)
+
+        if not isinstance(assets, list):
+            raise ContentTypeError(
+                f"Expected a list of assets, but got {type(assets)}",
+                assets,
+            )
         return assets
 
     async def get_sensors(self) -> list[dict]:
@@ -310,6 +321,11 @@ class FlexMeasuresClient:
         """
         sensors, status = await self.request(uri="sensors", method="GET")
         check_for_status(status, 200)
+        if not isinstance(sensors, list):
+            raise ContentTypeError(
+                f"Expected a list of sensors, but got {type(sensors)}",
+                sensors,
+            )
         return sensors
 
     async def trigger_and_get_schedule(
@@ -380,6 +396,11 @@ class FlexMeasuresClient:
             uri="sensors/data", method="GET", params=params
         )
         check_for_status(status, 200)
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected a sensor data dictionary, but got {type(response)}",
+                response,
+            )
         data_fields = ("values", "start", "duration", "unit")
         sensor_data = {k: v for k, v in response.items() if k in data_fields}
         return sensor_data
@@ -402,9 +423,14 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned
         """
         uri = f"sensors/{sensor_id}"
-        response, status = await self.request(uri=uri, method="GET")
+        sensor, status = await self.request(uri=uri, method="GET")
         check_for_status(status, 200)
-        return response
+        if not isinstance(sensor, dict):
+            raise ContentTypeError(
+                f"Expected a sensor dictionary, but got {type(sensor)}",
+                sensor,
+            )
+        return sensor
 
     async def add_sensor(
         self,
@@ -442,11 +468,16 @@ class FlexMeasuresClient:
         if attributes:
             sensor["attributes"] = json.dumps(attributes)
         uri = "sensors"
-        response, status = await self.request(
+        new_sensor, status = await self.request(
             uri=uri, json_payload=sensor, method="POST"
         )
         check_for_status(status, 201)
-        return response
+        if not isinstance(new_sensor, dict):
+            raise ContentTypeError(
+                f"Expected a sensor dictionary, but got {type(new_sensor)}",
+                new_sensor,
+            )
+        return new_sensor
 
     async def add_asset(
         self,
@@ -484,11 +515,16 @@ class FlexMeasuresClient:
             asset["attributes"] = json.dumps(attributes)
 
         uri = "assets"
-        response, status = await self.request(
+        new_asset, status = await self.request(
             uri=uri, json_payload=asset, method="POST"
         )
         check_for_status(status, 201)
-        return response
+        if not isinstance(new_asset, dict):
+            raise ContentTypeError(
+                f"Expected an asset dictionary, but got {type(new_asset)}",
+                new_asset,
+            )
+        return new_asset
 
     async def update_asset(self, asset_id: int, updates: dict) -> dict:
         """Patch an asset
@@ -510,11 +546,16 @@ class FlexMeasuresClient:
         uri = f"assets/{asset_id}"
         if updates.get("attributes"):
             updates["attributes"] = json.dumps(updates["attributes"])
-        response, status = await self.request(
+        updated_asset, status = await self.request(
             uri=uri, json_payload=updates, method="PATCH"
         )
         check_for_status(status, 200)
-        return response
+        if not isinstance(updated_asset, dict):
+            raise ContentTypeError(
+                f"Expected an asset dictionary, but got {type(updated_asset)}",
+                updated_asset,
+            )
+        return updated_asset
 
     async def update_sensor(self, sensor_id: int, updates: dict) -> dict:
         """Patch a sensor
@@ -536,12 +577,17 @@ class FlexMeasuresClient:
         uri = f"sensors/{sensor_id}"
         if updates.get("attributes"):
             updates["attributes"] = json.dumps(updates["attributes"])
-        response, status = await self.request(
+        updated_sensor, status = await self.request(
             uri=uri, json_payload=updates, method="PATCH"
         )
         # Raise ValueError
         check_for_status(status, 200)
-        return response
+        if not isinstance(updated_sensor, dict):
+            raise ContentTypeError(
+                f"Expected a sensor dictionary, but got {type(updated_sensor)}",
+                updated_sensor,
+            )
+        return updated_sensor
 
     async def trigger_schedule(
         self,
@@ -550,7 +596,7 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         flex_model: dict,
         flex_context: dict,
-    ):
+    ) -> str:
         message = {
             "start": pd.Timestamp(
                 start
@@ -564,6 +610,11 @@ class FlexMeasuresClient:
             json_payload=message,
         )
         check_for_status(status, 200)
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected a schedule trigger response, but got {type(response)}",
+                response,
+            )
         logging.info("Schedule triggered successfully.")
 
         schedule_id: str = response.get("schedule")
@@ -642,3 +693,12 @@ class FlexMeasuresClient:
                 f"Power conversion from {from_unit} to {to_unit} is not supported."
             )
         return values
+
+
+class ContentTypeError(Exception):
+    """Raised when the response from the API is not in the expected format"""
+
+    def __init__(self, message, response):
+        self.message = message
+        self.response = response
+        super().__init__(self.message)
