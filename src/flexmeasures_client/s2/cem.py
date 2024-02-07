@@ -30,7 +30,7 @@ class CEM(Handler):
 
     _resource_manager_details: ResourceManagerDetails
 
-    _control_types_handlers: Dict[ControlType, ControlTypeHandler] = None
+    _control_types_handlers: Dict[ControlType, ControlTypeHandler]
     _control_type = None
     _is_closed = True
 

@@ -7,7 +7,7 @@ import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Dict, List, Mapping, Union
 
 import async_timeout
 import pandas as pd
@@ -610,14 +610,20 @@ class FlexMeasuresClient:
             json_payload=message,
         )
         check_for_status(status, 200)
+
+        logging.info("Schedule triggered successfully.")
         if not isinstance(response, dict):
             raise ContentTypeError(
-                f"Expected a schedule trigger response, but got {type(response)}",
+                f"Expected a schedule ID, but got {type(response)}",
                 response,
             )
-        logging.info("Schedule triggered successfully.")
 
-        schedule_id: str = response.get("schedule")
+        if not isinstance(response.get("schedule"), str):
+            raise ContentTypeError(
+                f"Expected a schedule ID, but got {type(response.get('schedule'))}",
+                response.get("schedule"),
+            )
+        schedule_id = response["schedule"]
         return schedule_id
 
     @staticmethod
@@ -631,7 +637,7 @@ class FlexMeasuresClient:
         storage_efficiency: float | None = None,
         soc_minima: list | None = None,
         soc_maxima: list | None = None,
-    ):
+    ) -> dict:
         flex_model = {
             "soc-unit": soc_unit,
             "soc-at-start": soc_at_start,
@@ -654,12 +660,13 @@ class FlexMeasuresClient:
 
         return flex_model
 
+    # add type hints
     @staticmethod
     def create_storage_flex_context(
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
-        inflexible_device_sensors: list[int] | None = None,
-    ):
+        inflexible_device_sensors: Union[int, List[int]] | None = None,
+    ) -> Mapping[str, Union[int, List[int]]]:
         flex_context = {}
         # Set optional flex context
         if consumption_price_sensor is not None:
@@ -672,7 +679,7 @@ class FlexMeasuresClient:
         return flex_context
 
     @staticmethod
-    def convert_units(values: list[int | float], from_unit: str, to_unit: str) -> dict:
+    def convert_units(values: list[int | float], from_unit: str, to_unit: str) -> list:
         """Convert values between W, kW and MW, as required."""
         if from_unit == "MW" and to_unit == "W":
             values = [v * 10**6 for v in values]
