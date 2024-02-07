@@ -163,7 +163,7 @@ class Handler:
             message_type = message.message_type
         elif isinstance(message, dict):
             message_type = message.get("message_type")
-        elif isinstance(message, dict):
+        elif isinstance(message, str):
             message_type = json.loads(message).get("message_type")
 
         return message_type in self.message_handlers

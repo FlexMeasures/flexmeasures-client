@@ -42,13 +42,13 @@ class FlexMeasuresClient:
     ssl: bool = False
     api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
-    access_token: str = None
+    access_token: str | None = None
 
     max_polling_steps: int = MAX_POLLING_STEPS
     polling_timeout: float = POLLING_TIMEOUT  # seconds
     request_timeout: float = REQUEST_TIMEOUT  # seconds
     polling_interval: float = POLLING_INTERVAL  # seconds
-    session: ClientSession | None = None
+    session: ClientSession = ClientSession()
 
     def __post_init__(self):
         if not re.match(r".+\@.+\..+", self.email):
@@ -83,7 +83,7 @@ class FlexMeasuresClient:
         self,
         uri: str,
         *,
-        json: dict | None = None,
+        json_payload: dict | None = None,
         method: str = "POST",
         path: str = path,
         params: dict[str, Any] | None = None,
@@ -122,7 +122,7 @@ class FlexMeasuresClient:
                                 url=url,
                                 params=params,
                                 headers=headers,
-                                json=json,
+                                json_payload=json_payload,
                                 polling_step=polling_step,
                                 reauth_once=reauth_once,
                             )
@@ -157,12 +157,12 @@ class FlexMeasuresClient:
         url: URL,
         params: dict[str, Any] | None = None,
         headers: dict | None = None,
-        json: dict | None = None,
+        json_payload: dict | None = None,
         polling_step: int = 0,
         reauth_once: bool = True,
     ) -> tuple[ClientResponse, int, bool]:
         url_msg = f"url: {url}"
-        json_msg = f"payload: {json}"
+        json_msg = f"payload: {json_payload}"
         params_msg = f"params: {params}"
         method_msg = f"method: {method}"
         headers_msg = f"headers: {headers}"
@@ -180,7 +180,7 @@ class FlexMeasuresClient:
             url=url,
             params=params,
             headers=headers,
-            json=json,
+            json=json_payload,
             ssl=self.ssl,
             allow_redirects=False,
         )
@@ -226,7 +226,7 @@ class FlexMeasuresClient:
         response, _status = await self.request(
             uri="requestAuthToken",
             path="/api/",
-            json={
+            json_payload={
                 "email": self.email,
                 "password": self.password,
             },
@@ -247,7 +247,7 @@ class FlexMeasuresClient:
         Post sensor data for the given time range.
         This function raises a ValueError when an unhandled status code is returned
         """
-        json = dict(
+        json_payload = dict(
             sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
             start=pd.Timestamp(
                 start
@@ -257,11 +257,11 @@ class FlexMeasuresClient:
             unit=unit,
         )
         if prior:
-            json["prior"] = prior
+            json_payload["prior"] = prior
 
         _response, status = await self.request(
             uri="sensors/data",
-            json=json,
+            json_payload=json_payload,
         )
         check_for_status(status, 200)
         logging.info("Sensor data sent successfully.")
@@ -271,7 +271,7 @@ class FlexMeasuresClient:
         sensor_id: int,
         schedule_id: str,
         duration: str | timedelta,
-    ) -> dict:
+    ) -> dict | list:
         """Get schedule with given ID.
 
         :returns: schedule as dictionary, for example:
@@ -442,7 +442,9 @@ class FlexMeasuresClient:
         if attributes:
             sensor["attributes"] = json.dumps(attributes)
         uri = "sensors"
-        response, status = await self.request(uri=uri, json=sensor, method="POST")
+        response, status = await self.request(
+            uri=uri, json_payload=sensor, method="POST"
+        )
         check_for_status(status, 201)
         return response
 
@@ -482,7 +484,9 @@ class FlexMeasuresClient:
             asset["attributes"] = json.dumps(attributes)
 
         uri = "assets"
-        response, status = await self.request(uri=uri, json=asset, method="POST")
+        response, status = await self.request(
+            uri=uri, json_payload=asset, method="POST"
+        )
         check_for_status(status, 201)
         return response
 
@@ -506,7 +510,9 @@ class FlexMeasuresClient:
         uri = f"assets/{asset_id}"
         if updates.get("attributes"):
             updates["attributes"] = json.dumps(updates["attributes"])
-        response, status = await self.request(uri=uri, json=updates, method="PATCH")
+        response, status = await self.request(
+            uri=uri, json_payload=updates, method="PATCH"
+        )
         check_for_status(status, 200)
         return response
 
@@ -530,7 +536,9 @@ class FlexMeasuresClient:
         uri = f"sensors/{sensor_id}"
         if updates.get("attributes"):
             updates["attributes"] = json.dumps(updates["attributes"])
-        response, status = await self.request(uri=uri, json=updates, method="PATCH")
+        response, status = await self.request(
+            uri=uri, json_payload=updates, method="PATCH"
+        )
         # Raise ValueError
         check_for_status(status, 200)
         return response
@@ -553,7 +561,7 @@ class FlexMeasuresClient:
         }
         response, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/trigger",
-            json=message,
+            json_payload=message,
         )
         check_for_status(status, 200)
         logging.info("Schedule triggered successfully.")
