@@ -117,6 +117,7 @@ class FlexMeasuresClient:
                                 response,
                                 polling_step,
                                 reauth_once,
+                                url,
                             ) = await self.request_once(
                                 method=method,
                                 url=url,
@@ -128,10 +129,6 @@ class FlexMeasuresClient:
                             )
                             if response.status < 300:
                                 break
-                            if response.status == 303:
-                                message = f"Redirect to fallback schedule: {response.headers['location']}"  # noqa: E501
-                                logging.debug(message)
-                                url = response.headers["location"]
                     except asyncio.TimeoutError:
                         message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {self.polling_interval} seconds..."  # noqa: E501
                         logging.debug(message)
@@ -160,7 +157,7 @@ class FlexMeasuresClient:
         json: dict | None = None,
         polling_step: int = 0,
         reauth_once: bool = True,
-    ) -> tuple[ClientResponse, int, bool]:
+    ) -> tuple[ClientResponse, int, bool, str]:
         url_msg = f"url: {url}"
         json_msg = f"payload: {json}"
         params_msg = f"params: {params}"
@@ -195,10 +192,10 @@ class FlexMeasuresClient:
         logging.debug(headers_msg)
         logging.debug("=" * 14)
 
-        polling_step, reauth_once = await check_response(
-            self, response, polling_step, reauth_once
+        polling_step, reauth_once, url = await check_response(
+            self, response, polling_step, reauth_once, url
         )
-        return response, polling_step, reauth_once
+        return response, polling_step, reauth_once, url
 
     def start_session(self):
         """If there is no session, start one"""
