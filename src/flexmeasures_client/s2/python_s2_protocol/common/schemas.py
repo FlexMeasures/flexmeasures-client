@@ -5,14 +5,25 @@ from __future__ import annotations
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Extra, Field, conint, constr
+from pydantic import (
+    BaseModel,
+    ConstrainedInt,
+    ConstrainedStr,
+    Extra,
+    Field,
+    conint,
+    constr,
+)
+
+uuid_constr: ConstrainedStr = constr(regex=r"[a-zA-Z0-9\-_:]{2,64}")
+non_negative_int_constr: ConstrainedInt = conint(ge=0)
 
 
 class ID(BaseModel):
     class Config:
         validate_assignment = True
 
-    __root__: constr(regex=r"[a-zA-Z0-9\-_:]{2,64}") = Field(
+    __root__: uuid_constr = Field(
         ..., description="An identifier expressed as a UUID", title="ID"
     )
 
@@ -21,7 +32,7 @@ class Duration(BaseModel):
     class Config:
         validate_assignment = True
 
-    __root__: conint(ge=0) = Field(
+    __root__: non_negative_int_constr = Field(
         ..., description="Duration in milliseconds", title="Duration"
     )
 

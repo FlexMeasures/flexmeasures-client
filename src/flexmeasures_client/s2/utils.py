@@ -60,7 +60,7 @@ def get_message_id(message: pydantic.BaseModel) -> str | None:
         return message.message_id.__root__
     elif hasattr(message, "subject_message_id"):
         return message.subject_message_id.__root__
-    return
+    return None
 
 
 def get_reception_status(

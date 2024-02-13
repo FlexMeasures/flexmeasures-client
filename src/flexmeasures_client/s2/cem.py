@@ -30,7 +30,7 @@ class CEM(Handler):
 
     _resource_manager_details: ResourceManagerDetails
 
-    _control_types_handlers: Dict[ControlType, ControlTypeHandler]
+    _control_types_handlers: Dict[ControlType | None, ControlTypeHandler]
     _control_type = None
     _is_closed = True
 
@@ -234,7 +234,7 @@ class CEM(Handler):
     @register(PowerMeasurement)
     async def handle_power_measurement(self, message: PowerMeasurement):
         for power_measurement in message.values:
-            commodity_quantity = power_measurement.commodity_quantity
+            commodity_quantity = power_measurement.commodity_quantity.value
 
             if commodity_quantity in self._power_sensors:
                 sensor_id = self._power_sensors[commodity_quantity]
@@ -247,7 +247,7 @@ class CEM(Handler):
                 start=message.measurement_timestamp,
                 duration="PT1H",  # TODO: not specified in S2 Protocol
                 values=[power_measurement.value],
-                unit=power_measurement.commodity_quantity,  # TODO: is commodity quantity a unit? for me it's just a the type of POWER # noqa: E501
+                unit=commodity_quantity,  # TODO: is commodity quantity a unit? for me it's just a the type of POWER # noqa: E501
             )
 
         return get_reception_status(message)

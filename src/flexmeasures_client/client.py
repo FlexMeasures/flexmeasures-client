@@ -7,7 +7,7 @@ import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Mapping, Union
+from typing import Any
 
 import async_timeout
 import pandas as pd
@@ -665,9 +665,9 @@ class FlexMeasuresClient:
     def create_storage_flex_context(
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
-        inflexible_device_sensors: Union[int, List[int]] | None = None,
-    ) -> Mapping[str, Union[int, List[int]]]:
-        flex_context = {}
+        inflexible_device_sensors: int | list[int] | None = None,
+    ) -> dict:
+        flex_context: dict = {}
         # Set optional flex context
         if consumption_price_sensor is not None:
             flex_context["consumption-price-sensor"] = consumption_price_sensor
