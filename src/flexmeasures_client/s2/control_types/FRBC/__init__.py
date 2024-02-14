@@ -107,6 +107,10 @@ class FRBC(ControlTypeHandler):
     async def trigger_schedule(self, system_description_id: str):
         raise NotImplementedError()
 
+    @register(FRBCTimerStatus)
+    def handle_frbc_timer_status(self, message: FRBCTimerStatus) -> pydantic.BaseModel:
+        return get_reception_status(message, status=ReceptionStatusValues.OK)
+
 
 class FRBCTest(FRBC):
     """Dummy class to simulate the triggering of a schedule."""
