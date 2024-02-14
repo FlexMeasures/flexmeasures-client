@@ -17,6 +17,8 @@ from s2python.common import (
     ResourceManagerDetails,
     RevokeObject,
     SelectControlType,
+    Timer,
+    Transition,
 )
 
 from flexmeasures_client.client import FlexMeasuresClient
@@ -272,4 +274,14 @@ class CEM(Handler):
                     message.object_id
                 )
 
+        return get_reception_status(message, ReceptionStatusValues.OK)
+
+    @register(Timer)
+    def handle_time(self, message: Timer):
+        self._logger.warning("Message type `Time` not implemented.")
+        return get_reception_status(message, ReceptionStatusValues.OK)
+
+    @register(Transition)
+    def handle_transition(self, message: Transition):
+        self._logger.warning("Message type `Transition` not implemented.")
         return get_reception_status(message, ReceptionStatusValues.OK)
