@@ -1,35 +1,31 @@
 from datetime import datetime
 
 import pytest
-
-from flexmeasures_client.s2.cem import CEM
-from flexmeasures_client.s2.control_types.FRBC import FRBCTest
-from flexmeasures_client.s2.python_s2_protocol.common.messages import (
-    EnergyManagementRole,
-    Handshake,
-    ReceptionStatus,
-    ReceptionStatusValues,
-    ResourceManagerDetails,
-)
-from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
+from s2python.common import (
     Commodity,
     CommodityQuantity,
     ControlType,
     Duration,
+    EnergyManagementRole,
+    Handshake,
     NumberRange,
     PowerRange,
+    ReceptionStatus,
+    ReceptionStatusValues,
+    ResourceManagerDetails,
     Role,
     RoleType,
 )
-from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
-    FRBCSystemDescription,
-)
-from flexmeasures_client.s2.python_s2_protocol.FRBC.schemas import (
+from s2python.frbc import (
     FRBCActuatorDescription,
     FRBCOperationMode,
     FRBCOperationModeElement,
     FRBCStorageDescription,
+    FRBCSystemDescription,
 )
+
+from flexmeasures_client.s2.cem import CEM
+from flexmeasures_client.s2.control_types.FRBC import FRBCTest
 from flexmeasures_client.s2.utils import get_unique_id
 
 
@@ -92,7 +88,7 @@ async def test_cem():  # TODO: move into different test functions
     assert (
         cem._resource_manager_details == resource_manager_details_message
     ), "CEM should store the resource_manager_details"
-    assert cem._control_type == ControlType.NO_SELECTION, (
+    assert cem.control_type == ControlType.NO_SELECTION, (
         "CEM control type should switch to ControlType.NO_SELECTION,"
         "independently of the original type"
     )
@@ -104,7 +100,7 @@ async def test_cem():  # TODO: move into different test functions
     await cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
     message = await cem.get_message()
 
-    assert cem._control_type == ControlType.NO_SELECTION, (
+    assert cem.control_type == ControlType.NO_SELECTION, (
         "the control type should still be NO_SELECTION (rather than FRBC),"
         " because the RM has not yet confirmed FRBC activation"
     )
@@ -116,7 +112,7 @@ async def test_cem():  # TODO: move into different test functions
     await cem.handle_message(response)
 
     assert (
-        cem._control_type == ControlType.FILL_RATE_BASED_CONTROL
+        cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
     ), "after a positive ResponseStatus, the status changes from NO_SELECTION to FRBC"
 
     ########
@@ -170,7 +166,7 @@ async def test_cem():  # TODO: move into different test functions
     assert (
         cem._control_types_handlers[
             ControlType.FILL_RATE_BASED_CONTROL
-        ]._system_description_history[system_description_message.message_id.__root__]
+        ]._system_description_history[str(system_description_message.message_id)]
         == system_description_message
     ), (
         "the FRBC.SystemDescription message should be stored"

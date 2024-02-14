@@ -6,14 +6,10 @@ Used it at your own risk :)
 from datetime import datetime, timedelta
 
 import pytz
+from s2python.frbc import FRBCActuatorStatus, FRBCStorageStatus, FRBCSystemDescription
 
 from flexmeasures_client.s2.control_types.FRBC import FRBC
 from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
-from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
-    FRBCActuatorStatus,
-    FRBCStorageStatus,
-    FRBCSystemDescription,
-)
 
 
 class FRBCSimple(FRBC):

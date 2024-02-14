@@ -1,19 +1,12 @@
 import math
 
 import pytest
+from s2python.common import CommodityQuantity, NumberRange, PowerRange
+from s2python.frbc import FRBCOperationMode, FRBCOperationModeElement
 
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     compute_factor,
     get_unique_id,
-)
-from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
-    CommodityQuantity,
-    NumberRange,
-    PowerRange,
-)
-from flexmeasures_client.s2.python_s2_protocol.FRBC.schemas import (
-    FRBCOperationMode,
-    FRBCOperationModeElement,
 )
 
 

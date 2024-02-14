@@ -7,11 +7,8 @@ from logging import Logger
 from typing import Dict, Optional
 
 import pydantic
-
-from flexmeasures_client.client import FlexMeasuresClient
-from flexmeasures_client.s2 import Handler, register
-from flexmeasures_client.s2.control_types import ControlTypeHandler
-from flexmeasures_client.s2.python_s2_protocol.common.messages import (
+from s2python.common import (
+    ControlType,
     Handshake,
     HandshakeResponse,
     PowerMeasurement,
@@ -21,7 +18,10 @@ from flexmeasures_client.s2.python_s2_protocol.common.messages import (
     RevokeObject,
     SelectControlType,
 )
-from flexmeasures_client.s2.python_s2_protocol.common.schemas import ControlType
+
+from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.s2 import Handler, register
+from flexmeasures_client.s2.control_types import ControlTypeHandler
 from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
 
 

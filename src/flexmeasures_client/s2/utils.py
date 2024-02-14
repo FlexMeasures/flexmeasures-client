@@ -3,11 +3,7 @@ from typing import Mapping, TypeVar
 from uuid import uuid4
 
 import pydantic
-
-from flexmeasures_client.s2.python_s2_protocol.common.messages import ReceptionStatus
-from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
-    ReceptionStatusValues,
-)
+from s2python.common import ReceptionStatus, ReceptionStatusValues
 
 KT = TypeVar("KT")
 VT = TypeVar("VT")
@@ -57,9 +53,9 @@ def get_message_id(message: pydantic.BaseModel) -> str | None:
     ReceptionStatus.
     """
     if hasattr(message, "message_id"):
-        return message.message_id.__root__
+        return str(message.message_id)
     elif hasattr(message, "subject_message_id"):
-        return message.subject_message_id.__root__
+        return str(message.subject_message_id)
     return None
 
 
@@ -72,5 +68,5 @@ def get_reception_status(
     `subject_message`. By default, the status ReceptionStatusValues.OK is sent.
     """
     return ReceptionStatus(
-        subject_message_id=subject_message.message_id.__root__, status=status
+        subject_message_id=str(subject_message.message_id), status=status
     )
