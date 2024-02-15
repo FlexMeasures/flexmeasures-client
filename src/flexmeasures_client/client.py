@@ -52,9 +52,13 @@ class FlexMeasuresClient:
 
     def __post_init__(self):
         if not re.match(r".+\@.+\..+", self.email):
-            raise ValueError(f"{self.email} is not an email address format string")
+            raise EmailValidationError(
+                f"{self.email} is not an email address format string"
+            )
         if self.api_version not in API_VERSIONS_LIST:
-            raise ValueError(f"version not in versions list: {API_VERSIONS_LIST}")
+            raise WrongAPIVersionError(
+                f"Version {self.api_version} not in versions list: {API_VERSIONS_LIST}"
+            )
         # if ssl then scheme is https.
         if self.ssl:
             self.scheme = "https"
@@ -62,18 +66,18 @@ class FlexMeasuresClient:
             self.scheme = "http"
         if re.match(r"^http\:\/\/", self.host):
             host_without_scheme = self.host.removeprefix("http://")
-            raise ValueError(
+            raise WrongHostError(
                 f"http:// should not be included in {self.host}."
                 f"Instead use host={host_without_scheme}"
             )
         if re.match(r"^https\:\/\/", self.host):
             host_without_scheme = self.host.removeprefix("https://")
-            raise ValueError(
+            raise WrongHostError(
                 f"https:// should not be included in {self.host}."
                 f"To use https:// set ssl=True and host={host_without_scheme}"
             )
         if len(self.password) < 1:
-            raise ValueError("password cannot be empty")
+            raise EmptyPasswordError("password cannot be empty")
 
     async def close(self):
         """Function to close FlexMeasuresClient session when all requests are done"""
@@ -693,6 +697,38 @@ class FlexMeasuresClient:
 
 class ContentTypeError(Exception):
     """Raised when the response from the API is not in the expected format"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class WrongHostError(Exception):
+    """Raised when the host includes the scheme (http:// or https://)"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class EmptyPasswordError(Exception):
+    """Raised when the password is empty"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class EmailValidationError(Exception):
+    """Raised when the email is not in the correct format"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class WrongAPIVersionError(Exception):
+    """Raised when the API version is not in the versions list"""
 
     def __init__(self, message):
         self.message = message

@@ -3,7 +3,13 @@ import asyncio
 import pytest
 from aioresponses import CallbackResult, aioresponses
 
-from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.client import (
+    EmailValidationError,
+    EmptyPasswordError,
+    FlexMeasuresClient,
+    WrongAPIVersionError,
+    WrongHostError,
+)
 
 
 @pytest.mark.parametrize(
@@ -83,7 +89,7 @@ def test__init__(
     [
         (
             {"email": "no_at_in_address.at", "password": "test_password"},
-            ValueError,
+            EmailValidationError,
             "not an email address format string",
         ),
         (
@@ -92,7 +98,7 @@ def test__init__(
                 "email": "test@test.test",
                 "password": "test_password",
             },
-            ValueError,
+            WrongHostError,
             "http:// should not be included in http://test." "Instead use host=test",
         ),
         (
@@ -101,7 +107,7 @@ def test__init__(
                 "email": "test@test.test",
                 "password": "test_password",
             },
-            ValueError,
+            WrongHostError,
             "https:// should not be included in https://test."
             "To use https:// set ssl=True and host=test",
         ),
@@ -111,12 +117,12 @@ def test__init__(
                 "email": "test@test.test",
                 "password": "test_password",
             },
-            ValueError,
-            "version not in versions list:",
+            WrongAPIVersionError,
+            "Version v123 not in versions list: ",
         ),
         (
             {"password": "", "email": "test@test.test"},
-            ValueError,
+            EmptyPasswordError,
             "password cannot be empty",
         ),
     ],
