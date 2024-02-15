@@ -292,8 +292,7 @@ class FlexMeasuresClient:
         check_for_status(status, 200)
         if not isinstance(schedule, dict):
             raise ContentTypeError(
-                f"Expected a schedule, but got {type(schedule)}",
-                schedule,
+                f"Expected a dictionary schedule, but got {type(schedule)}",
             )
         return schedule
 
@@ -310,7 +309,6 @@ class FlexMeasuresClient:
         if not isinstance(assets, list):
             raise ContentTypeError(
                 f"Expected a list of assets, but got {type(assets)}",
-                assets,
             )
         return assets
 
@@ -324,7 +322,6 @@ class FlexMeasuresClient:
         if not isinstance(sensors, list):
             raise ContentTypeError(
                 f"Expected a list of sensors, but got {type(sensors)}",
-                sensors,
             )
         return sensors
 
@@ -399,7 +396,6 @@ class FlexMeasuresClient:
         if not isinstance(response, dict):
             raise ContentTypeError(
                 f"Expected a sensor data dictionary, but got {type(response)}",
-                response,
             )
         data_fields = ("values", "start", "duration", "unit")
         sensor_data = {k: v for k, v in response.items() if k in data_fields}
@@ -428,7 +424,6 @@ class FlexMeasuresClient:
         if not isinstance(sensor, dict):
             raise ContentTypeError(
                 f"Expected a sensor dictionary, but got {type(sensor)}",
-                sensor,
             )
         return sensor
 
@@ -475,7 +470,6 @@ class FlexMeasuresClient:
         if not isinstance(new_sensor, dict):
             raise ContentTypeError(
                 f"Expected a sensor dictionary, but got {type(new_sensor)}",
-                new_sensor,
             )
         return new_sensor
 
@@ -522,7 +516,6 @@ class FlexMeasuresClient:
         if not isinstance(new_asset, dict):
             raise ContentTypeError(
                 f"Expected an asset dictionary, but got {type(new_asset)}",
-                new_asset,
             )
         return new_asset
 
@@ -553,7 +546,6 @@ class FlexMeasuresClient:
         if not isinstance(updated_asset, dict):
             raise ContentTypeError(
                 f"Expected an asset dictionary, but got {type(updated_asset)}",
-                updated_asset,
             )
         return updated_asset
 
@@ -585,7 +577,6 @@ class FlexMeasuresClient:
         if not isinstance(updated_sensor, dict):
             raise ContentTypeError(
                 f"Expected a sensor dictionary, but got {type(updated_sensor)}",
-                updated_sensor,
             )
         return updated_sensor
 
@@ -614,14 +605,12 @@ class FlexMeasuresClient:
         logging.info("Schedule triggered successfully.")
         if not isinstance(response, dict):
             raise ContentTypeError(
-                f"Expected a schedule ID, but got {type(response)}",
-                response,
+                f"Expected a dictionary, but got {type(response)}",
             )
 
         if not isinstance(response.get("schedule"), str):
             raise ContentTypeError(
                 f"Expected a schedule ID, but got {type(response.get('schedule'))}",
-                response.get("schedule"),
             )
         schedule_id = response["schedule"]
         return schedule_id
@@ -705,7 +694,6 @@ class FlexMeasuresClient:
 class ContentTypeError(Exception):
     """Raised when the response from the API is not in the expected format"""
 
-    def __init__(self, message, response):
+    def __init__(self, message):
         self.message = message
-        self.response = response
         super().__init__(self.message)
