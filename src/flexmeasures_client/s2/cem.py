@@ -42,7 +42,7 @@ class CEM(Handler):
     _sending_queue: Queue[pydantic.BaseModel]
 
     def __init__(
-        self, fm_client: FlexMeasuresClient, logger: Logger = Logger(__name__)
+        self, fm_client: FlexMeasuresClient, logger: Logger | None = None
     ) -> None:
         """
         Customer Energy Manager (CEM)
@@ -54,8 +54,8 @@ class CEM(Handler):
         self._power_sensors = dict()
         self._control_types_handlers = dict()
 
-        # if not logger:
-        #     logger = Logger(__name__)
+        if not logger:
+            logger = Logger(__name__)
 
         self._logger = logger
         self._is_closed = False
