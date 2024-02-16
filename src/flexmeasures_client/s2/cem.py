@@ -30,7 +30,7 @@ class CEM(Handler):
 
     _resource_manager_details: ResourceManagerDetails
 
-    _control_types_handlers: Dict[ControlType, ControlTypeHandler] = None
+    _control_types_handlers: Dict[ControlType | None, ControlTypeHandler]
     _control_type = None
     _is_closed = True
 
@@ -41,7 +41,9 @@ class CEM(Handler):
     _fm_client: FlexMeasuresClient
     _sending_queue: Queue[pydantic.BaseModel]
 
-    def __init__(self, fm_client: FlexMeasuresClient, logger: Logger = None) -> None:
+    def __init__(
+        self, fm_client: FlexMeasuresClient, logger: Logger | None = None
+    ) -> None:
         """
         Customer Energy Manager (CEM)
         """
@@ -173,12 +175,12 @@ class CEM(Handler):
         # check if it's trying to activate the current control_type
         if control_type == self._control_type:
             self._logger.warning(f"RM is already in `{control_type}` control type.")
-            return
+            return None
 
         # check if the RM supports the control type
         if control_type not in self._resource_manager_details.available_control_types:
             self._logger.warning(f"RM doesn not support `{control_type}` control type.")
-            return
+            return None
 
         # RM initialization succeded
         if self._control_type is not None:
@@ -205,6 +207,7 @@ class CEM(Handler):
             await self._sending_queue.put(
                 SelectControlType(message_id=message_id, control_type=control_type)
             )
+        return None
 
     @register(Handshake)
     def handle_handshake(self, message: Handshake):
@@ -229,9 +232,9 @@ class CEM(Handler):
         return get_reception_status(message)
 
     @register(PowerMeasurement)
-    def handle_power_measurement(self, message: PowerMeasurement):
+    async def handle_power_measurement(self, message: PowerMeasurement):
         for power_measurement in message.values:
-            commodity_quantity = power_measurement.commodity_quantity
+            commodity_quantity = power_measurement.commodity_quantity.value
 
             if commodity_quantity in self._power_sensors:
                 sensor_id = self._power_sensors[commodity_quantity]
@@ -239,12 +242,12 @@ class CEM(Handler):
                 sensor_id = 1  # TODO: create a new sensor or return ReceptionStatus
 
             # send measurement
-            self._fm_client.post_measurements(
+            await self._fm_client.post_measurements(
                 sensor_id,
                 start=message.measurement_timestamp,
                 duration="PT1H",  # TODO: not specified in S2 Protocol
                 values=[power_measurement.value],
-                unit=power_measurement.commodity_quantity,  # TODO: is commodity quantity a unit? for me it's just a the type of POWER # noqa: E501
+                unit=commodity_quantity,  # TODO: is commodity quantity a unit? for me it's just a the type of POWER # noqa: E501
             )
 
         return get_reception_status(message)

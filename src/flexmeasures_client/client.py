@@ -42,19 +42,23 @@ class FlexMeasuresClient:
     ssl: bool = False
     api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
-    access_token: str = None
+    access_token: str | None = None
 
     max_polling_steps: int = MAX_POLLING_STEPS
     polling_timeout: float = POLLING_TIMEOUT  # seconds
     request_timeout: float = REQUEST_TIMEOUT  # seconds
     polling_interval: float = POLLING_INTERVAL  # seconds
-    session: ClientSession | None = None
+    session: ClientSession = ClientSession()
 
     def __post_init__(self):
         if not re.match(r".+\@.+\..+", self.email):
-            raise ValueError(f"{self.email} is not an email address format string")
+            raise EmailValidationError(
+                f"{self.email} is not an email address format string"
+            )
         if self.api_version not in API_VERSIONS_LIST:
-            raise ValueError(f"version not in versions list: {API_VERSIONS_LIST}")
+            raise WrongAPIVersionError(
+                f"Version {self.api_version} not in versions list: {API_VERSIONS_LIST}"
+            )
         # if ssl then scheme is https.
         if self.ssl:
             self.scheme = "https"
@@ -62,18 +66,18 @@ class FlexMeasuresClient:
             self.scheme = "http"
         if re.match(r"^http\:\/\/", self.host):
             host_without_scheme = self.host.removeprefix("http://")
-            raise ValueError(
+            raise WrongHostError(
                 f"http:// should not be included in {self.host}."
                 f"Instead use host={host_without_scheme}"
             )
         if re.match(r"^https\:\/\/", self.host):
             host_without_scheme = self.host.removeprefix("https://")
-            raise ValueError(
+            raise WrongHostError(
                 f"https:// should not be included in {self.host}."
                 f"To use https:// set ssl=True and host={host_without_scheme}"
             )
         if len(self.password) < 1:
-            raise ValueError("password cannot be empty")
+            raise EmptyPasswordError("password cannot be empty")
 
     async def close(self):
         """Function to close FlexMeasuresClient session when all requests are done"""
@@ -83,7 +87,7 @@ class FlexMeasuresClient:
         self,
         uri: str,
         *,
-        json: dict | None = None,
+        json_payload: dict | None = None,
         method: str = "POST",
         path: str = path,
         params: dict[str, Any] | None = None,
@@ -123,7 +127,7 @@ class FlexMeasuresClient:
                                 url=url,
                                 params=params,
                                 headers=headers,
-                                json=json,
+                                json_payload=json_payload,
                                 polling_step=polling_step,
                                 reauth_once=reauth_once,
                             )
@@ -154,12 +158,12 @@ class FlexMeasuresClient:
         url: URL,
         params: dict[str, Any] | None = None,
         headers: dict | None = None,
-        json: dict | None = None,
+        json_payload: dict | None = None,
         polling_step: int = 0,
         reauth_once: bool = True,
     ) -> tuple[ClientResponse, int, bool, str]:
         url_msg = f"url: {url}"
-        json_msg = f"payload: {json}"
+        json_msg = f"payload: {json_payload}"
         params_msg = f"params: {params}"
         method_msg = f"method: {method}"
         headers_msg = f"headers: {headers}"
@@ -177,7 +181,7 @@ class FlexMeasuresClient:
             url=url,
             params=params,
             headers=headers,
-            json=json,
+            json=json_payload,
             ssl=self.ssl,
             allow_redirects=False,
         )
@@ -223,7 +227,7 @@ class FlexMeasuresClient:
         response, _status = await self.request(
             uri="requestAuthToken",
             path="/api/",
-            json={
+            json_payload={
                 "email": self.email,
                 "password": self.password,
             },
@@ -244,7 +248,7 @@ class FlexMeasuresClient:
         Post sensor data for the given time range.
         This function raises a ValueError when an unhandled status code is returned
         """
-        json = dict(
+        json_payload = dict(
             sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
             start=pd.Timestamp(
                 start
@@ -254,11 +258,11 @@ class FlexMeasuresClient:
             unit=unit,
         )
         if prior:
-            json["prior"] = prior
+            json_payload["prior"] = prior
 
         _response, status = await self.request(
             uri="sensors/data",
-            json=json,
+            json_payload=json_payload,
         )
         check_for_status(status, 200)
         logging.info("Sensor data sent successfully.")
@@ -287,6 +291,10 @@ class FlexMeasuresClient:
             },
         )
         check_for_status(status, 200)
+        if not isinstance(schedule, dict):
+            raise ContentTypeError(
+                f"Expected a dictionary schedule, but got {type(schedule)}",
+            )
         return schedule
 
     async def get_assets(self) -> list[dict]:
@@ -298,6 +306,11 @@ class FlexMeasuresClient:
         """
         assets, status = await self.request(uri="assets", method="GET")
         check_for_status(status, 200)
+
+        if not isinstance(assets, list):
+            raise ContentTypeError(
+                f"Expected a list of assets, but got {type(assets)}",
+            )
         return assets
 
     async def get_sensors(self) -> list[dict]:
@@ -307,6 +320,10 @@ class FlexMeasuresClient:
         """
         sensors, status = await self.request(uri="sensors", method="GET")
         check_for_status(status, 200)
+        if not isinstance(sensors, list):
+            raise ContentTypeError(
+                f"Expected a list of sensors, but got {type(sensors)}",
+            )
         return sensors
 
     async def trigger_and_get_schedule(
@@ -377,6 +394,10 @@ class FlexMeasuresClient:
             uri="sensors/data", method="GET", params=params
         )
         check_for_status(status, 200)
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected a sensor data dictionary, but got {type(response)}",
+            )
         data_fields = ("values", "start", "duration", "unit")
         sensor_data = {k: v for k, v in response.items() if k in data_fields}
         return sensor_data
@@ -399,9 +420,13 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned
         """
         uri = f"sensors/{sensor_id}"
-        response, status = await self.request(uri=uri, method="GET")
+        sensor, status = await self.request(uri=uri, method="GET")
         check_for_status(status, 200)
-        return response
+        if not isinstance(sensor, dict):
+            raise ContentTypeError(
+                f"Expected a sensor dictionary, but got {type(sensor)}",
+            )
+        return sensor
 
     async def add_sensor(
         self,
@@ -439,9 +464,15 @@ class FlexMeasuresClient:
         if attributes:
             sensor["attributes"] = json.dumps(attributes)
         uri = "sensors"
-        response, status = await self.request(uri=uri, json=sensor, method="POST")
+        new_sensor, status = await self.request(
+            uri=uri, json_payload=sensor, method="POST"
+        )
         check_for_status(status, 201)
-        return response
+        if not isinstance(new_sensor, dict):
+            raise ContentTypeError(
+                f"Expected a sensor dictionary, but got {type(new_sensor)}",
+            )
+        return new_sensor
 
     async def add_asset(
         self,
@@ -479,9 +510,15 @@ class FlexMeasuresClient:
             asset["attributes"] = json.dumps(attributes)
 
         uri = "assets"
-        response, status = await self.request(uri=uri, json=asset, method="POST")
+        new_asset, status = await self.request(
+            uri=uri, json_payload=asset, method="POST"
+        )
         check_for_status(status, 201)
-        return response
+        if not isinstance(new_asset, dict):
+            raise ContentTypeError(
+                f"Expected an asset dictionary, but got {type(new_asset)}",
+            )
+        return new_asset
 
     async def update_asset(self, asset_id: int, updates: dict) -> dict:
         """Patch an asset
@@ -503,9 +540,15 @@ class FlexMeasuresClient:
         uri = f"assets/{asset_id}"
         if updates.get("attributes"):
             updates["attributes"] = json.dumps(updates["attributes"])
-        response, status = await self.request(uri=uri, json=updates, method="PATCH")
+        updated_asset, status = await self.request(
+            uri=uri, json_payload=updates, method="PATCH"
+        )
         check_for_status(status, 200)
-        return response
+        if not isinstance(updated_asset, dict):
+            raise ContentTypeError(
+                f"Expected an asset dictionary, but got {type(updated_asset)}",
+            )
+        return updated_asset
 
     async def update_sensor(self, sensor_id: int, updates: dict) -> dict:
         """Patch a sensor
@@ -527,10 +570,16 @@ class FlexMeasuresClient:
         uri = f"sensors/{sensor_id}"
         if updates.get("attributes"):
             updates["attributes"] = json.dumps(updates["attributes"])
-        response, status = await self.request(uri=uri, json=updates, method="PATCH")
+        updated_sensor, status = await self.request(
+            uri=uri, json_payload=updates, method="PATCH"
+        )
         # Raise ValueError
         check_for_status(status, 200)
-        return response
+        if not isinstance(updated_sensor, dict):
+            raise ContentTypeError(
+                f"Expected a sensor dictionary, but got {type(updated_sensor)}",
+            )
+        return updated_sensor
 
     async def trigger_schedule(
         self,
@@ -539,7 +588,7 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         flex_model: dict,
         flex_context: dict,
-    ):
+    ) -> str:
         message = {
             "start": pd.Timestamp(
                 start
@@ -550,12 +599,21 @@ class FlexMeasuresClient:
         }
         response, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/trigger",
-            json=message,
+            json_payload=message,
         )
         check_for_status(status, 200)
-        logging.info("Schedule triggered successfully.")
 
-        schedule_id: str = response.get("schedule")
+        logging.info("Schedule triggered successfully.")
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected a dictionary, but got {type(response)}",
+            )
+
+        if not isinstance(response.get("schedule"), str):
+            raise ContentTypeError(
+                f"Expected a schedule ID, but got {type(response.get('schedule'))}",
+            )
+        schedule_id = response["schedule"]
         return schedule_id
 
     @staticmethod
@@ -569,7 +627,7 @@ class FlexMeasuresClient:
         storage_efficiency: float | None = None,
         soc_minima: list | None = None,
         soc_maxima: list | None = None,
-    ):
+    ) -> dict:
         flex_model = {
             "soc-unit": soc_unit,
             "soc-at-start": soc_at_start,
@@ -592,13 +650,14 @@ class FlexMeasuresClient:
 
         return flex_model
 
+    # add type hints
     @staticmethod
     def create_storage_flex_context(
         consumption_price_sensor: int | None = None,
         production_price_sensor: int | None = None,
-        inflexible_device_sensors: list[int] | None = None,
-    ):
-        flex_context = {}
+        inflexible_device_sensors: int | list[int] | None = None,
+    ) -> dict:
+        flex_context: dict = {}
         # Set optional flex context
         if consumption_price_sensor is not None:
             flex_context["consumption-price-sensor"] = consumption_price_sensor
@@ -610,7 +669,7 @@ class FlexMeasuresClient:
         return flex_context
 
     @staticmethod
-    def convert_units(values: list[int | float], from_unit: str, to_unit: str) -> dict:
+    def convert_units(values: list[int | float], from_unit: str, to_unit: str) -> list:
         """Convert values between W, kW and MW, as required."""
         if from_unit == "MW" and to_unit == "W":
             values = [v * 10**6 for v in values]
@@ -631,3 +690,43 @@ class FlexMeasuresClient:
                 f"Power conversion from {from_unit} to {to_unit} is not supported."
             )
         return values
+
+
+class ContentTypeError(Exception):
+    """Raised when the response from the API is not in the expected format"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class WrongHostError(Exception):
+    """Raised when the host includes the scheme (http:// or https://)"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class EmptyPasswordError(Exception):
+    """Raised when the password is empty"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class EmailValidationError(Exception):
+    """Raised when the email is not in the correct format"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class WrongAPIVersionError(Exception):
+    """Raised when the API version is not in the versions list"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)

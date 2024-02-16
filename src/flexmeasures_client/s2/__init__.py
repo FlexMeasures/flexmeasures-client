@@ -4,7 +4,7 @@ import functools
 import json
 from collections import deque
 from dataclasses import dataclass
-from typing import Callable, Dict, Type
+from typing import Callable, Coroutine, Dict, Type
 
 import pydantic
 
@@ -77,7 +77,7 @@ class Handler:
     outgoing_messages: SizeLimitOrderedDict
     incoming_messages: SizeLimitOrderedDict
 
-    _objects_revoked: deque
+    objects_revoked: deque
 
     success_callbacks: Dict[str, Callable]
     failure_callbacks: Dict[str, Callable]
@@ -113,11 +113,11 @@ class Handler:
 
         self.discover()
 
-    def is_revoked(self, message_id: str):
-        return message_id in self._objects_revoked
+    def is_revoked(self, message_id: str) -> bool:
+        return message_id in self.objects_revoked
 
-    def revoke_message(self, message_id: str):
-        self._objects_revoked.append(message_id)
+    def revoke_message(self, message_id: str) -> None:
+        self.objects_revoked.append(message_id)
 
     def discover(self):
         """
@@ -162,13 +162,13 @@ class Handler:
         if isinstance(message, pydantic.BaseModel):
             message_type = message.message_type
         elif isinstance(message, dict):
-            message_type = message.get("message_type")
-        elif isinstance(message, dict):
+            message_type = message.get("message_type", "")
+        elif isinstance(message, str):
             message_type = json.loads(message).get("message_type")
 
         return message_type in self.message_handlers
 
-    def handle_message(self, message: pydantic.BaseModel | str | Dict) -> dict:
+    def handle_message(self, message: pydantic.BaseModel | str | Dict) -> Coroutine:
         """
         Calls the handler linked to the message_type and converts the output
         to a serialized dict, i.e, it converts all the inner objects to Python

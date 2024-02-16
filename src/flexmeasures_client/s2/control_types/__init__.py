@@ -17,7 +17,7 @@ from flexmeasures_client.s2.utils import SizeLimitOrderedDict, get_reception_sta
 
 
 class ControlTypeHandler(Handler):
-    _control_type: ControlType = None
+    _control_type: ControlType | None = None
     _instruction_history: SizeLimitOrderedDict[str, BaseModel]
     _instruction_status_history: SizeLimitOrderedDict[str, InstructionStatus]
     _fm_client: FlexMeasuresClient

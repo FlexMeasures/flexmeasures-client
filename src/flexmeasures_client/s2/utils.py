@@ -50,7 +50,7 @@ def get_validation_error_summary(error: pydantic.ValidationError) -> str:
     return error_summary[1:]  # skipping the first \n
 
 
-def get_message_id(message: pydantic.BaseModel) -> str:
+def get_message_id(message: pydantic.BaseModel) -> str | None:
     """
     This function returns the message_id if it is found in the message,
     else it tries to get the subject_message_id, which is present in
@@ -60,6 +60,7 @@ def get_message_id(message: pydantic.BaseModel) -> str:
         return message.message_id.__root__
     elif hasattr(message, "subject_message_id"):
         return message.subject_message_id.__root__
+    return None
 
 
 def get_reception_status(
