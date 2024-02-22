@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from aiohttp import ContentTypeError
+from yarl import URL
 
 from flexmeasures_client.constants import CONTENT_TYPE
 
@@ -13,8 +14,8 @@ if TYPE_CHECKING:  # Only imports the below statements during type checking
 
 
 async def check_response(
-    self: FlexMeasuresClient, response, polling_step: int, reauth_once: bool, url: str
-) -> tuple[int, bool, str]:
+    self: FlexMeasuresClient, response, polling_step: int, reauth_once: bool, url: URL
+) -> tuple[int, bool, URL]:
     """
     <300: passes
     303: redirect to new url
@@ -66,7 +67,7 @@ async def check_response(
         logging.error(message)
         # otherwise, raise if the status does not indicate okay
         response.raise_for_status()
-    return polling_step, reauth_once, url
+    return polling_step, reauth_once, URL(url)
 
 
 def check_content_type(response):
