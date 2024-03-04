@@ -161,7 +161,7 @@ class FlexMeasuresClient:
         json_payload: dict | None = None,
         polling_step: int = 0,
         reauth_once: bool = True,
-    ) -> tuple[ClientResponse, int, bool, str]:
+    ) -> tuple[ClientResponse, int, bool, URL]:
         url_msg = f"url: {url}"
         json_msg = f"payload: {json_payload}"
         params_msg = f"params: {params}"
