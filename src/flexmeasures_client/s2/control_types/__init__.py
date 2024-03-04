@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from asyncio import Queue
 from typing import cast
 
