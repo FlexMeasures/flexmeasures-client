@@ -1,9 +1,17 @@
+from __future__ import annotations
+
 import asyncio
 
 import pytest
 from aioresponses import CallbackResult, aioresponses
 
-from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.client import (
+    EmailValidationError,
+    EmptyPasswordError,
+    FlexMeasuresClient,
+    WrongAPIVersionError,
+    WrongHostError,
+)
 
 
 @pytest.mark.parametrize(
@@ -83,7 +91,7 @@ def test__init__(
     [
         (
             {"email": "no_at_in_address.at", "password": "test_password"},
-            ValueError,
+            EmailValidationError,
             "not an email address format string",
         ),
         (
@@ -92,7 +100,7 @@ def test__init__(
                 "email": "test@test.test",
                 "password": "test_password",
             },
-            ValueError,
+            WrongHostError,
             "http:// should not be included in http://test." "Instead use host=test",
         ),
         (
@@ -101,7 +109,7 @@ def test__init__(
                 "email": "test@test.test",
                 "password": "test_password",
             },
-            ValueError,
+            WrongHostError,
             "https:// should not be included in https://test."
             "To use https:// set ssl=True and host=test",
         ),
@@ -111,12 +119,12 @@ def test__init__(
                 "email": "test@test.test",
                 "password": "test_password",
             },
-            ValueError,
-            "version not in versions list:",
+            WrongAPIVersionError,
+            "Version v123 not in versions list: ",
         ),
         (
             {"password": "", "email": "test@test.test"},
-            ValueError,
+            EmptyPasswordError,
             "password cannot be empty",
         ),
     ],
@@ -157,7 +165,6 @@ async def test_get_access_token() -> None:
             ssl=False,
             allow_redirects=False,
         )
-    # await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -201,8 +208,6 @@ async def test_post_measurements() -> None:
             ssl=False,
             allow_redirects=False,
         )
-
-    # await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -267,8 +272,6 @@ async def test_trigger_schedule() -> None:
             allow_redirects=False,
         )
 
-    # await flexmeasures_client.close()
-
 
 @pytest.mark.asyncio
 async def test_get_schedule_polling() -> None:
@@ -319,7 +322,6 @@ async def test_get_schedule_polling() -> None:
             sensor_id=1, schedule_id="some-uuid", duration="PT45M"
         )
     assert schedule["values"] == [2.15, 3, 2]
-    # await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -348,7 +350,6 @@ async def test_get_schedule_timeout() -> None:
             await flexmeasures_client.get_schedule(
                 sensor_id=1, schedule_id="some-uuid", duration="PT45M"
             )
-    # await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -377,8 +378,6 @@ async def test_get_assets() -> None:
         assets = await flexmeasures_client.get_assets()
         assert len(assets) == 1
         assert assets[0]["account_id"] == 2
-
-    # await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -410,8 +409,6 @@ async def test_get_sensors() -> None:
             == "ea1.1000-01.required-but-unused-field:fm1.2"
         )
 
-    # await flexmeasures_client.close()
-
 
 @pytest.mark.asyncio
 async def test_get_sensors2() -> None:
@@ -430,8 +427,6 @@ async def test_get_sensors2() -> None:
             ConnectionError, match="Error occurred while communicating with the API."
         ):
             await flexmeasures_client.get_sensors()
-
-    # await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -493,7 +488,6 @@ async def test_trigger_and_get_schedule() -> None:
             flex_model={},
         )
     assert schedule["values"] == [2.15, 3, 2]
-    # await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -532,8 +526,6 @@ async def test_get_sensor_data() -> None:
         )
         assert sensor_data["values"] == [8.5, 8.5, 8.5]
 
-    # await flexmeasures_client.close()
-
 
 @pytest.mark.asyncio
 async def test_reauth_with_access_token() -> None:
@@ -567,8 +559,6 @@ async def test_reauth_with_access_token() -> None:
             json=None,
             allow_redirects=False,
         )
-
-    # await flexmeasures_client.close()
 
 
 @pytest.mark.parametrize(
@@ -604,8 +594,6 @@ async def test_reauth_wrong_cred(email, password, payload, error) -> None:
 
         with pytest.raises(ValueError, match=error):
             await flexmeasures_client.get_sensors()
-
-    # await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio

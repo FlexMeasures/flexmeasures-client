@@ -52,9 +52,13 @@ class FlexMeasuresClient:
 
     def __post_init__(self):
         if not re.match(r".+\@.+\..+", self.email):
-            raise ValueError(f"{self.email} is not an email address format string")
+            raise EmailValidationError(
+                f"{self.email} is not an email address format string"
+            )
         if self.api_version not in API_VERSIONS_LIST:
-            raise ValueError(f"version not in versions list: {API_VERSIONS_LIST}")
+            raise WrongAPIVersionError(
+                f"Version {self.api_version} not in versions list: {API_VERSIONS_LIST}"
+            )
         # if ssl then scheme is https.
         if self.ssl:
             self.scheme = "https"
@@ -62,18 +66,18 @@ class FlexMeasuresClient:
             self.scheme = "http"
         if re.match(r"^http\:\/\/", self.host):
             host_without_scheme = self.host.removeprefix("http://")
-            raise ValueError(
+            raise WrongHostError(
                 f"http:// should not be included in {self.host}."
                 f"Instead use host={host_without_scheme}"
             )
         if re.match(r"^https\:\/\/", self.host):
             host_without_scheme = self.host.removeprefix("https://")
-            raise ValueError(
+            raise WrongHostError(
                 f"https:// should not be included in {self.host}."
                 f"To use https:// set ssl=True and host={host_without_scheme}"
             )
         if len(self.password) < 1:
-            raise ValueError("password cannot be empty")
+            raise EmptyPasswordError("password cannot be empty")
 
     async def close(self):
         """Function to close FlexMeasuresClient session when all requests are done"""
@@ -117,6 +121,7 @@ class FlexMeasuresClient:
                                 response,
                                 polling_step,
                                 reauth_once,
+                                url,
                             ) = await self.request_once(
                                 method=method,
                                 url=url,
@@ -128,10 +133,6 @@ class FlexMeasuresClient:
                             )
                             if response.status < 300:
                                 break
-                            if response.status == 303:
-                                message = f"Redirect to fallback schedule: {response.headers['location']}"  # noqa: E501
-                                logging.debug(message)
-                                url = response.headers["location"]
                     except asyncio.TimeoutError:
                         message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {self.polling_interval} seconds..."  # noqa: E501
                         logging.debug(message)
@@ -160,7 +161,7 @@ class FlexMeasuresClient:
         json_payload: dict | None = None,
         polling_step: int = 0,
         reauth_once: bool = True,
-    ) -> tuple[ClientResponse, int, bool]:
+    ) -> tuple[ClientResponse, int, bool, URL]:
         url_msg = f"url: {url}"
         json_msg = f"payload: {json_payload}"
         params_msg = f"params: {params}"
@@ -195,10 +196,10 @@ class FlexMeasuresClient:
         logging.debug(headers_msg)
         logging.debug("=" * 14)
 
-        polling_step, reauth_once = await check_response(
-            self, response, polling_step, reauth_once
+        polling_step, reauth_once, url = await check_response(
+            self, response, polling_step, reauth_once, url
         )
-        return response, polling_step, reauth_once
+        return response, polling_step, reauth_once, url
 
     def start_session(self):
         """If there is no session, start one"""
@@ -292,8 +293,7 @@ class FlexMeasuresClient:
         check_for_status(status, 200)
         if not isinstance(schedule, dict):
             raise ContentTypeError(
-                f"Expected a schedule, but got {type(schedule)}",
-                schedule,
+                f"Expected a dictionary schedule, but got {type(schedule)}",
             )
         return schedule
 
@@ -310,7 +310,6 @@ class FlexMeasuresClient:
         if not isinstance(assets, list):
             raise ContentTypeError(
                 f"Expected a list of assets, but got {type(assets)}",
-                assets,
             )
         return assets
 
@@ -324,7 +323,6 @@ class FlexMeasuresClient:
         if not isinstance(sensors, list):
             raise ContentTypeError(
                 f"Expected a list of sensors, but got {type(sensors)}",
-                sensors,
             )
         return sensors
 
@@ -399,7 +397,6 @@ class FlexMeasuresClient:
         if not isinstance(response, dict):
             raise ContentTypeError(
                 f"Expected a sensor data dictionary, but got {type(response)}",
-                response,
             )
         data_fields = ("values", "start", "duration", "unit")
         sensor_data = {k: v for k, v in response.items() if k in data_fields}
@@ -428,7 +425,6 @@ class FlexMeasuresClient:
         if not isinstance(sensor, dict):
             raise ContentTypeError(
                 f"Expected a sensor dictionary, but got {type(sensor)}",
-                sensor,
             )
         return sensor
 
@@ -475,7 +471,6 @@ class FlexMeasuresClient:
         if not isinstance(new_sensor, dict):
             raise ContentTypeError(
                 f"Expected a sensor dictionary, but got {type(new_sensor)}",
-                new_sensor,
             )
         return new_sensor
 
@@ -522,7 +517,6 @@ class FlexMeasuresClient:
         if not isinstance(new_asset, dict):
             raise ContentTypeError(
                 f"Expected an asset dictionary, but got {type(new_asset)}",
-                new_asset,
             )
         return new_asset
 
@@ -553,7 +547,6 @@ class FlexMeasuresClient:
         if not isinstance(updated_asset, dict):
             raise ContentTypeError(
                 f"Expected an asset dictionary, but got {type(updated_asset)}",
-                updated_asset,
             )
         return updated_asset
 
@@ -585,7 +578,6 @@ class FlexMeasuresClient:
         if not isinstance(updated_sensor, dict):
             raise ContentTypeError(
                 f"Expected a sensor dictionary, but got {type(updated_sensor)}",
-                updated_sensor,
             )
         return updated_sensor
 
@@ -614,14 +606,12 @@ class FlexMeasuresClient:
         logging.info("Schedule triggered successfully.")
         if not isinstance(response, dict):
             raise ContentTypeError(
-                f"Expected a schedule ID, but got {type(response)}",
-                response,
+                f"Expected a dictionary, but got {type(response)}",
             )
 
         if not isinstance(response.get("schedule"), str):
             raise ContentTypeError(
                 f"Expected a schedule ID, but got {type(response.get('schedule'))}",
-                response.get("schedule"),
             )
         schedule_id = response["schedule"]
         return schedule_id
@@ -705,7 +695,38 @@ class FlexMeasuresClient:
 class ContentTypeError(Exception):
     """Raised when the response from the API is not in the expected format"""
 
-    def __init__(self, message, response):
+    def __init__(self, message):
         self.message = message
-        self.response = response
+        super().__init__(self.message)
+
+
+class WrongHostError(Exception):
+    """Raised when the host includes the scheme (http:// or https://)"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class EmptyPasswordError(Exception):
+    """Raised when the password is empty"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class EmailValidationError(Exception):
+    """Raised when the email is not in the correct format"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class WrongAPIVersionError(Exception):
+    """Raised when the API version is not in the versions list"""
+
+    def __init__(self, message):
+        self.message = message
         super().__init__(self.message)
