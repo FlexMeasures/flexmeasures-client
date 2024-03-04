@@ -1,14 +1,8 @@
 import asyncio
 
 import pydantic
-
-from flexmeasures_client.s2 import SizeLimitOrderedDict, register
-from flexmeasures_client.s2.control_types import ControlTypeHandler
-from flexmeasures_client.s2.python_s2_protocol.common.messages import (
-    ReceptionStatusValues,
-)
-from flexmeasures_client.s2.python_s2_protocol.common.schemas import ControlType
-from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
+from s2python.common import ControlType, ReceptionStatusValues
+from s2python.frbc import (
     FRBCActuatorStatus,
     FRBCFillLevelTargetProfile,
     FRBCInstruction,
@@ -18,6 +12,9 @@ from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
     FRBCTimerStatus,
     FRBCUsageForecast,
 )
+
+from flexmeasures_client.s2 import SizeLimitOrderedDict, register
+from flexmeasures_client.s2.control_types import ControlTypeHandler
 from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
 
 
@@ -59,7 +56,7 @@ class FRBC(ControlTypeHandler):
     def handle_system_description(
         self, message: FRBCSystemDescription
     ) -> pydantic.BaseModel:
-        system_description_id = message.message_id.__root__
+        system_description_id = str(message.message_id)
 
         # store system_description message for later
         self._system_description_history[system_description_id] = message
@@ -77,7 +74,7 @@ class FRBC(ControlTypeHandler):
 
     @register(FRBCStorageStatus)
     def handle_storage_status(self, message: FRBCStorageStatus) -> pydantic.BaseModel:
-        message_id = message.message_id.__root__
+        message_id = str(message.message_id)
 
         self._storage_status_history[message_id] = message
 
@@ -87,7 +84,7 @@ class FRBC(ControlTypeHandler):
 
     @register(FRBCActuatorStatus)
     def handle_actuator_status(self, message: FRBCActuatorStatus) -> pydantic.BaseModel:
-        message_id = message.message_id.__root__
+        message_id = str(message.message_id)
 
         self._actuator_status_history[message_id] = message
 
@@ -110,6 +107,10 @@ class FRBC(ControlTypeHandler):
     async def trigger_schedule(self, system_description_id: str):
         raise NotImplementedError()
 
+    @register(FRBCTimerStatus)
+    def handle_frbc_timer_status(self, message: FRBCTimerStatus) -> pydantic.BaseModel:
+        return get_reception_status(message, status=ReceptionStatusValues.OK)
+
 
 class FRBCTest(FRBC):
     """Dummy class to simulate the triggering of a schedule."""
@@ -129,8 +130,8 @@ class FRBCTest(FRBC):
         instruction = FRBCInstruction(
             message_id=get_unique_id(),
             id=get_unique_id(),
-            actuator_id=actuator.id.__root__,
-            operation_mode=actuator.operation_modes[0].id.__root__,
+            actuator_id=actuator.id,
+            operation_mode=actuator.operation_modes[0].id,
             operation_mode_factor=0.5,
             execution_time=system_description.valid_from,
             abnormal_condition=False,

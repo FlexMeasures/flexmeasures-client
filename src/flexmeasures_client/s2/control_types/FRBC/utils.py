@@ -3,12 +3,8 @@ from math import isclose
 from typing import List
 
 import pandas as pd
+from s2python.frbc import FRBCInstruction, FRBCOperationMode, FRBCSystemDescription
 
-from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
-    FRBCInstruction,
-    FRBCSystemDescription,
-)
-from flexmeasures_client.s2.python_s2_protocol.FRBC.schemas import FRBCOperationMode
 from flexmeasures_client.s2.utils import get_unique_id
 
 
@@ -94,8 +90,8 @@ def fm_schedule_to_instructions(
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
                 id=get_unique_id(),
-                actuator_id=actuator.id.__root__,
-                operation_mode=operation_mode.id.__root__,
+                actuator_id=actuator.id,
+                operation_mode=operation_mode.id,
                 operation_mode_factor=operation_mode_factor,
                 execution_time=start,
                 abnormal_condition=False,

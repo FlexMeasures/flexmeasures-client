@@ -7,12 +7,8 @@ from dataclasses import dataclass
 from typing import Callable, Coroutine, Dict, Type
 
 import pydantic
+from s2python.common import ReceptionStatus, ReceptionStatusValues, RevokeObject
 
-from flexmeasures_client.s2.python_s2_protocol.common.messages import (
-    ReceptionStatus,
-    ReceptionStatusValues,
-    RevokeObject,
-)
 from flexmeasures_client.s2.utils import (
     SizeLimitOrderedDict,
     get_message_id,
@@ -58,7 +54,7 @@ def register(schema: Type[pydantic.BaseModel]) -> Callable:
 
             except pydantic.ValidationError as e:
                 return ReceptionStatus(
-                    subject_message_id=incoming_message.message_id,
+                    subject_message_id=str(incoming_message.message_id),
                     diagnostic_label=get_validation_error_summary(e),
                     status=ReceptionStatusValues.INVALID_DATA,
                 )  # TODO: Discuss status
@@ -201,9 +197,7 @@ class Handler:
 
         # save acknowledgement status code
         # TODO: implement function __hash__ in ID that returns the value of __root__
-        self.outgoing_messages_status[
-            message.subject_message_id.__root__
-        ] = message.status
+        self.outgoing_messages_status[str(message.subject_message_id)] = message.status
 
         # choose which callback to call, depending on the ReceptionStatus value
         if message.status == ReceptionStatusValues.OK:
@@ -212,12 +206,12 @@ class Handler:
             callback_store = self.failure_callbacks
 
         # pop callback from callback_store and run it, if there exists one
-        if callback := callback_store.pop(message.subject_message_id.__root__, None):
+        if callback := callback_store.pop(str(message.subject_message_id), None):
             callback()
 
         # delete success callback related to this message
         if callback is None and (message.status != ReceptionStatusValues.OK):
-            self.success_callbacks.pop(message.subject_message_id.__root__, None)
+            self.success_callbacks.pop(str(message.subject_message_id), None)
 
     @register(RevokeObject)
     def handle_revoke_object(self, message: RevokeObject):
@@ -225,8 +219,8 @@ class Handler:
         Stores the revoked object ID into the objects_revoked list
         """
 
-        self.objects_revoked.append(message.object_id.__root__)
+        self.objects_revoked.append(message.object_id)
 
         return ReceptionStatus(
-            subject_message_id=message.message_id, status=ReceptionStatusValues.OK
+            subject_message_id=str(message.message_id), status=ReceptionStatusValues.OK
         )

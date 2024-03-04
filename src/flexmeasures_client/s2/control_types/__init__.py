@@ -4,17 +4,15 @@ from asyncio import Queue
 from typing import cast
 
 from pydantic import BaseModel
+from s2python.common import (
+    ControlType,
+    InstructionStatus,
+    InstructionStatusUpdate,
+    ReceptionStatusValues,
+)
 
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2 import Handler, register
-from flexmeasures_client.s2.python_s2_protocol.common.messages import (
-    InstructionStatus,
-    InstructionStatusUpdate,
-)
-from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
-    ControlType,
-    ReceptionStatusValues,
-)
 from flexmeasures_client.s2.utils import SizeLimitOrderedDict, get_reception_status
 
 
@@ -33,7 +31,7 @@ class ControlTypeHandler(Handler):
 
     @register(InstructionStatusUpdate)
     def handle_instruction_status_update(self, message: InstructionStatusUpdate):
-        instruction_id: str = cast(str, message.instruction_id.__root__)
+        instruction_id: str = cast(str, message.instruction_id)
 
         self._instruction_status_history[instruction_id] = message.status_type
 
