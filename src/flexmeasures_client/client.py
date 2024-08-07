@@ -55,9 +55,10 @@ class FlexMeasuresClient:
     polling_timeout: float = POLLING_TIMEOUT  # seconds
     request_timeout: float = REQUEST_TIMEOUT  # seconds
     polling_interval: float = POLLING_INTERVAL  # seconds
-    session: ClientSession = ClientSession()
 
     def __post_init__(self):
+        self.session: ClientSession = ClientSession()
+
         if not re.match(r".+\@.+\..+", self.email):
             raise EmailValidationError(
                 f"{self.email} is not an email address format string"
