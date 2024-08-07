@@ -59,6 +59,8 @@ class FlexMeasuresClient:
     session: ClientSession | None = None
 
     def __post_init__(self):
+        self.session: ClientSession = ClientSession()
+
         if not re.match(r".+\@.+\..+", self.email):
             raise EmailValidationError(
                 f"{self.email} is not an email address format string"

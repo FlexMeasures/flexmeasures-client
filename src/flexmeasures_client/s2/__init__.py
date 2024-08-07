@@ -80,6 +80,8 @@ class Handler:
 
     outgoing_messages_status: SizeLimitOrderedDict
 
+    background_tasks: set
+
     def __init__(self, max_size: int = 100) -> None:
         """
         Handler

@@ -130,6 +130,12 @@ The schedule returns a Pandas ``DataFrame`` that can be used to regulate the fle
 
 
 
+Development
+==============
+
+If you want to develop this package it's necessary to install testing requirements::
+
+    pip install -e ".[testing]"
 
 .. _pyscaffold-notes:
 

@@ -66,8 +66,12 @@ class CEM(Handler):
     def supports_control_type(self, control_type: ControlType):
         return control_type in self._resource_manager_details.available_control_types
 
-    def close(self):
+    async def close(self):
         self._is_closed = True
+
+        for control_type, handler in self._control_types_handlers.items():
+            print(control_type, handler)
+            await handler.close()
 
     def is_closed(self):
         return self._is_closed
@@ -274,3 +278,6 @@ class CEM(Handler):
                 )
 
         return get_reception_status(message, ReceptionStatusValues.OK)
+
+    async def send_message(self, message):
+        await self._sending_queue.put(message)
