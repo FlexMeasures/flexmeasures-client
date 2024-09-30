@@ -55,7 +55,7 @@ class FlexMeasuresClient:
     polling_timeout: float = POLLING_TIMEOUT  # seconds
     request_timeout: float = REQUEST_TIMEOUT  # seconds
     polling_interval: float = POLLING_INTERVAL  # seconds
-    session: ClientSession = ClientSession()
+    session: ClientSession = None
 
     def __post_init__(self):
         if not re.match(r".+\@.+\..+", self.email):
