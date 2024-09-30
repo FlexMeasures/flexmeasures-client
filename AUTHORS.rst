@@ -2,6 +2,7 @@
 Contributors
 ============
 
-* Victor
-* Felix
-* Guus
+* Victor Garcia Reolid
+* Felix Claessen
+* Guus Linzel
+* Nicolas Höning

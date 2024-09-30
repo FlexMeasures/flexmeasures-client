@@ -56,7 +56,7 @@ Install using ``pip``::
 
 Initialization and authentication::
 
-    from client import FlexMeasuresClient
+    from flexmeasures_client import FlexMeasuresClient
     client = FlexMeasuresClient(host="localhost:5000", ssl=False, email="email@email.com", password="pw")
     client = FlexMeasuresClient(host="seita.energy", ssl=True, email="email@email.com", password="pw")
 
