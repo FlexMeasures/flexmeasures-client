@@ -46,7 +46,9 @@ As the Flexmeasures Client is still in active development and on version 0.1 it 
 Getting Started
 ===============
 
-To get started using the FlexMeasures Client package first an account needs to be registered with a FlexMeasures instance or a local FlexMeasures instance needs to be created. Registring a to a FlexMeasures instance can be done through `Seita BV <https://seita.nl/>`_. To create a local instance of FlexMeasures follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
+To get started using the FlexMeasures Client package first an account needs to be registered with a FlexMeasures instance or a local FlexMeasures instance needs to be created.
+Registering a to a FlexMeasures instance can be done through `Seita BV <https://seita.nl/>`_.
+To create a local instance of FlexMeasures follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
 
 In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
 
