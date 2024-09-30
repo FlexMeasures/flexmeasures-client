@@ -46,6 +46,7 @@ class FlexMeasuresClient:
     password: str
     email: str
     host: str = "localhost:5000"
+    port: int | None = None
     ssl: bool = False
     api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
@@ -85,6 +86,12 @@ class FlexMeasuresClient:
             )
         if len(self.password) < 1:
             raise EmptyPasswordError("password cannot be empty")
+        parts = self.host.split(':')
+        self.host = parts[0]
+        if len(parts) > 1:
+            self.port = int(parts[1])
+        else:
+            self.port = 80 if self.scheme == 'http' else 443
 
     async def close(self):
         """Function to close FlexMeasuresClient session when all requests are done"""
@@ -224,7 +231,7 @@ class FlexMeasuresClient:
 
     def build_url(self, uri: str, path: str = path) -> URL:
         """Build url for request"""
-        url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
+        url = URL.build(scheme=self.scheme, host=self.host, port=self.port, path=path).join(
             URL(uri),
         )
         return url
