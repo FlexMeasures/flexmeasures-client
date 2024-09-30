@@ -46,9 +46,11 @@ The Flexmeasures Client package provides functionality for authentication, asset
 Getting Started
 ===============
 
-To get started with the FlexMeasures Client package, first an account needs to be registered with a FlexMeasures instance.
-To create a local instance of FlexMeasures, follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
-Registering to a hosted FlexMeasures instance instead can be done through `Seita BV <https://seita.nl/>`_.
+To get started using the FlexMeasures Client package first an account needs to be registered with a FlexMeasures instance or a local FlexMeasures instance needs to be created.
+Registering a to a FlexMeasures instance can be done through `Seita BV <https://seita.nl/>`_.
+To create a local instance of FlexMeasures follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
+
+In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
 
 Install using ``pip``::
 
