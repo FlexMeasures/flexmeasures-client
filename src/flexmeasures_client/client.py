@@ -86,6 +86,9 @@ class FlexMeasuresClient:
             )
         if len(self.password) < 1:
             raise EmptyPasswordError("password cannot be empty")
+        self.separate_host_and_port()
+
+    def separate_host_and_port(self):
         parts = self.host.split(':')
         self.host = parts[0]
         if len(parts) > 1:
