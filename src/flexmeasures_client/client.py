@@ -86,15 +86,19 @@ class FlexMeasuresClient:
             )
         if len(self.password) < 1:
             raise EmptyPasswordError("password cannot be empty")
-        self.separate_host_and_port()
+        self.determine_port()
 
-    def separate_host_and_port(self):
+    def determine_port(self):
         parts = self.host.split(':')
-        self.host = parts[0]
         if len(parts) > 1:
+            if self.port is not None:
+                raise WrongHostError(
+                    f"Cannot set port={self.port} and also as part of host={self.host}"
+                )
             self.port = int(parts[1])
-        else:
-            self.port = 80 if self.scheme == 'http' else 443
+        elif self.port is None:
+            self.port = 443 if self.scheme == 'https' else 80
+        self.host = parts[0]
 
     async def close(self):
         """Function to close FlexMeasuresClient session when all requests are done"""
