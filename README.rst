@@ -133,8 +133,23 @@ The schedule returns a Pandas ``DataFrame`` that can be used to regulate the fle
 
 .. _pyscaffold-notes:
 
+
 Making Changes & Contributing
 =============================
+
+.. note: Read more details in CONTRIBUTING.rst
+
+Install the project locally (in a virtual environment of your choice)::
+
+    pip install -e
+
+
+Running tests locally is crucial as well. Staying close to the CI workflow::
+
+    pip install tox
+    tox -e clean,build
+    tox -- -rFEx --durations 10 --color yes
+
 
 This project uses `pre-commit`_, please make sure to install it before making any
 changes::
@@ -150,6 +165,7 @@ It is a good idea to update the hooks to the latest version::
 Don't forget to tell your contributors to also install and use pre-commit.
 
 .. _pre-commit: https://pre-commit.com/
+
 
 ===================
 S2 Protocol

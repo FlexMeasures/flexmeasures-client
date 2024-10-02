@@ -15,7 +15,7 @@ from flexmeasures_client.client import (
 
 
 @pytest.mark.parametrize(
-    "ssl, host, api_version, email, password, asserted_ssl, asserted_host, asserted_version , asserted_scheme",  # noqa: E501
+    "ssl, host, api_version, email, password, asserted_ssl, asserted_host, asserted_port, asserted_version, asserted_scheme",  # noqa: E501
     [
         (
             False,
@@ -24,7 +24,8 @@ from flexmeasures_client.client import (
             "test@test.test",
             "password",
             False,
-            "localhost:5000",
+            "localhost",
+            5000,
             "v3_0",
             "http",
         ),
@@ -36,6 +37,7 @@ from flexmeasures_client.client import (
             "password",
             True,
             "test_host.test",
+            443,
             "v3_0",
             "https",
         ),
@@ -46,7 +48,8 @@ from flexmeasures_client.client import (
             "test@test.test",
             "password",
             True,
-            "localhost:5000",
+            "localhost",
+            5000,
             "v3_0",
             "https",
         ),
@@ -60,6 +63,7 @@ def test__init__(
     password,
     asserted_ssl,
     asserted_host,
+    asserted_port,
     asserted_version,
     asserted_scheme,
 ):
@@ -72,6 +76,7 @@ def test__init__(
         "email": email,
         "access_token": None,
         "host": asserted_host,
+        "port": asserted_port,
         "scheme": asserted_scheme,
         "ssl": asserted_ssl,
         "api_version": asserted_version,
