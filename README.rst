@@ -167,6 +167,16 @@ Don't forget to tell your contributors to also install and use pre-commit.
 .. _pre-commit: https://pre-commit.com/
 
 
+New releases on Pypi are made by adding a tag and pushing it::
+
+    git tag -s -a vX.Y.Z -m "Short summary"
+    git push --tags
+
+(of course you need the permissions to do so)
+
+See releases in GitHub Actions at https://github.com/FlexMeasures/flexmeasures-client/deployments/release
+
+
 ===================
 S2 Protocol
 ===================
