@@ -95,10 +95,10 @@ class FlexMeasuresClient:
                 raise WrongHostError(
                     f"Cannot set port={self.port} and also as part of host={self.host}"
                 )
+            self.host = parts[0]
             self.port = int(parts[1])
         elif self.port is None:
             self.port = 443 if self.scheme == 'https' else 80
-        self.host = parts[0]
 
     async def close(self):
         """Function to close FlexMeasuresClient session when all requests are done"""
