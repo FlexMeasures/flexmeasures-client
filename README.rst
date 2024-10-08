@@ -86,10 +86,10 @@ Trigger and retrieve a schedule::
             sensor_id=<sensor_id>, # int
             start="2023-03-26T10:00+02:00", # iso datetime
             duration="PT12H", # iso timedelta
-            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>, # int},
+            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>}, # int
             flex-model= {
                     "soc-unit": "kWh",
-                    "soc-at-start": 50, # soc_units (kWh)
+                    "soc-at-start": 50, # in soc_units (kWh)
                     "soc-max": 400,
                     "soc-min": 20,
                     "soc-targets": [
@@ -106,7 +106,7 @@ Trigger a schedule::
             sensor_id=<sensor_id>, # int
             start="2023-03-26T10:00+02:00", # iso datetime
             duration="PT12H", # iso timedelta
-            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>, # int},
+            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>}, # int
             flex-model= {
                     "soc-unit": "kWh",
                     "soc-at-start": 50, # soc_units (kWh)
