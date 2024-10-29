@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pydantic
 import pytz
-from s2python.common import NumberRange, ReceptionStatusValues
+from s2python.common import NumberRange, ReceptionStatusValues, ReceptionStatus
 from s2python.frbc import (
     FRBCActuatorStatus,
     FRBCFillLevelTargetProfile,
@@ -29,7 +29,8 @@ from flexmeasures_client.s2.control_types.translations import (
 from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
 
 RESOLUTION = "15min"
-POWER_UNIT = "MWh"
+ENERGY_UNIT = "MWh"
+POWER_UNIT = "MW"
 DIMENSIONLESS = "dimensionless"
 PERCENTAGE = "%"
 TASK_PERIOD_SECONDS = 2
@@ -50,7 +51,7 @@ class FillRateBasedControlTUNES(FRBC):
     _usage_forecast_sensor_id: int | None
     _soc_minima_sensor_id: int | None
     _soc_maxima_sensor_id: int | None
-    _rm_discharge_sensor_id: int | None
+    # _rm_discharge_sensor_id: int | None
 
     def __init__(
         self,
@@ -99,13 +100,21 @@ class FillRateBasedControlTUNES(FRBC):
         return self._timezone.localize(datetime.now())
 
     async def send_storage_status(self, status: FRBCStorageStatus):
-        await self._fm_client.post_measurements(
-            self._fill_level_sensor_id,
-            start=self.now(),
-            values=[status.present_fill_level],
-            unit=POWER_UNIT,
-            duration=timedelta(minutes=0),  # INSTANTANEOUS
-        )
+        try:
+            await self._fm_client.post_measurements(
+                self._fill_level_sensor_id,
+                start=self.now(),
+                values=[status.present_fill_level],
+                unit=POWER_UNIT,
+                duration=timedelta(minutes=15),  # INSTANTANEOUS
+            )
+        except Exception as e:
+            response = ReceptionStatus(
+                subject_message_id=status.get("message_id"),
+                status=ReceptionStatusValues.PERMANENT_ERROR,
+            )
+            await self._sending_queue.put(response)
+
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
@@ -142,7 +151,7 @@ class FillRateBasedControlTUNES(FRBC):
             start=dt,
             values=[fill_rate],
             unit=POWER_UNIT,
-            duration=timedelta(0),
+            duration=timedelta(minutes=15),
         )
 
         # Send data to the sensor of the input fill_rate to the storage device
@@ -151,7 +160,7 @@ class FillRateBasedControlTUNES(FRBC):
             start=dt,
             values=[fill_rate],
             unit=POWER_UNIT,
-            duration=timedelta(0),
+            duration=timedelta(minutes=15),
         )
 
     async def start_trigger_schedule(self):
@@ -326,6 +335,8 @@ class FillRateBasedControlTUNES(FRBC):
         Args:
             usage_forecast (FRBCUsageForecast): The usage forecast to be translated and sent.
         """
+        start_time = usage_forecast.start_time
+        # todo: floor to RESOLUTION
 
         usage_forecast = translate_usage_forecast_to_fm(
             usage_forecast, RESOLUTION, strategy="mean"
@@ -333,8 +344,8 @@ class FillRateBasedControlTUNES(FRBC):
 
         await self._fm_client.post_measurements(
             sensor_id=self._usage_forecast_sensor_id,
-            start=usage_forecast.start_time,
-            values=usage_forecast,
+            start=start_time,
+            values=usage_forecast.tolist(),
             unit=POWER_UNIT,
             duration=str(pd.Timedelta(RESOLUTION) * len(usage_forecast)),
         )
