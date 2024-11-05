@@ -36,19 +36,19 @@ FlexMeasures Client
 ===================
 
 
-The FlexMeasures Client provides a python package to connect to a `FlexMeasures <https://github.com/FlexMeasures/flexmeasures>`_ server to manage flexible assets.
+The FlexMeasures Client provides a Python package to connect to a `FlexMeasures <https://github.com/FlexMeasures/flexmeasures>`_ server to manage flexible assets.
 
-The Flexmeasures Client package provides functionality for authentication, posting sensor data, triggering schedules and retrieving schedules from a FlexMeasures instance through the API.
+The Flexmeasures Client package provides functionality for authentication, asset and sensor management, posting sensor data, and triggering and retrieving schedules from a FlexMeasures instance through the API.
 
-As the Flexmeasures Client is still in active development and on version 0.1 it should be considered in beta.
+*As the Flexmeasures Client is still in active development and on version 0.x it should be considered in beta.*
 
 
 Getting Started
 ===============
 
-To get started using the FlexMeasures Client package first an account needs to be registered with a FlexMeasures instance or a local FlexMeasures instance needs to be created.
-Registering a to a FlexMeasures instance can be done through `Seita BV <https://seita.nl/>`_.
-To create a local instance of FlexMeasures follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
+To get started with the FlexMeasures Client package, first an account needs to be registered with a FlexMeasures instance.
+To create a local instance of FlexMeasures, follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
+Registering to a hosted FlexMeasures instance instead can be done through `Seita BV <https://seita.nl/>`_.
 
 In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
 
@@ -56,10 +56,11 @@ Install using ``pip``::
 
     pip install flexmeasures-client
 
-Initialization and Authentication::
+Initialization and authentication::
 
-    from client import FlexMeasuresClient
-    client = FlexMeasuresClient(email="email@email.com", password="pw")
+    from flexmeasures_client import FlexMeasuresClient
+    client = FlexMeasuresClient(host="localhost:5000", ssl=False, email="email@email.com", password="pw")
+    client = FlexMeasuresClient(host="seita.energy", ssl=True, email="email@email.com", password="pw")
 
 Retrieve available assets and sensors::
 
@@ -87,10 +88,10 @@ Trigger and retrieve a schedule::
             sensor_id=<sensor_id>, # int
             start="2023-03-26T10:00+02:00", # iso datetime
             duration="PT12H", # iso timedelta
-            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>, # int},
+            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>}, # int
             flex-model= {
                     "soc-unit": "kWh",
-                    "soc-at-start": 50, # soc_units (kWh)
+                    "soc-at-start": 50, # in soc_units (kWh)
                     "soc-max": 400,
                     "soc-min": 20,
                     "soc-targets": [
@@ -107,7 +108,7 @@ Trigger a schedule::
             sensor_id=<sensor_id>, # int
             start="2023-03-26T10:00+02:00", # iso datetime
             duration="PT12H", # iso timedelta
-            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>, # int},
+            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>}, # int
             flex-model= {
                     "soc-unit": "kWh",
                     "soc-at-start": 50, # soc_units (kWh)
@@ -140,8 +141,23 @@ If you want to develop this package it's necessary to install testing requiremen
 
 .. _pyscaffold-notes:
 
+
 Making Changes & Contributing
 =============================
+
+.. note: Read more details in CONTRIBUTING.rst
+
+Install the project locally (in a virtual environment of your choice)::
+
+    pip install -e
+
+
+Running tests locally is crucial as well. Staying close to the CI workflow::
+
+    pip install tox
+    tox -e clean,build
+    tox -- -rFEx --durations 10 --color yes
+
 
 This project uses `pre-commit`_, please make sure to install it before making any
 changes::
@@ -157,6 +173,17 @@ It is a good idea to update the hooks to the latest version::
 Don't forget to tell your contributors to also install and use pre-commit.
 
 .. _pre-commit: https://pre-commit.com/
+
+
+New releases on Pypi are made by adding a tag and pushing it::
+
+    git tag -s -a vX.Y.Z -m "Short summary"
+    git push --tags
+
+(of course you need the permissions to do so)
+
+See releases in GitHub Actions at https://github.com/FlexMeasures/flexmeasures-client/deployments/release
+
 
 ===================
 S2 Protocol

@@ -46,6 +46,7 @@ class FlexMeasuresClient:
     password: str
     email: str
     host: str = "localhost:5000"
+    port: int | None = None
     ssl: bool = False
     api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
@@ -88,6 +89,19 @@ class FlexMeasuresClient:
             )
         if len(self.password) < 1:
             raise EmptyPasswordError("password cannot be empty")
+        self.determine_port()
+
+    def determine_port(self):
+        parts = self.host.split(":")
+        if len(parts) > 1:
+            if self.port is not None:
+                raise WrongHostError(
+                    f"Cannot set port={self.port} and also as part of host={self.host}"
+                )
+            self.host = parts[0]
+            self.port = int(parts[1])
+        elif self.port is None:
+            self.port = 443 if self.scheme == "https" else 80
 
     async def close(self):
         """Function to close FlexMeasuresClient session when all requests are done"""
@@ -116,7 +130,7 @@ class FlexMeasuresClient:
         """  # noqa: E501
         url = self.build_url(uri, path=path)
 
-        self.start_session()
+        self.ensure_session()
 
         polling_step = 0  # reset this counter once when starting polling
         # we allow retrying once if we include authentication headers
@@ -186,6 +200,7 @@ class FlexMeasuresClient:
         logging.debug("=" * 14)
 
         """Sends a single request to FlexMeasures and checks the response"""
+        self.ensure_session()
         response = await cast(ClientSession, self.session).request(
             method=method,
             url=url,
@@ -211,7 +226,7 @@ class FlexMeasuresClient:
         )
         return response, polling_step, reauth_once, url
 
-    def start_session(self):
+    def ensure_session(self):
         """If there is no session, start one"""
         if self.session is None:
             self.session = ClientSession()
@@ -227,7 +242,9 @@ class FlexMeasuresClient:
 
     def build_url(self, uri: str, path: str = path) -> URL:
         """Build url for request"""
-        url = URL.build(scheme=self.scheme, host=self.host, path=path).join(
+        url = URL.build(
+            scheme=self.scheme, host=self.host, port=self.port, path=path
+        ).join(
             URL(uri),
         )
         return url
