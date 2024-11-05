@@ -118,6 +118,7 @@ def unevenly_ts_to_evenly(
 def translate_usage_forecast_to_fm(
     usage_forecast: FRBCUsageForecast,
     resolution: str = "1h",
+    strategy: str = "mean",
 ) -> pd.Series:
     """
     Translate a FRBC.UsageForecast into a FlexMeasures compatible format with evenly spaced data.
@@ -140,7 +141,7 @@ def translate_usage_forecast_to_fm(
         values=values,
         durations=durations,
         target_resolution=resolution,
-        strategy="mean",
+        strategy=strategy,
     )
 
 
