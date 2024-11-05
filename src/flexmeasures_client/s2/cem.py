@@ -99,9 +99,9 @@ class CEM(Handler):
         control_type_handler._sending_queue = self._sending_queue
 
         # store control_type_handler
-        self._control_types_handlers[
-            control_type_handler._control_type
-        ] = control_type_handler
+        self._control_types_handlers[control_type_handler._control_type] = (
+            control_type_handler
+        )
 
     async def handle_message(self, message: Dict | pydantic.BaseModel | str):
         """
