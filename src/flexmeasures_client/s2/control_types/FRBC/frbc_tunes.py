@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pydantic
 import pytz
-from s2python.common import NumberRange, ReceptionStatusValues, ReceptionStatus
+from s2python.common import NumberRange, ReceptionStatus, ReceptionStatusValues
 from s2python.frbc import (
     FRBCActuatorStatus,
     FRBCFillLevelTargetProfile,
