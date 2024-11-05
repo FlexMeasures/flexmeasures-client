@@ -115,7 +115,6 @@ class FillRateBasedControlTUNES(FRBC):
             )
             await self._sending_queue.put(response)
 
-
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
         system_description: FRBCSystemDescription = list(
