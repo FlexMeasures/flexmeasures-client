@@ -203,6 +203,11 @@ async def test_fill_level_target_profile(cem_in_frbc_control_type):
 
 @pytest.mark.asyncio
 async def test_fill_rate_relay(cem_in_frbc_control_type):
+    """Check whether the fill rate from the Tarnoc or Nestor is relayed
+    to the overall heating system's fill rate sensor, and the fill rate sensor ID
+    corresponds correctly to the Tarnoc fill rate sensor or the Nestor fill rate sensor.
+    """
+
     cem, fm_client = await cem_in_frbc_control_type
     frbc = cem._control_types_handlers[cem.control_type]
 
@@ -251,11 +256,24 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
     assert second_call["sensor_id"] == frbc._fill_rate_sensor_id
 
     await cem.close()
-    get_pending_tasks()
 
 
 @pytest.mark.asyncio
 async def test_trigger_schedule(cem_in_frbc_control_type):
+    """Work in progress.
+
+    # todo: add steps
+
+    Steps
+
+    1.  Check whether the task starts and stops
+    2.  Check call arguments
+    3.  Check queue for results mocking the results of FM client
+
+    # todo consider splitting up test
+    S2 2 FM: converging system description to flex config
+    FM 2 S2: schedules to instructions
+    """
     cem, fm_client = await cem_in_frbc_control_type
     # frbc = cem._control_types_handlers[cem.control_type]
 
