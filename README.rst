@@ -141,7 +141,7 @@ Making Changes & Contributing
 
 Install the project locally (in a virtual environment of your choice)::
 
-    pip install -e
+    pip install -e .
 
 
 Running tests locally is crucial as well. Staying close to the CI workflow::
