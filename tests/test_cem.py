@@ -1,38 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
-from s2python.common import (
-    Commodity,
-    CommodityQuantity,
-    ControlType,
-    Duration,
-    EnergyManagementRole,
-    Handshake,
-    NumberRange,
-    PowerRange,
-    ReceptionStatus,
-    ReceptionStatusValues,
-    ResourceManagerDetails,
-    Role,
-    RoleType,
-)
-from s2python.frbc import (
-    FRBCActuatorDescription,
-    FRBCOperationMode,
-    FRBCOperationModeElement,
-    FRBCStorageDescription,
-    FRBCSystemDescription,
-)
+from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
 
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC import FRBCTest
-from flexmeasures_client.s2.utils import get_unique_id
 
 
 @pytest.mark.asyncio
-async def test_cem():  # TODO: move into different test functions
+async def test_handshake(rm_handshake):
     cem = CEM(fm_client=None)
     frbc = FRBCTest()
 
@@ -42,18 +18,14 @@ async def test_cem():  # TODO: move into different test functions
     # Handshake #
     #############
 
-    handshake_message = Handshake(
-        message_id=get_unique_id(),
-        role=EnergyManagementRole.RM,
-        supported_protocol_versions=["0.1.0"],
-    )
-
-    await cem.handle_message(handshake_message)
+    # RM sends HandShake
+    await cem.handle_message(rm_handshake)
 
     assert (
         cem._sending_queue.qsize() == 1
     )  # check that message is put to the outgoing queue
 
+    # CEM response
     response = await cem.get_message()
 
     assert (
@@ -63,42 +35,74 @@ async def test_cem():  # TODO: move into different test functions
         response["selected_protocol_version"] == "0.1.0"
     ), "CEM selected protocol version should be supported by the Resource Manager"
 
+
+@pytest.mark.asyncio
+async def test_resource_manager_details(resource_manager_details, rm_handshake):
+    cem = CEM(fm_client=None)
+    frbc = FRBCTest()
+
+    cem.register_control_type(frbc)
+
+    #############
+    # Handshake #
+    #############
+
+    await cem.handle_message(rm_handshake)
+
+    assert (
+        cem._sending_queue.qsize() == 1
+    )  # check that message is put to the outgoing queue
+
+    response = await cem.get_message()
+
     ##########################
     # ResourceManagerDetails #
     ##########################
 
-    resource_manager_details_message = ResourceManagerDetails(
-        message_id=get_unique_id(),
-        resource_id=get_unique_id(),
-        roles=[Role(role=RoleType.ENERGY_STORAGE, commodity=Commodity.ELECTRICITY)],
-        instruction_processing_delay=Duration(__root__=1.0),
-        available_control_types=[
-            ControlType.FILL_RATE_BASED_CONTROL,
-            ControlType.NO_SELECTION,
-        ],
-        provides_forecast=True,
-        provides_power_measurement_types=[
-            CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC
-        ],
-    )
-
-    await cem.handle_message(resource_manager_details_message)
+    # RM sends ResourceManagerDetails
+    await cem.handle_message(resource_manager_details)
     response = await cem.get_message()
 
+    # CEM response is ReceptionStatus with an OK status
     assert response["message_type"] == "ReceptionStatus"
     assert response["status"] == "OK"
+
     assert (
-        cem._resource_manager_details == resource_manager_details_message
+        cem._resource_manager_details == resource_manager_details
     ), "CEM should store the resource_manager_details"
     assert cem.control_type == ControlType.NO_SELECTION, (
         "CEM control type should switch to ControlType.NO_SELECTION,"
         "independently of the original type"
     )
 
+
+@pytest.mark.asyncio
+async def test_activate_control_type(
+    frbc_system_description, resource_manager_details, rm_handshake
+):
+    cem = CEM(fm_client=None)
+    frbc = FRBCTest()
+
+    cem.register_control_type(frbc)
+
+    #############
+    # Handshake #
+    #############
+
+    await cem.handle_message(rm_handshake)
+    response = await cem.get_message()
+
+    ##########################
+    # ResourceManagerDetails #
+    ##########################
+    await cem.handle_message(resource_manager_details)
+    response = await cem.get_message()
+
     #########################
     # Activate control type #
     #########################
 
+    # CEM sends a request to change te control type
     await cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
     message = await cem.get_message()
 
@@ -117,59 +121,55 @@ async def test_cem():  # TODO: move into different test functions
         cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
     ), "after a positive ResponseStatus, the status changes from NO_SELECTION to FRBC"
 
+
+@pytest.mark.asyncio
+async def test_messages_route_to_control_type_handler(
+    frbc_system_description, resource_manager_details, rm_handshake
+):
+    cem = CEM(fm_client=None)
+    frbc = FRBCTest()
+
+    cem.register_control_type(frbc)
+
+    #############
+    # Handshake #
+    #############
+
+    await cem.handle_message(rm_handshake)
+    response = await cem.get_message()
+
+    ##########################
+    # ResourceManagerDetails #
+    ##########################
+    await cem.handle_message(resource_manager_details)
+    response = await cem.get_message()
+
+    #########################
+    # Activate control type #
+    #########################
+
+    await cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
+    message = await cem.get_message()
+
+    response = ReceptionStatus(
+        subject_message_id=message.get("message_id"), status=ReceptionStatusValues.OK
+    )
+
+    await cem.handle_message(response)
+
     ########
     # FRBC #
     ########
 
-    operation_mode_element = FRBCOperationModeElement(
-        fill_level_range=NumberRange(start_of_range=0, end_of_range=1),
-        fill_rate=NumberRange(start_of_range=0, end_of_range=1),
-        power_ranges=[
-            PowerRange(
-                start_of_range=10,
-                end_of_range=1000,
-                commodity_quantity=CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC,
-            )
-        ],
-    )
-
-    operation_mode = FRBCOperationMode(
-        id=get_unique_id(),
-        elements=[operation_mode_element],
-        abnormal_condition_only=False,
-    )
-
-    actuator = FRBCActuatorDescription(
-        id=get_unique_id(),
-        supported_commodities=[Commodity.ELECTRICITY],
-        operation_modes=[operation_mode],
-        transitions=[],
-        timers=[],
-    )
-
-    storage = FRBCStorageDescription(
-        provides_leakage_behaviour=False,
-        provides_fill_level_target_profile=False,
-        provides_usage_forecast=False,
-        fill_level_range=NumberRange(start_of_range=0, end_of_range=1),
-    )
-
-    system_description_message = FRBCSystemDescription(
-        message_id=get_unique_id(),
-        valid_from=datetime.now(),
-        actuators=[actuator],
-        storage=storage,
-    )
-
-    await cem.handle_message(system_description_message)
+    await cem.handle_message(frbc_system_description)
     response = await cem.get_message()
 
     # checking that FRBC handler is being called
     assert (
         cem._control_types_handlers[
             ControlType.FILL_RATE_BASED_CONTROL
-        ]._system_description_history[str(system_description_message.message_id)]
-        == system_description_message
+        ]._system_description_history[str(frbc_system_description.message_id)]
+        == frbc_system_description
     ), (
         "the FRBC.SystemDescription message should be stored"
         "in the frbc.system_description_history variable"
