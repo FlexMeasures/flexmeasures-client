@@ -322,31 +322,31 @@ class FlexMeasuresClient:
             )
         return schedule
 
-    async def get_account(self) -> list[dict]:
-        """Get the account of the current user.
+    async def get_account(self) -> dict | None:
+        """Get the organisation account of the current user.
 
-        :returns: account as dictionary, for example:
+        :returns: organisation account as dictionary, for example:
                 {
-                    'id': 1,
-                    'name': 'FlexMeasures',
-
+                    "id": 1,
+                    "name": "Positive Design",
                 }
         """
 
-        account_data, status = await self.request(uri="accounts", method="GET")
+        users, status = await self.request(uri="users", method="GET")
         check_for_status(status, 200)
 
-        # Return just the 'account_roles','id' and 'name' fields
-        account_data = [
-            {
-                "account_roles": account["account_roles"],
-                "id": account["id"],
-                "name": account["name"],
-            }
-            for account in account_data
-        ]
-
-        return account_data
+        account_id = None
+        for user in users:
+            if user["email"] == self.email:
+                account_id = user["account_id"]
+        if account_id is None:
+            raise NotImplementedError(f"User does not seem to belong to account, which should not be possible.")
+        account, status = await self.request(
+            uri=f"accounts/{account_id}",
+            method="GET",
+        )
+        check_for_status(status, 200)
+        return account
 
     async def get_assets(self) -> list[dict]:
         """Get all the assets available to the current user.

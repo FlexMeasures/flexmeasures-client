@@ -499,17 +499,50 @@ async def test_trigger_and_get_schedule() -> None:
 async def test_get_account() -> None:
     with aioresponses() as m:
         m.get(
-            "http://localhost:5000/api/v3_0/accounts",
+            "http://localhost:5000/api/v3_0/users",
             status=200,
-            payload=[{"name": "Toy Account"}],
+            payload=[
+                {
+                    "account_id": 1,
+                    "active": True,
+                    "email": "toy-user@flexmeasures.io",
+                    "id": 39,
+                    "username": "toy-user",
+                },
+                {
+                    "account_id": 1,
+                    "active": True,
+                    "email": "toy-colleague@flexmeasures.io",
+                    "id": 40,
+                    "username": "toy-colleague",
+                },
+                {
+                    "account_id": 2,
+                    "active": True,
+                    "email": "toy-client@flexmeasures.io",
+                    "id": 41,
+                    "username": "toy-client",
+                },
+            ]
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/accounts/1",
+            status=200,
+            payload={
+                "id": 1,
+                "name": "Positive Design",
+            }
         )
         flexmeasures_client = FlexMeasuresClient(
+            host="localhost",
+            port=5000,
             email="toy-user@flexmeasures.io",
             password="toy-password",
         )
         flexmeasures_client.access_token = "test-token"
-    account = await flexmeasures_client.get_account()
-    assert account["name"] == "Toy Account"
+        account = await flexmeasures_client.get_account()
+        assert account["id"] == 1
+        assert account["name"] == "Positive Design"
 
 
 @pytest.mark.asyncio
