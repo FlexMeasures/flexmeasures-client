@@ -50,6 +50,8 @@ To get started with the FlexMeasures Client package, first an account needs to b
 To create a local instance of FlexMeasures, follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
 Registering to a hosted FlexMeasures instance instead can be done through `Seita BV <https://seita.nl/>`_.
 
+In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
+
 Install using ``pip``::
 
     pip install flexmeasures-client
@@ -130,6 +132,12 @@ The schedule returns a Pandas ``DataFrame`` that can be used to regulate the fle
 
 
 
+Development
+==============
+
+If you want to develop this package it's necessary to install testing requirements::
+
+    pip install -e ".[testing]"
 
 .. _pyscaffold-notes:
 
