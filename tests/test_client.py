@@ -496,6 +496,22 @@ async def test_trigger_and_get_schedule() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_account() -> None:
+    with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/v3_0/accounts",
+            status=200,
+            payload=[{"name": "Toy Account"}],
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="toy-user@flexmeasures.io",
+            password="toy-password",
+        )
+    account = await flexmeasures_client.get_account()
+    assert account["name"] == "Toy Account"
+
+
+@pytest.mark.asyncio
 async def test_get_sensor_data() -> None:
     with aioresponses() as m:
         flexmeasures_client = FlexMeasuresClient(
