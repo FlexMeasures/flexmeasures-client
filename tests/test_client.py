@@ -507,6 +507,7 @@ async def test_get_account() -> None:
             email="toy-user@flexmeasures.io",
             password="toy-password",
         )
+        flexmeasures_client.access_token = "test-token"
     account = await flexmeasures_client.get_account()
     assert account["name"] == "Toy Account"
 
