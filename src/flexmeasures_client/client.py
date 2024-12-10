@@ -269,6 +269,7 @@ class FlexMeasuresClient:
         prior: str | None = None,
     ):
         """
+        This function raises a ContentTypeError when the response is not a dictionary.
         Post sensor data for the given time range.
         This function raises a ValueError when an unhandled status code is returned
         """
@@ -320,6 +321,32 @@ class FlexMeasuresClient:
                 f"Expected a dictionary schedule, but got {type(schedule)}",
             )
         return schedule
+
+    async def get_account(self) -> list[dict]:
+        """Get the account of the current user.
+
+        :returns: account as dictionary, for example:
+                {
+                    'id': 1,
+                    'name': 'FlexMeasures',
+
+                }
+        """
+
+        account_data, status = await self.request(uri="accounts", method="GET")
+        check_for_status(status, 200)
+
+        # Return just the 'account_roles','id' and 'name' fields
+        account_data = [
+            {
+                "account_roles": account["account_roles"],
+                "id": account["id"],
+                "name": account["name"],
+            }
+            for account in account_data
+        ]
+
+        return account_data
 
     async def get_assets(self) -> list[dict]:
         """Get all the assets available to the current user.
