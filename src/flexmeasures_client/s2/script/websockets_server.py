@@ -3,11 +3,13 @@ import json
 
 import aiohttp
 from aiohttp import web
+from s2python.common import ControlType
 
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
-from flexmeasures_client.s2.python_s2_protocol.common.schemas import ControlType
+
+# from flexmeasures_client.s2.python_s2_protocol.common.schemas import ControlType
 
 
 async def rm_details_watchdog(ws, cem: CEM):
@@ -71,8 +73,10 @@ async def websocket_handler(request):
 
     fm_client = FlexMeasuresClient("toy-password", "toy-user@flexmeasures.io")
 
-    cem = CEM(sensor_id=1, fm_client=fm_client)
-    frbc = FRBCSimple(power_sensor_id=1, price_sensor_id=2)
+    cem = CEM(fm_client=fm_client)
+    frbc = FRBCSimple(
+        power_sensor_id=1, price_sensor_id=2, soc_sensor_id=3, rm_discharge_sensor_id=4
+    )
     cem.register_control_type(frbc)
 
     # create "parallel" tasks for the message producer and consumer

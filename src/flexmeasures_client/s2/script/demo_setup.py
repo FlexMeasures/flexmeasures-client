@@ -3,8 +3,8 @@ import asyncio
 from flexmeasures_client.client import FlexMeasuresClient
 
 client = FlexMeasuresClient(
-    email="admin@admin.com",
-    password="admin",
+    email="toy-user@flexmeasures.io",
+    password="toy-password",
     host="localhost:5000",
 )
 
