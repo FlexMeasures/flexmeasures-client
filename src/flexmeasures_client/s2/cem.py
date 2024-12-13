@@ -42,10 +42,7 @@ class CEM(Handler):
     _sending_queue: Queue[pydantic.BaseModel]
 
     def __init__(
-        self,
-        sensor_id: int,
-        fm_client: FlexMeasuresClient,
-        logger: Logger | None = None,
+        self, fm_client: FlexMeasuresClient, logger: Logger | None = None
     ) -> None:
         """
         Customer Energy Manager (CEM)
@@ -230,7 +227,9 @@ class CEM(Handler):
     def handle_resource_manager_details(self, message: ResourceManagerDetails):
         self._resource_manager_details = message
 
-        if not self._control_type:  # TODO: check if sending resource_manager_details
+        if (
+            not self._control_type
+        ):  # initializing. TODO: check if sending resource_manager_details
             # resets control type
             self._control_type = ControlType.NO_SELECTION
 
