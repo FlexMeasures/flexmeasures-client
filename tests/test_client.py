@@ -523,7 +523,7 @@ async def test_get_account() -> None:
                     "id": 41,
                     "username": "toy-client",
                 },
-            ]
+            ],
         )
         m.get(
             "http://localhost:5000/api/v3_0/accounts/1",
@@ -531,7 +531,7 @@ async def test_get_account() -> None:
             payload={
                 "id": 1,
                 "name": "Positive Design",
-            }
+            },
         )
         flexmeasures_client = FlexMeasuresClient(
             host="localhost",
