@@ -351,7 +351,7 @@ class FlexMeasuresClient:
         )
         if not isinstance(account, dict):
             raise ContentTypeError(
-                f"Expected an account dictionary, but got {type(account)}",
+                f"Expected an account dictionary! but got {type(account)}",
             )
         check_for_status(status, 200)
         return account
