@@ -3,51 +3,34 @@ from datetime import datetime
 
 import aiohttp
 import pytz
-from s2python.common import (
+
+from flexmeasures_client.s2.python_s2_protocol.common.messages import (
+    Handshake,
+    ReceptionStatus,
+    ReceptionStatusValues,
+    ResourceManagerDetails,
+)
+from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
     Commodity,
     CommodityQuantity,
     ControlType,
     Duration,
     EnergyManagementRole,
-    Handshake,
     NumberRange,
     PowerRange,
-    ReceptionStatus,
-    ReceptionStatusValues,
-    ResourceManagerDetails,
     Role,
     RoleType,
 )
-from s2python.frbc import (
+from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
+    FRBCStorageStatus,
+    FRBCSystemDescription,
+)
+from flexmeasures_client.s2.python_s2_protocol.FRBC.schemas import (
     FRBCActuatorDescription,
     FRBCOperationMode,
     FRBCOperationModeElement,
     FRBCStorageDescription,
-    FRBCStorageStatus,
-    FRBCSystemDescription,
 )
-
-# from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
-#     Commodity,
-#     CommodityQuantity,
-#     ControlType,
-#     Duration,
-#     EnergyManagementRole,
-#     NumberRange,
-#     PowerRange,
-#     Role,
-#     RoleType,
-# )
-# from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
-#     FRBCStorageStatus,
-#     FRBCSystemDescription,
-# )
-# from flexmeasures_client.s2.python_s2_protocol.FRBC.schemas import (
-#     FRBCActuatorDescription,
-#     FRBCOperationMode,
-#     FRBCOperationModeElement,
-#     FRBCStorageDescription,
-# )
 from flexmeasures_client.s2.utils import get_unique_id
 
 
@@ -76,7 +59,7 @@ async def main_s2():
                 roles=[
                     Role(role=RoleType.ENERGY_STORAGE, commodity=Commodity.ELECTRICITY)
                 ],
-                instruction_processing_delay=Duration(__root__=1),
+                instruction_processing_delay=Duration(__root__=1.0),
                 available_control_types=[
                     ControlType.FILL_RATE_BASED_CONTROL,
                     ControlType.NO_SELECTION,

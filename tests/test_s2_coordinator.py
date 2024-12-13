@@ -33,7 +33,7 @@ from flexmeasures_client.s2.utils import get_unique_id
 
 @pytest.mark.asyncio
 async def test_cem():  # TODO: move into different test functions
-    cem = CEM(sensor_id=1, fm_client=None)
+    cem = CEM(fm_client=None)
     frbc = FRBCTest()
 
     cem.register_control_type(frbc)

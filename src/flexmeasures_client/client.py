@@ -269,7 +269,6 @@ class FlexMeasuresClient:
         prior: str | None = None,
     ):
         """
-        This function raises a ContentTypeError when the response is not a dictionary.
         Post sensor data for the given time range.
         This function raises a ValueError when an unhandled status code is returned
         """
