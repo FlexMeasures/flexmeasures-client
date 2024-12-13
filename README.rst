@@ -60,6 +60,11 @@ Initialization and authentication::
     client = FlexMeasuresClient(host="localhost:5000", ssl=False, email="email@email.com", password="pw")
     client = FlexMeasuresClient(host="seita.energy", ssl=True, email="email@email.com", password="pw")
 
+Retrieve user and account info::
+
+   user = await client.get_user()
+   account = await client.get_account()
+
 Retrieve available assets and sensors::
 
     assets = await client.get_assets()
@@ -141,7 +146,7 @@ Making Changes & Contributing
 
 Install the project locally (in a virtual environment of your choice)::
 
-    pip install -e
+    pip install -e .
 
 
 Running tests locally is crucial as well. Staying close to the CI workflow::
