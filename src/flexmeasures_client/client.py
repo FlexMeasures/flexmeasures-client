@@ -350,6 +350,26 @@ class FlexMeasuresClient:
         check_for_status(status, 200)
         return account
 
+    async def get_user(self) -> dict | None:
+        """Get the user account of the current user.
+
+        :returns: user account as dictionary, for example:
+                {
+                    "id": 39,
+                    "name": "toy-user",
+                }
+        """
+
+        users, status = await self.request(uri="users", method="GET")
+        check_for_status(status, 200)
+
+        user = None
+        for user in users:
+            if user["email"] == self.email:
+                break
+        check_for_status(status, 200)
+        return user
+
     async def get_assets(self) -> list[dict]:
         """Get all the assets available to the current user.
 
