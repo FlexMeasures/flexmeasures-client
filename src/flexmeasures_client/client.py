@@ -340,11 +340,19 @@ class FlexMeasuresClient:
             if user["email"] == self.email:
                 account_id = user["account_id"]
         if account_id is None:
-            raise NotImplementedError(f"User does not seem to belong to account, which should not be possible.")
+            raise NotImplementedError(
+                "User does not seem to belong to account, which should not be possible."
+            )
+        # Force account to be a dictionary
+
         account, status = await self.request(
             uri=f"accounts/{account_id}",
             method="GET",
         )
+        if not isinstance(account, dict):
+            raise ContentTypeError(
+                f"Expected an account dictionary, but got {type(account)}",
+            )
         check_for_status(status, 200)
         return account
 
