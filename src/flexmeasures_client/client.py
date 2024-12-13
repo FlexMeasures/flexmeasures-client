@@ -340,7 +340,9 @@ class FlexMeasuresClient:
             if user["email"] == self.email:
                 account_id = user["account_id"]
         if account_id is None:
-            raise NotImplementedError(f"User does not seem to belong to account, which should not be possible.")
+            raise NotImplementedError(
+                "User does not seem to belong to account, which should not be possible."
+            )
         account, status = await self.request(
             uri=f"accounts/{account_id}",
             method="GET",
