@@ -32,6 +32,7 @@ class FRBC(ControlTypeHandler):
     _timer_status_history: SizeLimitOrderedDict[str, FRBCTimerStatus]
     _actuator_status_history: SizeLimitOrderedDict[str, FRBCActuatorStatus]
     _storage_status_history: SizeLimitOrderedDict[str, FRBCStorageStatus]
+    background_tasks: set
 
     def __init__(self, max_size: int = 100) -> None:
         super().__init__(max_size)
@@ -53,6 +54,7 @@ class FRBC(ControlTypeHandler):
         self._system_description_history = SizeLimitOrderedDict(max_size=max_size)
         self._leakage_behaviour_history = SizeLimitOrderedDict(max_size=max_size)
         self._usage_forecast_history = SizeLimitOrderedDict(max_size=max_size)
+        self.background_tasks = set()
 
     @register(FRBCSystemDescription)
     def handle_system_description(
@@ -64,15 +66,25 @@ class FRBC(ControlTypeHandler):
         self._system_description_history[system_description_id] = message
 
         # schedule trigger_schedule to run soon concurrently
-        asyncio.create_task(self.trigger_schedule(system_description_id))
-
+        task = asyncio.create_task(self.trigger_schedule(system_description_id))
+        self.background_tasks.add(
+            task
+        )  # important to avoid a task disappearing mid-execution.
+        task.add_done_callback(self.background_tasks.discard)
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
-    async def send_storage_status(self, status: FRBCStorageStatus):
-        raise NotImplementedError()
+    @register(FRBCUsageForecast)
+    def handle_usage_forecast(self, message: FRBCUsageForecast) -> pydantic.BaseModel:
+        message_id = str(message.message_id)
 
-    async def send_actuator_status(self, status: FRBCActuatorStatus):
-        raise NotImplementedError()
+        self._usage_forecast_history[message_id] = message
+
+        task = asyncio.create_task(self.send_usage_forecast(message))
+        self.background_tasks.add(
+            task
+        )  # important to avoid a task disappearing mid-execution.
+        task.add_done_callback(self.background_tasks.discard)
+        return get_reception_status(message, status=ReceptionStatusValues.OK)
 
     @register(FRBCStorageStatus)
     def handle_storage_status(self, message: FRBCStorageStatus) -> pydantic.BaseModel:
@@ -80,8 +92,11 @@ class FRBC(ControlTypeHandler):
 
         self._storage_status_history[message_id] = message
 
-        asyncio.create_task(self.send_storage_status(message))
-
+        task = asyncio.create_task(self.send_storage_status(message))
+        self.background_tasks.add(
+            task
+        )  # important to avoid a task disappearing mid-execution.
+        task.add_done_callback(self.background_tasks.discard)
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
     @register(FRBCActuatorStatus)
@@ -90,28 +105,63 @@ class FRBC(ControlTypeHandler):
 
         self._actuator_status_history[message_id] = message
 
-        asyncio.create_task(self.send_actuator_status(message))
-
+        task = asyncio.create_task(self.send_actuator_status(message))
+        self.background_tasks.add(
+            task
+        )  # important to avoid a task disappearing mid-execution.
+        task.add_done_callback(self.background_tasks.discard)
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
     @register(FRBCLeakageBehaviour)
     def handle_leakage_behaviour(
         self, message: FRBCLeakageBehaviour
     ) -> pydantic.BaseModel:
-        # return get_reception_status(message, status=ReceptionStatusValues.OK)
-        raise NotImplementedError()
+        message_id = str(message.message_id)
 
-    @register(FRBCUsageForecast)
-    def handle_usage_forecast(self, message: FRBCUsageForecast) -> pydantic.BaseModel:
-        # return get_reception_status(message, status=ReceptionStatusValues.OK)
-        raise NotImplementedError()
+        self._leakage_behaviour_history[message_id] = message
 
-    async def trigger_schedule(self, system_description_id: str):
-        raise NotImplementedError()
+        task = asyncio.create_task(self.send_leakage_behaviour(message))
+        self.background_tasks.add(
+            task
+        )  # important to avoid a task disappearing mid-execution.
+        task.add_done_callback(self.background_tasks.discard)
+        return get_reception_status(message, status=ReceptionStatusValues.OK)
+
+    @register(FRBCFillLevelTargetProfile)
+    def handle_fill_level_target_profile(
+        self, message: FRBCFillLevelTargetProfile
+    ) -> pydantic.BaseModel:
+        message_id = str(message.message_id)
+
+        self._fill_level_target_profile_history[message_id] = message
+
+        task = asyncio.create_task(self.send_fill_level_target_profile(message))
+        self.background_tasks.add(
+            task
+        )  # important to avoid a task disappearing mid-execution.
+        task.add_done_callback(self.background_tasks.discard)
+        return get_reception_status(message, status=ReceptionStatusValues.OK)
 
     @register(FRBCTimerStatus)
     def handle_frbc_timer_status(self, message: FRBCTimerStatus) -> pydantic.BaseModel:
         return get_reception_status(message, status=ReceptionStatusValues.OK)
+
+    async def send_storage_status(self, status: FRBCStorageStatus):
+        raise NotImplementedError()
+
+    async def send_actuator_status(self, status: FRBCActuatorStatus):
+        raise NotImplementedError()
+
+    async def send_leakage_behaviour(self, leakage_behaviour: FRBCLeakageBehaviour):
+        raise NotImplementedError()
+
+    async def send_usage_forecast(self, usage_forecast: FRBCUsageForecast):
+        raise NotImplementedError()
+
+    async def send_fill_level_target_profile(
+        self, fill_level_target_profile: FRBCFillLevelTargetProfile
+    ):
+        raise NotImplementedError()
 
 
 class FRBCTest(FRBC):
