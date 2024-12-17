@@ -7,7 +7,7 @@ import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import async_timeout
 import pandas as pd
@@ -59,6 +59,9 @@ class FlexMeasuresClient:
     session: ClientSession | None = None
 
     def __post_init__(self):
+        if self.session is None:
+            self.session = ClientSession()
+
         if not re.match(r".+\@.+\..+", self.email):
             raise EmailValidationError(
                 f"{self.email} is not an email address format string"
@@ -102,7 +105,7 @@ class FlexMeasuresClient:
 
     async def close(self):
         """Function to close FlexMeasuresClient session when all requests are done"""
-        await self.session.close()
+        await cast(ClientSession, self.session).close()
 
     async def request(
         self,
@@ -198,7 +201,7 @@ class FlexMeasuresClient:
 
         """Sends a single request to FlexMeasures and checks the response"""
         self.ensure_session()
-        response = await self.session.request(  # type: ignore
+        response = await cast(ClientSession, self.session).request(
             method=method,
             url=url,
             params=params,

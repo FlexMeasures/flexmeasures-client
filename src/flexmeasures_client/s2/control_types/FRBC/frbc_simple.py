@@ -75,23 +75,6 @@ class FRBCSimple(FRBC):
             duration=timedelta(minutes=15),
         )
 
-        # await self._fm_client.post_measurements(
-        #     self._soc_sensor_id
-        # )
-
-        # system_description = self.find_system_description_from_actuator()
-
-        # if system_description is None:
-        #     return
-
-        # #for a
-        # if system_description is not None:
-
-        # self._system_description_history[]
-        # status.active_operation_mode_id
-        # status.actuator_id
-        # status.operation_mode_factor
-
     async def trigger_schedule(self, system_description_id: str):
         """Translates S2 System Description into FM API calls"""
 
