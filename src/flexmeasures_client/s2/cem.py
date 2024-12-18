@@ -43,8 +43,8 @@ class CEM(Handler):
 
     def __init__(
         self,
-        sensor_id: int,
         fm_client: FlexMeasuresClient,
+        sensor_id: int = 1,
         logger: Logger | None = None,
     ) -> None:
         """
