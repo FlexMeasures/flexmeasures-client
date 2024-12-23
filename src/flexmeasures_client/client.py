@@ -119,7 +119,7 @@ class FlexMeasuresClient:
         Retries if:
         - the client request timed out (as indicated by the client's self.request_timeout)
         - the server response indicates a 408 (Request Timeout) status
-        - the server response indicates a 503 (Service Unavailable) status with a Retry-After response header
+        - the server response indicates a 503 (Service Unavailable) status with a Retry-After response header.
 
         Fails if:
         - the server response indicated a status code of 400 or higher
