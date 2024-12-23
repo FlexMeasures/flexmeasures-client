@@ -116,7 +116,7 @@ def test__init__(
             },
             WrongHostError,
             "https: // should not be included in https://test."
-            "To use https:// set ssl=True and host=test",
+            "To use https: // set ssl=True and host=test",
         ),
         (
             {
