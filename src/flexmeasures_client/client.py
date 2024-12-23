@@ -81,8 +81,8 @@ class FlexMeasuresClient:
         if re.match(r"^https\:\/\/", self.host):
             host_without_scheme = self.host.removeprefix("https://")
             raise WrongHostError(
-                f"http: // should not be included in {self.host}. "
-                f"Instead use host={host_without_scheme}"
+                f"https: // should not be included in {self.host}."
+                f"To use https:// set ssl=True and host={host_without_scheme}"
             )
         if len(self.password) < 1:
             raise EmptyPasswordError("password cannot be empty")
