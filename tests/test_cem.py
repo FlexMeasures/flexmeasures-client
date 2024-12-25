@@ -245,3 +245,49 @@ async def test_resource_manager_details_ppbc(
         "CEM control type should switch to ControlType.NO_SELECTION,"
         "independently of the original type"
     )
+
+
+@pytest.mark.asyncio
+async def test_activate_control_type_ppbc(
+    ppbc_system_description, resource_manager_details_ppbc, rm_handshake
+):
+    cem = CEM(fm_client=None)
+    ppbc = PPBC()
+
+    cem.register_control_type(ppbc)
+
+    #############
+    # Handshake #
+    #############
+
+    await cem.handle_message(rm_handshake)
+    response = await cem.get_message()
+
+    ##########################
+    # ResourceManagerDetails #
+    ##########################
+    await cem.handle_message(resource_manager_details_ppbc)
+    response = await cem.get_message()
+
+    #########################
+    # Activate control type #
+    #########################
+
+    # CEM sends a request to change te control type
+    await cem.activate_control_type(ControlType.POWER_PROFILE_BASED_CONTROL)
+    message = await cem.get_message()
+
+    assert cem.control_type == ControlType.NO_SELECTION, (
+        "the control type should still be NO_SELECTION (rather than PPBC),"
+        " because the RM has not yet confirmed PPBC activation"
+    )
+
+    response = ReceptionStatus(
+        subject_message_id=message.get("message_id"), status=ReceptionStatusValues.OK
+    )
+
+    await cem.handle_message(response)
+
+    assert (
+        cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
+    ), "after a positive ResponseStatus, the status changes from NO_SELECTION to PPBC"
