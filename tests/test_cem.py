@@ -249,7 +249,7 @@ async def test_resource_manager_details_ppbc(
 
 @pytest.mark.asyncio
 async def test_activate_control_type_ppbc(
-    ppbc_system_description, resource_manager_details_ppbc, rm_handshake
+    ppbc_power_profile_definition, resource_manager_details_ppbc, rm_handshake
 ):
     cem = CEM(fm_client=None)
     ppbc = PPBC()
@@ -289,5 +289,5 @@ async def test_activate_control_type_ppbc(
     await cem.handle_message(response)
 
     assert (
-        cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
+        cem.control_type == ControlType.POWER_PROFILE_BASED_CONTROL
     ), "after a positive ResponseStatus, the status changes from NO_SELECTION to PPBC"
