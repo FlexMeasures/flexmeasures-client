@@ -38,6 +38,7 @@ async def test_handshake(rm_handshake):
     ), "CEM selected protocol version should be supported by the Resource Manager"
 
 
+# FRBC
 @pytest.mark.asyncio
 async def test_resource_manager_details_frbc(
     resource_manager_details_frbc, rm_handshake
@@ -203,3 +204,44 @@ async def test_messages_route_to_control_type_handler_frbc(
             ControlType.FILL_RATE_BASED_CONTROL
         ].success_callbacks
     ), "success callback should be deleted"
+
+
+# PPBC
+@pytest.mark.asyncio
+async def test_resource_manager_details_ppbc(
+    resource_manager_details_ppbc, rm_handshake
+):
+    cem = CEM(fm_client=None)
+    ppbc = PPBC()
+
+    cem.register_control_type(ppbc)
+
+    #############
+    # Handshake #
+    #############
+
+    await cem.handle_message(rm_handshake)
+
+    assert cem._sending_queue.qsize() == 1
+
+    response = await cem.get_message()
+
+    ##########################
+    # ResourceManagerDetails #
+    ##########################
+
+    # RM sends ResourceManagerDetails
+    await cem.handle_message(resource_manager_details_ppbc)
+    response = await cem.get_message()
+
+    # CEM response is ReceptionStatus with an OK status
+    assert response["message_type"] == "ReceptionStatus"
+    assert response["status"] == "OK"
+
+    assert (
+        cem._resource_manager_details == resource_manager_details_ppbc
+    ), "CEM should store the resource_manager_details"
+    assert cem.control_type == ControlType.NO_SELECTION, (
+        "CEM control type should switch to ControlType.NO_SELECTION,"
+        "independently of the original type"
+    )
