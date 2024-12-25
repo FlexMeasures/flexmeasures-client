@@ -40,15 +40,15 @@ def register(schema: Type[pydantic.BaseModel]) -> Callable:
                 # TODO: implement function __hash__ in ID that returns
                 # the value of __root__, this way we would be able to use
                 # the ID as key directly
-                self.incoming_messages[
-                    get_message_id(incoming_message)
-                ] = incoming_message
+                self.incoming_messages[get_message_id(incoming_message)] = (
+                    incoming_message
+                )
 
                 outgoing_message = func(self, incoming_message)
 
-                self.outgoing_messages[
-                    get_message_id(outgoing_message)
-                ] = outgoing_message
+                self.outgoing_messages[get_message_id(outgoing_message)] = (
+                    outgoing_message
+                )
 
                 return outgoing_message
 
@@ -79,6 +79,8 @@ class Handler:
     failure_callbacks: Dict[str, Callable]
 
     outgoing_messages_status: SizeLimitOrderedDict
+
+    background_tasks: set
 
     def __init__(self, max_size: int = 100) -> None:
         """
