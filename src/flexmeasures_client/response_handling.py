@@ -47,8 +47,7 @@ async def check_response(
         status: {status}
         headers: {headers}
         payload: {payload}.
-        Re-authenticating!
-        """
+        Re-authenticating!"""
         logging.debug(message)
         await self.get_access_token()
         reauth_once = False
