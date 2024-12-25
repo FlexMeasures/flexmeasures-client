@@ -43,7 +43,6 @@ class FRBC(ControlTypeHandler):
             max_size=max_size
         )
 
-        # ! ASK: Why are these not being used?
         self._leakage_behaviour_history = SizeLimitOrderedDict(max_size=max_size)
         self._usage_forecast_history = SizeLimitOrderedDict(max_size=max_size)
 

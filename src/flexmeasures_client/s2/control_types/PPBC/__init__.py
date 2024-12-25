@@ -24,12 +24,13 @@ class PPBC(ControlTypeHandler):
 
         self._power_profile_definition_history = SizeLimitOrderedDict(max_size=max_size)
         self._power_profile_status_history = SizeLimitOrderedDict(max_size=max_size)
+        self.background_tasks = set()
 
     @register(PPBCPowerProfileDefinition)
     def handle_power_profile_definition(
         self, message: PPBCPowerProfileDefinition
     ) -> pydantic.BaseModel:
-        power_profile_id = str(message.id)
+        power_profile_id = str(message.message_id)
 
         # Store the power profile definition
         self._power_profile_definition_history[power_profile_id] = message
