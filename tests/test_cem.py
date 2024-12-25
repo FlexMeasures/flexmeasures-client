@@ -312,7 +312,7 @@ async def test_messages_route_to_control_type_handler_ppbc(
     ##########################
     # ResourceManagerDetails #
     ##########################
-    await cem.handle_message(ppbc_power_profile_definition)
+    await cem.handle_message(resource_manager_details_ppbc)
     response = await cem.get_message()
 
     #########################
@@ -339,11 +339,13 @@ async def test_messages_route_to_control_type_handler_ppbc(
     assert (
         cem._control_types_handlers[
             ControlType.POWER_PROFILE_BASED_CONTROL
-        ]._system_description_history[str(ppbc_power_profile_definition.message_id)]
+        ]._power_profile_definition_history[
+            str(ppbc_power_profile_definition.message_id)
+        ]
         == ppbc_power_profile_definition
     ), (
-        "the PPBC. message should be stored"
-        "in the frbc.system_description_history variable"
+        "the PPBC.power_profile_definition message should be stored"
+        "in the ppbc._power_profile_definition_history variable"
     )
 
     # change of control type is not performed in case that the RM answers
@@ -351,7 +353,7 @@ async def test_messages_route_to_control_type_handler_ppbc(
     await cem.activate_control_type(ControlType.NO_SELECTION)
     response = await cem.get_message()
     assert (
-        cem._control_type == ControlType.FILL_RATE_BASED_CONTROL
+        cem._control_type == ControlType.POWER_PROFILE_BASED_CONTROL
     ), "control type should not change, confirmation still pending"
 
     await cem.handle_message(
@@ -362,11 +364,11 @@ async def test_messages_route_to_control_type_handler_ppbc(
     )
 
     assert (
-        cem._control_type == ControlType.FILL_RATE_BASED_CONTROL
+        cem._control_type == ControlType.POWER_PROFILE_BASED_CONTROL
     ), "control type should not change, confirmation state is not 'OK'"
     assert (
         response.get("message_id")
         not in cem._control_types_handlers[
-            ControlType.FILL_RATE_BASED_CONTROL
+            ControlType.POWER_PROFILE_BASED_CONTROL
         ].success_callbacks
     ), "success callback should be deleted"
