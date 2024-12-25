@@ -291,3 +291,82 @@ async def test_activate_control_type_ppbc(
     assert (
         cem.control_type == ControlType.POWER_PROFILE_BASED_CONTROL
     ), "after a positive ResponseStatus, the status changes from NO_SELECTION to PPBC"
+
+
+@pytest.mark.asyncio
+async def test_messages_route_to_control_type_handler_ppbc(
+    ppbc_power_profile_definition, resource_manager_details_ppbc, rm_handshake
+):
+    cem = CEM(fm_client=None)
+    ppbc = PPBC()
+
+    cem.register_control_type(ppbc)
+
+    #############
+    # Handshake #
+    #############
+
+    await cem.handle_message(rm_handshake)
+    response = await cem.get_message()
+
+    ##########################
+    # ResourceManagerDetails #
+    ##########################
+    await cem.handle_message(ppbc_power_profile_definition)
+    response = await cem.get_message()
+
+    #########################
+    # Activate control type #
+    #########################
+
+    await cem.activate_control_type(ControlType.POWER_PROFILE_BASED_CONTROL)
+    message = await cem.get_message()
+
+    response = ReceptionStatus(
+        subject_message_id=message.get("message_id"), status=ReceptionStatusValues.OK
+    )
+
+    await cem.handle_message(response)
+
+    ########
+    # PPBC #
+    ########
+
+    await cem.handle_message(ppbc_power_profile_definition)
+    response = await cem.get_message()
+
+    # checking that PPBC handler is being called
+    assert (
+        cem._control_types_handlers[
+            ControlType.POWER_PROFILE_BASED_CONTROL
+        ]._system_description_history[str(ppbc_power_profile_definition.message_id)]
+        == ppbc_power_profile_definition
+    ), (
+        "the PPBC. message should be stored"
+        "in the frbc.system_description_history variable"
+    )
+
+    # change of control type is not performed in case that the RM answers
+    # with a negative response
+    await cem.activate_control_type(ControlType.NO_SELECTION)
+    response = await cem.get_message()
+    assert (
+        cem._control_type == ControlType.FILL_RATE_BASED_CONTROL
+    ), "control type should not change, confirmation still pending"
+
+    await cem.handle_message(
+        ReceptionStatus(
+            subject_message_id=response.get("message_id"),
+            status=ReceptionStatusValues.INVALID_CONTENT,
+        )
+    )
+
+    assert (
+        cem._control_type == ControlType.FILL_RATE_BASED_CONTROL
+    ), "control type should not change, confirmation state is not 'OK'"
+    assert (
+        response.get("message_id")
+        not in cem._control_types_handlers[
+            ControlType.FILL_RATE_BASED_CONTROL
+        ].success_callbacks
+    ), "success callback should be deleted"
