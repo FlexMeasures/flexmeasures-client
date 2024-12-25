@@ -38,7 +38,7 @@ class PPBC(ControlTypeHandler):
         self, message: PPBCEndInterruptionInstruction
     ) -> pydantic.BaseModel:
         end_interruption_instruction_id = str(message.message_id)
-        self._end_interruption_instruction_history[
-            end_interruption_instruction_id
-        ] = message
+        self._end_interruption_instruction_history[end_interruption_instruction_id] = (
+            message
+        )
         return get_reception_status(message, status=ReceptionStatusValues.OK)
