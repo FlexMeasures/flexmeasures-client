@@ -78,14 +78,14 @@ class FlexMeasuresClient:
         if re.match(r"^http\:\/\/", self.host):
             host_without_scheme = self.host.removeprefix("http://")
             raise WrongHostError(
-                f"http:// should not be included in {self.host}."
+                f"http: // should not be included in {self.host}. "
                 f"Instead use host={host_without_scheme}"
             )
         if re.match(r"^https\:\/\/", self.host):
             host_without_scheme = self.host.removeprefix("https://")
             raise WrongHostError(
-                f"https:// should not be included in {self.host}."
-                f"To use https:// set ssl=True and host={host_without_scheme}"
+                f"https: // should not be included in {self.host}."
+                f"To use https: // set ssl=True and host={host_without_scheme}"
             )
         if len(self.password) < 1:
             raise EmptyPasswordError("password cannot be empty")
@@ -122,7 +122,7 @@ class FlexMeasuresClient:
         Retries if:
         - the client request timed out (as indicated by the client's self.request_timeout)
         - the server response indicates a 408 (Request Timeout) status
-        - the server response indicates a 503 (Service Unavailable) status with a Retry-After response header
+        - the server response indicates a 503 (Service Unavailable) status with a Retry-After response header.
 
         Fails if:
         - the server response indicated a status code of 400 or higher

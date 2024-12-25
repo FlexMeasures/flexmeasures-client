@@ -106,7 +106,7 @@ def test__init__(
                 "password": "test_password",
             },
             WrongHostError,
-            "http:// should not be included in http://test." "Instead use host=test",
+            "http: // should not be included in http://test." " Instead use host=test",
         ),
         (
             {
@@ -115,8 +115,8 @@ def test__init__(
                 "password": "test_password",
             },
             WrongHostError,
-            "https:// should not be included in https://test."
-            "To use https:// set ssl=True and host=test",
+            "https: // should not be included in https://test."
+            "To use https: // set ssl=True and host=test",
         ),
         (
             {

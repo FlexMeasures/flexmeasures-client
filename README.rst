@@ -52,6 +52,8 @@ To create a local instance of FlexMeasures follow the `FlexMeasures documentatio
 
 In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
 
+In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
+
 Install using ``pip``::
 
     pip install flexmeasures-client
@@ -112,6 +114,17 @@ Trigger a schedule::
     schedule_uuid = await flexmeasures_client.trigger_storage_schedule(
             sensor_id=<sensor_id>, # int
             start="2023-03-26T10:00+02:00", # iso datetime
+            duration="PT12H", # iso timedelta
+            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>, # int},
+            flex-model= {
+                    "soc-unit": "kWh",
+                    "soc-at-start": 50, # soc_units (kWh)
+                    "soc-max": 400,
+                    "soc-min": 20,
+                    "soc-targets": [
+                        {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
+                    ],
+               }
             duration="PT12H", # iso timedelta
             flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>}, # int
             flex-model= {
