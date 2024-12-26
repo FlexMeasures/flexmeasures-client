@@ -54,6 +54,8 @@ In this example we are connecting to ``localhost:5000``, To connect to a differe
 
 In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
 
+In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
+
 Install using ``pip``::
 
     pip install flexmeasures-client
