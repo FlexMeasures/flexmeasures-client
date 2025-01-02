@@ -24,6 +24,7 @@ class PPBC(ControlTypeHandler):
 
         self._power_profile_definition_history = SizeLimitOrderedDict(max_size=max_size)
         self._power_profile_status_history = SizeLimitOrderedDict(max_size=max_size)
+        # Keep track of the tasks that are running asynchronously
         self.background_tasks = set()
 
     @register(PPBCPowerProfileDefinition)
@@ -38,7 +39,7 @@ class PPBC(ControlTypeHandler):
         task = asyncio.create_task(self.send_power_profile_definition(message))
         self.background_tasks.add(
             task
-        )  # important to avoid a task disappearing mid-execution.
+        )  # Important to avoid a task disappearing mid-execution.
         task.add_done_callback(self.background_tasks.discard)
 
         return get_reception_status(message, status=ReceptionStatusValues.OK)
@@ -55,7 +56,7 @@ class PPBC(ControlTypeHandler):
         task = asyncio.create_task(self.send_power_profile_status(message))
         self.background_tasks.add(
             task
-        )  # important to avoid a task disappearing mid-execution.
+        )  # Important to avoid a task disappearing mid-execution.
         task.add_done_callback(self.background_tasks.discard)
 
         return get_reception_status(message, status=ReceptionStatusValues.OK)
