@@ -106,7 +106,7 @@ def test__init__(
                 "password": "test_password",
             },
             WrongHostError,
-            "http:// should not be included in http://test." "Instead use host=test",
+            "http: // should not be included in http://test." " Instead use host=test",
         ),
         (
             {
@@ -115,8 +115,8 @@ def test__init__(
                 "password": "test_password",
             },
             WrongHostError,
-            "https:// should not be included in https://test."
-            "To use https:// set ssl=True and host=test",
+            "https: // should not be included in https://test."
+            "To use https: // set ssl=True and host=test",
         ),
         (
             {
@@ -170,6 +170,7 @@ async def test_get_access_token() -> None:
             ssl=False,
             allow_redirects=False,
         )
+        await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -213,6 +214,7 @@ async def test_post_measurements() -> None:
             ssl=False,
             allow_redirects=False,
         )
+        await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -276,6 +278,7 @@ async def test_trigger_schedule() -> None:
             ssl=False,
             allow_redirects=False,
         )
+        await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -327,6 +330,7 @@ async def test_get_schedule_polling() -> None:
             sensor_id=1, schedule_id="some-uuid", duration="PT45M"
         )
     assert schedule["values"] == [2.15, 3, 2]
+    await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -355,6 +359,7 @@ async def test_get_schedule_timeout() -> None:
             await flexmeasures_client.get_schedule(
                 sensor_id=1, schedule_id="some-uuid", duration="PT45M"
             )
+        await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -383,6 +388,7 @@ async def test_get_assets() -> None:
         assets = await flexmeasures_client.get_assets()
         assert len(assets) == 1
         assert assets[0]["account_id"] == 2
+        await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -413,6 +419,7 @@ async def test_get_sensors() -> None:
             sensors[0]["entity_address"]
             == "ea1.1000-01.required-but-unused-field:fm1.2"
         )
+        await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -432,6 +439,7 @@ async def test_get_sensors2() -> None:
             ConnectionError, match="Error occurred while communicating with the API."
         ):
             await flexmeasures_client.get_sensors()
+        await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -493,6 +501,99 @@ async def test_trigger_and_get_schedule() -> None:
             flex_model={},
         )
     assert schedule["values"] == [2.15, 3, 2]
+    await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_account() -> None:
+    with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/v3_0/users",
+            status=200,
+            payload=[
+                {
+                    "account_id": 1,
+                    "active": True,
+                    "email": "toy-user@flexmeasures.io",
+                    "id": 39,
+                    "username": "toy-user",
+                },
+                {
+                    "account_id": 1,
+                    "active": True,
+                    "email": "toy-colleague@flexmeasures.io",
+                    "id": 40,
+                    "username": "toy-colleague",
+                },
+                {
+                    "account_id": 2,
+                    "active": True,
+                    "email": "toy-client@flexmeasures.io",
+                    "id": 41,
+                    "username": "toy-client",
+                },
+            ],
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/accounts/1",
+            status=200,
+            payload={
+                "id": 1,
+                "name": "Positive Design",
+            },
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            host="localhost",
+            port=5000,
+            email="toy-user@flexmeasures.io",
+            password="toy-password",
+        )
+        flexmeasures_client.access_token = "test-token"
+        account = await flexmeasures_client.get_account()
+        assert account["id"] == 1
+        assert account["name"] == "Positive Design"
+
+
+@pytest.mark.asyncio
+async def test_get_user() -> None:
+    with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/v3_0/users",
+            status=200,
+            payload=[
+                {
+                    "account_id": 1,
+                    "active": True,
+                    "email": "toy-user@flexmeasures.io",
+                    "id": 39,
+                    "username": "toy-user",
+                },
+                {
+                    "account_id": 1,
+                    "active": True,
+                    "email": "toy-colleague@flexmeasures.io",
+                    "id": 40,
+                    "username": "toy-colleague",
+                },
+                {
+                    "account_id": 2,
+                    "active": True,
+                    "email": "toy-client@flexmeasures.io",
+                    "id": 41,
+                    "username": "toy-client",
+                },
+            ],
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            host="localhost",
+            port=5000,
+            email="toy-user@flexmeasures.io",
+            password="toy-password",
+        )
+        flexmeasures_client.access_token = "test-token"
+        user = await flexmeasures_client.get_user()
+        assert user["id"] == 39
+        assert user["username"] == "toy-user"
 
 
 @pytest.mark.asyncio
@@ -530,6 +631,7 @@ async def test_get_sensor_data() -> None:
             resolution=resolution,
         )
         assert sensor_data["values"] == [8.5, 8.5, 8.5]
+        await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -564,6 +666,7 @@ async def test_reauth_with_access_token() -> None:
             json=None,
             allow_redirects=False,
         )
+        await flexmeasures_client.close()
 
 
 @pytest.mark.parametrize(
@@ -599,6 +702,7 @@ async def test_reauth_wrong_cred(email, password, payload, error) -> None:
 
         with pytest.raises(ValueError, match=error):
             await flexmeasures_client.get_sensors()
+        await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -627,6 +731,7 @@ async def test_update_sensor():
             ssl=False,
             allow_redirects=False,
         )
+        await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio
@@ -655,6 +760,7 @@ async def test_update_assets():
             ssl=False,
             allow_redirects=False,
         )
+        await flexmeasures_client.close()
 
 
 @pytest.mark.asyncio

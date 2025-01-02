@@ -46,9 +46,13 @@ The Flexmeasures Client package provides functionality for authentication, asset
 Getting Started
 ===============
 
-To get started with the FlexMeasures Client package, first an account needs to be registered with a FlexMeasures instance.
-To create a local instance of FlexMeasures, follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
-Registering to a hosted FlexMeasures instance instead can be done through `Seita BV <https://seita.nl/>`_.
+To get started using the FlexMeasures Client package first an account needs to be registered with a FlexMeasures instance or a local FlexMeasures instance needs to be created.
+Registering a to a FlexMeasures instance can be done through `Seita BV <https://seita.nl/>`_.
+To create a local instance of FlexMeasures follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
+
+In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
+
+In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
 
 In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
 
@@ -61,6 +65,11 @@ Initialization and authentication::
     from flexmeasures_client import FlexMeasuresClient
     client = FlexMeasuresClient(host="localhost:5000", ssl=False, email="email@email.com", password="pw")
     client = FlexMeasuresClient(host="seita.energy", ssl=True, email="email@email.com", password="pw")
+
+Retrieve user and account info::
+
+   user = await client.get_user()
+   account = await client.get_account()
 
 Retrieve available assets and sensors::
 
@@ -108,6 +117,17 @@ Trigger a schedule::
             sensor_id=<sensor_id>, # int
             start="2023-03-26T10:00+02:00", # iso datetime
             duration="PT12H", # iso timedelta
+            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>, # int},
+            flex-model= {
+                    "soc-unit": "kWh",
+                    "soc-at-start": 50, # soc_units (kWh)
+                    "soc-max": 400,
+                    "soc-min": 20,
+                    "soc-targets": [
+                        {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
+                    ],
+               }
+            duration="PT12H", # iso timedelta
             flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>}, # int
             flex-model= {
                     "soc-unit": "kWh",
@@ -149,7 +169,7 @@ Making Changes & Contributing
 
 Install the project locally (in a virtual environment of your choice)::
 
-    pip install -e
+    pip install -e .
 
 
 Running tests locally is crucial as well. Staying close to the CI workflow::
