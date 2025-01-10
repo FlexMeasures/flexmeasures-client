@@ -200,12 +200,10 @@ class FlexMeasuresClient:
         logging.debug("=" * 14)
 
         """Sends a single request to FlexMeasures and checks the response"""
-<<<<<<< HEAD
+
         self.ensure_session()
         response = await self.session.request(  # type: ignore
-=======
-        response = await cast(ClientSession, self.session).request(
->>>>>>> 3b3ca0b (make session optional)
+
             method=method,
             url=url,
             params=params,

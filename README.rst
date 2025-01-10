@@ -54,6 +54,8 @@ In this example we are connecting to ``localhost:5000``, To connect to a differe
 
 In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
 
+In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
+
 Install using ``pip``::
 
     pip install flexmeasures-client
@@ -115,7 +117,7 @@ Trigger a schedule::
             sensor_id=<sensor_id>, # int
             start="2023-03-26T10:00+02:00", # iso datetime
             duration="PT12H", # iso timedelta
-            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>, # int},
+            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>}, # int
             flex-model= {
                     "soc-unit": "kWh",
                     "soc-at-start": 50, # soc_units (kWh)
