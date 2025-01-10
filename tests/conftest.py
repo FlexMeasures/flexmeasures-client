@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-
 import pytest
 from s2python.common import (
     Commodity,
@@ -14,7 +13,6 @@ from s2python.common import (
     Handshake,
     NumberRange,
     PowerForecastValue,
-
     PowerRange,
     ResourceManagerDetails,
     Role,
@@ -33,7 +31,6 @@ from s2python.ppbc import (
     PPBCPowerSequenceContainer,
     PPBCPowerSequenceElement,
 )
-
 
 from flexmeasures_client.s2.utils import get_unique_id
 
@@ -58,7 +55,6 @@ def frbc_system_description():
 
     thp_operation_mode = FRBCOperationMode(
         id=str(uuid.uuid4()),
-
         elements=[thp_operation_mode_element],
         abnormal_condition_only=False,
     )
@@ -233,7 +229,6 @@ def resource_manager_details_ppbc():
 
 
 @pytest.fixture(scope="session")
-
 def rm_handshake():
     return Handshake(
         message_id=get_unique_id(),

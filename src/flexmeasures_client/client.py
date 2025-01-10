@@ -203,7 +203,6 @@ class FlexMeasuresClient:
 
         self.ensure_session()
         response = await self.session.request(  # type: ignore
-
             method=method,
             url=url,
             params=params,

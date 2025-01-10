@@ -8,7 +8,6 @@ from flexmeasures_client.s2.control_types.FRBC import FRBCTest
 from flexmeasures_client.s2.control_types.PPBC import PPBC
 
 
-
 @pytest.mark.asyncio
 async def test_handshake(rm_handshake):
     cem = CEM(fm_client=None)
@@ -78,7 +77,6 @@ async def test_resource_manager_details_frbc(
 
     assert (
         cem._resource_manager_details == resource_manager_details_frbc
-
     ), "CEM should store the resource_manager_details"
     assert cem.control_type == ControlType.NO_SELECTION, (
         "CEM control type should switch to ControlType.NO_SELECTION,"
@@ -89,7 +87,6 @@ async def test_resource_manager_details_frbc(
 @pytest.mark.asyncio
 async def test_activate_control_type_frbc(
     frbc_system_description, resource_manager_details_frbc, rm_handshake
-
 ):
     cem = CEM(fm_client=None)
     frbc = FRBCTest()
@@ -137,7 +134,6 @@ async def test_activate_control_type_frbc(
 @pytest.mark.asyncio
 async def test_messages_route_to_control_type_handler_frbc(
     frbc_system_description, resource_manager_details_frbc, rm_handshake
-
 ):
     cem = CEM(fm_client=None)
     frbc = FRBCTest()
@@ -381,4 +377,3 @@ async def test_messages_route_to_control_type_handler_ppbc(
             ControlType.POWER_PROFILE_BASED_CONTROL
         ].success_callbacks
     ), "success callback should be deleted"
-
