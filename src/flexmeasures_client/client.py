@@ -78,14 +78,14 @@ class FlexMeasuresClient:
         if re.match(r"^http\:\/\/", self.host):
             host_without_scheme = self.host.removeprefix("http://")
             raise WrongHostError(
-                f"http:// should not be included in {self.host}."
+                f"http: // should not be included in {self.host}. "
                 f"Instead use host={host_without_scheme}"
             )
         if re.match(r"^https\:\/\/", self.host):
             host_without_scheme = self.host.removeprefix("https://")
             raise WrongHostError(
-                f"https:// should not be included in {self.host}."
-                f"To use https:// set ssl=True and host={host_without_scheme}"
+                f"https: // should not be included in {self.host}."
+                f"To use https: // set ssl=True and host={host_without_scheme}"
             )
         if len(self.password) < 1:
             raise EmptyPasswordError("password cannot be empty")
@@ -122,7 +122,7 @@ class FlexMeasuresClient:
         Retries if:
         - the client request timed out (as indicated by the client's self.request_timeout)
         - the server response indicates a 408 (Request Timeout) status
-        - the server response indicates a 503 (Service Unavailable) status with a Retry-After response header
+        - the server response indicates a 503 (Service Unavailable) status with a Retry-After response header.
 
         Fails if:
         - the server response indicated a status code of 400 or higher
@@ -323,6 +323,54 @@ class FlexMeasuresClient:
                 f"Expected a dictionary schedule, but got {type(schedule)}",
             )
         return schedule
+
+    async def get_account(self) -> dict | None:
+        """Get the organisation account of the current user.
+
+        :returns: organisation account as dictionary, for example:
+                {
+                    "id": 1,
+                    "name": "Positive Design",
+                }
+        """
+
+        users, status = await self.request(uri="users", method="GET")
+        check_for_status(status, 200)
+
+        account_id = None
+        for user in users:
+            if user["email"] == self.email:
+                account_id = user["account_id"]
+        account, status = await self.request(
+            uri=f"accounts/{account_id}",
+            method="GET",
+        )
+        if not isinstance(account, dict):
+            raise ContentTypeError(
+                f"Expected an account dictionary, but got {type(account)}",
+            )
+        check_for_status(status, 200)
+        return account
+
+    async def get_user(self) -> dict | None:
+        """Get the user account of the current user.
+
+        :returns: user account as dictionary, for example:
+                {
+                    "id": 39,
+                    "name": "toy-user",
+                }
+        """
+
+        users, status = await self.request(uri="users", method="GET")
+        check_for_status(status, 200)
+
+        user = None
+        for user in users:
+            if user["email"] == self.email:
+                break
+        check_for_status(status, 200)
+        return user
 
     async def get_assets(self) -> list[dict]:
         """Get all the assets available to the current user.
