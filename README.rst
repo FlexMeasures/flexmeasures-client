@@ -46,15 +46,11 @@ The Flexmeasures Client package provides functionality for authentication, asset
 Getting Started
 ===============
 
-To get started using the FlexMeasures Client package first an account needs to be registered with a FlexMeasures instance or a local FlexMeasures instance needs to be created.
-Registering a to a FlexMeasures instance can be done through `Seita BV <https://seita.nl/>`_.
-To create a local instance of FlexMeasures follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
+To get started with the FlexMeasures Client package, first an account needs to be registered with a FlexMeasures instance.
+To create a local instance of FlexMeasures, follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
+Registering to a hosted FlexMeasures instance instead can be done through `Seita BV <https://seita.nl/>`_.
 
-In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
-
-In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
-
-In this example we are connecting to ``localhost:5000``, To connect to a different host add the host in the initialization of the client.
+In this example we show how to set up the client to connect to either ``http://localhost:5000`` or ``https://seita.energy``. To connect to a different host, add the host in the initialization of the client.
 
 Install using ``pip``::
 
@@ -79,13 +75,13 @@ Retrieve available assets and sensors::
 Post a measurement from a sensor::
 
     await client.post_measurements(
-            sensor_id=<sensor_id>, # integer
-            start="2023-03-26T10:00+02:00", #iso datetime
-            duration="PT6H", # iso timedelta
-            values=[1,2,3,4], # list
-            unit="kWh",
-            entity_address=<sensor_entity_address>, # string
-        )
+        sensor_id=<sensor_id>, # integer
+        start="2023-03-26T10:00+02:00", #iso datetime
+        duration="PT6H", # iso timedelta
+        values=[1,2,3,4], # list
+        unit="kWh",
+        entity_address=<sensor_entity_address>, # string
+    )
 
 With FlexMeasures a schedule can be requested to optimize at what time the flexible assets can be activated to optimize for price of energy or emissions.
 
@@ -94,59 +90,48 @@ The calculation of the schedule can take some time depending on the complexity o
 Trigger and retrieve a schedule::
 
     schedule = await flexmeasures_client.trigger_and_get_schedule(
-            sensor_id=<sensor_id>, # int
-            start="2023-03-26T10:00+02:00", # iso datetime
-            duration="PT12H", # iso timedelta
-            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>}, # int
-            flex-model= {
-                    "soc-unit": "kWh",
-                    "soc-at-start": 50, # in soc_units (kWh)
-                    "soc-max": 400,
-                    "soc-min": 20,
-                    "soc-targets": [
-                        {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
-                    ],
-               }
-        )
+        sensor_id=<sensor_id>, # int
+        start="2023-03-26T10:00+02:00", # iso datetime
+        duration="PT12H", # iso timedelta
+        flex_context={"consumption-price-sensor": <consumption_price_sensor_id>}, # int
+        flex-model={
+            "soc-unit": "kWh",
+            "soc-at-start": 50, # in soc_units (kWh)
+            "soc-max": 400,
+            "soc-min": 20,
+            "soc-targets": [
+                {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
+            ],
+        }
+    )
 
 The trigger and get schedule function can also be separated to trigger the schedule first and later retrieve the schedule using the ``schedule_uuid``.
 
 Trigger a schedule::
 
     schedule_uuid = await flexmeasures_client.trigger_storage_schedule(
-            sensor_id=<sensor_id>, # int
-            start="2023-03-26T10:00+02:00", # iso datetime
-            duration="PT12H", # iso timedelta
-            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>}, # int
-            flex-model= {
-                    "soc-unit": "kWh",
-                    "soc-at-start": 50, # soc_units (kWh)
-                    "soc-max": 400,
-                    "soc-min": 20,
-                    "soc-targets": [
-                        {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
-                    ],
-               }
-            duration="PT12H", # iso timedelta
-            flex_context= {"consumption-price-sensor": <consumption_price_sensor_id>}, # int
-            flex-model= {
-                    "soc-unit": "kWh",
-                    "soc-at-start": 50, # soc_units (kWh)
-                    "soc-max": 400,
-                    "soc-min": 20,
-                    "soc-targets": [
-                        {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
-                    ],
-               }
-        )
+        sensor_id=<sensor_id>, # int
+        start="2023-03-26T10:00+02:00", # iso datetime
+        duration="PT12H", # iso timedelta
+        flex_context={"consumption-price-sensor": <consumption_price_sensor_id>}, # int
+        flex-model={
+            "soc-unit": "kWh",
+            "soc-at-start": 50, # soc_units (kWh)
+            "soc-max": 400,
+            "soc-min": 20,
+            "soc-targets": [
+                {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
+            ],
+        }
+    )
 
 The ``trigger_storage_schedule`` return a ``schedule_uuid``. This can be used to retrieve the schedule. The client will re-try if until the schedule is available or the ``MAX_POLLING_STEPS`` of ``10`` is reached. Retrieve schedule::
 
     schedule = await flexmeasures_client.get_schedule(
-                sensor_id=<sensor_id>, #int
-                schedule_id="<schedule_uuid>", # uuid
-                duration="PT45M" # iso timedelta
-            )
+        sensor_id=<sensor_id>, #int
+        schedule_id="<schedule_uuid>", # uuid
+        duration="PT45M", # iso timedelta
+    )
 
 The schedule returns a Pandas ``DataFrame`` that can be used to regulate the flexible assets.
 

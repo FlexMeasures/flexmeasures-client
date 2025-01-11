@@ -108,6 +108,7 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v3
+        with: {fetch-depth: 0}  # deep clone for setuptools-scm
       - uses: actions/setup-python@v4
         with: {python-version: "3.11"}
       - name: Retrieve pre-built distribution files

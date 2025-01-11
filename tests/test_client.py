@@ -555,6 +555,48 @@ async def test_get_account() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_user() -> None:
+    with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/v3_0/users",
+            status=200,
+            payload=[
+                {
+                    "account_id": 1,
+                    "active": True,
+                    "email": "toy-user@flexmeasures.io",
+                    "id": 39,
+                    "username": "toy-user",
+                },
+                {
+                    "account_id": 1,
+                    "active": True,
+                    "email": "toy-colleague@flexmeasures.io",
+                    "id": 40,
+                    "username": "toy-colleague",
+                },
+                {
+                    "account_id": 2,
+                    "active": True,
+                    "email": "toy-client@flexmeasures.io",
+                    "id": 41,
+                    "username": "toy-client",
+                },
+            ],
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            host="localhost",
+            port=5000,
+            email="toy-user@flexmeasures.io",
+            password="toy-password",
+        )
+        flexmeasures_client.access_token = "test-token"
+        user = await flexmeasures_client.get_user()
+        assert user["id"] == 39
+        assert user["username"] == "toy-user"
+
+
+@pytest.mark.asyncio
 async def test_get_sensor_data() -> None:
     with aioresponses() as m:
         flexmeasures_client = FlexMeasuresClient(

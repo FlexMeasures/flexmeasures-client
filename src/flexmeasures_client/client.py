@@ -200,9 +200,8 @@ class FlexMeasuresClient:
         logging.debug("=" * 14)
 
         """Sends a single request to FlexMeasures and checks the response"""
-
         self.ensure_session()
-        response = await self.session.request(  # type: ignore
+        response = await cast(ClientSession, self.session).request(
             method=method,
             url=url,
             params=params,
@@ -342,22 +341,36 @@ class FlexMeasuresClient:
         for user in users:
             if user["email"] == self.email:
                 account_id = user["account_id"]
-        if account_id is None:
-            raise NotImplementedError(
-                "User does not seem to belong to account, which should not be possible."
-            )
-        # Force account to be a dictionary
-
         account, status = await self.request(
             uri=f"accounts/{account_id}",
             method="GET",
         )
         if not isinstance(account, dict):
             raise ContentTypeError(
-                f"Expected an account dictionary! but got {type(account)}",
+                f"Expected an account dictionary, but got {type(account)}",
             )
         check_for_status(status, 200)
         return account
+
+    async def get_user(self) -> dict | None:
+        """Get the user account of the current user.
+
+        :returns: user account as dictionary, for example:
+                {
+                    "id": 39,
+                    "name": "toy-user",
+                }
+        """
+
+        users, status = await self.request(uri="users", method="GET")
+        check_for_status(status, 200)
+
+        user = None
+        for user in users:
+            if user["email"] == self.email:
+                break
+        check_for_status(status, 200)
+        return user
 
     async def get_assets(self) -> list[dict]:
         """Get all the assets available to the current user.
