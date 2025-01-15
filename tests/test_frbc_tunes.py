@@ -80,12 +80,12 @@ async def cem_in_frbc_control_type(setup_cem, frbc_system_description):
     await cem.handle_message(frbc_system_description)
     await cem.get_message()
 
-    return cem, fm_client
+    return cem, fm_client, frbc_system_description
 
 
 @pytest.mark.asyncio
 async def test_system_description(cem_in_frbc_control_type, frbc_system_description):
-    cem, fm_client = await cem_in_frbc_control_type
+    cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
 
     ########
     # FRBC #
@@ -151,7 +151,7 @@ def get_pending_tasks():
 
 @pytest.mark.asyncio
 async def test_fill_level_target_profile(cem_in_frbc_control_type):
-    cem, fm_client = await cem_in_frbc_control_type
+    cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
 
     fill_level_target_profile = {
         "start_time": "2024-01-01T00:00:00+01:00",
@@ -209,11 +209,11 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
     corresponds correctly to the Tarnoc fill rate sensor or the Nestor fill rate sensor.
     """
 
-    cem, fm_client = await cem_in_frbc_control_type
+    cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
     frbc = cem._control_types_handlers[cem.control_type]
 
     actuator_status = {
-        "active_operation_mode_id": uuid.uuid4(),  # ID representing Tarnoc operation mode
+        "active_operation_mode_id": frbc_system_description.actuators[0].operation_modes[0].id,  # ID representing Tarnoc operation mode
         "actuator_id": uuid.uuid4(),  # ID of the actuator
         "message_type": "FRBC.ActuatorStatus",
         "message_id": uuid.uuid4(),
@@ -275,7 +275,7 @@ async def test_trigger_schedule(cem_in_frbc_control_type):
     S2 2 FM: converging system description to flex config
     FM 2 S2: schedules to instructions
     """
-    cem, fm_client = await cem_in_frbc_control_type
+    cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
     # frbc = cem._control_types_handlers[cem.control_type]
 
     tasks = get_pending_tasks()
