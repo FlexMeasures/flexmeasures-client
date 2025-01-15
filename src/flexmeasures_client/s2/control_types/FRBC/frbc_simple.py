@@ -91,24 +91,21 @@ class FRBCSimple(FRBC):
             return
 
         # call schedule
-        schedule_id = await self._fm_client.trigger_storage_schedule(
+        schedule = await self._fm_client.trigger_and_get_schedule(
             start=system_description.valid_from
             + self._valid_from_shift,  # TODO: localize datetime
             sensor_id=self._power_sensor_id,
-            production_price_sensor=self._price_sensor_id,
-            consumption_price_sensor=self._price_sensor_id,
-            soc_unit="MWh",
-            soc_at_start=soc_at_start,  # TODO: use forecast of the SOC instead
+            flex_context=dict(
+                production_price_sensor=self._price_sensor_id,
+                consumption_price_sensor=self._price_sensor_id,
+            ),
+            flex_model=dict(
+                soc_unit="MWh",
+                soc_at_start=soc_at_start,  # TODO: use forecast of the SOC instead
+            ),
             duration=self._schedule_duration,  # next 12 hours
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
             # this needs chages on the client
-        )
-
-        # wait for the schedule to finish
-        schedule = await self._fm_client.get_schedule(
-            sensor_id=self._power_sensor_id,
-            schedule_id=schedule_id,
-            duration=self._schedule_duration,
         )
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
