@@ -105,7 +105,7 @@ class FRBCSimple(FRBC):
             ),
             duration=self._schedule_duration,  # next 12 hours
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
-            # this needs chages on the client
+            # this needs changes on the client
         )
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
