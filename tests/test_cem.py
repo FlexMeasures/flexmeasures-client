@@ -111,7 +111,7 @@ async def test_activate_control_type_frbc(
     # Activate control type #
     #########################
 
-    # CEM sends a request to change te control type
+    # CEM sends a request to change the control type
     await cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
     message = await cem.get_message()
 
@@ -278,7 +278,7 @@ async def test_activate_control_type_ppbc(
     # Activate control type #
     #########################
 
-    # CEM sends a request to change te control type
+    # CEM sends a request to change the control type
     await cem.activate_control_type(ControlType.POWER_PROFILE_BASED_CONTROL)
     message = await cem.get_message()
 
