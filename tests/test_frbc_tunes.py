@@ -111,7 +111,7 @@ async def test_system_description(cem_in_frbc_control_type, frbc_system_descript
     first_call = fm_client.post_measurements.call_args_list[0][1]
     first_call_expected = {
         "sensor_id": frbc._thp_efficiency_sensor_id,
-        "start": datetime(2024, 1, 1, tzinfo=timezone(timedelta(seconds=0))),
+        "start": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "values": [0.2] * N_SAMPLES,
         "unit": "%",
         "duration": "PT24H",
@@ -124,7 +124,7 @@ async def test_system_description(cem_in_frbc_control_type, frbc_system_descript
 
     second_call_expected = {
         "sensor_id": frbc._nes_efficiency_sensor_id,
-        "start": datetime(2024, 1, 1, tzinfo=timezone(timedelta(seconds=0))),
+        "start": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "values": [0.1] * N_SAMPLES,
         "unit": "%",
         "duration": "PT24H",
