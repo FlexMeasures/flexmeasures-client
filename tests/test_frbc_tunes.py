@@ -216,7 +216,7 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
         "active_operation_mode_id": frbc_system_description.actuators[0]
         .operation_modes[0]
         .id,  # ID representing Tarnoc operation mode
-        "actuator_id": get_unique_id(),  # ID of the actuator
+        "actuator_id": frbc_system_description.actuators[0].id,  # ID of the actuator
         "message_type": "FRBC.ActuatorStatus",
         "message_id": get_unique_id(),
         "operation_mode_factor": 0.0,
@@ -241,7 +241,7 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
 
     # Switch operation mode to Nestore
     actuator_status["active_operation_mode_id"] = (
-        get_unique_id()
+        frbc_system_description.actuators[0].operation_modes[1].id
     )  # ID representing NEStore operation mode
 
     await cem.handle_message(actuator_status)
