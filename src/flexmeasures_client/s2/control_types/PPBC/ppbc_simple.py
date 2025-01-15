@@ -38,6 +38,7 @@ class PPBCSimple(PPBC):
     def now(self):
         return self._timezone.localize(datetime.now())
 
+    # todo: let's make this more like FRBCSimple.trigger_schedule
     async def send_schedule_instruction(self, instruction: PPBCScheduleInstruction):
         await self._fm_client.post_schedule(
             self._power_sensor_id,
