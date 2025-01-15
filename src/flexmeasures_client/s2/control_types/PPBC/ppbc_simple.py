@@ -32,13 +32,15 @@ class PPBCSimple(PPBC):
         self._timezone = pytz.timezone(timezone)
 
         # delay the start of the schedule from the time `valid_from`
-        # of the PPBC.SystemDescritption.
+        # of the PPBC.SystemDescription.
         self._valid_from_shift = valid_from_shift
 
     def now(self):
         return self._timezone.localize(datetime.now())
 
-    # todo: let's make this more like FRBCSimple.trigger_schedule
+    # todo: let's make this more like FRBCSimple.trigger_schedule:
+    #       a) call self._fm_client.trigger_and_get_schedule
+    #       b) put instructions to sending queue
     async def send_schedule_instruction(self, instruction: PPBCScheduleInstruction):
         await self._fm_client.post_schedule(
             self._power_sensor_id,
