@@ -46,7 +46,7 @@ def frbc_system_description():
     )
 
     thp_operation_mode = FRBCOperationMode(
-        id="tarnoc-operation-mode",
+        id=get_unique_id(),
         elements=[thp_operation_mode_element],
         abnormal_condition_only=False,
     )
@@ -64,13 +64,13 @@ def frbc_system_description():
     )
 
     nes_operation_mode = FRBCOperationMode(
-        id="nestore-operation-mode",
+        id=get_unique_id(),
         elements=[nes_operation_mode_element],
         abnormal_condition_only=False,
     )
 
     actuator = FRBCActuatorDescription(
-        id="id-of-the-actuator",
+        id=get_unique_id(),
         supported_commodities=[Commodity.ELECTRICITY],
         operation_modes=[thp_operation_mode, nes_operation_mode],
         transitions=[],
