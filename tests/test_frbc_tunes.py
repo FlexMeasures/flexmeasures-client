@@ -17,7 +17,7 @@ from flexmeasures_client.s2.control_types.FRBC.frbc_tunes import (
 
 
 @pytest.fixture(scope="function")
-async def setup_cem(resource_manager_details, rm_handshake):
+async def setup_cem(resource_manager_details_frbc, rm_handshake):
     fm_client = AsyncMock(FlexMeasuresClient)
     cem = CEM(fm_client=fm_client)
     frbc = FillRateBasedControlTUNES(
@@ -49,7 +49,7 @@ async def setup_cem(resource_manager_details, rm_handshake):
     ##########################
     # ResourceManagerDetails #
     ##########################
-    await cem.handle_message(resource_manager_details)
+    await cem.handle_message(resource_manager_details_frbc)
     response = await cem.get_message()
 
     #########################

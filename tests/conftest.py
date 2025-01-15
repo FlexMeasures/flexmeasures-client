@@ -190,6 +190,7 @@ def ppbc_power_profile_definition():
     return power_profile_definition
 
 
+@pytest.fixture(scope="session")
 def resource_manager_details_frbc():
 
     return ResourceManagerDetails(
