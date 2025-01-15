@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
-import uuid
 
 import numpy as np
 import pandas as pd
