@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
@@ -15,6 +14,7 @@ from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC.frbc_tunes import (
     FillRateBasedControlTUNES,
 )
+from flexmeasures_client.s2.utils import get_unique_id
 
 
 @pytest.fixture(scope="function")
@@ -156,7 +156,7 @@ async def test_fill_level_target_profile(cem_in_frbc_control_type):
     fill_level_target_profile = {
         "start_time": "2024-01-01T00:00:00+01:00",
         "message_type": "FRBC.FillLevelTargetProfile",
-        "message_id": uuid.uuid4(),
+        "message_id": get_unique_id(),
         "elements": [
             {
                 "duration": 1e3 * 3600,
@@ -216,9 +216,9 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
         "active_operation_mode_id": frbc_system_description.actuators[0]
         .operation_modes[0]
         .id,  # ID representing Tarnoc operation mode
-        "actuator_id": uuid.uuid4(),  # ID of the actuator
+        "actuator_id": get_unique_id(),  # ID of the actuator
         "message_type": "FRBC.ActuatorStatus",
-        "message_id": uuid.uuid4(),
+        "message_id": get_unique_id(),
         "operation_mode_factor": 0.0,
     }
 
@@ -241,7 +241,7 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
 
     # Switch operation mode to Nestore
     actuator_status["active_operation_mode_id"] = (
-        uuid.uuid4()
+        get_unique_id()
     )  # ID representing NEStore operation mode
 
     await cem.handle_message(actuator_status)

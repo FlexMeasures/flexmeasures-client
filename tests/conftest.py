@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -54,7 +53,7 @@ def frbc_system_description():
     )
 
     thp_operation_mode = FRBCOperationMode(
-        id=str(uuid.uuid4()),
+        id=get_unique_id(),
         elements=[thp_operation_mode_element],
         abnormal_condition_only=False,
     )
@@ -72,13 +71,13 @@ def frbc_system_description():
     )
 
     nes_operation_mode = FRBCOperationMode(
-        id=str(uuid.uuid4()),
+        id=get_unique_id(),
         elements=[nes_operation_mode_element],
         abnormal_condition_only=False,
     )
 
     actuator = FRBCActuatorDescription(
-        id=str(uuid.uuid4()),
+        id=get_unique_id(),
         supported_commodities=[Commodity.ELECTRICITY],
         operation_modes=[thp_operation_mode, nes_operation_mode],
         transitions=[],
@@ -122,7 +121,7 @@ def ppbc_power_profile_definition():
     )
 
     power_sequence1 = PPBCPowerSequence(
-        id=uuid.uuid4(),
+        id=get_unique_id(),
         elements=[element1, element2],
         is_interruptible=False,
         max_pause_before=Duration(0),
@@ -130,7 +129,7 @@ def ppbc_power_profile_definition():
     )
 
     power_sequence2 = PPBCPowerSequence(
-        id=uuid.uuid4(),
+        id=get_unique_id(),
         elements=[element2, element1],
         is_interruptible=True,
         max_pause_before=Duration(0),
@@ -138,7 +137,7 @@ def ppbc_power_profile_definition():
     )
 
     power_sequence3 = PPBCPowerSequence(
-        id=uuid.uuid4(),
+        id=get_unique_id(),
         elements=[element2],
         is_interruptible=False,
         max_pause_before=Duration(10000),
@@ -146,7 +145,7 @@ def ppbc_power_profile_definition():
     )
 
     power_sequence4 = PPBCPowerSequence(
-        id=uuid.uuid4(),
+        id=get_unique_id(),
         elements=[element1],
         is_interruptible=True,
         max_pause_before=Duration(10000),
@@ -154,7 +153,7 @@ def ppbc_power_profile_definition():
     )
 
     power_sequence_container1 = PPBCPowerSequenceContainer(
-        id=uuid.uuid4(),
+        id=get_unique_id(),
         power_sequences=[
             power_sequence1,
             power_sequence2,
@@ -162,22 +161,22 @@ def ppbc_power_profile_definition():
     )
 
     power_sequence_container2 = PPBCPowerSequenceContainer(
-        id=uuid.uuid4(),
+        id=get_unique_id(),
         power_sequences=[
             power_sequence3,
         ],
     )
 
     power_sequence_container3 = PPBCPowerSequenceContainer(
-        id=uuid.uuid4(),
+        id=get_unique_id(),
         power_sequences=[
             power_sequence4,
         ],
     )
 
     power_profile_definition = PPBCPowerProfileDefinition(
-        message_id=uuid.uuid4(),
-        id=uuid.uuid4(),
+        message_id=get_unique_id(),
+        id=get_unique_id(),
         start_time=datetime.now(timezone.utc),
         end_time=datetime.now(timezone.utc) + timedelta(hours=4),
         power_sequences_containers=[
