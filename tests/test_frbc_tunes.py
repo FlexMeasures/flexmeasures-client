@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
+import uuid
 
 import numpy as np
 import pandas as pd
@@ -155,7 +156,7 @@ async def test_fill_level_target_profile(cem_in_frbc_control_type):
     fill_level_target_profile = {
         "start_time": "2024-01-01T00:00:00+01:00",
         "message_type": "FRBC.FillLevelTargetProfile",
-        "message_id": "a-valid-id",
+        "message_id": uuid.uuid4(),
         "elements": [
             {
                 "duration": 1e3 * 3600,
@@ -212,10 +213,10 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
     frbc = cem._control_types_handlers[cem.control_type]
 
     actuator_status = {
-        "active_operation_mode_id": "tarnoc-operation-mode",
-        "actuator_id": "id-of-the-actuator",
+        "active_operation_mode_id": uuid.uuid4(),  # ID representing Tarnoc operation mode
+        "actuator_id": uuid.uuid4(),  # ID of the actuator
         "message_type": "FRBC.ActuatorStatus",
-        "message_id": "a-valid-id",
+        "message_id": uuid.uuid4(),
         "operation_mode_factor": 0.0,
     }
 
@@ -237,7 +238,7 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
     assert second_call["sensor_id"] == frbc._fill_rate_sensor_id
 
     # Switch operation mode to Nestore
-    actuator_status["active_operation_mode_id"] = "nestore-operation-mode"
+    actuator_status["active_operation_mode_id"] = uuid.uuid4()  # ID representing NEStore operation mode
 
     await cem.handle_message(actuator_status)
     tasks = get_pending_tasks()
