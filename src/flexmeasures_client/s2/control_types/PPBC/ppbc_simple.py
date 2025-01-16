@@ -53,3 +53,23 @@ class PPBCSimple(PPBC):
             price_unit="EUR/MWh",
             valid_from=self.now() + self._valid_from_shift,
         )
+
+    async def trigger_schedule(self, definition_id: str):
+        definition: PPBCScheduleInstruction = self._power_profile_definition_history[
+            definition_id
+        ]
+
+        if len(self._power_profile_status_history) == 0:
+            print("Can't trigger schedule without knowing the status of the profile...")
+            return
+
+        # Call schedule
+        # schedule = await self._fm_client.trigger_and_get_schedule(
+        #     start=definition.start_time + self._valid_from_shift,
+        #     sensor_id=self._power_sensor_id,
+        #     flex_context=dict(
+        #         production_price_sensor=self._price_sensor_id,
+        #         consumption_price_sensor=self._price_sensor_id,
+        #     ),
+            
+        # )
