@@ -1,5 +1,7 @@
 from flexmeasures_client.s2.utils import get_unique_id
 from flexmeasures_client.s2.wrapper import S2Wrapper
+from datetime import datetime
+import pytz
 
 
 def test_simple_model():
@@ -14,7 +16,7 @@ def test_simple_model():
             "provides_power_measurement_types": ["ELECTRIC.POWER.3_PHASE_SYMMETRIC"],
             "message_type": "ResourceManagerDetails",
         },
-        "metadata": {"dt": "2023-01-01T00:00:00"},
+        "metadata": {"dt": "2023-01-01T00:00:00+00:00"},
     }
 
     S2Wrapper.validate(wrapped_message)
@@ -25,7 +27,7 @@ def test_simple_model():
             "message_type": "Handshake",
             "role": "CEM",
         },
-        "metadata": {"dt": "2024-01-01T00:00:00"},
+        "metadata": {"dt": "2024-01-01T00:00:00+00:00"},
     }
 
     S2Wrapper.validate(wrapped_message_2)

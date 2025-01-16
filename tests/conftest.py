@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from s2python.common import (
@@ -11,6 +11,7 @@ from s2python.common import (
     EnergyManagementRole,
     Handshake,
     NumberRange,
+    PowerForecastValue,
     PowerRange,
     ResourceManagerDetails,
     Role,
@@ -22,6 +23,12 @@ from s2python.frbc import (
     FRBCOperationModeElement,
     FRBCStorageDescription,
     FRBCSystemDescription,
+)
+from s2python.ppbc import (
+    PPBCPowerProfileDefinition,
+    PPBCPowerSequence,
+    PPBCPowerSequenceContainer,
+    PPBCPowerSequenceElement,
 )
 
 from flexmeasures_client.s2.utils import get_unique_id
@@ -46,7 +53,7 @@ def frbc_system_description():
     )
 
     thp_operation_mode = FRBCOperationMode(
-        id="tarnoc-operation-mode",
+        id=get_unique_id(),
         elements=[thp_operation_mode_element],
         abnormal_condition_only=False,
     )
@@ -64,13 +71,13 @@ def frbc_system_description():
     )
 
     nes_operation_mode = FRBCOperationMode(
-        id="nestore-operation-mode",
+        id=get_unique_id(),
         elements=[nes_operation_mode_element],
         abnormal_condition_only=False,
     )
 
     actuator = FRBCActuatorDescription(
-        id="id-of-the-actuator",
+        id=get_unique_id(),
         supported_commodities=[Commodity.ELECTRICITY],
         operation_modes=[thp_operation_mode, nes_operation_mode],
         transitions=[],
@@ -86,7 +93,7 @@ def frbc_system_description():
 
     system_description_message = FRBCSystemDescription(
         message_id=get_unique_id(),
-        valid_from=datetime(2024, 1, 1),
+        valid_from=datetime(2024, 1, 1, tzinfo=timezone.utc),  # Attach UTC timezone
         actuators=[actuator],
         storage=storage,
     )
@@ -95,12 +102,101 @@ def frbc_system_description():
 
 
 @pytest.fixture(scope="session")
-def resource_manager_details():
+def ppbc_power_profile_definition():
+    forecast1 = PowerForecastValue(
+        value_expected=100.0, commodity_quantity=CommodityQuantity.ELECTRIC_POWER_L1
+    )
+    forecast2 = PowerForecastValue(
+        value_expected=200.0, commodity_quantity=CommodityQuantity.ELECTRIC_POWER_L1
+    )
+    forecast3 = PowerForecastValue(
+        value_expected=300.0, commodity_quantity=CommodityQuantity.ELECTRIC_POWER_L1
+    )
+
+    element1 = PPBCPowerSequenceElement(
+        duration=Duration(1), power_values=[forecast1, forecast2]
+    )
+    element2 = PPBCPowerSequenceElement(
+        duration=Duration(1), power_values=[forecast2, forecast3, forecast1]
+    )
+
+    power_sequence1 = PPBCPowerSequence(
+        id=get_unique_id(),
+        elements=[element1, element2],
+        is_interruptible=False,
+        max_pause_before=Duration(0),
+        abnormal_condition_only=False,
+    )
+
+    power_sequence2 = PPBCPowerSequence(
+        id=get_unique_id(),
+        elements=[element2, element1],
+        is_interruptible=True,
+        max_pause_before=Duration(0),
+        abnormal_condition_only=True,
+    )
+
+    power_sequence3 = PPBCPowerSequence(
+        id=get_unique_id(),
+        elements=[element2],
+        is_interruptible=False,
+        max_pause_before=Duration(10000),
+        abnormal_condition_only=False,
+    )
+
+    power_sequence4 = PPBCPowerSequence(
+        id=get_unique_id(),
+        elements=[element1],
+        is_interruptible=True,
+        max_pause_before=Duration(10000),
+        abnormal_condition_only=True,
+    )
+
+    power_sequence_container1 = PPBCPowerSequenceContainer(
+        id=get_unique_id(),
+        power_sequences=[
+            power_sequence1,
+            power_sequence2,
+        ],
+    )
+
+    power_sequence_container2 = PPBCPowerSequenceContainer(
+        id=get_unique_id(),
+        power_sequences=[
+            power_sequence3,
+        ],
+    )
+
+    power_sequence_container3 = PPBCPowerSequenceContainer(
+        id=get_unique_id(),
+        power_sequences=[
+            power_sequence4,
+        ],
+    )
+
+    power_profile_definition = PPBCPowerProfileDefinition(
+        message_id=get_unique_id(),
+        id=get_unique_id(),
+        start_time=datetime.now(timezone.utc),
+        end_time=datetime.now(timezone.utc) + timedelta(hours=4),
+        power_sequences_containers=[
+            power_sequence_container1,
+            power_sequence_container2,
+            power_sequence_container3,
+        ],
+    )
+
+    return power_profile_definition
+
+
+@pytest.fixture(scope="session")
+def resource_manager_details_frbc():
+
     return ResourceManagerDetails(
         message_id=get_unique_id(),
         resource_id=get_unique_id(),
         roles=[Role(role=RoleType.ENERGY_STORAGE, commodity=Commodity.ELECTRICITY)],
-        instruction_processing_delay=Duration(__root__=1.0),
+        instruction_processing_delay=Duration(1),
         available_control_types=[
             ControlType.FILL_RATE_BASED_CONTROL,
             ControlType.NO_SELECTION,
@@ -108,6 +204,26 @@ def resource_manager_details():
         provides_forecast=True,
         provides_power_measurement_types=[
             CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC
+        ],
+    )
+
+
+@pytest.fixture(scope="session")
+def resource_manager_details_ppbc():
+    return ResourceManagerDetails(
+        message_id=get_unique_id(),
+        resource_id=get_unique_id(),
+        roles=[Role(role=RoleType.ENERGY_CONSUMER, commodity=Commodity.ELECTRICITY)],
+        instruction_processing_delay=Duration(1),
+        available_control_types=[
+            ControlType.POWER_PROFILE_BASED_CONTROL,
+            ControlType.NO_SELECTION,
+        ],
+        provides_forecast=True,
+        provides_power_measurement_types=[
+            CommodityQuantity.ELECTRIC_POWER_L1,
+            CommodityQuantity.ELECTRIC_POWER_L2,
+            CommodityQuantity.ELECTRIC_POWER_L3,
         ],
     )
 
