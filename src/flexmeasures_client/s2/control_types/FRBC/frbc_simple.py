@@ -75,23 +75,6 @@ class FRBCSimple(FRBC):
             duration=timedelta(minutes=15),
         )
 
-        # await self._fm_client.post_measurements(
-        #     self._soc_sensor_id
-        # )
-
-        # system_description = self.find_system_description_from_actuator()
-
-        # if system_description is None:
-        #     return
-
-        # #for a
-        # if system_description is not None:
-
-        # self._system_description_history[]
-        # status.active_operation_mode_id
-        # status.actuator_id
-        # status.operation_mode_factor
-
     async def trigger_schedule(self, system_description_id: str):
         """Translates S2 System Description into FM API calls"""
 
@@ -108,24 +91,21 @@ class FRBCSimple(FRBC):
             return
 
         # call schedule
-        schedule_id = await self._fm_client.trigger_storage_schedule(
+        schedule = await self._fm_client.trigger_and_get_schedule(
             start=system_description.valid_from
             + self._valid_from_shift,  # TODO: localize datetime
             sensor_id=self._power_sensor_id,
-            production_price_sensor=self._price_sensor_id,
-            consumption_price_sensor=self._price_sensor_id,
-            soc_unit="MWh",
-            soc_at_start=soc_at_start,  # TODO: use forecast of the SOC instead
+            flex_context=dict(
+                production_price_sensor=self._price_sensor_id,
+                consumption_price_sensor=self._price_sensor_id,
+            ),
+            flex_model=dict(
+                soc_unit="MWh",
+                soc_at_start=soc_at_start,  # TODO: use forecast of the SOC instead
+            ),
             duration=self._schedule_duration,  # next 12 hours
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
-            # this needs chages on the client
-        )
-
-        # wait for the schedule to finish
-        schedule = await self._fm_client.get_schedule(
-            sensor_id=self._power_sensor_id,
-            schedule_id=schedule_id,
-            duration=self._schedule_duration,
+            # this needs changes on the client
         )
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
