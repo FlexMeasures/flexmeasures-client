@@ -14,6 +14,7 @@ from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC.frbc_tunes import (
     FillRateBasedControlTUNES,
 )
+from flexmeasures_client.s2.utils import get_unique_id
 
 
 @pytest.fixture(scope="function")
@@ -79,12 +80,12 @@ async def cem_in_frbc_control_type(setup_cem, frbc_system_description):
     await cem.handle_message(frbc_system_description)
     await cem.get_message()
 
-    return cem, fm_client
+    return cem, fm_client, frbc_system_description
 
 
 @pytest.mark.asyncio
 async def test_system_description(cem_in_frbc_control_type, frbc_system_description):
-    cem, fm_client = await cem_in_frbc_control_type
+    cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
 
     ########
     # FRBC #
@@ -110,7 +111,7 @@ async def test_system_description(cem_in_frbc_control_type, frbc_system_descript
     first_call = fm_client.post_measurements.call_args_list[0][1]
     first_call_expected = {
         "sensor_id": frbc._thp_efficiency_sensor_id,
-        "start": datetime(2024, 1, 1),
+        "start": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "values": [0.2] * N_SAMPLES,
         "unit": "%",
         "duration": "PT24H",
@@ -123,7 +124,7 @@ async def test_system_description(cem_in_frbc_control_type, frbc_system_descript
 
     second_call_expected = {
         "sensor_id": frbc._nes_efficiency_sensor_id,
-        "start": datetime(2024, 1, 1),
+        "start": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "values": [0.1] * N_SAMPLES,
         "unit": "%",
         "duration": "PT24H",
@@ -150,12 +151,12 @@ def get_pending_tasks():
 
 @pytest.mark.asyncio
 async def test_fill_level_target_profile(cem_in_frbc_control_type):
-    cem, fm_client = await cem_in_frbc_control_type
+    cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
 
     fill_level_target_profile = {
         "start_time": "2024-01-01T00:00:00+01:00",
         "message_type": "FRBC.FillLevelTargetProfile",
-        "message_id": "a-valid-id",
+        "message_id": get_unique_id(),
         "elements": [
             {
                 "duration": 1e3 * 3600,
@@ -208,14 +209,16 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
     corresponds correctly to the Tarnoc fill rate sensor or the Nestor fill rate sensor.
     """
 
-    cem, fm_client = await cem_in_frbc_control_type
+    cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
     frbc = cem._control_types_handlers[cem.control_type]
 
     actuator_status = {
-        "active_operation_mode_id": "tarnoc-operation-mode",
-        "actuator_id": "id-of-the-actuator",
+        "active_operation_mode_id": frbc_system_description.actuators[0]
+        .operation_modes[0]
+        .id,  # ID representing Tarnoc operation mode
+        "actuator_id": frbc_system_description.actuators[0].id,  # ID of the actuator
         "message_type": "FRBC.ActuatorStatus",
-        "message_id": "a-valid-id",
+        "message_id": get_unique_id(),
         "operation_mode_factor": 0.0,
     }
 
@@ -237,7 +240,9 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
     assert second_call["sensor_id"] == frbc._fill_rate_sensor_id
 
     # Switch operation mode to Nestore
-    actuator_status["active_operation_mode_id"] = "nestore-operation-mode"
+    actuator_status["active_operation_mode_id"] = (
+        frbc_system_description.actuators[0].operation_modes[1].id
+    )  # ID representing NEStore operation mode
 
     await cem.handle_message(actuator_status)
     tasks = get_pending_tasks()
@@ -274,7 +279,7 @@ async def test_trigger_schedule(cem_in_frbc_control_type):
     S2 2 FM: converging system description to flex config
     FM 2 S2: schedules to instructions
     """
-    cem, fm_client = await cem_in_frbc_control_type
+    cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
     # frbc = cem._control_types_handlers[cem.control_type]
 
     tasks = get_pending_tasks()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from s2python.common import (
@@ -46,7 +46,7 @@ def frbc_system_description():
     )
 
     thp_operation_mode = FRBCOperationMode(
-        id="tarnoc-operation-mode",
+        id=get_unique_id(),
         elements=[thp_operation_mode_element],
         abnormal_condition_only=False,
     )
@@ -64,13 +64,13 @@ def frbc_system_description():
     )
 
     nes_operation_mode = FRBCOperationMode(
-        id="nestore-operation-mode",
+        id=get_unique_id(),
         elements=[nes_operation_mode_element],
         abnormal_condition_only=False,
     )
 
     actuator = FRBCActuatorDescription(
-        id="id-of-the-actuator",
+        id=get_unique_id(),
         supported_commodities=[Commodity.ELECTRICITY],
         operation_modes=[thp_operation_mode, nes_operation_mode],
         transitions=[],
@@ -86,7 +86,7 @@ def frbc_system_description():
 
     system_description_message = FRBCSystemDescription(
         message_id=get_unique_id(),
-        valid_from=datetime(2024, 1, 1),
+        valid_from=datetime(2024, 1, 1, tzinfo=timezone.utc),
         actuators=[actuator],
         storage=storage,
     )
@@ -100,7 +100,7 @@ def resource_manager_details():
         message_id=get_unique_id(),
         resource_id=get_unique_id(),
         roles=[Role(role=RoleType.ENERGY_STORAGE, commodity=Commodity.ELECTRICITY)],
-        instruction_processing_delay=Duration(__root__=1.0),
+        instruction_processing_delay=Duration(1),
         available_control_types=[
             ControlType.FILL_RATE_BASED_CONTROL,
             ControlType.NO_SELECTION,
