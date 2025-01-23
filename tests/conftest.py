@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from s2python.common import (
@@ -86,7 +86,7 @@ def frbc_system_description():
 
     system_description_message = FRBCSystemDescription(
         message_id=get_unique_id(),
-        valid_from=datetime(2024, 1, 1),
+        valid_from=datetime(2024, 1, 1, tzinfo=timezone(timedelta(seconds=0))),
         actuators=[actuator],
         storage=storage,
     )
