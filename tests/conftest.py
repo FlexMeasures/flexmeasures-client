@@ -86,7 +86,7 @@ def frbc_system_description():
 
     system_description_message = FRBCSystemDescription(
         message_id=get_unique_id(),
-        valid_from=datetime(2024, 1, 1, tzinfo=timezone(timedelta(seconds=0))),
+        valid_from=datetime(2024, 1, 1, tzinfo=timezone.utc),
         actuators=[actuator],
         storage=storage,
     )
