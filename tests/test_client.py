@@ -55,7 +55,8 @@ from flexmeasures_client.client import (
         ),
     ],
 )
-def test__init__(
+@pytest.mark.asyncio
+async def test__init__(
     ssl,
     host,
     api_version,
@@ -134,12 +135,14 @@ def test__init__(
         ),
     ],
 )
-def test__post_init__(kwargs, error_type, error_text):
+@pytest.mark.asyncio
+async def test__post_init__(kwargs, error_type, error_text):
     with pytest.raises(error_type, match=error_text):
         FlexMeasuresClient(**kwargs)
 
 
-def test_build_url():
+@pytest.mark.asyncio
+async def test_build_url():
     flexmeasures_client = FlexMeasuresClient("password", "test@test.test")
     url = flexmeasures_client.build_url(uri="endpoint", path="/path/")
     assert url.human_repr() == "http://localhost:5000/path/endpoint"
