@@ -1,17 +1,25 @@
 import asyncio
 
 import pydantic
-from s2python.common import ControlType, ReceptionStatusValues
-from s2python.frbc import (
-    FRBCActuatorStatus,
-    FRBCFillLevelTargetProfile,
-    FRBCInstruction,
-    FRBCLeakageBehaviour,
-    FRBCStorageStatus,
-    FRBCSystemDescription,
-    FRBCTimerStatus,
-    FRBCUsageForecast,
-)
+
+try:
+    from s2python.common import ControlType, ReceptionStatusValues
+    from s2python.frbc import (
+        FRBCActuatorStatus,
+        FRBCFillLevelTargetProfile,
+        FRBCInstruction,
+        FRBCLeakageBehaviour,
+        FRBCStorageStatus,
+        FRBCSystemDescription,
+        FRBCTimerStatus,
+        FRBCUsageForecast,
+    )
+except ImportError:
+    raise ImportError(
+        "The 's2-python' package is required for this functionality. "
+        "Install it using `pip install flexmeasures-client[s2]`."
+    )
+
 
 from flexmeasures_client.s2 import SizeLimitOrderedDict, register
 from flexmeasures_client.s2.control_types import ControlTypeHandler

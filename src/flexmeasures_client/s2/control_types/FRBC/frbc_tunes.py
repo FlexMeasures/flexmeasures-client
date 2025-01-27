@@ -10,15 +10,23 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pydantic
 import pytz
-from s2python.common import NumberRange, ReceptionStatus, ReceptionStatusValues
-from s2python.frbc import (
-    FRBCActuatorStatus,
-    FRBCFillLevelTargetProfile,
-    FRBCInstruction,
-    FRBCStorageStatus,
-    FRBCSystemDescription,
-    FRBCUsageForecast,
-)
+
+try:
+    from s2python.common import NumberRange, ReceptionStatus, ReceptionStatusValues
+    from s2python.frbc import (
+        FRBCActuatorStatus,
+        FRBCFillLevelTargetProfile,
+        FRBCInstruction,
+        FRBCStorageStatus,
+        FRBCSystemDescription,
+        FRBCUsageForecast,
+    )
+except ImportError:
+    raise ImportError(
+        "The 's2-python' package is required for this functionality. "
+        "Install it using `pip install flexmeasures-client[s2]`."
+    )
+
 
 from flexmeasures_client.s2 import register
 from flexmeasures_client.s2.control_types.FRBC import FRBC

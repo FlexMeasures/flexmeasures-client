@@ -4,11 +4,18 @@ from datetime import timedelta
 
 import numpy as np
 import pandas as pd
-from s2python.frbc import (
-    FRBCFillLevelTargetProfile,
-    FRBCLeakageBehaviour,
-    FRBCUsageForecast,
-)
+
+try:
+    from s2python.frbc import (
+        FRBCFillLevelTargetProfile,
+        FRBCLeakageBehaviour,
+        FRBCUsageForecast,
+    )
+except ImportError:
+    raise ImportError(
+        "The 's2-python' package is required for this functionality. "
+        "Install it using `pip install flexmeasures-client[s2]`."
+    )
 
 
 def leakage_behaviour_to_storage_efficieny(
