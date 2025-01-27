@@ -3,8 +3,15 @@ from __future__ import annotations
 import math
 
 import pytest
-from s2python.common import CommodityQuantity, NumberRange, PowerRange
-from s2python.frbc import FRBCOperationMode, FRBCOperationModeElement
+
+try:
+    from s2python.common import CommodityQuantity, NumberRange, PowerRange
+    from s2python.frbc import FRBCOperationMode, FRBCOperationModeElement
+except ImportError:
+    raise ImportError(
+        "The 's2-python' package is required for this functionality. "
+        "Install it using `pip install flexmeasures-client[s2]`."
+    )
 
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     compute_factor,

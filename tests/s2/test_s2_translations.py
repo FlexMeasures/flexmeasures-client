@@ -1,5 +1,12 @@
 import pytest
-from s2python.frbc import FRBCUsageForecast
+
+try:
+    from s2python.frbc import FRBCUsageForecast
+except ImportError:
+    raise ImportError(
+        "The 's2-python' package is required for this functionality. "
+        "Install it using `pip install flexmeasures-client[s2]`."
+    )
 
 from flexmeasures_client.s2.control_types.translations import (
     translate_usage_forecast_to_fm,
