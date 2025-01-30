@@ -150,7 +150,7 @@ If you want to develop this package it's necessary to install testing requiremen
 
 Moreover, if you need to work on S2 features, you need to install extra dependencies::
 
-    pip install -e ".[s2]"
+    pip install -e ".[s2, testing]"
 
 
 
