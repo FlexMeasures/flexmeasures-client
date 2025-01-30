@@ -6,7 +6,19 @@ Used it at your own risk :)
 from datetime import datetime, timedelta
 
 import pytz
-from s2python.frbc import FRBCActuatorStatus, FRBCStorageStatus, FRBCSystemDescription
+
+try:
+    from s2python.frbc import (
+        FRBCActuatorStatus,
+        FRBCStorageStatus,
+        FRBCSystemDescription,
+    )
+except ImportError:
+    raise ImportError(
+        "The 's2-python' package is required for this functionality. "
+        "Install it using `pip install flexmeasures-client[s2]`."
+    )
+
 
 from flexmeasures_client.s2.control_types.FRBC import FRBC
 from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions

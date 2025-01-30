@@ -7,17 +7,25 @@ from logging import Logger
 from typing import Dict, Optional
 
 import pydantic
-from s2python.common import (
-    ControlType,
-    Handshake,
-    HandshakeResponse,
-    PowerMeasurement,
-    ReceptionStatus,
-    ReceptionStatusValues,
-    ResourceManagerDetails,
-    RevokeObject,
-    SelectControlType,
-)
+
+try:
+    from s2python.common import (
+        ControlType,
+        Handshake,
+        HandshakeResponse,
+        PowerMeasurement,
+        ReceptionStatus,
+        ReceptionStatusValues,
+        ResourceManagerDetails,
+        RevokeObject,
+        SelectControlType,
+    )
+except ImportError:
+    raise ImportError(
+        "The 's2-python' package is required for this functionality. "
+        "Install it using `pip install flexmeasures-client[s2]`."
+    )
+
 
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2 import Handler, register

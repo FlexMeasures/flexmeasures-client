@@ -5,7 +5,15 @@ from typing import Mapping, TypeVar
 from uuid import uuid4
 
 import pydantic
-from s2python.common import ReceptionStatus, ReceptionStatusValues
+
+try:
+    from s2python.common import ReceptionStatus, ReceptionStatusValues
+except ImportError:
+    raise ImportError(
+        "The 's2-python' package is required for this functionality. "
+        "Install it using `pip install flexmeasures-client[s2]`."
+    )
+
 
 KT = TypeVar("KT")
 VT = TypeVar("VT")

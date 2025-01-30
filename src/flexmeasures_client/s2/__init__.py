@@ -7,7 +7,15 @@ from dataclasses import dataclass
 from typing import Callable, Coroutine, Dict, Type
 
 import pydantic
-from s2python.common import ReceptionStatus, ReceptionStatusValues, RevokeObject
+
+try:
+    from s2python.common import ReceptionStatus, ReceptionStatusValues, RevokeObject
+except ImportError:
+    raise ImportError(
+        "The 's2-python' package is required for this functionality. "
+        "Install it using `pip install flexmeasures-client[s2]`."
+    )
+
 
 from flexmeasures_client.s2.utils import (
     SizeLimitOrderedDict,

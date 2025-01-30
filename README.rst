@@ -56,6 +56,10 @@ Install using ``pip``::
 
     pip install flexmeasures-client
 
+To enable S2 features, you need to install extra requirements::
+
+    pip install flexmeasures-client[s2]
+
 Initialization and authentication::
 
     from flexmeasures_client import FlexMeasuresClient
@@ -144,6 +148,13 @@ If you want to develop this package it's necessary to install testing requiremen
 
     pip install -e ".[testing]"
 
+Moreover, if you need to work on S2 features, you need to install extra dependencies::
+
+    pip install -e ".[s2, testing]"
+
+
+
+
 .. _pyscaffold-notes:
 
 
@@ -163,6 +174,9 @@ Running tests locally is crucial as well. Staying close to the CI workflow::
     tox -e clean,build
     tox -- -rFEx --durations 10 --color yes
 
+For S2 features, you need to add `-e s2` to tox::
+
+    tox -e s2
 
 This project uses `pre-commit`_, please make sure to install it before making any
 changes::
