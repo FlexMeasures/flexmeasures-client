@@ -56,7 +56,7 @@ Install using ``pip``::
 
     pip install flexmeasures-client
 
-To enable S2 features, you need you install extra requirements::
+To enable S2 features, you need to install extra requirements::
 
     pip install flexmeasures-client[s2]
 
