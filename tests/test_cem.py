@@ -1,15 +1,7 @@
 from __future__ import annotations
 
 import pytest
-
-try:
-    from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
-except ImportError:
-    raise ImportError(
-        "The 's2-python' package is required for this functionality. "
-        "Install it using `pip install flexmeasures-client[s2]`."
-    )
-
+from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
 
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC import FRBCTest

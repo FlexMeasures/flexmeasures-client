@@ -7,15 +7,7 @@ from unittest.mock import AsyncMock
 import numpy as np
 import pandas as pd
 import pytest
-
-try:
-    from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
-except ImportError:
-    raise ImportError(
-        "The 's2-python' package is required for this functionality. "
-        "Install it using `pip install flexmeasures-client[s2]`."
-    )
-
+from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
 
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2.cem import CEM
