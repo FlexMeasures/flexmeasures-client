@@ -34,7 +34,7 @@ from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
 
 
 class CEM(Handler):
-    __version__ = "0.1.0"  # TODO: find the right version that we will use
+    __version__ = "0.2.0-beta"
 
     _resource_manager_details: ResourceManagerDetails
 
