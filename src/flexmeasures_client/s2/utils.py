@@ -5,6 +5,7 @@ from typing import Mapping, TypeVar
 from uuid import uuid4
 
 import pydantic
+from packaging.version import Version
 
 try:
     from s2python.common import ReceptionStatus, ReceptionStatusValues
@@ -80,3 +81,42 @@ def get_reception_status(
     return ReceptionStatus(
         subject_message_id=str(subject_message.message_id), status=status
     )
+
+
+def is_version_supported(v1: Version, v2: Version) -> bool:
+    return v1 >= v2
+
+
+def get_latest_compatible_version(supported_versions, current_version, logger):
+    """
+    Determines the latest compatible version based on supported protocol versions.
+
+    :param supported_versions: List of supported protocol versions (strings).
+    :param current_version: Current version of the system (string).
+    :param logger: Optional logger instance.
+    :return: Latest compatible version (Version object) or current_version if none
+     found.
+    """
+
+    # RM didn't provide supported versions
+    if not supported_versions or len(supported_versions) == 0:
+        logger.warning("RM didn't provide any supported version")
+        return Version(current_version)
+
+    # Convert supported versions to Version objects and sort in descending order
+    rm_versions = sorted((Version(v) for v in supported_versions), reverse=True)
+    cem_version = Version(current_version)
+
+    # Find the latest compatible version
+    latest_compatible_version = next(
+        (v for v in rm_versions if is_version_supported(v, cem_version)), None
+    )
+
+    if latest_compatible_version is None:
+        logger.warning(
+            f"There are no compatible S2 versions supported both by the "
+            f"RM ({rm_versions}) and CEM ({cem_version})"
+        )
+        return cem_version
+
+    return latest_compatible_version

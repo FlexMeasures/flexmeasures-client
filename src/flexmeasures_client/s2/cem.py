@@ -30,11 +30,15 @@ except ImportError:
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2 import Handler, register
 from flexmeasures_client.s2.control_types import ControlTypeHandler
-from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
+from flexmeasures_client.s2.utils import (
+    get_latest_compatible_version,
+    get_reception_status,
+    get_unique_id,
+)
 
 
 class CEM(Handler):
-    __version__ = "0.1.0"  # TODO: find the right version that we will use
+    __version__ = "0.2.0-beta"
 
     _resource_manager_details: ResourceManagerDetails
 
@@ -227,8 +231,15 @@ class CEM(Handler):
         # `selected_protocol_version` that matches the one of the RM
         # TODO: Return a TBD "CloseConnection" message to close the connection
 
+        latest_compatible_version = get_latest_compatible_version(
+            message.supported_protocol_versions,
+            self.__version__,
+            self._logger,
+        )
+
         return HandshakeResponse(
-            message_id=get_unique_id(), selected_protocol_version=self.__version__
+            message_id=get_unique_id(),
+            selected_protocol_version=str(latest_compatible_version),
         )
 
     @register(ResourceManagerDetails)

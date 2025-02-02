@@ -32,7 +32,7 @@ async def test_handshake(rm_handshake):
         response["message_type"] == "HandshakeResponse"
     ), "response message_type should be HandshakeResponse"
     assert (
-        response["selected_protocol_version"] == "0.1.0"
+        response["selected_protocol_version"] == "1.0.0"
     ), "CEM selected protocol version should be supported by the Resource Manager"
 
 
