@@ -38,7 +38,7 @@ from flexmeasures_client.s2.utils import (
 
 
 class CEM(Handler):
-    __version__ = "0.2.0-beta"
+    __version__ = "0.0.2-beta"
 
     _resource_manager_details: ResourceManagerDetails
 
