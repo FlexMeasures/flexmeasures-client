@@ -118,7 +118,7 @@ class FillRateBasedControlTUNES(FRBC):
             )
         except Exception as e:
             response = ReceptionStatus(
-                subject_message_id=status.get("message_id"),
+                subject_message_id=status.message_id,
                 status=ReceptionStatusValues.PERMANENT_ERROR,
             )
             await self._sending_queue.put(response)
