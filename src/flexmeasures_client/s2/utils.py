@@ -5,6 +5,7 @@ from typing import Mapping, TypeVar
 from uuid import uuid4
 
 import pydantic
+import semver
 from packaging.version import Version
 
 try:
@@ -83,7 +84,7 @@ def get_reception_status(
     )
 
 
-def is_version_supported(v1: Version, v2: Version) -> bool:
+def is_version_supported(v1: semver.Version, v2: semver.Version) -> bool:
     return v1 >= v2
 
 
@@ -104,8 +105,10 @@ def get_latest_compatible_version(supported_versions, current_version, logger):
         return Version(current_version)
 
     # Convert supported versions to Version objects and sort in descending order
-    rm_versions = sorted((Version(v) for v in supported_versions), reverse=True)
-    cem_version = Version(current_version)
+    rm_versions = sorted(
+        (semver.Version.parse(v) for v in supported_versions), reverse=True
+    )
+    cem_version = semver.Version.parse(current_version)
 
     # Find the latest compatible version
     latest_compatible_version = next(

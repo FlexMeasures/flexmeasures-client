@@ -1,7 +1,7 @@
 import logging
 
 import pytest
-from packaging.version import Version
+import semver
 
 from flexmeasures_client.s2.utils import get_latest_compatible_version
 
@@ -52,5 +52,5 @@ def test_get_latest_compatible_version(
 
     if not supported_versions:
         assert "RM didn't provide any supported version" in caplog.text
-    elif latest_version == Version(current_version):
+    elif latest_version == semver.Version.parse(current_version):
         assert "There are no compatible S2 versions" in caplog.text
