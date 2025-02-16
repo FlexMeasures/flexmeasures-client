@@ -113,12 +113,12 @@ class FillRateBasedControlTUNES(FRBC):
                 self._fill_level_sensor_id,
                 start=self.now(),
                 values=[status.present_fill_level],
-                unit=POWER_UNIT,
-                duration=timedelta(minutes=15),  # INSTANTANEOUS
+                unit=ENERGY_UNIT,
+                duration=timedelta(minutes=0),  # INSTANTANEOUS
             )
         except Exception as e:
             response = ReceptionStatus(
-                subject_message_id=status.get("message_id"),
+                subject_message_id=status.message_id,
                 status=ReceptionStatusValues.PERMANENT_ERROR,
             )
             await self._sending_queue.put(response)
