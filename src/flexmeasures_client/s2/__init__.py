@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 import json
 from collections import deque
 from dataclasses import dataclass
@@ -40,7 +41,7 @@ def register(schema: Type[pydantic.BaseModel]) -> Callable:
     def wrapper(func: Callable) -> Callable:
         # add tags to func the wrapper
         @functools.wraps(func)
-        def wrap(*args, **kwargs):
+        async def wrap(*args, **kwargs):
             try:
                 incoming_message = schema(**args[1])
                 self = args[0]
@@ -52,7 +53,10 @@ def register(schema: Type[pydantic.BaseModel]) -> Callable:
                     incoming_message
                 )
 
-                outgoing_message = func(self, incoming_message)
+                if inspect.iscoroutinefunction(func):
+                    outgoing_message = await func(self, incoming_message)
+                else:
+                    outgoing_message = func(self, incoming_message)
 
                 self.outgoing_messages[get_message_id(outgoing_message)] = (
                     outgoing_message
@@ -174,7 +178,9 @@ class Handler:
 
         return message_type in self.message_handlers
 
-    def handle_message(self, message: pydantic.BaseModel | str | Dict) -> Coroutine:
+    async def handle_message(
+        self, message: pydantic.BaseModel | str | Dict
+    ) -> Coroutine:
         """
         Calls the handler linked to the message_type and converts the output
         to a serialized dict, i.e, it converts all the inner objects to Python
@@ -189,7 +195,9 @@ class Handler:
         if isinstance(message, str):
             message = json.loads(message)
 
-        output_message = self.message_handlers[message.get("message_type")](message)
+        output_message = await self.message_handlers[message.get("message_type")](
+            message
+        )
 
         return output_message
 

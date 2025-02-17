@@ -140,12 +140,14 @@ class CEM(Handler):
                 message
             )
         ):
-            response = self._control_types_handlers[self._control_type].handle_message(
-                message
-            )
+            response = await self._control_types_handlers[
+                self._control_type
+            ].handle_message(message)
         else:
             if self.supports_message(message):
-                response = super().handle_message(message)  # run Handler.handle_message
+                response = await super().handle_message(
+                    message
+                )  # run Handler.handle_message
 
         # TODO: handle exceptions of handle message using Exceptions
         if response is None and message.get("message_type") not in ["ReceptionStatus"]:
@@ -243,7 +245,7 @@ class CEM(Handler):
         )
 
     @register(ResourceManagerDetails)
-    def handle_resource_manager_details(self, message: ResourceManagerDetails):
+    async def handle_resource_manager_details(self, message: ResourceManagerDetails):
         self._resource_manager_details = message
 
         if (
@@ -251,6 +253,10 @@ class CEM(Handler):
         ):  # initializing. TODO: check if sending resource_manager_details
             # resets control type
             self._control_type = ControlType.NO_SELECTION
+
+            # Activate default control type if defined
+            if self._default_control_type:
+                await self.activate_control_type(self._default_control_type)
 
         return get_reception_status(message)
 
