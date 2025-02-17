@@ -45,6 +45,7 @@ class CEM(Handler):
     _control_types_handlers: Dict[ControlType | None, ControlTypeHandler]
     _control_type = None
     _is_closed = True
+    _default_control_type: ControlType | None
 
     _power_sensors: Dict[
         str, int
@@ -54,7 +55,10 @@ class CEM(Handler):
     _sending_queue: Queue[pydantic.BaseModel]
 
     def __init__(
-        self, fm_client: FlexMeasuresClient, logger: Logger | None = None
+        self,
+        fm_client: FlexMeasuresClient,
+        logger: Logger | None = None,
+        default_control_type: ControlType | None = None,
     ) -> None:
         """
         Customer Energy Manager (CEM)
@@ -65,6 +69,7 @@ class CEM(Handler):
         self._sending_queue = Queue()
         self._power_sensors = dict()
         self._control_types_handlers = dict()
+        self._default_control_type = default_control_type
 
         if not logger:
             logger = Logger(__name__)

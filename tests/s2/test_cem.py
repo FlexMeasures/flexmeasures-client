@@ -199,3 +199,41 @@ async def test_messages_route_to_control_type_handler(
             ControlType.FILL_RATE_BASED_CONTROL
         ].success_callbacks
     ), "success callback should be deleted"
+
+
+@pytest.mark.asyncio
+async def test_automatic_change_control_type(resource_manager_details, rm_handshake):
+    cem = CEM(fm_client=None, default_control_type=ControlType.FILL_RATE_BASED_CONTROL)
+    frbc = FRBCTest()
+
+    cem.register_control_type(frbc)
+
+    #############
+    # Handshake #
+    #############
+
+    await cem.handle_message(rm_handshake)
+
+    assert (
+        cem._sending_queue.qsize() == 1
+    )  # check that message is put to the outgoing queue
+
+    response = await cem.get_message()
+
+    ##########################
+    # ResourceManagerDetails #
+    ##########################
+
+    # RM sends ResourceManagerDetails
+    await cem.handle_message(resource_manager_details)
+    response = await cem.get_message()
+
+    # CEM sends control type on receiving the ResourceManagerDetails
+    assert response["message_type"] == "SelectControlType"
+    assert response["control_type"] == "FILL_RATE_BASED_CONTROL"
+
+    response = await cem.get_message()
+
+    # CEM response is ReceptionStatus with an OK status
+    assert response["message_type"] == "ReceptionStatus"
+    assert response["status"] == "OK"
