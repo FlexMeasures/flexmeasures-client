@@ -1,0 +1,45 @@
+Obtaining file:///home/victor/Work/Seita/flexmeasures-client
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: aiohttp in ./venv/lib/python3.10/site-packages (from flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (3.10.8)
+Requirement already satisfied: async_timeout in ./venv/lib/python3.10/site-packages (from flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (4.0.3)
+Requirement already satisfied: pandas>=2.1.4 in ./venv/lib/python3.10/site-packages (from flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (2.2.1)
+Requirement already satisfied: semver in ./venv/lib/python3.10/site-packages (from flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (3.0.4)
+Requirement already satisfied: s2-python>=0.4.1 in ./venv/lib/python3.10/site-packages (from flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (0.4.1)
+Requirement already satisfied: python-dateutil>=2.8.2 in ./venv/lib/python3.10/site-packages (from pandas>=2.1.4->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (2.9.0.post0)
+Requirement already satisfied: numpy<2,>=1.22.4 in ./venv/lib/python3.10/site-packages (from pandas>=2.1.4->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (1.24.4)
+Requirement already satisfied: pytz>=2020.1 in ./venv/lib/python3.10/site-packages (from pandas>=2.1.4->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (2024.1)
+Requirement already satisfied: tzdata>=2022.7 in ./venv/lib/python3.10/site-packages (from pandas>=2.1.4->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (2024.1)
+Requirement already satisfied: click in ./venv/lib/python3.10/site-packages (from s2-python>=0.4.1->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (8.1.7)
+Requirement already satisfied: pydantic>=2.8.2 in ./venv/lib/python3.10/site-packages (from s2-python>=0.4.1->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (2.10.6)
+Requirement already satisfied: websockets~=13.1 in ./venv/lib/python3.10/site-packages (from s2-python>=0.4.1->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (13.1)
+Requirement already satisfied: multidict<7.0,>=4.5 in ./venv/lib/python3.10/site-packages (from aiohttp->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (6.0.5)
+Requirement already satisfied: aiosignal>=1.1.2 in ./venv/lib/python3.10/site-packages (from aiohttp->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (1.3.1)
+Requirement already satisfied: aiohappyeyeballs>=2.3.0 in ./venv/lib/python3.10/site-packages (from aiohttp->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (2.4.4)
+Requirement already satisfied: yarl<2.0,>=1.12.0 in ./venv/lib/python3.10/site-packages (from aiohttp->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (1.18.3)
+Requirement already satisfied: attrs>=17.3.0 in ./venv/lib/python3.10/site-packages (from aiohttp->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (24.2.0)
+Requirement already satisfied: frozenlist>=1.1.1 in ./venv/lib/python3.10/site-packages (from aiohttp->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (1.4.1)
+Requirement already satisfied: annotated-types>=0.6.0 in ./venv/lib/python3.10/site-packages (from pydantic>=2.8.2->s2-python>=0.4.1->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (0.7.0)
+Requirement already satisfied: pydantic-core==2.27.2 in ./venv/lib/python3.10/site-packages (from pydantic>=2.8.2->s2-python>=0.4.1->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (2.27.2)
+Requirement already satisfied: typing-extensions>=4.12.2 in ./venv/lib/python3.10/site-packages (from pydantic>=2.8.2->s2-python>=0.4.1->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (4.12.2)
+Requirement already satisfied: six>=1.5 in ./venv/lib/python3.10/site-packages (from python-dateutil>=2.8.2->pandas>=2.1.4->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (1.16.0)
+Requirement already satisfied: propcache>=0.2.0 in ./venv/lib/python3.10/site-packages (from yarl<2.0,>=1.12.0->aiohttp->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (0.2.1)
+Requirement already satisfied: idna>=2.0 in ./venv/lib/python3.10/site-packages (from yarl<2.0,>=1.12.0->aiohttp->flexmeasures-client==0.4.1.post1.dev2+ga92468a.d20250210) (3.7)
+Building wheels for collected packages: flexmeasures-client
+  Building editable for flexmeasures-client (pyproject.toml): started
+  Building editable for flexmeasures-client (pyproject.toml): finished with status 'done'
+  Created wheel for flexmeasures-client: filename=flexmeasures_client-0.4.1.post1.dev2+ga92468a.d20250210-0.editable-py3-none-any.whl size=8688 sha256=ef1a0b36d9749df10ba5724871ce17bba6ea6c4174b7f5dd7f92c57adabbf500
+  Stored in directory: /tmp/pip-ephem-wheel-cache-689rkzg0/wheels/e5/91/7d/b01deffaf35d6c4c1a65bc9f982b37fbd24db2fc9705ab6069
+Successfully built flexmeasures-client
+Installing collected packages: flexmeasures-client
+  Attempting uninstall: flexmeasures-client
+    Found existing installation: flexmeasures-client 0.4.1.post1.dev2+ga92468a.d20250210
+    Uninstalling flexmeasures-client-0.4.1.post1.dev2+ga92468a.d20250210:
+      Successfully uninstalled flexmeasures-client-0.4.1.post1.dev2+ga92468a.d20250210
+Successfully installed flexmeasures-client-0.4.1.post1.dev2+ga92468a.d20250210
