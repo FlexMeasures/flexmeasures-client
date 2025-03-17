@@ -62,7 +62,7 @@ class FillRateBasedControlTUNES(FRBC):
 
     _timers: dict[str, datetime]
 
-    MIN_MEASUREMENT_PERIOD = 10  # in minutes
+    MIN_MEASUREMENT_PERIOD: int = 10  # in minutes
 
     def __init__(
         self,
@@ -109,7 +109,12 @@ class FillRateBasedControlTUNES(FRBC):
         self._timers = dict()
 
     def is_timer_due(self, name: str):
-        if self._timers.get(name, datetime.now() - timedelta(hours=1)) < datetime.now():
+        if (
+            self._timers.get(
+                name, datetime.now() - timedelta(minutes=self.MIN_MEASUREMENT_PERIOD)
+            )
+            < datetime.now()
+        ):
             self._timers[name] = datetime.now() + timedelta(
                 minutes=self.MIN_MEASUREMENT_PERIOD
             )
