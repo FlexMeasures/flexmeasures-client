@@ -38,6 +38,9 @@ async def setup_cem(resource_manager_details, rm_handshake):
         valid_from_shift=timedelta(days=1),
     )
 
+    # disable rate limiting for testing
+    frbc.MIN_MEASUREMENT_PERIOD = 0
+
     cem.register_control_type(frbc)
 
     #############
