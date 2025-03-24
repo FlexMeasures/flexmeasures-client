@@ -32,6 +32,7 @@ async def setup_cem(resource_manager_details, rm_handshake):
         nes_efficiency_sensor_id=11,
         usage_forecast_sensor_id=12,
         fill_rate_sensor_id=13,
+        active_actuador_id_sensor_id=14,
         timezone="UTC",
         schedule_duration=timedelta(hours=12),
         max_size=100,
@@ -117,7 +118,7 @@ async def test_system_description(cem_in_frbc_control_type, frbc_system_descript
         "start": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "values": [0.2] * N_SAMPLES,
         "unit": "%",
-        "duration": "PT24H",
+        "duration": "24h",
     }
     for key in first_call.keys():
         assert first_call[key] == first_call_expected[key]
@@ -130,7 +131,7 @@ async def test_system_description(cem_in_frbc_control_type, frbc_system_descript
         "start": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "values": [0.1] * N_SAMPLES,
         "unit": "%",
-        "duration": "PT24H",
+        "duration": "24h",
     }
     for key in second_call.keys():
         assert second_call[key] == second_call_expected[key]
@@ -242,6 +243,10 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
     second_call = fm_client.post_measurements.call_args_list[1][1]
     assert second_call["sensor_id"] == frbc._fill_rate_sensor_id
 
+    third_call = fm_client.post_measurements.call_args_list[2][1]
+    assert third_call["sensor_id"] == frbc._active_actuador_id_sensor_id
+    assert third_call["values"][0] == frbc._thp_fill_rate_sensor_id
+
     # Switch operation mode to Nestore
     actuator_status["active_operation_mode_id"] = (
         frbc_system_description.actuators[0].operation_modes[1].id
@@ -262,6 +267,10 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
 
     second_call = fm_client.post_measurements.call_args_list[1][1]
     assert second_call["sensor_id"] == frbc._fill_rate_sensor_id
+
+    third_call = fm_client.post_measurements.call_args_list[2][1]
+    assert third_call["sensor_id"] == frbc._active_actuador_id_sensor_id
+    assert third_call["values"][0] == frbc._nes_fill_rate_sensor_id
 
     await cem.close()
 

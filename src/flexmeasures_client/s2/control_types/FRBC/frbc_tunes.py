@@ -8,6 +8,17 @@ import asyncio
 from datetime import datetime, timedelta
 
 import pandas as pd
+
+"""
+Import optional dependency needed for timezone aware datetimes to avoid
+a blocking call to import_module in an asnyc loop (e.g. from HomeAssitant)
+Error:  Detected blocking call to import_module with args ('tzdata',)
+"""
+from pandas.compat._optional import import_optional_dependency
+
+import_optional_dependency("tzdata")
+
+
 import pydantic
 import pytz
 
@@ -42,7 +53,7 @@ POWER_UNIT = "MW"
 DIMENSIONLESS = "dimensionless"
 PERCENTAGE = "%"
 TASK_PERIOD_SECONDS = 2
-CONVERSION_EFFICIENCY_DURATION = "PT24H"
+CONVERSION_EFFICIENCY_DURATION = "24h"
 
 
 class FillRateBasedControlTUNES(FRBC):
@@ -53,6 +64,8 @@ class FillRateBasedControlTUNES(FRBC):
     _thp_efficiency_sensor_id: int | None
     _nes_fill_rate_sensor_id: int | None
     _nes_efficiency_sensor_id: int | None
+
+    _active_actuador_id_sensor_id: int | None
 
     _schedule_duration: timedelta
 
@@ -76,6 +89,7 @@ class FillRateBasedControlTUNES(FRBC):
         nes_efficiency_sensor_id: int | None = None,
         fill_rate_sensor_id: int | None = None,
         rm_discharge_sensor_id: int | None = None,
+        active_actuador_id_sensor_id: int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
@@ -91,6 +105,8 @@ class FillRateBasedControlTUNES(FRBC):
         self._thp_efficiency_sensor_id = thp_efficiency_sensor_id
         self._nes_fill_rate_sensor_id = nes_fill_rate_sensor_id
         self._nes_efficiency_sensor_id = nes_efficiency_sensor_id
+
+        self._active_actuador_id_sensor_id = active_actuador_id_sensor_id
 
         self._schedule_duration = schedule_duration
 
@@ -191,6 +207,14 @@ class FillRateBasedControlTUNES(FRBC):
             start=dt,
             values=[fill_rate],
             unit=POWER_UNIT,
+            duration=timedelta(minutes=15),
+        )
+
+        await self._fm_client.post_measurements(
+            sensor_id=self._active_actuador_id_sensor_id,
+            start=dt,
+            values=[active_operation_mode_fill_rate_sensor_id],
+            unit="dimensionless",
             duration=timedelta(minutes=15),
         )
 
