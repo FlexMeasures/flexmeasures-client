@@ -11,7 +11,7 @@ import pandas as pd
 
 """
 Import optional dependency needed for timezone aware datetimes to avoid
-a blocking call to import_module in an asnyc loop (e.g. from HomeAssistant)
+a blocking call to import_module in an async loop (e.g. from HomeAssistant)
 Error:  Detected blocking call to import_module with args ('tzdata',)
 """
 from pandas.compat._optional import import_optional_dependency
