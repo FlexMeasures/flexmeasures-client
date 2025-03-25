@@ -75,7 +75,7 @@ class FillRateBasedControlTUNES(FRBC):
 
     _timers: dict[str, datetime]
 
-    MIN_MEASUREMENT_PERIOD: int = 0  # in minutes
+    MIN_MEASUREMENT_PERIOD: int = 5  # in minutes
 
     def __init__(
         self,
