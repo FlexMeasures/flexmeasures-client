@@ -118,7 +118,7 @@ async def test_system_description(cem_in_frbc_control_type, frbc_system_descript
         "start": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "values": [0.2] * N_SAMPLES,
         "unit": "%",
-        "duration": "24h",
+        "duration": "PT24H",
     }
     for key in first_call.keys():
         assert first_call[key] == first_call_expected[key]
@@ -131,7 +131,7 @@ async def test_system_description(cem_in_frbc_control_type, frbc_system_descript
         "start": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "values": [0.1] * N_SAMPLES,
         "unit": "%",
-        "duration": "24h",
+        "duration": "PT24H",
     }
     for key in second_call.keys():
         assert second_call[key] == second_call_expected[key]
