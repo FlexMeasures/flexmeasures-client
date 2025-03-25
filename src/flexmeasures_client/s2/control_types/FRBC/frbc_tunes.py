@@ -65,7 +65,7 @@ class FillRateBasedControlTUNES(FRBC):
     _nes_fill_rate_sensor_id: int | None
     _nes_efficiency_sensor_id: int | None
 
-    _active_actuador_id_sensor_id: int | None
+    _active_actuator_id_sensor_id: int | None
 
     _schedule_duration: timedelta
 
@@ -89,7 +89,7 @@ class FillRateBasedControlTUNES(FRBC):
         nes_efficiency_sensor_id: int | None = None,
         fill_rate_sensor_id: int | None = None,
         rm_discharge_sensor_id: int | None = None,
-        active_actuador_id_sensor_id: int | None = None,
+        active_actuator_id_sensor_id: int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
@@ -106,7 +106,7 @@ class FillRateBasedControlTUNES(FRBC):
         self._nes_fill_rate_sensor_id = nes_fill_rate_sensor_id
         self._nes_efficiency_sensor_id = nes_efficiency_sensor_id
 
-        self._active_actuador_id_sensor_id = active_actuador_id_sensor_id
+        self._active_actuator_id_sensor_id = active_actuator_id_sensor_id
 
         self._schedule_duration = schedule_duration
 
@@ -211,7 +211,7 @@ class FillRateBasedControlTUNES(FRBC):
         )
 
         await self._fm_client.post_measurements(
-            sensor_id=self._active_actuador_id_sensor_id,
+            sensor_id=self._active_actuator_id_sensor_id,
             start=dt,
             values=[active_operation_mode_fill_rate_sensor_id],
             unit="dimensionless",

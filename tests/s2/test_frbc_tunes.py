@@ -32,7 +32,7 @@ async def setup_cem(resource_manager_details, rm_handshake):
         nes_efficiency_sensor_id=11,
         usage_forecast_sensor_id=12,
         fill_rate_sensor_id=13,
-        active_actuador_id_sensor_id=14,
+        active_actuator_id_sensor_id=14,
         timezone="UTC",
         schedule_duration=timedelta(hours=12),
         max_size=100,
@@ -244,7 +244,7 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
     assert second_call["sensor_id"] == frbc._fill_rate_sensor_id
 
     third_call = fm_client.post_measurements.call_args_list[2][1]
-    assert third_call["sensor_id"] == frbc._active_actuador_id_sensor_id
+    assert third_call["sensor_id"] == frbc._active_actuator_id_sensor_id
     assert third_call["values"][0] == frbc._thp_fill_rate_sensor_id
 
     # Switch operation mode to Nestore
@@ -269,7 +269,7 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
     assert second_call["sensor_id"] == frbc._fill_rate_sensor_id
 
     third_call = fm_client.post_measurements.call_args_list[2][1]
-    assert third_call["sensor_id"] == frbc._active_actuador_id_sensor_id
+    assert third_call["sensor_id"] == frbc._active_actuator_id_sensor_id
     assert third_call["values"][0] == frbc._nes_fill_rate_sensor_id
 
     await cem.close()
