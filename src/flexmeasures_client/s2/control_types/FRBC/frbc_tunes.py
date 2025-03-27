@@ -252,10 +252,10 @@ class FillRateBasedControlTUNES(FRBC):
         """
 
         while self._active_recurring_schedule:
-            await self.trigger_scehdule()
+            await self.trigger_schedule()
             await asyncio.sleep(TASK_PERIOD_SECONDS)
 
-    async def trigger_scehdule(self):
+    async def trigger_schedule(self):
         """
         Ask FlexMeasures for a new schedule and create FRBC.Instructions to send back to the ResourceManager
         """
