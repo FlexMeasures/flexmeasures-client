@@ -21,13 +21,13 @@ import_optional_dependency("tzdata")
 
 import pydantic
 import pytz
+from typing import cast
 
 try:
     from s2python.common import NumberRange, ReceptionStatus, ReceptionStatusValues
     from s2python.frbc import (
         FRBCActuatorStatus,
         FRBCFillLevelTargetProfile,
-        FRBCInstruction,
         FRBCStorageStatus,
         FRBCSystemDescription,
         FRBCUsageForecast,
@@ -48,6 +48,7 @@ from flexmeasures_client.s2.control_types.translations import (
     leakage_behaviour_to_storage_efficieny
 )
 from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
+from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
 
 RESOLUTION = "15min"
 ENERGY_UNIT = "MWh"
@@ -75,10 +76,12 @@ class FillRateBasedControlTUNES(FRBC):
     _usage_forecast_sensor_id: int | None
     _soc_minima_sensor_id: int | None
     _soc_maxima_sensor_id: int | None
+    _consumption_price_sensor_id : int | None
+    _production_price_sensor_id : int | None
 
     _timers: dict[str, datetime]
 
-    MIN_MEASUREMENT_PERIOD: int = 5  # in minutes
+    MIN_MEASUREMENT_PERIOD: int = 10  # in minutes
 
     def __init__(
         self,
@@ -94,6 +97,8 @@ class FillRateBasedControlTUNES(FRBC):
         rm_discharge_sensor_id: int | None = None,
         active_actuator_id_sensor_id: int | None = None,
         leakage_beaviour_sensor_id : int | None = None,
+        production_price_sensor : int | None = None,
+        consumption_price_sensor : int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
@@ -119,6 +124,8 @@ class FillRateBasedControlTUNES(FRBC):
         self._soc_minima_sensor_id = soc_minima_sensor_id
         self._soc_maxima_sensor_id = soc_maxima_sensor_id
         self._rm_discharge_sensor_id = rm_discharge_sensor_id
+        self._consumption_price_sensor_id = consumption_price_sensor
+        self._production_price_sensor_id = production_price_sensor
 
         self._timezone = pytz.timezone(timezone)
 
@@ -144,7 +151,7 @@ class FillRateBasedControlTUNES(FRBC):
             return False
 
     def now(self):
-        return self._timezone.localize(datetime.now())
+        return datetime.now(self._timezone)
 
     async def send_storage_status(self, status: FRBCStorageStatus):
         if not self.is_timer_due("storage_status"):
@@ -294,28 +301,60 @@ class FillRateBasedControlTUNES(FRBC):
         fill_level_range: NumberRange = system_description.storage.fill_level_range
 
         # get SOC Max and Min to be sent on the Flex Model
-        soc_min = fill_level_range.end_of_range
-        soc_max = fill_level_range.start_of_range
+        soc_min = fill_level_range.start_of_range
+        soc_max = fill_level_range.end_of_range
 
-        operation_mode = actuator.operation_modes[0]
-        operation_mode_factor = 0.1
+        operation_mode = None
+        for _operation_mode in actuator.operation_modes:
+            if "THP" in _operation_mode.diagnostic_label:
+                operation_mode = _operation_mode
+            elif "NES" in _operation_mode.diagnostic_label:
+                operation_mode = _operation_mode
+            else:
+                continue
 
-        # TODO: 1) Call FlexMeasures
-        # TODO: 2) Select with which actuator to send the instruction
-        # TODO: 3) Create operation_mode_factor from power (we have a function for that)
+        if operation_mode is None:
+            print("ERROR: Couldn't find a valid operation mode.")
 
-        instruction = FRBCInstruction(
-            message_id=get_unique_id(),
-            id=get_unique_id(),
-            actuator_id=actuator.id,
-            operation_mode=operation_mode.id,  # Based on the expeted fill_level, select the best actuator (most efficient) to fulfill a certain fill_rate
-            operation_mode_factor=operation_mode_factor,
-            execution_time=self.now(),
-            abnormal_condition=False,
+        charging_capacity = operation_mode.elements[0].fill_rate.end_of_range
+
+        start = self.now()
+        start = start.replace(minute = (start.minute // 15) * 15, second=0, microsecond=0)
+        
+        soc_at_start = next(reversed(self._system_description_history.values())).storage.fill_level_range.end_of_range
+
+        if len(self._storage_status_history) > 0:
+            last_storage_status : FRBCStorageStatus = next(reversed(self._storage_status_history.values()))
+            soc_at_start = 0 # last_storage_status.present_fill_level
+
+        schedule = await self._fm_client.trigger_and_get_schedule(
+            self._rm_discharge_sensor_id,
+            start=start,
+            duration="PT24H",
+            flex_context={
+                "consumption-price" : {"sensor" : self._consumption_price_sensor_id},
+                "production-price" : {"sensor" : self._production_price_sensor_id},
+                "site-power-capacity" : "1000MVA"
+            },
+            flex_model={
+                "soc-at-start" : f"{soc_at_start} {ENERGY_UNIT}",
+                "soc-max" : f"{soc_max} {ENERGY_UNIT}",
+                "soc-min" : f"{soc_min} {ENERGY_UNIT}",
+                "soc-usage" : [{"sensor" : self._usage_forecast_sensor_id}],
+                # "storage-efficiency" : {"sensor" : self._leakage_beaviour_sensor_id},
+                "storage-efficiency" : "99%",
+                "charging-efficiency" : {"sensor" : self._nes_efficiency_sensor_id},
+                "power-capacity" : f"{charging_capacity} {POWER_UNIT}",
+                "consumption-capacity" : f"{charging_capacity} {POWER_UNIT}",
+                "production-capacity" : f"0 {POWER_UNIT}"
+            }
         )
 
+        instructions = fm_schedule_to_instructions(schedule, system_description, soc_at_start)
+
         # Put the instruction in the sending queue
-        await self._sending_queue.put(instruction)
+        for instruction in instructions:
+            await self._sending_queue.put(instruction)
 
     @register(FRBCSystemDescription)
     def handle_system_description(

@@ -20,6 +20,13 @@ from flexmeasures_client.s2.utils import get_unique_id
 @pytest.fixture(scope="function")
 async def setup_cem(resource_manager_details, rm_handshake):
     fm_client = AsyncMock(FlexMeasuresClient)
+    # Mock trigger_and_get_schedule response
+    fm_client.trigger_and_get_schedule.return_value = {
+        "start": datetime(2024, 1, 1, tzinfo=timezone.utc).isoformat(),
+        "duration": "PT1H",
+        "values": [0.0, 0.5, 1.5, 0.0],
+    }
+
     cem = CEM(fm_client=fm_client)
     frbc = FillRateBasedControlTUNES(
         soc_minima_sensor_id=2,
@@ -34,6 +41,8 @@ async def setup_cem(resource_manager_details, rm_handshake):
         fill_rate_sensor_id=13,
         active_actuator_id_sensor_id=14,
         leakage_beaviour_sensor_id = 15,
+        production_price_sensor = 16,
+        consumption_price_sensor = 17,
         timezone="UTC",
         schedule_duration=timedelta(hours=12),
         max_size=100,
