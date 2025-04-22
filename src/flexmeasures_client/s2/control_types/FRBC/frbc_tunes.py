@@ -76,6 +76,8 @@ class FillRateBasedControlTUNES(FRBC):
     _usage_forecast_sensor_id: int | None
     _soc_minima_sensor_id: int | None
     _soc_maxima_sensor_id: int | None
+    _state_of_charge_sensor_id : int | None
+
     _consumption_price_sensor_id : int | None
     _production_price_sensor_id : int | None
 
@@ -99,6 +101,7 @@ class FillRateBasedControlTUNES(FRBC):
         leakage_beaviour_sensor_id : int | None = None,
         production_price_sensor : int | None = None,
         consumption_price_sensor : int | None = None,
+        state_of_charge_sensor_id : int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
@@ -124,6 +127,8 @@ class FillRateBasedControlTUNES(FRBC):
         self._soc_minima_sensor_id = soc_minima_sensor_id
         self._soc_maxima_sensor_id = soc_maxima_sensor_id
         self._rm_discharge_sensor_id = rm_discharge_sensor_id
+        self._state_of_charge_sensor_id = state_of_charge_sensor_id
+
         self._consumption_price_sensor_id = consumption_price_sensor
         self._production_price_sensor_id = production_price_sensor
 
@@ -337,6 +342,7 @@ class FillRateBasedControlTUNES(FRBC):
                 "site-power-capacity" : "1000MVA"
             },
             flex_model={
+                "state-of-charge" : {"sensor" : self._state_of_charge_sensor_id},
                 "soc-at-start" : f"{soc_at_start} {ENERGY_UNIT}",
                 "soc-max" : f"{soc_max} {ENERGY_UNIT}",
                 "soc-min" : f"{soc_min} {ENERGY_UNIT}",
