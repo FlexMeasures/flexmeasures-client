@@ -418,7 +418,9 @@ class FillRateBasedControlTUNES(FRBC):
             return
 
         start_time = usage_forecast.start_time
-        # todo: floor to RESOLUTION
+        
+            # flooring to previous 15min tick
+        start_time = start_time.replace(minute = (start_time.minute // 15) * 15, second=0, microsecond=0)
 
         usage_forecast = translate_usage_forecast_to_fm(
             usage_forecast, RESOLUTION, strategy="mean"
