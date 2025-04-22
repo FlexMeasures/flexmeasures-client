@@ -29,7 +29,7 @@ async def setup_cem(resource_manager_details, rm_handshake):
     }
 
     cem = CEM(fm_client=fm_client)
-    
+
     frbc = FillRateBasedControlTUNES(
         soc_minima_sensor_id=2,
         soc_maxima_sensor_id=3,
@@ -42,10 +42,10 @@ async def setup_cem(resource_manager_details, rm_handshake):
         usage_forecast_sensor_id=12,
         fill_rate_sensor_id=13,
         active_actuator_id_sensor_id=14,
-        leakage_beaviour_sensor_id = 15,
-        production_price_sensor = 16,
-        consumption_price_sensor = 17,
-        state_of_charge_sensor_id = 18,
+        leakage_beaviour_sensor_id=15,
+        production_price_sensor=16,
+        consumption_price_sensor=17,
+        state_of_charge_sensor_id=18,
         timezone="UTC",
         schedule_duration=timedelta(hours=12),
         max_size=100,

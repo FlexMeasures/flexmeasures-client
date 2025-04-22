@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from math import isclose
 from typing import List
 
@@ -26,14 +26,15 @@ def op_mode_compute_factor(op_mode_elem: FRBCOperationModeElement, fill_rate):
     start_fill_rate = op_mode_elem.fill_rate.start_of_range
     end_fill_rate = op_mode_elem.fill_rate.end_of_range
     delta_fill_rate = end_fill_rate - start_fill_rate
-    
+
     # Case that start_fill_rate == end_fill_rate
     if np.isclose(delta_fill_rate, 0):
         return 1
 
     return (fill_rate - start_fill_rate) / delta_fill_rate
 
-def op_mode_range(op_mode : FRBCOperationMode):
+
+def op_mode_range(op_mode: FRBCOperationMode):
     start_of_range = op_mode.elements[0].fill_level_range.start_of_range
     end_of_range = op_mode.elements[0].fill_level_range.end_of_range
 
@@ -43,16 +44,27 @@ def op_mode_range(op_mode : FRBCOperationMode):
 
     return start_of_range, end_of_range
 
-def op_mode_max_fill_rate(op_mode : FRBCOperationMode):
+
+def op_mode_max_fill_rate(op_mode: FRBCOperationMode):
     return max(op_elem.fill_rate.end_of_range for op_elem in op_mode.elements)
 
-def op_mode_elem_is_fill_level_in_range(op_mode_elem : FRBCOperationModeElement, fill_level : float) -> bool:
-    return fill_level >= op_mode_elem.fill_level_range.start_of_range and fill_level <= op_mode_elem.fill_level_range.end_of_range 
 
-def op_mode_elem_efficiency(op_mode_elem : FRBCOperationModeElement):
+def op_mode_elem_is_fill_level_in_range(
+    op_mode_elem: FRBCOperationModeElement, fill_level: float
+) -> bool:
+    return (
+        fill_level >= op_mode_elem.fill_level_range.start_of_range
+        and fill_level <= op_mode_elem.fill_level_range.end_of_range
+    )
+
+
+def op_mode_elem_efficiency(op_mode_elem: FRBCOperationModeElement):
     # TODO: take into account both start and end of range. This is a bit tricky
-    return (op_mode_elem.power_ranges[0].end_of_range / op_mode_elem.fill_rate.end_of_range)
- 
+    return (
+        op_mode_elem.power_ranges[0].end_of_range / op_mode_elem.fill_rate.end_of_range
+    )
+
+
 def fm_schedule_to_instructions(
     schedule, system_description: FRBCSystemDescription, initial_fill_level: float
 ) -> List[FRBCInstruction]:
@@ -78,8 +90,8 @@ def fm_schedule_to_instructions(
 
     actuator = actuators[0]
 
-    operation_modes : list[FRBCOperationMode]= actuator.operation_modes
-    
+    operation_modes: list[FRBCOperationMode] = actuator.operation_modes
+
     idle_operation_mode = None
 
     # Search for the NES or THP
@@ -110,27 +122,44 @@ def fm_schedule_to_instructions(
 
                 # TODO: what if valid_operation_modes is empty?
                 # Make max out value to the max fill_rate
-                max_fill_rate = max(op_mode_max_fill_rate(op_mode) for op_mode in valid_operation_modes)
+                max_fill_rate = max(
+                    op_mode_max_fill_rate(op_mode) for op_mode in valid_operation_modes
+                )
 
                 if value > max_fill_rate:
-                    print(f"Schedule fill_rate=`{value}` is larger than max. fill_rate ({max_fill_rate})")
+                    print(
+                        f"""Schedule fill_rate=`{value}` is larger than max.
+                        fill_rate ({max_fill_rate})"""
+                    )
                     value = max_fill_rate
-                    
-                valid_operation_modes = [op_mode for op_mode in valid_operation_modes if op_mode_max_fill_rate(op_mode) >= value]
+
+                valid_operation_modes = [
+                    op_mode
+                    for op_mode in valid_operation_modes
+                    if op_mode_max_fill_rate(op_mode) >= value
+                ]
 
                 op_mode_elements = []
 
                 for op_mode in valid_operation_modes:
                     for op_mode_elem in op_mode.elements:
-                        if op_mode_elem_is_fill_level_in_range(op_mode_elem, fill_level):
+                        if op_mode_elem_is_fill_level_in_range(
+                            op_mode_elem, fill_level
+                        ):
                             op_mode_elements.append(
-                                (op_mode_elem_efficiency(op_mode_elem), op_mode, op_mode_elem)
+                                (
+                                    op_mode_elem_efficiency(op_mode_elem),
+                                    op_mode,
+                                    op_mode_elem,
+                                )
                             )
 
                 # Sort operation modes by efficiency
-                _, operation_mode, op_mode_elem = sorted(op_mode_elements, key=lambda x: x[0])[0]
+                _, operation_mode, op_mode_elem = sorted(
+                    op_mode_elements, key=lambda x: x[0]
+                )[0]
                 operation_mode_factor = op_mode_compute_factor(op_mode_elem, value)
-            
+
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
                 id=get_unique_id(),

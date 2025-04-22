@@ -56,7 +56,7 @@ def leakage_behaviour_to_storage_efficieny(
 
     last_element = message.elements[-1]
     max_fill_level = max(e.fill_level_range.end_of_range for e in message.elements)
-    
+
     # Discuss conversions
     # storage_efficiency = (
     #     (100

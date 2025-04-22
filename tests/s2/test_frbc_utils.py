@@ -1,36 +1,39 @@
 from __future__ import annotations
 
-import pytest
-from s2python.common import CommodityQuantity, NumberRange, PowerRange, Commodity
-from s2python.frbc import FRBCOperationMode, FRBCOperationModeElement
-
-
-import numpy as np
 from datetime import datetime, timezone
 
-from s2python.common import CommodityQuantity, NumberRange, PowerRange
+import numpy as np
+import pytest
+from s2python.common import Commodity, CommodityQuantity, NumberRange, PowerRange
 from s2python.frbc import (
-    FRBCOperationMode,
-    FRBCSystemDescription,
     FRBCActuatorDescription,
     FRBCInstruction,
-    FRBCStorageDescription
+    FRBCOperationMode,
+    FRBCOperationModeElement,
+    FRBCStorageDescription,
+    FRBCSystemDescription,
 )
-from s2python.frbc.frbc_operation_mode_element import FRBCOperationModeElement
+
 from flexmeasures_client.s2.control_types.FRBC.utils import (
+    fm_schedule_to_instructions,
     get_unique_id,
     op_mode_compute_factor,
-    op_mode_range,
-    op_mode_max_fill_rate,
-    op_mode_elem_is_fill_level_in_range,
     op_mode_elem_efficiency,
-    fm_schedule_to_instructions,
+    op_mode_elem_is_fill_level_in_range,
+    op_mode_max_fill_rate,
+    op_mode_range,
 )
 
 
 @pytest.fixture
 def default_power_range():
-    return [PowerRange(start_of_range=100.0, end_of_range=200.0, commodity_quantity=CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC)]
+    return [
+        PowerRange(
+            start_of_range=100.0,
+            end_of_range=200.0,
+            commodity_quantity=CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC,
+        )
+    ]
 
 
 @pytest.fixture
@@ -51,19 +54,22 @@ def example_op_mode_elem(default_power_range):
         ((0.0, 1.0), 1.0, 1.0),
         ((2.0, 4.0), 3.0, 0.5),
         ((1.0, 1.0), 1.0, 1.0),
-    ]
+    ],
 )
-def test_op_mode_compute_factor(fill_rate_range, input_fill_rate, expected_factor, default_power_range):
+def test_op_mode_compute_factor(
+    fill_rate_range, input_fill_rate, expected_factor, default_power_range
+):
     op_mode_elem = FRBCOperationModeElement(
         fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
-        fill_rate=NumberRange(start_of_range=fill_rate_range[0], end_of_range=fill_rate_range[1]),
+        fill_rate=NumberRange(
+            start_of_range=fill_rate_range[0], end_of_range=fill_rate_range[1]
+        ),
         power_ranges=default_power_range,
         running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
     )
 
     factor = op_mode_compute_factor(op_mode_elem, fill_rate=input_fill_rate)
     assert np.isclose(factor, expected_factor)
-
 
 
 @pytest.mark.parametrize(
@@ -85,7 +91,10 @@ def test_op_mode_range(ranges, expected, default_power_range):
     ]
     op_mode_id = get_unique_id()
     op_mode = FRBCOperationMode(
-        id=op_mode_id, elements=elements, abnormal_condition_only=False, diagnostic_label="test"
+        id=op_mode_id,
+        elements=elements,
+        abnormal_condition_only=False,
+        diagnostic_label="test",
     )
     assert op_mode_range(op_mode) == expected
 
@@ -109,7 +118,10 @@ def test_op_mode_max_fill_rate(fill_rates, expected_max, default_power_range):
     ]
     op_mode_id = get_unique_id()
     op_mode = FRBCOperationMode(
-        id=op_mode_id, elements=elements, abnormal_condition_only=False, diagnostic_label="test"
+        id=op_mode_id,
+        elements=elements,
+        abnormal_condition_only=False,
+        diagnostic_label="test",
     )
     assert op_mode_max_fill_rate(op_mode) == expected_max
 
@@ -123,8 +135,13 @@ def test_op_mode_max_fill_rate(fill_rates, expected_max, default_power_range):
         (-0.1, False),
     ],
 )
-def test_op_mode_elem_is_fill_level_in_range(example_op_mode_elem, fill_level, expected):
-    assert op_mode_elem_is_fill_level_in_range(example_op_mode_elem, fill_level) is expected
+def test_op_mode_elem_is_fill_level_in_range(
+    example_op_mode_elem, fill_level, expected
+):
+    assert (
+        op_mode_elem_is_fill_level_in_range(example_op_mode_elem, fill_level)
+        is expected
+    )
 
 
 def test_op_mode_elem_efficiency(example_op_mode_elem):
@@ -151,16 +168,32 @@ def test_fm_schedule_to_instructions(default_power_range):
         ],
         running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
     )
-    
+
     op_mode_id = get_unique_id()
     idle_mode_id = get_unique_id()
     actuator_id = get_unique_id()
 
-    op_mode = FRBCOperationMode(id=op_mode_id, elements=[elem], abnormal_condition_only=False, diagnostic_label="Active")
-    idle_mode = FRBCOperationMode(id=idle_mode_id, elements=[idle_elem], abnormal_condition_only=False, diagnostic_label="Idle")
+    op_mode = FRBCOperationMode(
+        id=op_mode_id,
+        elements=[elem],
+        abnormal_condition_only=False,
+        diagnostic_label="Active",
+    )
+    idle_mode = FRBCOperationMode(
+        id=idle_mode_id,
+        elements=[idle_elem],
+        abnormal_condition_only=False,
+        diagnostic_label="Idle",
+    )
 
-    actuator = FRBCActuatorDescription(id=actuator_id, operation_modes=[idle_mode, op_mode], supported_commodities=[Commodity.ELECTRICITY],transitions=[],timers=[])
-    
+    actuator = FRBCActuatorDescription(
+        id=actuator_id,
+        operation_modes=[idle_mode, op_mode],
+        supported_commodities=[Commodity.ELECTRICITY],
+        transitions=[],
+        timers=[],
+    )
+
     storage = FRBCStorageDescription(
         provides_leakage_behaviour=True,
         provides_fill_level_target_profile=True,
@@ -168,7 +201,12 @@ def test_fm_schedule_to_instructions(default_power_range):
         fill_level_range=NumberRange(start_of_range=0, end_of_range=1),
     )
 
-    system_description = FRBCSystemDescription(actuators=[actuator], storage=storage, message_id=get_unique_id(), valid_from=datetime(2024, 1, 1, tzinfo=timezone.utc))
+    system_description = FRBCSystemDescription(
+        actuators=[actuator],
+        storage=storage,
+        message_id=get_unique_id(),
+        valid_from=datetime(2024, 1, 1, tzinfo=timezone.utc),
+    )
 
     schedule = {
         "start": datetime(2024, 1, 1, tzinfo=timezone.utc).isoformat(),
@@ -176,7 +214,9 @@ def test_fm_schedule_to_instructions(default_power_range):
         "values": [0.0, 0.5, 1.5, 0.0],
     }
 
-    instructions = fm_schedule_to_instructions(schedule, system_description, initial_fill_level=0.5)
+    instructions = fm_schedule_to_instructions(
+        schedule, system_description, initial_fill_level=0.5
+    )
 
     assert len(instructions) == 4
     assert all(isinstance(instr, FRBCInstruction) for instr in instructions)

@@ -49,7 +49,7 @@ def frbc_system_description():
         id=get_unique_id(),
         elements=[thp_operation_mode_element],
         abnormal_condition_only=False,
-        diagnostic_label="THP"
+        diagnostic_label="THP",
     )
 
     nes_operation_mode_element = FRBCOperationModeElement(
@@ -68,7 +68,7 @@ def frbc_system_description():
         id=get_unique_id(),
         elements=[nes_operation_mode_element],
         abnormal_condition_only=False,
-        diagnostic_label="NES"
+        diagnostic_label="NES",
     )
 
     idle_operation_mode_element = FRBCOperationModeElement(
@@ -87,7 +87,7 @@ def frbc_system_description():
         id=get_unique_id(),
         elements=[idle_operation_mode_element],
         abnormal_condition_only=False,
-        diagnostic_label="idle"
+        diagnostic_label="idle",
     )
 
     actuator = FRBCActuatorDescription(

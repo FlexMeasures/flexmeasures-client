@@ -19,19 +19,20 @@ from pandas.compat._optional import import_optional_dependency
 import_optional_dependency("tzdata")
 
 
+from typing import cast
+
 import pydantic
 import pytz
-from typing import cast
 
 try:
     from s2python.common import NumberRange, ReceptionStatus, ReceptionStatusValues
     from s2python.frbc import (
         FRBCActuatorStatus,
         FRBCFillLevelTargetProfile,
+        FRBCLeakageBehaviour,
         FRBCStorageStatus,
         FRBCSystemDescription,
         FRBCUsageForecast,
-        FRBCLeakageBehaviour
     )
 except ImportError:
     raise ImportError(
@@ -42,13 +43,13 @@ except ImportError:
 
 from flexmeasures_client.s2 import register
 from flexmeasures_client.s2.control_types.FRBC import FRBC
+from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
 from flexmeasures_client.s2.control_types.translations import (
+    leakage_behaviour_to_storage_efficieny,
     translate_fill_level_target_profile,
     translate_usage_forecast_to_fm,
-    leakage_behaviour_to_storage_efficieny
 )
 from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
-from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
 
 RESOLUTION = "15min"
 ENERGY_UNIT = "MWh"
@@ -76,10 +77,10 @@ class FillRateBasedControlTUNES(FRBC):
     _usage_forecast_sensor_id: int | None
     _soc_minima_sensor_id: int | None
     _soc_maxima_sensor_id: int | None
-    _state_of_charge_sensor_id : int | None
+    _state_of_charge_sensor_id: int | None
 
-    _consumption_price_sensor_id : int | None
-    _production_price_sensor_id : int | None
+    _consumption_price_sensor_id: int | None
+    _production_price_sensor_id: int | None
 
     _timers: dict[str, datetime]
 
@@ -98,15 +99,15 @@ class FillRateBasedControlTUNES(FRBC):
         fill_rate_sensor_id: int | None = None,
         rm_discharge_sensor_id: int | None = None,
         active_actuator_id_sensor_id: int | None = None,
-        leakage_beaviour_sensor_id : int | None = None,
-        production_price_sensor : int | None = None,
-        consumption_price_sensor : int | None = None,
-        state_of_charge_sensor_id : int | None = None,
+        leakage_beaviour_sensor_id: int | None = None,
+        production_price_sensor: int | None = None,
+        consumption_price_sensor: int | None = None,
+        state_of_charge_sensor_id: int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
         valid_from_shift: timedelta = timedelta(days=1),
-        **kwargs
+        **kwargs,
     ) -> None:
         super().__init__(max_size)
 
@@ -185,7 +186,11 @@ class FillRateBasedControlTUNES(FRBC):
             await self._fm_client.post_measurements(
                 self._leakage_beaviour_sensor_id,
                 start=self.now(),
-                values=[leakage_behaviour_to_storage_efficieny(message=leakage, resolution=timedelta(minutes=15))],
+                values=[
+                    leakage_behaviour_to_storage_efficieny(
+                        message=leakage, resolution=timedelta(minutes=15)
+                    )
+                ],
                 unit=PERCENTAGE,
                 duration=timedelta(minutes=15),
             )
@@ -195,7 +200,6 @@ class FillRateBasedControlTUNES(FRBC):
                 status=ReceptionStatusValues.PERMANENT_ERROR,
             )
             await self._sending_queue.put(response)
-
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         if not self.is_timer_due("actuator_status"):
@@ -324,39 +328,45 @@ class FillRateBasedControlTUNES(FRBC):
         charging_capacity = operation_mode.elements[0].fill_rate.end_of_range
 
         start = self.now()
-        start = start.replace(minute = (start.minute // 15) * 15, second=0, microsecond=0)
-        
-        soc_at_start = next(reversed(self._system_description_history.values())).storage.fill_level_range.end_of_range
+        start = start.replace(minute=(start.minute // 15) * 15, second=0, microsecond=0)
+
+        soc_at_start = next(
+            reversed(self._system_description_history.values())
+        ).storage.fill_level_range.end_of_range
 
         if len(self._storage_status_history) > 0:
-            last_storage_status : FRBCStorageStatus = next(reversed(self._storage_status_history.values()))
-            soc_at_start = 0 # last_storage_status.present_fill_level
+            last_storage_status: FRBCStorageStatus = next(
+                reversed(self._storage_status_history.values())
+            )
+            soc_at_start = 0  # last_storage_status.present_fill_level
 
         schedule = await self._fm_client.trigger_and_get_schedule(
             self._rm_discharge_sensor_id,
             start=start,
             duration="PT24H",
             flex_context={
-                "consumption-price" : {"sensor" : self._consumption_price_sensor_id},
-                "production-price" : {"sensor" : self._production_price_sensor_id},
-                "site-power-capacity" : "1000MVA"
+                "consumption-price": {"sensor": self._consumption_price_sensor_id},
+                "production-price": {"sensor": self._production_price_sensor_id},
+                "site-power-capacity": "1000MVA",
             },
             flex_model={
-                "state-of-charge" : {"sensor" : self._state_of_charge_sensor_id},
-                "soc-at-start" : f"{soc_at_start} {ENERGY_UNIT}",
-                "soc-max" : f"{soc_max} {ENERGY_UNIT}",
-                "soc-min" : f"{soc_min} {ENERGY_UNIT}",
-                "soc-usage" : [{"sensor" : self._usage_forecast_sensor_id}],
+                "state-of-charge": {"sensor": self._state_of_charge_sensor_id},
+                "soc-at-start": f"{soc_at_start} {ENERGY_UNIT}",
+                "soc-max": f"{soc_max} {ENERGY_UNIT}",
+                "soc-min": f"{soc_min} {ENERGY_UNIT}",
+                "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
                 # "storage-efficiency" : {"sensor" : self._leakage_beaviour_sensor_id},
-                "storage-efficiency" : "99%",
-                "charging-efficiency" : {"sensor" : self._nes_efficiency_sensor_id},
-                "power-capacity" : f"{charging_capacity} {POWER_UNIT}",
-                "consumption-capacity" : f"{charging_capacity} {POWER_UNIT}",
-                "production-capacity" : f"0 {POWER_UNIT}"
-            }
+                "storage-efficiency": "99%",
+                "charging-efficiency": {"sensor": self._nes_efficiency_sensor_id},
+                "power-capacity": f"{charging_capacity} {POWER_UNIT}",
+                "consumption-capacity": f"{charging_capacity} {POWER_UNIT}",
+                "production-capacity": f"0 {POWER_UNIT}",
+            },
         )
 
-        instructions = fm_schedule_to_instructions(schedule, system_description, soc_at_start)
+        instructions = fm_schedule_to_instructions(
+            schedule, system_description, soc_at_start
+        )
 
         # Put the instruction in the sending queue
         for instruction in instructions:
@@ -418,7 +428,7 @@ class FillRateBasedControlTUNES(FRBC):
             if "THP" in operation_mode.diagnostic_label:
                 sensor_id = self._thp_efficiency_sensor_id
             elif "NES" in operation_mode.diagnostic_label:
-                sensor_id=self._nes_efficiency_sensor_id
+                sensor_id = self._nes_efficiency_sensor_id
             else:
                 continue
 
@@ -434,7 +444,6 @@ class FillRateBasedControlTUNES(FRBC):
                 unit=PERCENTAGE,
                 duration=CONVERSION_EFFICIENCY_DURATION,
             )
-
 
     async def close(self):
         """
@@ -455,9 +464,11 @@ class FillRateBasedControlTUNES(FRBC):
             return
 
         start_time = usage_forecast.start_time
-        
-            # flooring to previous 15min tick
-        start_time = start_time.replace(minute = (start_time.minute // 15) * 15, second=0, microsecond=0)
+
+        # flooring to previous 15min tick
+        start_time = start_time.replace(
+            minute=(start_time.minute // 15) * 15, second=0, microsecond=0
+        )
 
         usage_forecast = translate_usage_forecast_to_fm(
             usage_forecast, RESOLUTION, strategy="mean"
