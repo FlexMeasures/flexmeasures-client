@@ -55,12 +55,18 @@ def leakage_behaviour_to_storage_efficieny(
     """
 
     last_element = message.elements[-1]
-    return (
-        1
-        - (resolution / timedelta(seconds=1))
-        * last_element.leakage_rate
-        / last_element.fill_level_range.end_of_range
-    )
+    max_fill_level = max(e.fill_level_range.end_of_range for e in message.elements)
+    
+    # Discuss conversions
+    # storage_efficiency = (
+    #     (100
+    #     * last_element.leakage_rate
+    #     / max_fill_level)**(resolution / timedelta(seconds=1))
+    # )
+
+    storage_efficiency = last_element.leakage_rate / max_fill_level
+
+    return storage_efficiency
 
 
 def unevenly_ts_to_evenly(
