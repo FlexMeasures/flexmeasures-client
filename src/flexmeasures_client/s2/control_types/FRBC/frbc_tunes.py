@@ -31,6 +31,7 @@ try:
         FRBCStorageStatus,
         FRBCSystemDescription,
         FRBCUsageForecast,
+        FRBCLeakageBehaviour
     )
 except ImportError:
     raise ImportError(
@@ -64,6 +65,7 @@ class FillRateBasedControlTUNES(FRBC):
     _thp_efficiency_sensor_id: int | None
     _nes_fill_rate_sensor_id: int | None
     _nes_efficiency_sensor_id: int | None
+    _leakage_beaviour_sensor_id: int | None
 
     _active_actuator_id_sensor_id: int | None
 
@@ -90,6 +92,7 @@ class FillRateBasedControlTUNES(FRBC):
         fill_rate_sensor_id: int | None = None,
         rm_discharge_sensor_id: int | None = None,
         active_actuator_id_sensor_id: int | None = None,
+        leakage_beaviour_sensor_id : int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
@@ -105,6 +108,7 @@ class FillRateBasedControlTUNES(FRBC):
         self._thp_efficiency_sensor_id = thp_efficiency_sensor_id
         self._nes_fill_rate_sensor_id = nes_fill_rate_sensor_id
         self._nes_efficiency_sensor_id = nes_efficiency_sensor_id
+        self._leakage_beaviour_sensor_id = leakage_beaviour_sensor_id
 
         self._active_actuator_id_sensor_id = active_actuator_id_sensor_id
 
@@ -159,6 +163,26 @@ class FillRateBasedControlTUNES(FRBC):
                 status=ReceptionStatusValues.PERMANENT_ERROR,
             )
             await self._sending_queue.put(response)
+
+    async def send_leakage_behaviour(self, leakage: FRBCLeakageBehaviour):
+        if not self.is_timer_due("leakage_behaviour"):
+            return
+
+        try:
+            await self._fm_client.post_measurements(
+                self._leakage_beaviour_sensor_id,
+                start=self.now(),
+                values=[leakage_behaviour_to_storage_efficieny(message=leakage, resolution=timedelta(minutes=15))],
+                unit=PERCENTAGE,
+                duration=timedelta(minutes=15),
+            )
+        except Exception as e:
+            response = ReceptionStatus(
+                subject_message_id=leakage.message_id,
+                status=ReceptionStatusValues.PERMANENT_ERROR,
+            )
+            await self._sending_queue.put(response)
+
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         if not self.is_timer_due("actuator_status"):

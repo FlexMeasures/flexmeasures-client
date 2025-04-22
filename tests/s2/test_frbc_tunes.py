@@ -33,6 +33,7 @@ async def setup_cem(resource_manager_details, rm_handshake):
         usage_forecast_sensor_id=12,
         fill_rate_sensor_id=13,
         active_actuator_id_sensor_id=14,
+        leakage_beaviour_sensor_id = 15,
         timezone="UTC",
         schedule_duration=timedelta(hours=12),
         max_size=100,
