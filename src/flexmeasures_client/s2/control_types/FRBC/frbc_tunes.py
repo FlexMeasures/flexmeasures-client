@@ -45,6 +45,7 @@ from flexmeasures_client.s2.control_types.FRBC import FRBC
 from flexmeasures_client.s2.control_types.translations import (
     translate_fill_level_target_profile,
     translate_usage_forecast_to_fm,
+    leakage_behaviour_to_storage_efficieny
 )
 from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
 
@@ -368,36 +369,27 @@ class FillRateBasedControlTUNES(FRBC):
             pd.Timedelta(CONVERSION_EFFICIENCY_DURATION) / pd.Timedelta(RESOLUTION)
         )
 
-        thp_op_mode_element = actuator.operation_modes[0].elements[-1]
-        nes_op_mode_element = actuator.operation_modes[1].elements[-1]
+        for operation_mode in actuator.operation_modes:
+            if "THP" in operation_mode.diagnostic_label:
+                sensor_id = self._thp_efficiency_sensor_id
+            elif "NES" in operation_mode.diagnostic_label:
+                sensor_id=self._nes_efficiency_sensor_id
+            else:
+                continue
 
-        # THP efficiencies: Calculate and post measurements for THP efficiencies
-        await self._fm_client.post_measurements(
-            sensor_id=self._thp_efficiency_sensor_id,
-            start=start,
-            values=[
-                100
-                * thp_op_mode_element.fill_rate.end_of_range
-                / thp_op_mode_element.power_ranges[0].end_of_range
-            ]
-            * N_SAMPLES,
-            unit=PERCENTAGE,
-            duration=CONVERSION_EFFICIENCY_DURATION,
-        )
+            await self._fm_client.post_measurements(
+                sensor_id=cast(int, sensor_id),
+                start=start,
+                values=[
+                    100
+                    * operation_mode.elements[-1].fill_rate.end_of_range
+                    / operation_mode.elements[-1].power_ranges[0].end_of_range
+                ]
+                * N_SAMPLES,
+                unit=PERCENTAGE,
+                duration=CONVERSION_EFFICIENCY_DURATION,
+            )
 
-        # NES efficiencies: Calculate and post measurements for NES efficiencies
-        await self._fm_client.post_measurements(
-            sensor_id=self._nes_efficiency_sensor_id,
-            start=start,
-            values=[
-                100
-                * nes_op_mode_element.fill_rate.end_of_range
-                / nes_op_mode_element.power_ranges[0].end_of_range
-            ]
-            * N_SAMPLES,
-            unit=PERCENTAGE,
-            duration=CONVERSION_EFFICIENCY_DURATION,
-        )
 
     async def close(self):
         """
