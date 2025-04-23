@@ -1,77 +1,225 @@
 from __future__ import annotations
 
-import math
+from datetime import datetime, timezone
 
+import numpy as np
 import pytest
-from s2python.common import CommodityQuantity, NumberRange, PowerRange
-from s2python.frbc import FRBCOperationMode, FRBCOperationModeElement
+from s2python.common import Commodity, CommodityQuantity, NumberRange, PowerRange
+from s2python.frbc import (
+    FRBCActuatorDescription,
+    FRBCInstruction,
+    FRBCOperationMode,
+    FRBCOperationModeElement,
+    FRBCStorageDescription,
+    FRBCSystemDescription,
+)
 
 from flexmeasures_client.s2.control_types.FRBC.utils import (
-    compute_factor,
+    fm_schedule_to_instructions,
     get_unique_id,
+    op_mode_compute_factor,
+    op_mode_elem_efficiency,
+    op_mode_elem_is_fill_level_in_range,
+    op_mode_max_fill_rate,
+    op_mode_range,
 )
+
+
+@pytest.fixture
+def default_power_range():
+    return [
+        PowerRange(
+            start_of_range=100.0,
+            end_of_range=200.0,
+            commodity_quantity=CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC,
+        )
+    ]
+
+
+@pytest.fixture
+def example_op_mode_elem(default_power_range):
+    return FRBCOperationModeElement(
+        fill_level_range=NumberRange(start_of_range=0.0, end_of_range=0.5),
+        fill_rate=NumberRange(start_of_range=0.0, end_of_range=1.0),
+        power_ranges=default_power_range,
+        running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
+    )
 
 
 @pytest.mark.parametrize(
-    "fill_level, fill_rate, expected_factor",
+    "fill_rate_range, input_fill_rate, expected_factor",
     [
-        (-1, 0.1, None),
-        (10, 0.1, None),
-        (0.1, 0.1, 0.1),
-        (0.26, 0.1, 0.05),
-        (0.75, 0.1, 0.05),
+        ((0.0, 1.0), 0.0, 0.0),
+        ((0.0, 1.0), 0.5, 0.5),
+        ((0.0, 1.0), 1.0, 1.0),
+        ((2.0, 4.0), 3.0, 0.5),
+        ((1.0, 1.0), 1.0, 1.0),
     ],
 )
-def test_compute_factor(fill_level: float, fill_rate: float, expected_factor: float):
-    """_summary_
-
-    :param fill_level: _description_
-    :type fill_level: float
-    :param fill_rate: _description_
-    :type fill_rate: float
-    :param expected_factor: _description_
-    :type expected_factor: float
-    """
-
-    fill_rate_start = 0
-
-    power_range = PowerRange(
-        start_of_range=1000,
-        end_of_range=1000,
-        commodity_quantity=CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC,
-    )  # assume constant power consumption
-
-    operation_mode_elements = []
-
-    fill_level_range = [(0, 0.25), (0.25, 0.75), (0.75, 1)]
-    fill_rate_range = [(0, 1), (0, 2), (0, 1)]
-
-    for (fill_level_start, fill_level_end), (fill_rate_start, fill_rate_end) in zip(
-        fill_level_range, fill_rate_range
-    ):
-        operation_mode_element = FRBCOperationModeElement(
-            fill_level_range=NumberRange(
-                start_of_range=fill_level_start, end_of_range=fill_level_end
-            ),
-            fill_rate=NumberRange(
-                start_of_range=fill_rate_start, end_of_range=fill_rate_end
-            ),
-            power_ranges=[power_range],
-            running_costs=NumberRange(start_of_range=1, end_of_range=1),
-        )
-
-        operation_mode_elements.append(operation_mode_element)
-
-    operation_mode = FRBCOperationMode(
-        id=get_unique_id(),
-        elements=operation_mode_elements,
-        abnormal_condition_only=False,
-        diagnostic_label="",
+def test_op_mode_compute_factor(
+    fill_rate_range, input_fill_rate, expected_factor, default_power_range
+):
+    op_mode_elem = FRBCOperationModeElement(
+        fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
+        fill_rate=NumberRange(
+            start_of_range=fill_rate_range[0], end_of_range=fill_rate_range[1]
+        ),
+        power_ranges=default_power_range,
+        running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
     )
 
-    factor = compute_factor(operation_mode, fill_level, fill_rate)
+    factor = op_mode_compute_factor(op_mode_elem, fill_rate=input_fill_rate)
+    assert np.isclose(factor, expected_factor)
 
-    if expected_factor:
-        assert math.isclose(factor, expected_factor)
-    else:
-        assert factor is None
+
+@pytest.mark.parametrize(
+    "ranges, expected",
+    [
+        ([(0.1, 0.3), (0.3, 0.8)], (0.1, 0.8)),
+        ([(0.0, 0.1), (0.1, 0.2), (0.2, 0.3)], (0.0, 0.3)),
+    ],
+)
+def test_op_mode_range(ranges, expected, default_power_range):
+    elements = [
+        FRBCOperationModeElement(
+            fill_level_range=NumberRange(start_of_range=start, end_of_range=end),
+            fill_rate=NumberRange(start_of_range=0.0, end_of_range=1.0),
+            power_ranges=default_power_range,
+            running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
+        )
+        for start, end in ranges
+    ]
+    op_mode_id = get_unique_id()
+    op_mode = FRBCOperationMode(
+        id=op_mode_id,
+        elements=elements,
+        abnormal_condition_only=False,
+        diagnostic_label="test",
+    )
+    assert op_mode_range(op_mode) == expected
+
+
+@pytest.mark.parametrize(
+    "fill_rates, expected_max",
+    [
+        ([(0.0, 1.0), (0.0, 2.0)], 2.0),
+        ([(0.0, 0.5), (0.0, 0.9)], 0.9),
+    ],
+)
+def test_op_mode_max_fill_rate(fill_rates, expected_max, default_power_range):
+    elements = [
+        FRBCOperationModeElement(
+            fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
+            fill_rate=NumberRange(start_of_range=start, end_of_range=end),
+            power_ranges=default_power_range,
+            running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
+        )
+        for start, end in fill_rates
+    ]
+    op_mode_id = get_unique_id()
+    op_mode = FRBCOperationMode(
+        id=op_mode_id,
+        elements=elements,
+        abnormal_condition_only=False,
+        diagnostic_label="test",
+    )
+    assert op_mode_max_fill_rate(op_mode) == expected_max
+
+
+@pytest.mark.parametrize(
+    "fill_level, expected",
+    [
+        (0.25, True),
+        (0.5, True),
+        (0.51, False),
+        (-0.1, False),
+    ],
+)
+def test_op_mode_elem_is_fill_level_in_range(
+    example_op_mode_elem, fill_level, expected
+):
+    assert (
+        op_mode_elem_is_fill_level_in_range(example_op_mode_elem, fill_level)
+        is expected
+    )
+
+
+def test_op_mode_elem_efficiency(example_op_mode_elem):
+    assert np.isclose(op_mode_elem_efficiency(example_op_mode_elem), 200.0 / 1.0)
+
+
+def test_fm_schedule_to_instructions(default_power_range):
+    elem = FRBCOperationModeElement(
+        fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
+        fill_rate=NumberRange(start_of_range=0.0, end_of_range=2.0),
+        power_ranges=default_power_range,
+        running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
+    )
+
+    idle_elem = FRBCOperationModeElement(
+        fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
+        fill_rate=NumberRange(start_of_range=0.0, end_of_range=0.0),
+        power_ranges=[
+            PowerRange(
+                start_of_range=0.0,
+                end_of_range=0.0,
+                commodity_quantity=CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC,
+            )
+        ],
+        running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
+    )
+
+    op_mode_id = get_unique_id()
+    idle_mode_id = get_unique_id()
+    actuator_id = get_unique_id()
+
+    op_mode = FRBCOperationMode(
+        id=op_mode_id,
+        elements=[elem],
+        abnormal_condition_only=False,
+        diagnostic_label="Active",
+    )
+    idle_mode = FRBCOperationMode(
+        id=idle_mode_id,
+        elements=[idle_elem],
+        abnormal_condition_only=False,
+        diagnostic_label="Idle",
+    )
+
+    actuator = FRBCActuatorDescription(
+        id=actuator_id,
+        operation_modes=[idle_mode, op_mode],
+        supported_commodities=[Commodity.ELECTRICITY],
+        transitions=[],
+        timers=[],
+    )
+
+    storage = FRBCStorageDescription(
+        provides_leakage_behaviour=True,
+        provides_fill_level_target_profile=True,
+        provides_usage_forecast=True,
+        fill_level_range=NumberRange(start_of_range=0, end_of_range=1),
+    )
+
+    system_description = FRBCSystemDescription(
+        actuators=[actuator],
+        storage=storage,
+        message_id=get_unique_id(),
+        valid_from=datetime(2024, 1, 1, tzinfo=timezone.utc),
+    )
+
+    schedule = {
+        "start": datetime(2024, 1, 1, tzinfo=timezone.utc).isoformat(),
+        "duration": "PT1H",
+        "values": [0.0, 0.5, 1.5, 0.0],
+    }
+
+    instructions = fm_schedule_to_instructions(
+        schedule, system_description, initial_fill_level=0.5
+    )
+
+    assert len(instructions) == 4
+    assert all(isinstance(instr, FRBCInstruction) for instr in instructions)
+
+    assert str(instructions[0].operation_mode) == idle_mode_id
+    assert str(instructions[1].operation_mode) == op_mode_id

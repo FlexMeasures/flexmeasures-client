@@ -19,6 +19,8 @@ from pandas.compat._optional import import_optional_dependency
 import_optional_dependency("tzdata")
 
 
+from typing import cast
+
 import pydantic
 import pytz
 
@@ -27,7 +29,7 @@ try:
     from s2python.frbc import (
         FRBCActuatorStatus,
         FRBCFillLevelTargetProfile,
-        FRBCInstruction,
+        FRBCLeakageBehaviour,
         FRBCStorageStatus,
         FRBCSystemDescription,
         FRBCUsageForecast,
@@ -41,7 +43,9 @@ except ImportError:
 
 from flexmeasures_client.s2 import register
 from flexmeasures_client.s2.control_types.FRBC import FRBC
+from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
 from flexmeasures_client.s2.control_types.translations import (
+    leakage_behaviour_to_storage_efficieny,
     translate_fill_level_target_profile,
     translate_usage_forecast_to_fm,
 )
@@ -64,6 +68,7 @@ class FillRateBasedControlTUNES(FRBC):
     _thp_efficiency_sensor_id: int | None
     _nes_fill_rate_sensor_id: int | None
     _nes_efficiency_sensor_id: int | None
+    _leakage_beaviour_sensor_id: int | None
 
     _active_actuator_id_sensor_id: int | None
 
@@ -72,10 +77,14 @@ class FillRateBasedControlTUNES(FRBC):
     _usage_forecast_sensor_id: int | None
     _soc_minima_sensor_id: int | None
     _soc_maxima_sensor_id: int | None
+    _state_of_charge_sensor_id: int | None
+
+    _consumption_price_sensor_id: int | None
+    _production_price_sensor_id: int | None
 
     _timers: dict[str, datetime]
 
-    MIN_MEASUREMENT_PERIOD: int = 5  # in minutes
+    MIN_MEASUREMENT_PERIOD: int = 10  # in minutes
 
     def __init__(
         self,
@@ -90,11 +99,15 @@ class FillRateBasedControlTUNES(FRBC):
         fill_rate_sensor_id: int | None = None,
         rm_discharge_sensor_id: int | None = None,
         active_actuator_id_sensor_id: int | None = None,
+        leakage_beaviour_sensor_id: int | None = None,
+        production_price_sensor: int | None = None,
+        consumption_price_sensor: int | None = None,
+        state_of_charge_sensor_id: int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
         valid_from_shift: timedelta = timedelta(days=1),
-        **kwargs
+        **kwargs,
     ) -> None:
         super().__init__(max_size)
 
@@ -105,6 +118,7 @@ class FillRateBasedControlTUNES(FRBC):
         self._thp_efficiency_sensor_id = thp_efficiency_sensor_id
         self._nes_fill_rate_sensor_id = nes_fill_rate_sensor_id
         self._nes_efficiency_sensor_id = nes_efficiency_sensor_id
+        self._leakage_beaviour_sensor_id = leakage_beaviour_sensor_id
 
         self._active_actuator_id_sensor_id = active_actuator_id_sensor_id
 
@@ -114,6 +128,10 @@ class FillRateBasedControlTUNES(FRBC):
         self._soc_minima_sensor_id = soc_minima_sensor_id
         self._soc_maxima_sensor_id = soc_maxima_sensor_id
         self._rm_discharge_sensor_id = rm_discharge_sensor_id
+        self._state_of_charge_sensor_id = state_of_charge_sensor_id
+
+        self._consumption_price_sensor_id = consumption_price_sensor
+        self._production_price_sensor_id = production_price_sensor
 
         self._timezone = pytz.timezone(timezone)
 
@@ -139,7 +157,7 @@ class FillRateBasedControlTUNES(FRBC):
             return False
 
     def now(self):
-        return self._timezone.localize(datetime.now())
+        return datetime.now(self._timezone)
 
     async def send_storage_status(self, status: FRBCStorageStatus):
         if not self.is_timer_due("storage_status"):
@@ -156,6 +174,29 @@ class FillRateBasedControlTUNES(FRBC):
         except Exception as e:
             response = ReceptionStatus(
                 subject_message_id=status.message_id,
+                status=ReceptionStatusValues.PERMANENT_ERROR,
+            )
+            await self._sending_queue.put(response)
+
+    async def send_leakage_behaviour(self, leakage: FRBCLeakageBehaviour):
+        if not self.is_timer_due("leakage_behaviour"):
+            return
+
+        try:
+            await self._fm_client.post_measurements(
+                self._leakage_beaviour_sensor_id,
+                start=self.now(),
+                values=[
+                    leakage_behaviour_to_storage_efficieny(
+                        message=leakage, resolution=timedelta(minutes=15)
+                    )
+                ],
+                unit=PERCENTAGE,
+                duration=timedelta(minutes=15),
+            )
+        except Exception as e:
+            response = ReceptionStatus(
+                subject_message_id=leakage.message_id,
                 status=ReceptionStatusValues.PERMANENT_ERROR,
             )
             await self._sending_queue.put(response)
@@ -269,28 +310,67 @@ class FillRateBasedControlTUNES(FRBC):
         fill_level_range: NumberRange = system_description.storage.fill_level_range
 
         # get SOC Max and Min to be sent on the Flex Model
-        soc_min = fill_level_range.end_of_range
-        soc_max = fill_level_range.start_of_range
+        soc_min = fill_level_range.start_of_range
+        soc_max = fill_level_range.end_of_range
 
-        operation_mode = actuator.operation_modes[0]
-        operation_mode_factor = 0.1
+        operation_mode = None
+        for _operation_mode in actuator.operation_modes:
+            if "THP" in _operation_mode.diagnostic_label:
+                operation_mode = _operation_mode
+            elif "NES" in _operation_mode.diagnostic_label:
+                operation_mode = _operation_mode
+            else:
+                continue
 
-        # TODO: 1) Call FlexMeasures
-        # TODO: 2) Select with which actuator to send the instruction
-        # TODO: 3) Create operation_mode_factor from power (we have a function for that)
+        if operation_mode is None:
+            print("ERROR: Couldn't find a valid operation mode.")
 
-        instruction = FRBCInstruction(
-            message_id=get_unique_id(),
-            id=get_unique_id(),
-            actuator_id=actuator.id,
-            operation_mode=operation_mode.id,  # Based on the expeted fill_level, select the best actuator (most efficient) to fulfill a certain fill_rate
-            operation_mode_factor=operation_mode_factor,
-            execution_time=self.now(),
-            abnormal_condition=False,
+        charging_capacity = operation_mode.elements[0].fill_rate.end_of_range
+
+        start = self.now()
+        start = start.replace(minute=(start.minute // 15) * 15, second=0, microsecond=0)
+
+        soc_at_start = next(
+            reversed(self._system_description_history.values())
+        ).storage.fill_level_range.end_of_range
+
+        if len(self._storage_status_history) > 0:
+            last_storage_status: FRBCStorageStatus = next(
+                reversed(self._storage_status_history.values())
+            )
+            soc_at_start = 0  # last_storage_status.present_fill_level
+
+        schedule = await self._fm_client.trigger_and_get_schedule(
+            self._rm_discharge_sensor_id,
+            start=start,
+            duration="PT24H",
+            flex_context={
+                "consumption-price": {"sensor": self._consumption_price_sensor_id},
+                "production-price": {"sensor": self._production_price_sensor_id},
+                "site-power-capacity": "1000MVA",
+            },
+            flex_model={
+                "state-of-charge": {"sensor": self._state_of_charge_sensor_id},
+                "soc-at-start": f"{soc_at_start} {ENERGY_UNIT}",
+                "soc-max": f"{soc_max} {ENERGY_UNIT}",
+                "soc-min": f"{soc_min} {ENERGY_UNIT}",
+                "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
+                # "storage-efficiency" : {"sensor" : self._leakage_beaviour_sensor_id},
+                "storage-efficiency": "99%",
+                "charging-efficiency": {"sensor": self._nes_efficiency_sensor_id},
+                "power-capacity": f"{charging_capacity} {POWER_UNIT}",
+                "consumption-capacity": f"{charging_capacity} {POWER_UNIT}",
+                "production-capacity": f"0 {POWER_UNIT}",
+            },
+        )
+
+        instructions = fm_schedule_to_instructions(
+            schedule, system_description, soc_at_start
         )
 
         # Put the instruction in the sending queue
-        await self._sending_queue.put(instruction)
+        for instruction in instructions:
+            await self._sending_queue.put(instruction)
 
     @register(FRBCSystemDescription)
     def handle_system_description(
@@ -344,36 +424,26 @@ class FillRateBasedControlTUNES(FRBC):
             pd.Timedelta(CONVERSION_EFFICIENCY_DURATION) / pd.Timedelta(RESOLUTION)
         )
 
-        thp_op_mode_element = actuator.operation_modes[0].elements[-1]
-        nes_op_mode_element = actuator.operation_modes[1].elements[-1]
+        for operation_mode in actuator.operation_modes:
+            if "THP" in operation_mode.diagnostic_label:
+                sensor_id = self._thp_efficiency_sensor_id
+            elif "NES" in operation_mode.diagnostic_label:
+                sensor_id = self._nes_efficiency_sensor_id
+            else:
+                continue
 
-        # THP efficiencies: Calculate and post measurements for THP efficiencies
-        await self._fm_client.post_measurements(
-            sensor_id=self._thp_efficiency_sensor_id,
-            start=start,
-            values=[
-                100
-                * thp_op_mode_element.fill_rate.end_of_range
-                / thp_op_mode_element.power_ranges[0].end_of_range
-            ]
-            * N_SAMPLES,
-            unit=PERCENTAGE,
-            duration=CONVERSION_EFFICIENCY_DURATION,
-        )
-
-        # NES efficiencies: Calculate and post measurements for NES efficiencies
-        await self._fm_client.post_measurements(
-            sensor_id=self._nes_efficiency_sensor_id,
-            start=start,
-            values=[
-                100
-                * nes_op_mode_element.fill_rate.end_of_range
-                / nes_op_mode_element.power_ranges[0].end_of_range
-            ]
-            * N_SAMPLES,
-            unit=PERCENTAGE,
-            duration=CONVERSION_EFFICIENCY_DURATION,
-        )
+            await self._fm_client.post_measurements(
+                sensor_id=cast(int, sensor_id),
+                start=start,
+                values=[
+                    100
+                    * operation_mode.elements[-1].fill_rate.end_of_range
+                    / operation_mode.elements[-1].power_ranges[0].end_of_range
+                ]
+                * N_SAMPLES,
+                unit=PERCENTAGE,
+                duration=CONVERSION_EFFICIENCY_DURATION,
+            )
 
     async def close(self):
         """
@@ -394,7 +464,11 @@ class FillRateBasedControlTUNES(FRBC):
             return
 
         start_time = usage_forecast.start_time
-        # todo: floor to RESOLUTION
+
+        # flooring to previous 15min tick
+        start_time = start_time.replace(
+            minute=(start_time.minute // 15) * 15, second=0, microsecond=0
+        )
 
         usage_forecast = translate_usage_forecast_to_fm(
             usage_forecast, RESOLUTION, strategy="mean"
