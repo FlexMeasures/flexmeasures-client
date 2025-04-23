@@ -59,9 +59,8 @@ def leakage_behaviour_to_storage_efficieny(
 
     # Discuss conversions
     # storage_efficiency = (
-    #     (100
-    #     * last_element.leakage_rate
-    #     / max_fill_level)**(resolution / timedelta(seconds=1))
+    #     100*(1- (last_element.leakage_rate
+    #     / max_fill_level))**(resolution / timedelta(seconds=1))
     # )
 
     storage_efficiency = last_element.leakage_rate / max_fill_level
