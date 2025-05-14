@@ -11,6 +11,8 @@ try:
         FRBCLeakageBehaviour,
         FRBCUsageForecast,
     )
+
+    from flexmeasures_client.s2.const import FILL_LEVEL_SCALE
 except ImportError:
     raise ImportError(
         "The 's2-python' package is required for this functionality. "
@@ -55,15 +57,16 @@ def leakage_behaviour_to_storage_efficieny(
     """
 
     last_element = message.elements[-1]
-    max_fill_level = max(e.fill_level_range.end_of_range for e in message.elements)
+    max_fill_level = max(
+        e.fill_level_range.end_of_range * FILL_LEVEL_SCALE for e in message.elements
+    )
+    leakage = last_element.leakage_rate * FILL_LEVEL_SCALE
+    base_resolution = timedelta(hours=1)  # TODO: use timedelta(seconds=1)
 
     # Discuss conversions
-    # storage_efficiency = (
-    #     100*(1- (last_element.leakage_rate
-    #     / max_fill_level))**(resolution / timedelta(seconds=1))
-    # )
-
-    storage_efficiency = last_element.leakage_rate / max_fill_level
+    storage_efficiency = 100 * (1 - (leakage / max_fill_level)) ** (
+        resolution / base_resolution
+    )
 
     return storage_efficiency
 
@@ -146,7 +149,10 @@ def translate_usage_forecast_to_fm(
     start = pd.Timestamp(usage_forecast.start_time)
 
     durations = [element.duration.to_timedelta() for element in usage_forecast.elements]
-    values = [element.usage_rate_expected for element in usage_forecast.elements]
+    values = [
+        element.usage_rate_expected * FILL_LEVEL_SCALE
+        for element in usage_forecast.elements
+    ]
 
     return unevenly_ts_to_evenly(
         start=start,
@@ -179,11 +185,11 @@ def translate_fill_level_target_profile(
     ]
 
     soc_minima_values = [
-        element.fill_level_range.start_of_range
+        element.fill_level_range.start_of_range * FILL_LEVEL_SCALE
         for element in fill_level_target_profile.elements
     ]
     soc_maxima_values = [
-        element.fill_level_range.end_of_range
+        element.fill_level_range.end_of_range * FILL_LEVEL_SCALE
         for element in fill_level_target_profile.elements
     ]
 

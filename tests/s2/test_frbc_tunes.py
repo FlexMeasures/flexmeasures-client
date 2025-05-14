@@ -5,10 +5,10 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import numpy as np
-import pandas as pd
 import pytest
 from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
 
+import flexmeasures_client.s2.control_types.FRBC.frbc_tunes as frbc_tunes
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC.frbc_tunes import (
@@ -18,15 +18,31 @@ from flexmeasures_client.s2.utils import get_unique_id
 
 
 @pytest.fixture(scope="function")
-async def setup_cem(resource_manager_details, rm_handshake):
+async def setup_cem(resource_manager_details, rm_handshake, monkeypatch):
+    monkeypatch.setattr(frbc_tunes, "FILL_LEVEL_SCALE", 1)
+
     fm_client = AsyncMock(FlexMeasuresClient)
 
     # Mock trigger_and_get_schedule response
     fm_client.trigger_and_get_schedule.return_value = {
         "start": datetime(2024, 1, 1, tzinfo=timezone.utc).isoformat(),
         "duration": "PT1H",
-        "values": [0.0, 0.5, 1.5, 0.0],
+        "values": [0.0, 0.5, 1.5, 0.0] + [0] * 92,
     }
+
+    fm_client.get_sensor_data = AsyncMock(
+        side_effect=lambda sensor_id, *args, **kwargs: {
+            "start": datetime(2024, 1, 1, tzinfo=timezone.utc).isoformat(),
+            "duration": "PT24H",
+            "values": (
+                [0.002] * 96
+                if sensor_id == 9  # THP efficiency
+                else (
+                    [0.001] * 96 if sensor_id == 11 else [0.0] * 96  # NES efficiency
+                )  # default for others
+            ),
+        }
+    )
 
     cem = CEM(fm_client=fm_client)
 
@@ -101,7 +117,11 @@ async def cem_in_frbc_control_type(setup_cem, frbc_system_description):
 
 
 @pytest.mark.asyncio
-async def test_system_description(cem_in_frbc_control_type, frbc_system_description):
+async def test_system_description(
+    cem_in_frbc_control_type, frbc_system_description, monkeypatch
+):
+    monkeypatch.setattr(frbc_tunes, "FILL_LEVEL_SCALE", 1)
+
     cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
 
     ########
@@ -115,22 +135,14 @@ async def test_system_description(cem_in_frbc_control_type, frbc_system_descript
 
     # check that we are sending the conversion efficiencies
     await tasks["send_conversion_efficiencies"]
-    from flexmeasures_client.s2.control_types.FRBC.frbc_tunes import (
-        CONVERSION_EFFICIENCY_DURATION,
-        RESOLUTION,
-    )
-
-    N_SAMPLES = int(
-        pd.Timedelta(CONVERSION_EFFICIENCY_DURATION) / pd.Timedelta(RESOLUTION)
-    )
 
     # first call of post_measurements which corresponds to the THP efficiency
     first_call = fm_client.post_measurements.call_args_list[0][1]
     first_call_expected = {
         "sensor_id": frbc._thp_efficiency_sensor_id,
         "start": datetime(2024, 1, 1, tzinfo=timezone.utc),
-        "values": [0.2] * N_SAMPLES,
-        "unit": "%",
+        "values": [7.2],
+        "unit": "dimensionless",
         "duration": "PT24H",
     }
     for key in first_call.keys():
@@ -142,8 +154,8 @@ async def test_system_description(cem_in_frbc_control_type, frbc_system_descript
     second_call_expected = {
         "sensor_id": frbc._nes_efficiency_sensor_id,
         "start": datetime(2024, 1, 1, tzinfo=timezone.utc),
-        "values": [0.1] * N_SAMPLES,
-        "unit": "%",
+        "values": [3.6],
+        "unit": "dimensionless",
         "duration": "PT24H",
     }
     for key in second_call.keys():
@@ -167,7 +179,9 @@ def get_pending_tasks():
 
 
 @pytest.mark.asyncio
-async def test_fill_level_target_profile(cem_in_frbc_control_type):
+async def test_fill_level_target_profile(cem_in_frbc_control_type, monkeypatch):
+    monkeypatch.setattr(frbc_tunes, "FILL_LEVEL_SCALE", 1)
+
     cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
 
     fill_level_target_profile = {
@@ -206,25 +220,26 @@ async def test_fill_level_target_profile(cem_in_frbc_control_type):
     first_call = fm_client.post_measurements.call_args_list[0][1]
     assert first_call["sensor_id"] == 2
     assert first_call["start"] == start
-    assert np.isclose(first_call["values"].values, [0] * 4 + [10] * 8 + [20] * 12).all()
+
+    assert np.isclose(first_call["values"].values, [0] * 4 + [1] * 8 + [2] * 12).all()
 
     second_call = fm_client.post_measurements.call_args_list[1][1]
     assert second_call["sensor_id"] == 3
     assert second_call["start"] == start
-    assert np.isclose(
-        second_call["values"].values, [100] * 4 + [90] * 8 + [80] * 12
-    ).all()
+    assert np.isclose(second_call["values"].values, [10] * 4 + [9] * 8 + [8] * 12).all()
 
     await cem.close()
     get_pending_tasks()
 
 
 @pytest.mark.asyncio
-async def test_fill_rate_relay(cem_in_frbc_control_type):
+async def test_fill_rate_relay(cem_in_frbc_control_type, monkeypatch):
     """Check whether the fill rate from the Tarnoc or Nestor is relayed
     to the overall heating system's fill rate sensor, and the fill rate sensor ID
     corresponds correctly to the Tarnoc fill rate sensor or the Nestor fill rate sensor.
     """
+
+    monkeypatch.setattr(frbc_tunes, "FILL_LEVEL_SCALE", 1)
 
     cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
     frbc = cem._control_types_handlers[cem.control_type]
@@ -286,35 +301,3 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
     assert third_call["values"][0] == frbc._nes_fill_rate_sensor_id
 
     await cem.close()
-
-
-@pytest.mark.asyncio
-async def test_trigger_schedule(cem_in_frbc_control_type):
-    """Work in progress.
-
-    # todo: add steps
-
-    Steps
-
-    1.  Check whether the task starts and stops
-    2.  Check call arguments
-    3.  Check queue for results mocking the results of FM client
-
-    # todo consider splitting up test
-    S2 2 FM: converging system description to flex config
-    FM 2 S2: schedules to instructions
-    """
-    cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
-    # frbc = cem._control_types_handlers[cem.control_type]
-
-    tasks = get_pending_tasks()
-
-    assert tasks["trigger_schedule_task"]._state == "PENDING"
-    await cem.close()
-
-    tasks = get_pending_tasks()
-
-    assert tasks["trigger_schedule_task"]._state == "PENDING"
-
-    await cem.close()
-    get_pending_tasks()

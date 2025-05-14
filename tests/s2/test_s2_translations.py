@@ -1,6 +1,7 @@
 import pytest
 from s2python.frbc import FRBCUsageForecast
 
+import flexmeasures_client.s2.control_types.translations as translations
 from flexmeasures_client.s2.control_types.translations import (
     translate_usage_forecast_to_fm,
 )
@@ -15,7 +16,9 @@ from flexmeasures_client.s2.utils import get_unique_id
         ("2024-01-01T00:30:00+01:00", "1h", [100, 100, 100]),
     ],
 )
-def test_resampling_one_block(start, resolution, values):
+def test_resampling_one_block(start, resolution, values, monkeypatch):
+    monkeypatch.setattr(translations, "FILL_LEVEL_SCALE", 1)
+
     message = {
         "elements": [
             {"duration": 2 * 3600 * 1e3, "usage_rate_expected": 100},
@@ -28,6 +31,7 @@ def test_resampling_one_block(start, resolution, values):
     usage_forecast = FRBCUsageForecast.from_dict(message)
 
     s = translate_usage_forecast_to_fm(usage_forecast, resolution=resolution)
+
     assert all(abs(s.values - values) < 1e-5)
 
 
@@ -48,7 +52,7 @@ def test_resampling_one_block(start, resolution, values):
         ),
     ],
 )
-def test_usage_forecast(start, resolution, values):
+def test_usage_forecast(start, resolution, values, monkeypatch):
     """
     - 100 for 1h
     - 200 for 2h
@@ -58,6 +62,9 @@ def test_usage_forecast(start, resolution, values):
     - 600 for 30min
 
     """
+
+    monkeypatch.setattr(translations, "FILL_LEVEL_SCALE", 1)
+
     message = {
         "elements": [
             {"duration": 3600 * 1e3, "usage_rate_expected": 100},

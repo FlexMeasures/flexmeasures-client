@@ -1,0 +1,1 @@
+FILL_LEVEL_SCALE = 0.1
