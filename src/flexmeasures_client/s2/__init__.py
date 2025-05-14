@@ -11,6 +11,7 @@ import pydantic
 
 try:
     from s2python.common import ReceptionStatus, ReceptionStatusValues, RevokeObject
+    from s2python.s2_validation_error import S2ValidationError
 except ImportError:
     raise ImportError(
         "The 's2-python' package is required for this functionality. "
@@ -18,11 +19,7 @@ except ImportError:
     )
 
 
-from flexmeasures_client.s2.utils import (
-    SizeLimitOrderedDict,
-    get_message_id,
-    get_validation_error_summary,
-)
+from flexmeasures_client.s2.utils import SizeLimitOrderedDict, get_message_id
 
 
 @dataclass
@@ -43,8 +40,8 @@ def register(schema: Type[pydantic.BaseModel]) -> Callable:
         @functools.wraps(func)
         async def wrap(*args, **kwargs):
             try:
-                incoming_message = schema(**args[1])
                 self = args[0]
+                incoming_message = schema(**args[1])
 
                 # TODO: implement function __hash__ in ID that returns
                 # the value of __root__, this way we would be able to use
@@ -64,12 +61,17 @@ def register(schema: Type[pydantic.BaseModel]) -> Callable:
 
                 return outgoing_message
 
-            except pydantic.ValidationError as e:
-                return ReceptionStatus(
-                    subject_message_id=str(incoming_message.message_id),
-                    diagnostic_label=get_validation_error_summary(e),
+            except (pydantic.ValidationError, S2ValidationError, ValueError) as e:
+                outgoing_message = ReceptionStatus(
+                    subject_message_id=args[1]["message_id"],
+                    diagnostic_label=str(e),
                     status=ReceptionStatusValues.INVALID_DATA,
                 )  # TODO: Discuss status
+
+                self.outgoing_messages[get_message_id(outgoing_message)] = (
+                    outgoing_message
+                )
+                return outgoing_message
 
         message_type = schema.__fields__.get("message_type").default
         setattr(wrap, "_tag", Tag(message_type))
