@@ -86,7 +86,7 @@ class FillRateBasedControlTUNES(FRBC):
 
     _timers: dict[str, datetime]
 
-    MIN_MEASUREMENT_PERIOD: int = 15  # in minutes
+    MIN_MEASUREMENT_PERIOD: float = 5  # in minutes
 
     def __init__(
         self,
@@ -143,6 +143,8 @@ class FillRateBasedControlTUNES(FRBC):
 
         self._active_recurring_schedule = False
         self._timers = dict()
+
+        self.last_system_description_hash: int | None = None
 
     def is_timer_due(self, name: str):
         if (
@@ -465,6 +467,18 @@ class FillRateBasedControlTUNES(FRBC):
             3) Start a recurring tasks to trigger the scehduler.
         """
 
+        message_dict = message.to_dict()
+        message_dict.pop("message_id")
+        system_description_hash = hash(str(message_dict))
+
+        if self.last_system_description_hash == system_description_hash:
+            return get_reception_status(message, status=ReceptionStatusValues.OK)
+        else:
+            self.last_system_description_hash = system_description_hash
+
+        if not self.is_timer_due("handle_system_description"):
+            return get_reception_status(message, status=ReceptionStatusValues.OK)
+
         system_description_id = str(message.message_id)
 
         # store system_description message for later
@@ -495,6 +509,9 @@ class FillRateBasedControlTUNES(FRBC):
         Args:
             system_description (FRBCSystemDescription): The system description containing actuator details.
         """
+
+        if not self.is_timer_due("send_conversion_efficiencies"):
+            return
 
         start = system_description.valid_from
         actuator = system_description.actuators[0]
