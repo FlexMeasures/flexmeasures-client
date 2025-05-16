@@ -131,11 +131,6 @@ async def test_system_description(
     await cem.handle_message(frbc_system_description)
     frbc = cem._control_types_handlers[cem.control_type]
 
-    tasks = get_pending_tasks()
-
-    # check that we are sending the conversion efficiencies
-    await tasks["send_conversion_efficiencies"]
-
     # first call of post_measurements which corresponds to the THP efficiency
     first_call = fm_client.post_measurements.call_args_list[0][1]
     first_call_expected = {
