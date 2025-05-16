@@ -51,7 +51,7 @@ from flexmeasures_client.s2.control_types.translations import (
     translate_fill_level_target_profile,
     translate_usage_forecast_to_fm,
 )
-from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
+from flexmeasures_client.s2.utils import get_reception_status, get_unique_id, rate_limit_measurements
 
 RESOLUTION = "15min"
 ENERGY_UNIT = "MWh"
@@ -486,6 +486,7 @@ class FillRateBasedControlTUNES(FRBC):
 
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
+    @rate_limit_measurements
     async def send_conversion_efficiencies(
         self, system_description: FRBCSystemDescription
     ):
