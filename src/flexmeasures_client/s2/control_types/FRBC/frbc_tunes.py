@@ -161,9 +161,8 @@ class FillRateBasedControlTUNES(FRBC):
     def now(self):
         return datetime.now(self._timezone)
 
+    @rate_limit_measurements
     async def send_storage_status(self, status: FRBCStorageStatus):
-        if not self.is_timer_due("storage_status"):
-            return
 
         try:
             await self._fm_client.post_measurements(
@@ -180,9 +179,8 @@ class FillRateBasedControlTUNES(FRBC):
             )
             await self._sending_queue.put(response)
 
+    @rate_limit_measurements
     async def send_leakage_behaviour(self, leakage: FRBCLeakageBehaviour):
-        if not self.is_timer_due("leakage_behaviour"):
-            return
 
         try:
             start = self.now()
@@ -208,9 +206,8 @@ class FillRateBasedControlTUNES(FRBC):
             )
             await self._sending_queue.put(response)
 
+    @rate_limit_measurements
     async def send_actuator_status(self, status: FRBCActuatorStatus):
-        if not self.is_timer_due("actuator_status"):
-            return
 
         factor = status.operation_mode_factor
         system_description: FRBCSystemDescription = list(
@@ -560,6 +557,7 @@ class FillRateBasedControlTUNES(FRBC):
 
         await self.stop_trigger_schedule()
 
+    @rate_limit_measurements
     async def send_usage_forecast(self, usage_forecast: FRBCUsageForecast):
         """
         Send FRBC.UsageForecast to FlexMeasures.
@@ -567,8 +565,6 @@ class FillRateBasedControlTUNES(FRBC):
         Args:
             usage_forecast (FRBCUsageForecast): The usage forecast to be translated and sent.
         """
-        if not self.is_timer_due("usage_forecast"):
-            return
 
         start_time = usage_forecast.start_time
 
@@ -591,6 +587,7 @@ class FillRateBasedControlTUNES(FRBC):
             duration=str(pd.Timedelta(RESOLUTION) * len(usage_forecast)),
         )
 
+    @rate_limit_measurements
     async def send_fill_level_target_profile(
         self, fill_level_target_profile: FRBCFillLevelTargetProfile
     ):
@@ -600,8 +597,6 @@ class FillRateBasedControlTUNES(FRBC):
         Args:
             fill_level_target_profile (FRBCFillLevelTargetProfile): The fill level target profile to be translated and sent.
         """
-        if not self.is_timer_due("fill_level_target_profile"):
-            return
 
         soc_minima, soc_maxima = translate_fill_level_target_profile(
             fill_level_target_profile,
