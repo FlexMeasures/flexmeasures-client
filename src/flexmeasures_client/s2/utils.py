@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from functools import wraps
 from typing import Mapping, TypeVar
 from uuid import uuid4
 
@@ -123,3 +124,21 @@ def get_latest_compatible_version(supported_versions, current_version, logger):
         return cem_version
 
     return latest_compatible_version
+
+
+def rate_limit_measurements(func):
+    @wraps(func)
+    async def wrapper(self, *args, **kwargs):
+        # Use the actual function name
+        function_name = func.__name__
+
+        # Ensure `self` has `is_timer_due` method
+        if not hasattr(self, 'is_timer_due'):
+            raise AttributeError(f"{self} has no method is_timer_due")
+
+        if not self.is_timer_due(function_name):
+            return  # Skip execution if timer is not due
+
+        return await func(self, *args, **kwargs)
+
+    return wrapper
