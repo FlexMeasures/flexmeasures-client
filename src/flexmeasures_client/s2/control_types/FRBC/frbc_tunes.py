@@ -58,7 +58,7 @@ ENERGY_UNIT = "MWh"
 POWER_UNIT = "MW"
 DIMENSIONLESS = "dimensionless"
 PERCENTAGE = "%"
-TASK_PERIOD_SECONDS = 10
+TASK_PERIOD_SECONDS = 5 * 60
 CONVERSION_EFFICIENCY_DURATION = "PT24H"
 
 
@@ -86,7 +86,7 @@ class FillRateBasedControlTUNES(FRBC):
 
     _timers: dict[str, datetime]
 
-    MIN_MEASUREMENT_PERIOD: int = 1  # in minutes
+    MIN_MEASUREMENT_PERIOD: int = 15  # in minutes
 
     def __init__(
         self,
