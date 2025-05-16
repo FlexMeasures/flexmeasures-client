@@ -3,17 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import numpy as np
+import pandas as pd
 import pytest
-from s2python.common import Commodity, CommodityQuantity, NumberRange, PowerRange
-from s2python.frbc import (
-    FRBCActuatorDescription,
-    FRBCInstruction,
-    FRBCOperationMode,
-    FRBCOperationModeElement,
-    FRBCStorageDescription,
-    FRBCSystemDescription,
-)
+from s2python.common import CommodityQuantity, NumberRange, PowerRange
+from s2python.frbc import FRBCOperationMode, FRBCOperationModeElement
 
+import flexmeasures_client.s2.control_types.FRBC.utils as utils
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     fm_schedule_to_instructions,
     get_unique_id,
@@ -57,8 +52,9 @@ def example_op_mode_elem(default_power_range):
     ],
 )
 def test_op_mode_compute_factor(
-    fill_rate_range, input_fill_rate, expected_factor, default_power_range
+    fill_rate_range, input_fill_rate, expected_factor, default_power_range, monkeypatch
 ):
+    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
     op_mode_elem = FRBCOperationModeElement(
         fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
         fill_rate=NumberRange(
@@ -79,7 +75,9 @@ def test_op_mode_compute_factor(
         ([(0.0, 0.1), (0.1, 0.2), (0.2, 0.3)], (0.0, 0.3)),
     ],
 )
-def test_op_mode_range(ranges, expected, default_power_range):
+def test_op_mode_range(ranges, expected, default_power_range, monkeypatch):
+    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
+
     elements = [
         FRBCOperationModeElement(
             fill_level_range=NumberRange(start_of_range=start, end_of_range=end),
@@ -106,7 +104,11 @@ def test_op_mode_range(ranges, expected, default_power_range):
         ([(0.0, 0.5), (0.0, 0.9)], 0.9),
     ],
 )
-def test_op_mode_max_fill_rate(fill_rates, expected_max, default_power_range):
+def test_op_mode_max_fill_rate(
+    fill_rates, expected_max, default_power_range, monkeypatch
+):
+    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
+
     elements = [
         FRBCOperationModeElement(
             fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
@@ -136,90 +138,65 @@ def test_op_mode_max_fill_rate(fill_rates, expected_max, default_power_range):
     ],
 )
 def test_op_mode_elem_is_fill_level_in_range(
-    example_op_mode_elem, fill_level, expected
+    example_op_mode_elem, fill_level, expected, monkeypatch
 ):
+    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
+
     assert (
         op_mode_elem_is_fill_level_in_range(example_op_mode_elem, fill_level)
         is expected
     )
 
 
-def test_op_mode_elem_efficiency(example_op_mode_elem):
-    assert np.isclose(op_mode_elem_efficiency(example_op_mode_elem), 200.0 / 1.0)
+def test_op_mode_elem_efficiency(example_op_mode_elem, monkeypatch):
+    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
+
+    assert np.isclose(op_mode_elem_efficiency(example_op_mode_elem), 0.005)
 
 
-def test_fm_schedule_to_instructions(default_power_range):
-    elem = FRBCOperationModeElement(
-        fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
-        fill_rate=NumberRange(start_of_range=0.0, end_of_range=2.0),
-        power_ranges=default_power_range,
-        running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
-    )
+def test_compounded_fill_level_and_mode_selection(system_with_transitions, monkeypatch):
+    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
 
-    idle_elem = FRBCOperationModeElement(
-        fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
-        fill_rate=NumberRange(start_of_range=0.0, end_of_range=0.0),
-        power_ranges=[
-            PowerRange(
-                start_of_range=0.0,
-                end_of_range=0.0,
-                commodity_quantity=CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC,
-            )
-        ],
-        running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
-    )
+    start = datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
+    index = pd.date_range(start=start, periods=4, freq="15min")
 
-    op_mode_id = get_unique_id()
-    idle_mode_id = get_unique_id()
-    actuator_id = get_unique_id()
-
-    op_mode = FRBCOperationMode(
-        id=op_mode_id,
-        elements=[elem],
-        abnormal_condition_only=False,
-        diagnostic_label="Active",
-    )
-    idle_mode = FRBCOperationMode(
-        id=idle_mode_id,
-        elements=[idle_elem],
-        abnormal_condition_only=False,
-        diagnostic_label="Idle",
-    )
-
-    actuator = FRBCActuatorDescription(
-        id=actuator_id,
-        operation_modes=[idle_mode, op_mode],
-        supported_commodities=[Commodity.ELECTRICITY],
-        transitions=[],
-        timers=[],
-    )
-
-    storage = FRBCStorageDescription(
-        provides_leakage_behaviour=True,
-        provides_fill_level_target_profile=True,
-        provides_usage_forecast=True,
-        fill_level_range=NumberRange(start_of_range=0, end_of_range=1),
-    )
-
-    system_description = FRBCSystemDescription(
-        actuators=[actuator],
-        storage=storage,
-        message_id=get_unique_id(),
-        valid_from=datetime(2024, 1, 1, tzinfo=timezone.utc),
-    )
-
-    schedule = {
-        "start": datetime(2024, 1, 1, tzinfo=timezone.utc).isoformat(),
-        "duration": "PT1H",
-        "values": [0.0, 0.5, 1.5, 0.0],
+    operation_modes = {
+        op_mode.id: op_mode.diagnostic_label
+        for op_mode in system_with_transitions.actuators[0].operation_modes
     }
 
-    instructions = fm_schedule_to_instructions(
-        schedule, system_description, initial_fill_level=0.5
+    schedule_df = pd.DataFrame(
+        {
+            "schedule": [0.0, 1.5, 1.5, 0.0],
+            "usage_forecast": [0.0] * 4,
+            "leakage_behaviour": [1.0] * 4,
+            "thp_efficiency": [1.0] * 4,
+            "nes_efficiency": [1.0] * 4,
+        },
+        index=index,
     )
 
-    assert len(instructions) == 4
-    assert all(isinstance(instr, FRBCInstruction) for instr in instructions)
+    instructions = fm_schedule_to_instructions(
+        schedule=schedule_df,
+        system_description=system_with_transitions,
+        initial_fill_level=0.6,
+    )
 
-    assert str(instructions[0].operation_mode) == idle_mode_id
-    assert str(instructions[1].operation_mode) == op_mode_id
+    # --- Check number of instructions ---
+    assert len(instructions) == 4
+
+    # --- Collect operation modes ---
+    modes = [operation_modes[instr.operation_mode] for instr in instructions]
+
+    # --- Expected order based on fill level rising ---
+    assert modes[0] == "IDLE"  # value = 0.0 -> idle
+    assert modes[1] == "TARNOC"  # value = 1.5, fill
+    assert modes[2] == "NEWTON"  # fill passes 0.9 → NEWTON
+    assert modes[3] == "IDLE"  # value = 0.0 → idle again
+
+    # --- Check operation mode factors ---
+    factors = [instr.operation_mode_factor for instr in instructions]
+    assert factors[0] == 0
+    assert factors[1] > 0
+    assert factors[2] > 0
+    assert factors[3] == 0
