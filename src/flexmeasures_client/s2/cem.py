@@ -273,16 +273,21 @@ class CEM(Handler):
             if commodity_quantity in self._power_sensors:
                 sensor_id = self._power_sensors[commodity_quantity]
             else:
-                sensor_id = 1  # TODO: create a new sensor or return ReceptionStatus
+                sensor_id = 357  # TODO: create a new sensor or return ReceptionStatus
 
             # send measurement
-            await self._fm_client.post_measurements(
-                sensor_id,
-                start=message.measurement_timestamp,
-                duration="PT1H",  # TODO: not specified in S2 Protocol
-                values=[power_measurement.value],
-                unit=commodity_quantity,  # TODO: is commodity quantity a unit? for me it's just a the type of POWER # noqa: E501
-            )
+            try:
+                await self._fm_client.post_measurements(
+                    sensor_id,
+                    start=message.measurement_timestamp,
+                    duration="PT1H",  # TODO: not specified in S2 Protocol
+                    values=[power_measurement.value],
+                    unit=commodity_quantity,  # TODO: is commodity quantity a unit? for me it's just a the type of POWER # noqa: E501
+                )
+            except Exception as e:
+                self._logger.warning(
+                    f"POSTing power measurement failed with error: {e}"
+                )
 
         return get_reception_status(message)
 
