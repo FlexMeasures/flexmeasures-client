@@ -317,10 +317,11 @@ class CEM(Handler):
         await self._sending_queue.put(message)
 
 
-def get_commodity_unit(commodity_quantity) -> str:
+def get_commodity_unit(commodity_quantity) -> str | None:
     if "POWER" in commodity_quantity:
         return "kW"
     if "FLOW_RATE" in commodity_quantity:
         return "m³/h"
     if "TEMPERATURE" in commodity_quantity:
         return "°C"
+    return
