@@ -282,7 +282,7 @@ class CEM(Handler):
                     start=message.measurement_timestamp,
                     duration="PT1H",  # TODO: not specified in S2 Protocol
                     values=[power_measurement.value],
-                    unit=commodity_quantity,  # TODO: is commodity quantity a unit? for me it's just a the type of POWER # noqa: E501
+                    unit=get_commodity_unit(commodity_quantity),
                 )
             except Exception as e:
                 self._logger.warning(
@@ -315,3 +315,12 @@ class CEM(Handler):
 
     async def send_message(self, message):
         await self._sending_queue.put(message)
+
+
+def get_commodity_unit(commodity_quantity) -> str:
+    if "POWER" in commodity_quantity:
+        return "kW"
+    if "FLOW_RATE" in commodity_quantity:
+        return "m³/h"
+    if "TEMPERATURE" in commodity_quantity:
+        return "°C"
