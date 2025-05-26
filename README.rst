@@ -237,9 +237,3 @@ Start the S2 server::
 In a separate window, start the S2 Client::
 
     python src/flexmeasures_client/s2/script/websockets_client.py
-
-Note
-====
-
-This project has been set up using PyScaffold 4.4. For details and usage
-information on PyScaffold see https://pyscaffold.org/.
