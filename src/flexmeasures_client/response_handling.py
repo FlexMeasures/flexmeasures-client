@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from aiohttp import ContentTypeError
+from aiohttp import ClientResponse, ClientResponseError, ContentTypeError
 from yarl import URL
 
 from flexmeasures_client.constants import CONTENT_TYPE
@@ -65,7 +65,7 @@ async def check_response(
         """
         logging.error(message)
         # otherwise, raise if the status does not indicate okay
-        response.raise_for_status()
+        await raise_for_status_with_details(response)
     return polling_step, reauth_once, URL(url)
 
 
@@ -84,3 +84,29 @@ def check_for_status(status, expected_status):
     """Check if status is expected"""
     if status != expected_status:
         raise ValueError(f"Request failed with status code {status}")
+
+
+async def raise_for_status_with_details(response: ClientResponse):
+    try:
+        response.raise_for_status()
+    except ClientResponseError as e:
+        try:
+            # Try to read JSON error message
+            detail = await response.json()
+        except Exception:
+            # Fall back to raw text if JSON fails
+            detail = await response.text()
+        new_message = (
+            f"{e}\nURL: {response.url}\n"
+            f"Status: {response.status} {response.reason}\n"
+            f"Details: {detail}"
+        )
+        print(new_message)
+        print("jippiE!")
+        raise ClientResponseError(
+            request_info=e.request_info,
+            history=e.history,
+            status=response.status,
+            message=new_message,
+            headers=response.headers,
+        ) from e
