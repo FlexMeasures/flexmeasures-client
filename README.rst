@@ -130,6 +130,7 @@ Trigger and retrieve a schedule for multiple devices:
             # Example flex-model for curtailable solar panels
             {
                 "sensor": <another_power_sensor_id>,  # int
+                "power-capacity": "20 kVA",
                 "consumption-capacity": "0 kW",
                 "production-capacity": {"sensor": <another_power_sensor_id>},  # int
             },
