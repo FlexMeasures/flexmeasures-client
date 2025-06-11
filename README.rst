@@ -91,12 +91,12 @@ Post a measurement from a sensor:
 .. code-block:: python
 
     await client.post_measurements(
-        sensor_id=<sensor_id>, # integer
-        start="2023-03-26T10:00+02:00", #iso datetime
-        duration="PT6H", # iso timedelta
-        values=[1, 2, 3, 4], # list
+        sensor_id=<sensor_id>,  # integer
+        start="2023-03-26T10:00+02:00",  # ISO datetime
+        duration="PT6H",  # ISO duration
+        values=[1, 2, 3, 4],  # list
         unit="kWh",
-        entity_address=<sensor_entity_address>, # string
+        entity_address=<sensor_entity_address>,  # string
     )
 
 With FlexMeasures a schedule can be requested to optimize at what time the flexible assets can be activated to optimize for price of energy or emissions.
@@ -109,8 +109,8 @@ Trigger and retrieve a schedule for multiple devices:
 
     schedule = await flexmeasures_client.trigger_and_get_schedule(
         asset_id=<asset_id>,  # the asset ID (int) of the asset that all relevant power sensors belong to (or live under, in case of a tree-like asset structure)
-        start="2023-03-26T10:00+02:00",  # iso datetime
-        duration="PT12H",  # iso timedelta
+        start="2023-03-26T10:00+02:00",  # ISO datetime
+        duration="PT12H",  # ISO duration
         flex_context={
             "consumption-price": {"sensor": <consumption_price_sensor_id>},  # int
         },
@@ -143,8 +143,8 @@ Alternatively, use a single-device flex-model (no list) and move the device's po
 
     schedule = await flexmeasures_client.trigger_and_get_schedule(
         sensor_id=<sensor_id>,  # int
-        start="2023-03-26T10:00+02:00",  # iso datetime
-        duration="PT12H",  # iso timedelta
+        start="2023-03-26T10:00+02:00",  # ISO datetime
+        duration="PT12H",  # ISO duration
         flex_context={
             "consumption-price": {"sensor": <consumption_price_sensor_id>},  # int
         },
@@ -173,9 +173,9 @@ The ``trigger_schedule`` return a ``schedule_uuid``. This can be used to retriev
 .. code-block:: python
 
     schedule = await flexmeasures_client.get_schedule(
-        sensor_id=<sensor_id>, #int
-        schedule_id="<schedule_uuid>", # uuid
-        duration="PT45M", # iso timedelta
+        sensor_id=<sensor_id>,  # int
+        schedule_id="<schedule_uuid>",  # uuid
+        duration="PT45M",  # ISO duration
     )
 
 The schedule returns a Pandas ``DataFrame`` that can be used to regulate the flexible assets.
