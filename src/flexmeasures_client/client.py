@@ -403,34 +403,53 @@ class FlexMeasuresClient:
 
     async def trigger_and_get_schedule(
         self,
-        sensor_id: int,
+        sensor_id: int | None,
+        asset_id: int | None,
         start: str | datetime,
         duration: str | timedelta,
-        flex_model: dict,
+        flex_model: dict | list[dict],
         flex_context: dict,
-    ) -> dict:
+    ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
 
-        :returns: schedule as dictionary, for example:
+        To schedule a single flexible device, use the sensor ID of its power sensor.
+        To schedule a collection of flexible devices, use the asset ID of the asset on which the power sensors are registered.
+        If the power sensors are registered to different assets, create an asset hierarchy in FlexMeasures and use the asset ID of the top-level asset.
+
+        :returns: For a single device, returns the schedule as a dictionary, for example:
                 {
                     'values': [2.15, 3, 2],
                     'start': '2015-06-02T10:00:00+00:00',
                     'duration': 'PT45M',
                     'unit': 'MW'
                 }
-        This function raises a ValueError when an unhandled status code is returned
+            For multiple devices, returns the schedules as a list of dictionaries.
+        This function raises a ValueError when an unhandled status code is returned.
         """
         schedule_id = await self.trigger_schedule(
             sensor_id=sensor_id,
+            asset_id=asset_id,
             start=start,
             duration=duration,
             flex_model=flex_model,
             flex_context=flex_context,
         )
 
-        schedule = await self.get_schedule(
-            sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
-        )
+        if sensor_id is not None:
+            # Get the schedule for a single device
+            schedule = await self.get_schedule(
+                sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
+            )
+        else:
+            # Get the schedule for a collection of devices (one by one)
+            schedule = []
+            for sensor_flex_model in flex_model:
+                sensor_id = sensor_flex_model["sensor"]
+                sensor_schedule = await self.get_schedule(
+                    sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
+                )
+                sensor_schedule["sensor"] = sensor_id
+                schedule.append(sensor_schedule)
         return schedule
 
     async def get_sensor_data(
@@ -658,12 +677,15 @@ class FlexMeasuresClient:
 
     async def trigger_schedule(
         self,
-        sensor_id: int,
+        sensor_id: int | None,
+        asset_id: int | None,
         start: str | datetime,
         duration: str | timedelta,
         flex_model: dict,
         flex_context: dict,
     ) -> str:
+        if (sensor_id is None and asset_id is None) or (sensor_id is not None and asset_id is not None):
+            raise ValueError("Pass either a sensor_id or an asset_id.")
         message = {
             "start": pd.Timestamp(
                 start
@@ -672,10 +694,16 @@ class FlexMeasuresClient:
             "flex-model": flex_model,
             "flex-context": flex_context,
         }
-        response, status = await self.request(
-            uri=f"sensors/{sensor_id}/schedules/trigger",
-            json_payload=message,
-        )
+        if sensor_id is not None:
+            response, status = await self.request(
+                uri=f"sensors/{sensor_id}/schedules/trigger",
+                json_payload=message,
+            )
+        else:
+            response, status = await self.request(
+                uri=f"assets/{asset_id}/schedules/trigger",
+                json_payload=message,
+            )
         check_for_status(status, 200)
 
         logging.info("Schedule triggered successfully.")
