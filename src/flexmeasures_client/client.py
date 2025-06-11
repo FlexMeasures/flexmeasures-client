@@ -403,12 +403,12 @@ class FlexMeasuresClient:
 
     async def trigger_and_get_schedule(
         self,
-        sensor_id: int | None,
-        asset_id: int | None,
-        start: str | datetime,
-        duration: str | timedelta,
-        flex_model: dict | list[dict],
-        flex_context: dict,
+        sensor_id: int | None = None,
+        asset_id: int | None = None,
+        start: str | datetime = None,
+        duration: str | timedelta = None,
+        flex_model: dict | list[dict] = None,
+        flex_context: dict = None,
     ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
 
@@ -677,12 +677,12 @@ class FlexMeasuresClient:
 
     async def trigger_schedule(
         self,
-        sensor_id: int | None,
-        asset_id: int | None,
-        start: str | datetime,
-        duration: str | timedelta,
-        flex_model: dict,
-        flex_context: dict,
+        sensor_id: int | None = None,
+        asset_id: int | None = None,
+        start: str | datetime = None,
+        duration: str | timedelta = None,
+        flex_model: dict = None,
+        flex_context: dict = None,
     ) -> str:
         if (sensor_id is None and asset_id is None) or (sensor_id is not None and asset_id is not None):
             raise ValueError("Pass either a sensor_id or an asset_id.")
