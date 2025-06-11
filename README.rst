@@ -52,31 +52,43 @@ Registering to a hosted FlexMeasures instance instead can be done through `Seita
 
 In this example we show how to set up the client to connect to either ``http://localhost:5000`` or ``https://seita.energy``. To connect to a different host, add the host in the initialization of the client.
 
-Install using ``pip``::
+Install using ``pip``:
+
+.. code-block:: bash
 
     pip install flexmeasures-client
 
-To enable S2 features, you need to install extra requirements::
+To enable S2 features, you need to install extra requirements:
+
+.. code-block:: bash
 
     pip install flexmeasures-client[s2]
 
-Initialization and authentication::
+Initialization and authentication:
+
+.. code-block:: python
 
     from flexmeasures_client import FlexMeasuresClient
     client = FlexMeasuresClient(host="localhost:5000", ssl=False, email="email@email.com", password="pw")
     client = FlexMeasuresClient(host="seita.energy", ssl=True, email="email@email.com", password="pw")
 
-Retrieve user and account info::
+Retrieve user and account info:
+
+.. code-block:: python
 
    user = await client.get_user()
    account = await client.get_account()
 
-Retrieve available assets and sensors::
+Retrieve available assets and sensors:
+
+.. code-block:: python
 
     assets = await client.get_assets()
     sensors = await client.get_sensors()
 
-Post a measurement from a sensor::
+Post a measurement from a sensor:
+
+.. code-block:: python
 
     await client.post_measurements(
         sensor_id=<sensor_id>, # integer
@@ -148,13 +160,17 @@ Alternatively, use a single-device flex-model (no list) and move the device's po
 
 The trigger and get schedule function can also be separated to trigger the schedule first and later retrieve the schedule using the ``schedule_uuid``.
 
-Trigger a schedule::
+Trigger a schedule:
+
+.. code-block:: python
 
     schedule_uuid = await flexmeasures_client.trigger_schedule(
         **kwargs,  # same kwargs as previous example
     )
 
-The ``trigger_schedule`` return a ``schedule_uuid``. This can be used to retrieve the schedule. The client will re-try if until the schedule is available or the ``MAX_POLLING_STEPS`` of ``10`` is reached. Retrieve schedule::
+The ``trigger_schedule`` return a ``schedule_uuid``. This can be used to retrieve the schedule. The client will re-try if until the schedule is available or the ``MAX_POLLING_STEPS`` of ``10`` is reached. Retrieve schedule:
+
+.. code-block:: python
 
     schedule = await flexmeasures_client.get_schedule(
         sensor_id=<sensor_id>, #int
@@ -169,11 +185,15 @@ The schedule returns a Pandas ``DataFrame`` that can be used to regulate the fle
 Development
 ==============
 
-If you want to develop this package it's necessary to install testing requirements::
+If you want to develop this package it's necessary to install testing requirements:
+
+.. code-block:: bash
 
     pip install -e ".[testing]"
 
-Moreover, if you need to work on S2 features, you need to install extra dependencies::
+Moreover, if you need to work on S2 features, you need to install extra dependencies:
+
+.. code-block:: bash
 
     pip install -e ".[s2, testing]"
 
@@ -188,29 +208,39 @@ Making Changes & Contributing
 
 .. note: Read more details in CONTRIBUTING.rst
 
-Install the project locally (in a virtual environment of your choice)::
+Install the project locally (in a virtual environment of your choice):
+
+.. code-block:: bash
 
     pip install -e .
 
 
-Running tests locally is crucial as well. Staying close to the CI workflow::
+Running tests locally is crucial as well. Staying close to the CI workflow:
+
+.. code-block:: bash
 
     pip install tox
     tox -e clean,build
     tox -- -rFEx --durations 10 --color yes
 
-For S2 features, you need to add `-e s2` to tox::
+For S2 features, you need to add `-e s2` to tox:
+
+.. code-block:: bash
 
     tox -e s2
 
 This project uses `pre-commit`_, please make sure to install it before making any
-changes::
+changes:
+
+.. code-block:: bash
 
     pip install pre-commit
     cd flexmeasures-client
     pre-commit install
 
-It is a good idea to update the hooks to the latest version::
+It is a good idea to update the hooks to the latest version:
+
+.. code-block:: bash
 
     pre-commit autoupdate
 
@@ -219,7 +249,9 @@ Don't forget to tell your contributors to also install and use pre-commit.
 .. _pre-commit: https://pre-commit.com/
 
 
-New releases on Pypi are made by adding a tag and pushing it::
+New releases on Pypi are made by adding a tag and pushing it:
+
+.. code-block:: bash
 
     git tag -s -a vX.Y.Z -m "Short summary"
     git push --tags
@@ -242,24 +274,34 @@ The `S2 Protocol <https://s2standard.org/>`_ integration is still under active d
 Run Demo
 =========
 
-Run the following commands in the flexmeasures folder to create a toy-account and an admin user::
+Run the following commands in the flexmeasures folder to create a toy-account and an admin user:
+
+.. code-block:: bash
 
     flexmeasures add toy-account
     flexmeasures add user --username admin --account-id 1 --email admin@mycompany.io --roles admin
 
-Launch server::
+Launch server:
+
+.. code-block:: bash
 
     flexmeasures run
 
-To load the data, run the following command in the flexmeasures-client repository::
+To load the data, run the following command in the flexmeasures-client repository:
+
+.. code-block:: bash
 
     python src/flexmeasures_client/s2/script/demo_setup.py
 
-Start the S2 server::
+Start the S2 server:
+
+.. code-block:: bash
 
     python src/flexmeasures_client/s2/script/websockets_server.py
 
-In a separate window, start the S2 Client::
+In a separate window, start the S2 Client:
+
+.. code-block:: bash
 
     python src/flexmeasures_client/s2/script/websockets_client.py
 
