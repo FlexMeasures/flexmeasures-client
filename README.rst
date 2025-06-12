@@ -305,4 +305,3 @@ In a separate window, start the S2 Client:
 .. code-block:: bash
 
     python src/flexmeasures_client/s2/script/websockets_client.py
-
