@@ -181,8 +181,6 @@ This can be used to retrieve the schedule, using:
     )
 
 The client will re-try until the schedule is available or the ``MAX_POLLING_STEPS`` of ``10`` is reached.
-The schedule returns a Pandas ``DataFrame`` that can be used to regulate the flexible assets.
-
 
 
 Development
