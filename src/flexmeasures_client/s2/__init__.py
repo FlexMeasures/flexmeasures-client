@@ -185,20 +185,20 @@ class Handler:
     ) -> Coroutine:
         """
         Calls the handler linked to the message_type and converts the output
-        to a serialized dict, i.e, it converts all the inner objects to Python
+        to a serialized dict, i.e. it converts all the inner objects to Python
         basic types (dict, list, int, str, ...).
 
-        :returns serialized_output_message:
+        :returns: serialized output message
         """
 
         if isinstance(message, pydantic.BaseModel):
-            message = json.loads(message.json())
-
-        if isinstance(message, str):
-            message = json.loads(message)
-
-        output_message = await self.message_handlers[message.get("message_type")](
-            message
+            message_dict = json.loads(message.json())
+        elif isinstance(message, str):
+            message_dict = json.loads(message)
+        else:
+            message_dict = message
+        output_message = await self.message_handlers[message_dict.get("message_type")](
+            message_dict
         )
 
         return output_message
