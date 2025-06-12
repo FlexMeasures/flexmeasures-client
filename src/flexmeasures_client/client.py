@@ -684,7 +684,7 @@ class FlexMeasuresClient:
         flex_model: dict = None,
         flex_context: dict = None,
     ) -> str:
-        if (sensor_id is None and asset_id is None) or (sensor_id is not None and asset_id is not None):
+        if (sensor_id is None) == (asset_id is None):
             raise ValueError("Pass either a sensor_id or an asset_id.")
         message = {
             "start": pd.Timestamp(
