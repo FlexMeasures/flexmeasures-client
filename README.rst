@@ -250,7 +250,7 @@ Don't forget to tell your contributors to also install and use pre-commit.
 .. _pre-commit: https://pre-commit.com/
 
 
-New releases on Pypi are made by adding a tag and pushing it:
+New releases on PyPI are made by adding a tag and pushing it:
 
 .. code-block:: bash
 
