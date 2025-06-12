@@ -162,11 +162,11 @@ class FlexMeasuresClient:
                         logging.debug(message)
                         polling_step += 1
                         await asyncio.sleep(self.polling_interval)
-                    # except (ClientError, socket.gaierror) as exception:
-                    #     logging.debug(exception)
-                    #     raise ConnectionError(
-                    #         "Error occurred while communicating with the API."
-                    #     ) from exception
+                    except (ClientError, socket.gaierror) as exception:
+                        logging.debug(exception)
+                        raise ConnectionError(
+                            "Error occurred while communicating with the API."
+                        ) from exception
         except asyncio.TimeoutError as exception:
             raise ConnectionError(
                 "Client polling timeout while connection to the API."
