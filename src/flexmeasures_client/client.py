@@ -41,7 +41,7 @@ API_VERSIONS_LIST = ("v3_0",)
 
 @dataclass
 class FlexMeasuresClient:
-    """Main class for connecting to the FlexMeasures API"""
+    """Main class for connecting to the FlexMeasures API."""
 
     password: str
     email: str
@@ -104,7 +104,7 @@ class FlexMeasuresClient:
             self.port = 443 if self.scheme == "https" else 80
 
     async def close(self):
-        """Function to close FlexMeasuresClient session when all requests are done"""
+        """Function to close FlexMeasuresClient session when all requests are done."""
         await cast(ClientSession, self.session).close()
 
     async def request(
@@ -199,7 +199,7 @@ class FlexMeasuresClient:
         logging.debug(headers_msg)
         logging.debug("=" * 14)
 
-        """Sends a single request to FlexMeasures and checks the response"""
+        """Sends a single request to FlexMeasures and checks the response."""
         self.ensure_session()
         response = await cast(ClientSession, self.session).request(
             method=method,
@@ -227,7 +227,7 @@ class FlexMeasuresClient:
         return response, polling_step, reauth_once, url
 
     def ensure_session(self):
-        """If there is no session, start one"""
+        """If there is no session, start one."""
         if self.session is None:
             self.session = ClientSession()
 
@@ -241,7 +241,7 @@ class FlexMeasuresClient:
         return headers
 
     def build_url(self, uri: str, path: str = path) -> URL:
-        """Build url for request"""
+        """Build url for request."""
         url = URL.build(
             scheme=self.scheme, host=self.host, port=self.port, path=path
         ).join(
@@ -478,7 +478,7 @@ class FlexMeasuresClient:
         return sensor_data
 
     async def get_sensor(self, sensor_id: int) -> dict:
-        """Get a single sensor
+        """Get a single sensor.
 
         :returns: sensor as dictionary, for example:
                 {
@@ -512,7 +512,7 @@ class FlexMeasuresClient:
         timezone: str | None = None,
         attributes: dict | None = None,
     ) -> dict:
-        """Post a sensor
+        """Post a sensor.
 
         :returns: sensor as dictionary, for example:
                 {
@@ -558,7 +558,7 @@ class FlexMeasuresClient:
         generic_asset_type_id: int,
         attributes: dict | None = None,
     ) -> dict:
-        """Post an asset
+        """Post an asset.
 
         :returns: asset as dictionary, for example:
                 {
@@ -596,7 +596,7 @@ class FlexMeasuresClient:
         return new_asset
 
     async def update_asset(self, asset_id: int, updates: dict) -> dict:
-        """Patch an asset
+        """Patch an asset.
 
         :returns: asset as dictionary, for example:
                 {
@@ -626,7 +626,7 @@ class FlexMeasuresClient:
         return updated_asset
 
     async def update_sensor(self, sensor_id: int, updates: dict) -> dict:
-        """Patch a sensor
+        """Patch a sensor.
 
         :returns: sensor as dictionary, for example:
                 {
