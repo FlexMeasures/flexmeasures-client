@@ -169,7 +169,8 @@ Trigger a schedule:
         **kwargs,  # same kwargs as previous example
     )
 
-The ``trigger_schedule`` return a ``schedule_uuid``. This can be used to retrieve the schedule. The client will re-try if until the schedule is available or the ``MAX_POLLING_STEPS`` of ``10`` is reached. Retrieve schedule:
+The ``trigger_schedule`` method returns a ``schedule_uuid``.
+This can be used to retrieve the schedule, using:
 
 .. code-block:: python
 
@@ -179,6 +180,7 @@ The ``trigger_schedule`` return a ``schedule_uuid``. This can be used to retriev
         duration="PT45M",  # ISO duration
     )
 
+The client will re-try until the schedule is available or the ``MAX_POLLING_STEPS`` of ``10`` is reached.
 The schedule returns a Pandas ``DataFrame`` that can be used to regulate the flexible assets.
 
 
