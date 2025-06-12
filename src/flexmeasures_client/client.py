@@ -556,6 +556,7 @@ class FlexMeasuresClient:
         latitude: float,
         longitude: float,
         generic_asset_type_id: int,
+        parent_asset_id: int | None = None,
         attributes: dict | None = None,
     ) -> dict:
         """Post an asset.
@@ -581,6 +582,8 @@ class FlexMeasuresClient:
             longitude=longitude,
             generic_asset_type_id=generic_asset_type_id,
         )
+        if parent_asset_id:
+            asset["parent_asset_id"] = parent_asset_id
         if attributes:
             asset["attributes"] = json.dumps(attributes)
 
