@@ -273,7 +273,7 @@ class FlexMeasuresClient:
     ):
         """
         Post sensor data for the given time range.
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         json_payload = dict(
             sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
@@ -377,7 +377,7 @@ class FlexMeasuresClient:
 
         :returns: list of assets as dictionaries
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         assets, status = await self.request(uri="assets", method="GET")
         check_for_status(status, 200)
@@ -418,7 +418,7 @@ class FlexMeasuresClient:
                     'duration': 'PT45M',
                     'unit': 'MW'
                 }
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         schedule_id = await self.trigger_schedule(
             sensor_id=sensor_id,
@@ -452,7 +452,7 @@ class FlexMeasuresClient:
                     'unit': 'MW'
                 }
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         params = dict(
             sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
@@ -492,7 +492,7 @@ class FlexMeasuresClient:
                     'unit': '%'
                 }
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         uri = f"sensors/{sensor_id}"
         sensor, status = await self.request(uri=uri, method="GET")
@@ -526,7 +526,7 @@ class FlexMeasuresClient:
                     'unit': '%'
                 }
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         sensor = dict(
             name=name,
@@ -573,7 +573,7 @@ class FlexMeasuresClient:
                     'status': 200
                 }
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         asset = dict(
             name=name,
@@ -613,7 +613,7 @@ class FlexMeasuresClient:
                     'status': 200
                 }
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         uri = f"assets/{asset_id}"
         if updates.get("attributes"):
@@ -643,7 +643,7 @@ class FlexMeasuresClient:
                     'unit': '%'
                 }
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         uri = f"sensors/{sensor_id}"
         if updates.get("attributes"):
