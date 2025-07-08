@@ -262,6 +262,24 @@ class FlexMeasuresClient:
         )
         self.access_token = response["auth_token"]
 
+    async def get_versions(self):
+        """Get the FlexMeasures version and the supported API versions of the FlexMeasures server."""
+        response, _status = await self.request(
+            uri="",
+            path="/api/",
+            method="GET",
+            include_auth=False,
+        )
+
+        # Check whether the API version used by the client is supported by the server
+        server_api_versions = response["versions"]
+        if self.api_version not in server_api_versions:
+            raise WrongAPIVersionError(
+                f"{self.api_version} is not supported by the FlexMeasures Server. The server supports: {server_api_versions}"
+            )
+
+        return response
+
     async def post_measurements(
         self,
         sensor_id: int,
