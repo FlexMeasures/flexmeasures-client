@@ -66,10 +66,13 @@ class FlexMeasuresClient:
             raise EmailValidationError(
                 f"{self.email} is not an email address format string"
             )
+
+        # Check whether API version is supported by the client
         if self.api_version not in API_VERSIONS_LIST:
             raise WrongAPIVersionError(
-                f"Version {self.api_version} not in versions list: {API_VERSIONS_LIST}"
+                f"{self.api_version} is not supported by the FlexMeasures Client. The client supports: {API_VERSIONS_LIST}"
             )
+
         # if ssl then scheme is https.
         if self.ssl:
             self.scheme = "https"

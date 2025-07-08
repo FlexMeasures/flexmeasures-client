@@ -126,7 +126,7 @@ async def test__init__(
                 "password": "test_password",
             },
             WrongAPIVersionError,
-            "Version v123 not in versions list: ",
+            "v123 is not supported by the FlexMeasures Client.",
         ),
         (
             {"password": "", "email": "test@test.test"},
