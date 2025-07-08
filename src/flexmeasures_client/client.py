@@ -168,7 +168,7 @@ class FlexMeasuresClient:
                     except (ClientError, socket.gaierror) as exception:
                         logging.debug(exception)
                         raise ConnectionError(
-                            "Error occurred while communicating with the API."
+                            f"Error occurred while communicating with the API: {exception}"
                         ) from exception
         except asyncio.TimeoutError as exception:
             raise ConnectionError(
