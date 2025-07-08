@@ -41,7 +41,7 @@ API_VERSIONS_LIST = ("v3_0",)
 
 @dataclass
 class FlexMeasuresClient:
-    """Main class for connecting to the FlexMeasures API"""
+    """Main class for connecting to the FlexMeasures API."""
 
     password: str
     email: str
@@ -104,7 +104,7 @@ class FlexMeasuresClient:
             self.port = 443 if self.scheme == "https" else 80
 
     async def close(self):
-        """Function to close FlexMeasuresClient session when all requests are done"""
+        """Function to close FlexMeasuresClient session when all requests are done."""
         await cast(ClientSession, self.session).close()
 
     async def request(
@@ -199,7 +199,7 @@ class FlexMeasuresClient:
         logging.debug(headers_msg)
         logging.debug("=" * 14)
 
-        """Sends a single request to FlexMeasures and checks the response"""
+        """Sends a single request to FlexMeasures and checks the response."""
         self.ensure_session()
         response = await cast(ClientSession, self.session).request(
             method=method,
@@ -227,7 +227,7 @@ class FlexMeasuresClient:
         return response, polling_step, reauth_once, url
 
     def ensure_session(self):
-        """If there is no session, start one"""
+        """If there is no session, start one."""
         if self.session is None:
             self.session = ClientSession()
 
@@ -241,7 +241,7 @@ class FlexMeasuresClient:
         return headers
 
     def build_url(self, uri: str, path: str = path) -> URL:
-        """Build url for request"""
+        """Build url for request."""
         url = URL.build(
             scheme=self.scheme, host=self.host, port=self.port, path=path
         ).join(
@@ -273,7 +273,7 @@ class FlexMeasuresClient:
     ):
         """
         Post sensor data for the given time range.
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         json_payload = dict(
             sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
@@ -377,7 +377,7 @@ class FlexMeasuresClient:
 
         :returns: list of assets as dictionaries
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         assets, status = await self.request(uri="assets", method="GET")
         check_for_status(status, 200)
@@ -475,7 +475,7 @@ class FlexMeasuresClient:
                     'unit': 'MW'
                 }
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         params = dict(
             sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
@@ -501,7 +501,7 @@ class FlexMeasuresClient:
         return sensor_data
 
     async def get_sensor(self, sensor_id: int) -> dict:
-        """Get a single sensor
+        """Get a single sensor.
 
         :returns: sensor as dictionary, for example:
                 {
@@ -515,7 +515,7 @@ class FlexMeasuresClient:
                     'unit': '%'
                 }
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         uri = f"sensors/{sensor_id}"
         sensor, status = await self.request(uri=uri, method="GET")
@@ -535,7 +535,7 @@ class FlexMeasuresClient:
         timezone: str | None = None,
         attributes: dict | None = None,
     ) -> dict:
-        """Post a sensor
+        """Post a sensor.
 
         :returns: sensor as dictionary, for example:
                 {
@@ -549,7 +549,7 @@ class FlexMeasuresClient:
                     'unit': '%'
                 }
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         sensor = dict(
             name=name,
@@ -579,9 +579,10 @@ class FlexMeasuresClient:
         latitude: float,
         longitude: float,
         generic_asset_type_id: int,
+        parent_asset_id: int | None = None,
         attributes: dict | None = None,
     ) -> dict:
-        """Post an asset
+        """Post an asset.
 
         :returns: asset as dictionary, for example:
                 {
@@ -595,7 +596,7 @@ class FlexMeasuresClient:
                     'status': 200
                 }
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         asset = dict(
             name=name,
@@ -604,6 +605,8 @@ class FlexMeasuresClient:
             longitude=longitude,
             generic_asset_type_id=generic_asset_type_id,
         )
+        if parent_asset_id:
+            asset["parent_asset_id"] = parent_asset_id
         if attributes:
             asset["attributes"] = json.dumps(attributes)
 
@@ -619,7 +622,7 @@ class FlexMeasuresClient:
         return new_asset
 
     async def update_asset(self, asset_id: int, updates: dict) -> dict:
-        """Patch an asset
+        """Patch an asset.
 
         :returns: asset as dictionary, for example:
                 {
@@ -633,7 +636,7 @@ class FlexMeasuresClient:
                     'status': 200
                 }
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         uri = f"assets/{asset_id}"
         if updates.get("attributes"):
@@ -649,7 +652,7 @@ class FlexMeasuresClient:
         return updated_asset
 
     async def update_sensor(self, sensor_id: int, updates: dict) -> dict:
-        """Patch a sensor
+        """Patch a sensor.
 
         :returns: sensor as dictionary, for example:
                 {
@@ -663,7 +666,7 @@ class FlexMeasuresClient:
                     'unit': '%'
                 }
 
-        This function raises a ValueError when an unhandled status code is returned
+        This function raises a ValueError when an unhandled status code is returned.
         """
         uri = f"sensors/{sensor_id}"
         if updates.get("attributes"):
