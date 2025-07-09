@@ -26,6 +26,8 @@ async def check_response(
     """
     status = response.status
     payload = await response.json()
+    if payload is None:
+        payload = {}
     headers = response.headers
     if status < 300:
         pass

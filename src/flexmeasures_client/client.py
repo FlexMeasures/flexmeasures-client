@@ -12,6 +12,7 @@ from typing import Any, cast
 import async_timeout
 import pandas as pd
 from aiohttp.client import ClientError, ClientResponse, ClientSession
+from packaging.version import Version
 from yarl import URL
 
 from flexmeasures_client.constants import (
@@ -36,7 +37,7 @@ MAX_POLLING_STEPS: int = 10  # seconds
 POLLING_TIMEOUT = 200.0  # seconds
 REQUEST_TIMEOUT = 20.0  # seconds
 POLLING_INTERVAL = 10.0  # seconds
-API_VERSIONS_LIST = ("v3_0",)
+API_VERSIONS_LIST = ["v3_0"]
 
 
 @dataclass
@@ -66,10 +67,13 @@ class FlexMeasuresClient:
             raise EmailValidationError(
                 f"{self.email} is not an email address format string"
             )
+
+        # Check whether API version is supported by the client
         if self.api_version not in API_VERSIONS_LIST:
             raise WrongAPIVersionError(
-                f"Version {self.api_version} not in versions list: {API_VERSIONS_LIST}"
+                f"{self.api_version} is not supported by the FlexMeasures Client. The client supports: {API_VERSIONS_LIST}"
             )
+
         # if ssl then scheme is https.
         if self.ssl:
             self.scheme = "https"
@@ -165,7 +169,7 @@ class FlexMeasuresClient:
                     except (ClientError, socket.gaierror) as exception:
                         logging.debug(exception)
                         raise ConnectionError(
-                            "Error occurred while communicating with the API."
+                            f"Error occurred while communicating with the API: {exception}"
                         ) from exception
         except asyncio.TimeoutError as exception:
             raise ConnectionError(
@@ -261,6 +265,36 @@ class FlexMeasuresClient:
             include_auth=False,
         )
         self.access_token = response["auth_token"]
+
+    async def get_versions(self):
+        """Get the FlexMeasures version and the supported API versions of the FlexMeasures server.
+
+        Also returns the client's version and the API version it uses.
+        """
+        response, _status = await self.request(
+            uri="",
+            path="/api/",
+            method="GET",
+            include_auth=False,
+        )
+
+        # Check whether the API version used by the client is supported by the server
+        server_api_versions = response["versions"]
+        if self.api_version not in server_api_versions:
+            raise WrongAPIVersionError(
+                f"{self.api_version} is not supported by the FlexMeasures Server. The server supports: {server_api_versions}"
+            )
+
+        from flexmeasures_client import __version__ as client_version
+
+        version_info = dict(
+            server_version=response.get("flexmeasures_version"),
+            server_supports_api_versions=server_api_versions,
+            client_version=client_version,
+            client_uses_api_version=API_VERSION,
+        )
+
+        return version_info
 
     async def post_measurements(
         self,
@@ -707,10 +741,22 @@ class FlexMeasuresClient:
                 json_payload=message,
             )
         else:
-            response, status = await self.request(
-                uri=f"assets/{asset_id}/schedules/trigger",
-                json_payload=message,
-            )
+            try:
+                response, status = await self.request(
+                    uri=f"assets/{asset_id}/schedules/trigger",
+                    json_payload=message,
+                )
+            except Exception as exc:
+                if "404" in str(exc):
+                    version_info = await self.get_versions()
+                    server_version = version_info["server_version"]
+                    minimum_server_version = "v0.27.0"
+                    if Version(server_version) < Version(minimum_server_version):
+                        raise ConnectionError(
+                            f"This API endpoint doesn't exist yet. The server runs v{server_version}, but at least {minimum_server_version} is required. {exc}"
+                        )
+                else:
+                    raise exc
         check_for_status(status, 200)
 
         logging.info("Schedule triggered successfully.")
