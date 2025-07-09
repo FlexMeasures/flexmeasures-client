@@ -286,30 +286,13 @@ async def test_trigger_schedule() -> None:
 
 @pytest.mark.asyncio
 async def test_get_schedule_polling() -> None:
-    # todo: relies on https://github.com/pnuckowski/aioresponses/pull/237 to use repeat instead of 3 times the same aioresponse. # noqa: E501
-
     url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid?duration=P0DT0H45M0S"  # noqa 501
     with aioresponses() as m:
-        # m.get(
-        #     "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
-        #     status=400,
-        #     payload={"message": "Scheduling job waiting"},
-        #     repeat=3
-        # )
         m.get(
             url=url,
             status=400,
             payload={"message": "Scheduling job waiting"},
-        )
-        m.get(
-            url=url,
-            status=400,
-            payload={"message": "Scheduling job waiting"},
-        )
-        m.get(
-            url=url,
-            status=400,
-            payload={"message": "Scheduling job waiting"},
+            repeat=3,
         )
         m.get(
             url=url,
@@ -447,36 +430,15 @@ async def test_get_sensors2() -> None:
 
 @pytest.mark.asyncio
 async def test_trigger_and_get_schedule() -> None:
-    # todo: relies on https://github.com/pnuckowski/aioresponses/pull/237 to use repeat instead of 3 times the same aioresponse. # noqa: E501
-
     url = "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid?duration=P0DT0H45M0S"  # noqa 501
     with aioresponses() as m:
-        # m.get(
-        #     "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
-        #     status=400,
-        #     payload={"message": "Scheduling job waiting"},
-        #     repeat=3
-        # )
+        m.get(
+            url=url, status=400, payload={"message": "Scheduling job waiting"}, repeat=3
+        )
         m.post(
             "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
             status=200,
             payload={"schedule": "schedule-uuid"},
-        )
-
-        m.get(
-            url=url,
-            status=400,
-            payload={"message": "Scheduling job waiting"},
-        )
-        m.get(
-            url=url,
-            status=400,
-            payload={"message": "Scheduling job waiting"},
-        )
-        m.get(
-            url=url,
-            status=400,
-            payload={"message": "Scheduling job waiting"},
         )
         m.get(
             url=url,
@@ -768,17 +730,15 @@ async def test_update_assets():
 
 @pytest.mark.asyncio
 async def test_get_fallback_schedule():
-    # todo: relies on https://github.com/pnuckowski/aioresponses/pull/237 to use repeat instead of 3 times the same aioresponse. # noqa: E501
-
     url = "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid?duration=P0DT0H45M0S"  # noqa: E501
     redirect_url = "http://localhost:5000/api/v3_0/sensors/1/schedules/fallback-schedule?duration=P0DT0H45M0S"  # noqa: E501
     with aioresponses() as m:
-        # m.get(
-        #     "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
-        #     status=400,
-        #     payload={"message": "Scheduling job waiting"},
-        #     repeat=3
-        # )
+        m.get(
+            url=url,
+            status=400,
+            payload={"message": "Scheduling job waiting"},
+            repeat=3,
+        )
         m.post(
             "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
             status=200,
@@ -797,6 +757,7 @@ async def test_get_fallback_schedule():
             url=redirect_url,
             status=400,
             payload={"message": "Scheduling job waiting"},
+            repeat=3,
         )
         m.get(
             url=redirect_url,
