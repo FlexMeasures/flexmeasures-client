@@ -339,12 +339,12 @@ class FillRateBasedControlTUNES(FRBC):
         start = self.now()
         start = start.replace(minute=(start.minute // 15) * 15, second=0, microsecond=0)
 
-        most_recet_system_description = next(
+        most_recent_system_description = next(
             reversed(self._system_description_history.values())
         )
-        print(most_recet_system_description)
+        print(most_recent_system_description)
         soc_at_start = (
-            most_recet_system_description.storage.fill_level_range.end_of_range
+            most_recent_system_description.storage.fill_level_range.end_of_range
             * FILL_LEVEL_SCALE
         )
 
