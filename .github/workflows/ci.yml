@@ -131,6 +131,8 @@ jobs:
         with:
           generate_release_notes: true
           tag_name: ${{ inputs.custom_version || github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_RELEASE_PAT }}
 
   # test-publish:
   #   needs: finalize
