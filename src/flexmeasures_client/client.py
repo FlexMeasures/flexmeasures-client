@@ -13,7 +13,6 @@ import async_timeout
 import pandas as pd
 from aiohttp.client import ClientError, ClientResponse, ClientSession
 from packaging.version import Version
-from setuptools_scm import get_version
 from yarl import URL
 
 from flexmeasures_client.constants import (
@@ -286,10 +285,12 @@ class FlexMeasuresClient:
                 f"{self.api_version} is not supported by the FlexMeasures Server. The server supports: {server_api_versions}"
             )
 
+        from flexmeasures_client import __version__ as client_version
+
         version_info = dict(
             server_version=response.get("flexmeasures_version"),
             server_supports_api_versions=server_api_versions,
-            client_version=get_version(),
+            client_version=client_version,
             client_uses_api_version=API_VERSION,
         )
 
