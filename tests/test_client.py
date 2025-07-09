@@ -433,10 +433,7 @@ async def test_trigger_and_get_schedule() -> None:
     url = "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid?duration=P0DT0H45M0S"  # noqa 501
     with aioresponses() as m:
         m.get(
-            url=url,
-            status=400,
-            payload={"message": "Scheduling job waiting"},
-            repeat=3
+            url=url, status=400, payload={"message": "Scheduling job waiting"}, repeat=3
         )
         m.post(
             "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
