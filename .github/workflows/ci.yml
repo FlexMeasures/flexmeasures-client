@@ -67,6 +67,7 @@ jobs:
 
   publish:
     needs: finalize
+    if: ${{ github.event_name == 'push' && contains(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     environment:
       name: release
@@ -80,7 +81,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          tag_name: v0.6.0
+          tag_name: ${{ inputs.custom_version || github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GH_RELEASE_PAT }}
 
