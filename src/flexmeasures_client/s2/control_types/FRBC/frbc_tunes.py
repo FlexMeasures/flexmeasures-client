@@ -63,26 +63,26 @@ CONVERSION_EFFICIENCY_DURATION = "PT24H"
 
 
 class FillRateBasedControlTUNES(FRBC):
-    _fill_level_sensor_id: int | None
+    _fill_level_sensor_id: int
 
-    _fill_rate_sensor_id: int | None
-    _thp_fill_rate_sensor_id: int | None
-    _thp_efficiency_sensor_id: int | None
-    _nes_fill_rate_sensor_id: int | None
-    _nes_efficiency_sensor_id: int | None
-    _leakage_beaviour_sensor_id: int | None
+    _fill_rate_sensor_id: int
+    _thp_fill_rate_sensor_id: int
+    _thp_efficiency_sensor_id: int
+    _nes_fill_rate_sensor_id: int
+    _nes_efficiency_sensor_id: int
+    _leakage_beaviour_sensor_id: int
 
-    _active_actuator_id_sensor_id: int | None
+    _active_actuator_id_sensor_id: int
 
     _schedule_duration: timedelta
 
-    _usage_forecast_sensor_id: int | None
-    _soc_minima_sensor_id: int | None
-    _soc_maxima_sensor_id: int | None
-    _state_of_charge_sensor_id: int | None
+    _usage_forecast_sensor_id: int
+    _soc_minima_sensor_id: int
+    _soc_maxima_sensor_id: int
+    _state_of_charge_sensor_id: int
 
-    _consumption_price_sensor_id: int | None
-    _production_price_sensor_id: int | None
+    _consumption_price_sensor_id: int
+    _production_price_sensor_id: int
 
     _timers: dict[str, datetime]
 
@@ -90,21 +90,21 @@ class FillRateBasedControlTUNES(FRBC):
 
     def __init__(
         self,
-        soc_minima_sensor_id: int | None = None,
-        soc_maxima_sensor_id: int | None = None,
-        fill_level_sensor_id: int | None = None,
-        usage_forecast_sensor_id: int | None = None,
-        thp_fill_rate_sensor_id: int | None = None,
-        thp_efficiency_sensor_id: int | None = None,
-        nes_fill_rate_sensor_id: int | None = None,
-        nes_efficiency_sensor_id: int | None = None,
-        fill_rate_sensor_id: int | None = None,
-        rm_discharge_sensor_id: int | None = None,
-        active_actuator_id_sensor_id: int | None = None,
-        leakage_beaviour_sensor_id: int | None = None,
-        production_price_sensor: int | None = None,
-        consumption_price_sensor: int | None = None,
-        state_of_charge_sensor_id: int | None = None,
+        soc_minima_sensor_id: int,
+        soc_maxima_sensor_id: int,
+        fill_level_sensor_id: int,
+        usage_forecast_sensor_id: int,
+        thp_fill_rate_sensor_id: int,
+        thp_efficiency_sensor_id: int,
+        nes_fill_rate_sensor_id: int,
+        nes_efficiency_sensor_id: int,
+        fill_rate_sensor_id: int,
+        rm_discharge_sensor_id: int,
+        active_actuator_id_sensor_id: int,
+        leakage_beaviour_sensor_id: int,
+        production_price_sensor: int,
+        consumption_price_sensor: int,
+        state_of_charge_sensor_id: int,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
@@ -144,7 +144,7 @@ class FillRateBasedControlTUNES(FRBC):
         self._active_recurring_schedule = False
         self._timers = dict()
 
-        self.last_system_description_hash: int | None = None
+        self.last_system_description_hash: int = 0
 
     def is_timer_due(self, name: str):
         if (
