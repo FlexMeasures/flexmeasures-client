@@ -834,3 +834,35 @@ async def test_get_fallback_schedule():
         )
     assert schedule["values"] == [2.15, 4, 1]
     await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_versions() -> None:
+    url = "http://localhost:5000/api/"  # noqa 501
+    with aioresponses() as m:
+        m.get(
+            url=url,
+            status=200,
+            payload={'flexmeasures_version': '0.25.0.dev0', 'message': 'For these API versions a public endpoint is available, listing its service. For example: /api/v3_0. An authentication token can be requested at: /api/requestAuthToken', 'versions': ['v3_0']},
+            repeat=True,
+        )
+        m.post(
+            url=f"{url}v3_0/assets/1/schedules/trigger",
+            status=404,
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="skip-auth",
+        )
+        version_info = await flexmeasures_client.get_versions()
+        assert version_info["server_version"] == "0.25.0.dev0"
+        with pytest.raises(ConnectionError, match="The server runs v0.25.0.dev0, but at least v0.27.0 is required."):
+            await flexmeasures_client.trigger_and_get_schedule(
+                asset_id=1,
+                start="2015-06-02T10:00:00+00:00",
+                duration="PT45M",
+                flex_context={},
+                flex_model=[{}],
+            )
+        await flexmeasures_client.close()
