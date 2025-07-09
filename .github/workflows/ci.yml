@@ -126,6 +126,11 @@ jobs:
       - name: Publish Package
         uses: pypa/gh-action-pypi-publish@release/v1
         # run: pipx run tox -e publish
+      - name: Publish release on GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          tag_name: ${{ inputs.custom_version || github.ref_name }}
 
   # test-publish:
   #   needs: finalize
