@@ -357,7 +357,7 @@ class FillRateBasedControlTUNES(FRBC):
         duration = timedelta(hours=24)
 
         schedule = await self._fm_client.trigger_and_get_schedule(
-            self._rm_discharge_sensor_id,
+            sensor_id=self._rm_discharge_sensor_id,
             start=start,
             duration=duration,
             flex_context={
