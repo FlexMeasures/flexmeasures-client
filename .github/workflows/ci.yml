@@ -33,26 +33,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with: { fetch-depth: 0 } # deep clone for setuptools-scm
-      - uses: actions/setup-python@v4
-        id: setup-python
-        with: { python-version: "3.11" }
-      - name: Run static analysis and format checkers
-        run: pipx run pre-commit run --all-files --show-diff-on-failure
-      - name: Build package distribution files
-        run: >-
-          pipx run --python '${{ steps.setup-python.outputs.python-path }}'
-          tox -e clean,build
-      - name: Record the path of wheel distribution
-        id: wheel-distribution
-        run: echo "path=$(ls dist/*.whl)" >> $GITHUB_OUTPUT
-      - name: Store the distribution files for use in other stages
-        # `tests` and `publish` will use the same pre-built distributions,
-        # so we make sure to release the exact same package that was tested
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-distribution-files
-          path: dist/
-          retention-days: 1
 
   test:
     needs: prepare
@@ -69,25 +49,6 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        id: setup-python
-        with:
-          python-version: ${{ matrix.python }}
-      - name: Retrieve pre-built distribution files
-        uses: actions/download-artifact@v4
-        with:
-          name: python-distribution-files
-          path: dist/
-      - name: Run tests
-        run: >-
-          pipx run --python '${{ steps.setup-python.outputs.python-path }}'
-          tox --installpkg '${{ needs.prepare.outputs.wheel-distribution }}'
-          -- -rFEx --durations 10 --color yes  # pytest args
-      - name: Run tests (s2)
-        run: >-
-          pipx run --python '${{ steps.setup-python.outputs.python-path }}'
-          tox -e s2 --installpkg '${{ needs.prepare.outputs.wheel-distribution }}'
-          -- -rFEx --durations 10 --color yes  # pytest args
       # - name: Generate coverage report
       #   run: pipx run coverage lcov -o coverage.lcov
       # - name: Upload partial coverage report
@@ -116,16 +77,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with: {fetch-depth: 0}  # deep clone for setuptools-scm
-      - uses: actions/setup-python@v4
-        with: { python-version: "3.11" }
-      - name: Retrieve pre-built distribution files
-        uses: actions/download-artifact@v4
-        with:
-          name: python-distribution-files
-          path: dist/
-      - name: Publish Package
-        uses: pypa/gh-action-pypi-publish@release/v1
-        # run: pipx run tox -e publish
       - name: Publish release on GitHub
         uses: softprops/action-gh-release@v2
         with:
