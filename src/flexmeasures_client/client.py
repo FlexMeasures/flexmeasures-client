@@ -7,6 +7,7 @@ import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from packaging.version import Version
 from setuptools_scm import get_version
 from typing import Any, cast
 
@@ -739,10 +740,22 @@ class FlexMeasuresClient:
                 json_payload=message,
             )
         else:
-            response, status = await self.request(
-                uri=f"assets/{asset_id}/schedules/trigger",
-                json_payload=message,
-            )
+            try:
+                response, status = await self.request(
+                    uri=f"assets/{asset_id}/schedules/trigger",
+                    json_payload=message,
+                )
+            except Exception as exc:
+                if "404" in str(exc):
+                    version_info = await self.get_versions()
+                    server_version = version_info["server_version"]
+                    minimum_server_version = "v0.27.0"
+                    if Version(server_version) < Version(minimum_server_version):
+                        raise ConnectionError(
+                            f"This API endpoint doesn't exist yet. The server runs v{server_version}, but at least {minimum_server_version} is required. {exc}"
+                        )
+                else:
+                    raise exc
         check_for_status(status, 200)
 
         logging.info("Schedule triggered successfully.")
