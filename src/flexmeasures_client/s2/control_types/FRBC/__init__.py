@@ -94,6 +94,8 @@ class FRBC(ControlTypeHandler):
 
     @register(FRBCStorageStatus)
     def handle_storage_status(self, message: FRBCStorageStatus) -> pydantic.BaseModel:
+        print(message)
+
         message_id = str(message.message_id)
 
         self._storage_status_history[message_id] = message
