@@ -7,6 +7,7 @@ import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from setuptools_scm import get_version
 from typing import Any, cast
 
 import async_timeout
@@ -266,7 +267,10 @@ class FlexMeasuresClient:
         self.access_token = response["auth_token"]
 
     async def get_versions(self):
-        """Get the FlexMeasures version and the supported API versions of the FlexMeasures server."""
+        """Get the FlexMeasures version and the supported API versions of the FlexMeasures server.
+
+        Also returns the client's version and the API version it uses.
+        """
         response, _status = await self.request(
             uri="",
             path="/api/",
@@ -281,7 +285,14 @@ class FlexMeasuresClient:
                 f"{self.api_version} is not supported by the FlexMeasures Server. The server supports: {server_api_versions}"
             )
 
-        return response
+        version_info = dict(
+            server_version=response.get("flexmeasures_version"),
+            server_supports_api_versions=server_api_versions,
+            client_version=get_version(),
+            client_uses_api_version=API_VERSION,
+        )
+
+        return version_info
 
     async def post_measurements(
         self,
