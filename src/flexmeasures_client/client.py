@@ -7,13 +7,13 @@ import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from packaging.version import Version
-from setuptools_scm import get_version
 from typing import Any, cast
 
 import async_timeout
 import pandas as pd
 from aiohttp.client import ClientError, ClientResponse, ClientSession
+from packaging.version import Version
+from setuptools_scm import get_version
 from yarl import URL
 
 from flexmeasures_client.constants import (
