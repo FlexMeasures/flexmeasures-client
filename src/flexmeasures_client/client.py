@@ -625,7 +625,7 @@ class FlexMeasuresClient:
                     'account_id': 2,
                     'attributes': '{}',
                     'sensors_to_show': [],
-                    'flex-context': {},
+                    'flex_context': {},
                     'generic_asset_type_id': 5,
                     'id': 25,
                     'latitude': 51.999,
@@ -703,6 +703,19 @@ class FlexMeasuresClient:
             )
         return updated_asset
 
+    async def delete_asset(self, asset_id: int):
+        """Deletes an asset and its sensors & data.
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        answer = input(f"Delete asset {asset_id} and all its sensors and data? [yN]")
+        if answer.lower() not in ["y", "yes"]:
+            print("Aborting ...")
+            return {}
+        uri = f"assets/{asset_id}"
+        _, status = await self.request(uri=uri, method="DELETE")
+        check_for_status(status, 204)
+
     async def update_sensor(self, sensor_id: int, updates: dict) -> dict:
         """Patch a sensor.
 
@@ -733,6 +746,19 @@ class FlexMeasuresClient:
                 f"Expected a sensor dictionary, but got {type(updated_sensor)}",
             )
         return updated_sensor
+
+    async def delete_sensor(self, sensor_id: int):
+        """Deletes a sensor and its data.
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        answer = input(f"Delete sensor {sensor_id} and all its data? [yN]")
+        if answer.lower() not in ["y", "yes"]:
+            print("Aborting ...")
+            return {}
+        uri = f"sensors/{sensor_id}"
+        _, status = await self.request(uri=uri, method="DELETE")
+        check_for_status(status, 204)
 
     async def trigger_schedule(
         self,
