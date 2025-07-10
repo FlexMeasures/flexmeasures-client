@@ -614,6 +614,8 @@ class FlexMeasuresClient:
         longitude: float,
         generic_asset_type_id: int,
         parent_asset_id: int | None = None,
+        sensors_to_show: list | None = None,
+        flex_context: dict | None = None,
         attributes: dict | None = None,
     ) -> dict:
         """Post an asset.
@@ -621,7 +623,9 @@ class FlexMeasuresClient:
         :returns: asset as dictionary, for example:
                 {
                     'account_id': 2,
-                    'attributes': '{"sensors_to_show": [14, 37, 38, 39]}',
+                    'attributes': '{}',
+                    'sensors_to_show': [],
+                    'flex-context': {},
                     'generic_asset_type_id': 5,
                     'id': 25,
                     'latitude': 51.999,
@@ -641,6 +645,10 @@ class FlexMeasuresClient:
         )
         if parent_asset_id:
             asset["parent_asset_id"] = parent_asset_id
+        if sensors_to_show:
+            asset["sensors_to_show"] = json.dumps(sensors_to_show)
+        if flex_context:
+            asset["flex_context"] = json.dumps(flex_context)
         if attributes:
             asset["attributes"] = json.dumps(attributes)
 
@@ -661,7 +669,8 @@ class FlexMeasuresClient:
         :returns: asset as dictionary, for example:
                 {
                     'account_id': 2,
-                    'attributes': '{"sensors_to_show": [14, 37, 38, 39]}',
+                    'attributes': '{}',
+                    'sensors_to_show': [],
                     'generic_asset_type_id': 5,
                     'id': 25,
                     'latitude': 51.999,
@@ -675,6 +684,15 @@ class FlexMeasuresClient:
         uri = f"assets/{asset_id}"
         if updates.get("attributes"):
             updates["attributes"] = json.dumps(updates["attributes"])
+        if updates.get("flex_context"):
+            updates["flex_context"] = json.dumps(updates["flex_context"])
+        if updates.get("sensors_to_show"):
+            updates["sensors_to_show"] = json.dumps(updates["sensors_to_show"])
+        for key, val in updates.items():
+            if type(val) not in (str, bytes, bytearray):
+                raise ContentTypeError(
+                    f"Value for {key} is not allowed (needs to be str, byte or bytearray to be sent to API)"
+                )
         updated_asset, status = await self.request(
             uri=uri, json_payload=updates, method="PATCH"
         )
