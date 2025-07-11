@@ -86,6 +86,12 @@ Retrieve available assets and sensors:
     assets = await client.get_assets()
     sensors = await client.get_sensors()
 
+The data will be returned as (lists of) dictionaries.
+
+
+Sending data
+=================
+
 Post a measurement from a sensor:
 
 .. code-block:: python
@@ -96,8 +102,16 @@ Post a measurement from a sensor:
         duration="PT6H",  # ISO duration
         values=[1, 2, 3, 4],  # list
         unit="kWh",
-        entity_address=<sensor_entity_address>,  # string
     )
+
+
+For illustration of a small but complete FlexMeasures Client script, see [this small example script](examples/send_data_to_asset.py).
+It sets up an asset and sensor (checking if they exist first), then sends data to it.
+
+
+Scheduling
+===========
+
 
 With FlexMeasures a schedule can be requested to optimize at what time the flexible assets can be activated to optimize for price of energy or emissions.
 
