@@ -422,12 +422,16 @@ class FlexMeasuresClient:
             )
         return assets
 
-    async def get_sensors(self) -> list[dict]:
+    async def get_sensors(self, asset_id: int | None = None) -> list[dict]:
         """Get all the sensors available to the current user.
+        Can be filtered by asset.
 
         :returns: list of sensors as dictionaries
         """
-        sensors, status = await self.request(uri="sensors", method="GET")
+        uri = "sensors"
+        if asset_id:
+            uri += f"?asset_id={asset_id}"
+        sensors, status = await self.request(uri=uri, method="GET")
         check_for_status(status, 200)
         if not isinstance(sensors, list):
             raise ContentTypeError(
