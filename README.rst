@@ -105,7 +105,7 @@ Post a measurement from a sensor:
     )
 
 
-For illustration of a small but complete FlexMeasures Client script, see [this small example script](examples/send_data_to_asset.py).
+For illustration of a small but complete FlexMeasures Client script, see `this small example script <examples/send_data_to_asset.py>`_.
 It sets up an asset and sensor (checking if they exist first), then sends data to it.
 
 
