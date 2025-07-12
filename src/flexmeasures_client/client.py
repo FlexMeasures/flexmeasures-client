@@ -703,15 +703,18 @@ class FlexMeasuresClient:
             )
         return updated_asset
 
-    async def delete_asset(self, asset_id: int):
+    async def delete_asset(self, asset_id: int, confirm_first: bool = True):
         """Deletes an asset and its sensors & data.
 
         This function raises a ValueError when an unhandled status code is returned.
         """
-        answer = input(f"Delete asset {asset_id} and all its sensors and data? [yN]")
-        if answer.lower() not in ["y", "yes"]:
-            print("Aborting ...")
-            return {}
+        if confirm_first is True:
+            answer = input(
+                f"Delete asset {asset_id} and all its sensors and data? [yN]"
+            )
+            if answer.lower() not in ["y", "yes"]:
+                print("Aborting ...")
+                return
         uri = f"assets/{asset_id}"
         _, status = await self.request(uri=uri, method="DELETE")
         check_for_status(status, 204)
@@ -747,15 +750,16 @@ class FlexMeasuresClient:
             )
         return updated_sensor
 
-    async def delete_sensor(self, sensor_id: int):
+    async def delete_sensor(self, sensor_id: int, confirm_first: bool = True):
         """Deletes a sensor and its data.
 
         This function raises a ValueError when an unhandled status code is returned.
         """
-        answer = input(f"Delete sensor {sensor_id} and all its data? [yN]")
-        if answer.lower() not in ["y", "yes"]:
-            print("Aborting ...")
-            return {}
+        if confirm_first is True:
+            answer = input(f"Delete sensor {sensor_id} and all its data? [yN] ")
+            if answer.lower() not in ["y", "yes"]:
+                print("Aborting ...")
+                return
         uri = f"sensors/{sensor_id}"
         _, status = await self.request(uri=uri, method="DELETE")
         check_for_status(status, 204)
