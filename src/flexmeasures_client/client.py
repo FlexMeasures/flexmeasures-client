@@ -618,6 +618,8 @@ class FlexMeasuresClient:
         longitude: float,
         generic_asset_type_id: int,
         parent_asset_id: int | None = None,
+        sensors_to_show: list | None = None,
+        flex_context: dict | None = None,
         attributes: dict | None = None,
     ) -> dict:
         """Post an asset.
@@ -625,7 +627,9 @@ class FlexMeasuresClient:
         :returns: asset as dictionary, for example:
                 {
                     'account_id': 2,
-                    'attributes': '{"sensors_to_show": [14, 37, 38, 39]}',
+                    'attributes': '{}',
+                    'sensors_to_show': [],
+                    'flex_context': {},
                     'generic_asset_type_id': 5,
                     'id': 25,
                     'latitude': 51.999,
@@ -645,6 +649,10 @@ class FlexMeasuresClient:
         )
         if parent_asset_id:
             asset["parent_asset_id"] = parent_asset_id
+        if sensors_to_show:
+            asset["sensors_to_show"] = json.dumps(sensors_to_show)
+        if flex_context:
+            asset["flex_context"] = json.dumps(flex_context)
         if attributes:
             asset["attributes"] = json.dumps(attributes)
 
@@ -665,7 +673,8 @@ class FlexMeasuresClient:
         :returns: asset as dictionary, for example:
                 {
                     'account_id': 2,
-                    'attributes': '{"sensors_to_show": [14, 37, 38, 39]}',
+                    'attributes': '{}',
+                    'sensors_to_show': [],
                     'generic_asset_type_id': 5,
                     'id': 25,
                     'latitude': 51.999,
@@ -677,8 +686,17 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned.
         """
         uri = f"assets/{asset_id}"
-        if updates.get("attributes"):
+        if "attributes" in updates:
             updates["attributes"] = json.dumps(updates["attributes"])
+        if "flex_context" in updates:
+            updates["flex_context"] = json.dumps(updates["flex_context"])
+        if "sensors_to_show" in updates:
+            updates["sensors_to_show"] = json.dumps(updates["sensors_to_show"])
+        for key, val in updates.items():
+            if type(val) not in (str, bytes, bytearray):
+                raise ContentTypeError(
+                    f"Value for {key} is not allowed (needs to be str, byte or bytearray to be sent to API)"
+                )
         updated_asset, status = await self.request(
             uri=uri, json_payload=updates, method="PATCH"
         )
@@ -688,6 +706,22 @@ class FlexMeasuresClient:
                 f"Expected an asset dictionary, but got {type(updated_asset)}",
             )
         return updated_asset
+
+    async def delete_asset(self, asset_id: int, confirm_first: bool = True):
+        """Deletes an asset and its sensors & data.
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        if confirm_first is True:
+            answer = input(
+                f"Delete asset {asset_id} and all its sensors and data? [yN]"
+            )
+            if answer.lower() not in ["y", "yes"]:
+                print("Aborting ...")
+                return
+        uri = f"assets/{asset_id}"
+        _, status = await self.request(uri=uri, method="DELETE")
+        check_for_status(status, 204)
 
     async def update_sensor(self, sensor_id: int, updates: dict) -> dict:
         """Patch a sensor.
@@ -707,7 +741,7 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned.
         """
         uri = f"sensors/{sensor_id}"
-        if updates.get("attributes"):
+        if "attributes" in updates:
             updates["attributes"] = json.dumps(updates["attributes"])
         updated_sensor, status = await self.request(
             uri=uri, json_payload=updates, method="PATCH"
@@ -719,6 +753,20 @@ class FlexMeasuresClient:
                 f"Expected a sensor dictionary, but got {type(updated_sensor)}",
             )
         return updated_sensor
+
+    async def delete_sensor(self, sensor_id: int, confirm_first: bool = True):
+        """Deletes a sensor and its data.
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        if confirm_first is True:
+            answer = input(f"Delete sensor {sensor_id} and all its data? [yN] ")
+            if answer.lower() not in ["y", "yes"]:
+                print("Aborting ...")
+                return
+        uri = f"sensors/{sensor_id}"
+        _, status = await self.request(uri=uri, method="DELETE")
+        check_for_status(status, 204)
 
     async def trigger_schedule(
         self,
