@@ -406,14 +406,27 @@ class FlexMeasuresClient:
         check_for_status(status, 200)
         return user
 
-    async def get_assets(self) -> list[dict]:
+    async def get_assets(
+        self,
+        all_accessible: bool = False,
+        sort_dir: str = "asc",
+        sort_by: str = "id",
+        include_public: bool = False,
+        account_id: int | None = None,
+    ) -> list[dict]:
         """Get all the assets available to the current user.
+
+        For parameter documentation, consult the FlexMeasures server docs.
 
         :returns: list of assets as dictionaries
 
         This function raises a ValueError when an unhandled status code is returned.
         """
-        assets, status = await self.request(uri="assets", method="GET")
+        uri = f"assets?all_accessible={all_accessible}&sort_by={sort_by}&sort_dir={sort_dir}&include_public={include_public}"
+        if account_id and isinstance(account_id, int):
+            uri += f"&account_id={account_id}"
+
+        assets, status = await self.request(uri=uri, method="GET")
         check_for_status(status, 200)
 
         if not isinstance(assets, list):
