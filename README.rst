@@ -43,14 +43,9 @@ The Flexmeasures Client package provides functionality for authentication, asset
 *As the Flexmeasures Client is still in active development and on version 0.x it should be considered in beta.*
 
 
-Getting Started
+Installation
 ===============
 
-To get started with the FlexMeasures Client package, first an account needs to be registered with a FlexMeasures instance.
-To create a local instance of FlexMeasures, follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
-Registering to a hosted FlexMeasures instance instead can be done through `Seita BV <https://seita.nl/>`_.
-
-In this example we show how to set up the client to connect to either ``http://localhost:5000`` or ``https://seita.energy``. To connect to a different host, add the host in the initialization of the client.
 
 Install using ``pip``:
 
@@ -64,20 +59,36 @@ To enable S2 features, you need to install extra requirements:
 
     pip install flexmeasures-client[s2]
 
-Initialization and authentication:
 
-.. code-block:: python
+Initialization and authentication
+==================================
+
+To get started with the FlexMeasures Client, first an account needs to be registered with a FlexMeasures instance.
+To create a local instance of FlexMeasures, follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
+Registering to a hosted FlexMeasures instance instead can be done through `Seita BV <https://seita.nl/>`_.
+
+In these examples we show how to set up the client to connect to either ``http://localhost:5000`` or ``https://seita.energy``. To connect to a different host, adapt the host in the initialization of the client.
+
+   .. code-block:: python
 
     from flexmeasures_client import FlexMeasuresClient
-    client = FlexMeasuresClient(host="localhost:5000", ssl=False, email="email@email.com", password="pw")
-    client = FlexMeasuresClient(host="seita.energy", ssl=True, email="email@email.com", password="pw")
 
-Retrieve user and account info:
+    async def main():
+        client = FlexMeasuresClient(host="localhost:5000", ssl=False, email="email@email.com", password="pw")
+        client = FlexMeasuresClient(host="seita.energy", ssl=True, email="email@email.com", password="pw")
+
+
+Retrieving available info
+==========================
+
+Retrieve user and account:
 
 .. code-block:: python
 
    user = await client.get_user()
    account = await client.get_account()
+
+The data will be returned as a dictionary.
 
 Retrieve available assets and sensors:
 
@@ -87,6 +98,8 @@ Retrieve available assets and sensors:
     sensors = await client.get_sensors()
 
 The data will be returned as (lists of) dictionaries.
+
+.. note:: For `get_assets()` as well as `get_sensors()`, you can use various parameters which the API endpoints also support.
 
 
 Sending data
@@ -105,7 +118,7 @@ Post a measurement from a sensor:
     )
 
 
-For illustration of a small but complete FlexMeasures Client script, see this way to update the flex model of an asset:
+Here is a small but complete FlexMeasures Client script, which simply updates the flex context of an asset:
 
 .. code-block:: python
 
@@ -124,9 +137,9 @@ For illustration of a small but complete FlexMeasures Client script, see this wa
         asset = await client.update_asset(
             asset_id=asset_id,
             updates={
-                "flex_model": {
-                    "prefer-charging-sooner": False,
-                    "soc-min": "1001 kWh"
+                "flex_context": {
+                    "site-consumption-capacity": "110 kW",
+                    "relax-constraints": True
                 }
             },
         )
