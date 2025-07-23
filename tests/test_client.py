@@ -356,7 +356,7 @@ async def test_get_assets() -> None:
         )
         flexmeasures_client.access_token = "test-token"
         m.get(
-            "http://localhost:5000/api/v3_0/assets",
+            "http://localhost:5000/api/v3_0/assets?all_accessible=False&include_public=False&sort_by=id&sort_dir=asc",
             status=200,
             payload=[
                 {
