@@ -422,6 +422,10 @@ class FlexMeasuresClient:
 
         This function raises a ValueError when an unhandled status code is returned.
         """
+        if sort_dir not in ("asc", "desc"):
+            raise ContentTypeError(
+                "sort_dir needs to be one of 'asc' or 'desc'.",
+            )
         uri = f"assets?all_accessible={all_accessible}&sort_by={sort_by}&sort_dir={sort_dir}&include_public={include_public}"
         if account_id and isinstance(account_id, int):
             uri += f"&account_id={account_id}"
