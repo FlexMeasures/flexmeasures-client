@@ -105,8 +105,42 @@ Post a measurement from a sensor:
     )
 
 
-For illustration of a small but complete FlexMeasures Client script, see `this small example script <examples/send_data_to_asset.py>`_.
-It sets up an asset and sensor (checking if they exist first), then sends data to it.
+For illustration of a small but complete FlexMeasures Client script, see this way to update the flex model of an asset:
+
+.. code-block:: python
+
+    import asyncio
+
+    from flexmeasures_client import FlexMeasuresClient
+
+    usr = "xxxxxxxxxxxxxxxx"
+    pwd = "xxxxxxxxxxxxxxxx"
+    asset_id = 1
+
+
+    async def main():
+        client = FlexMeasuresClient(email=usr, password=pwd)
+
+        asset = await client.update_asset(
+            asset_id=asset_id,
+            updates={
+                "flex_model": {
+                    "prefer-charging-sooner": False,
+                    "soc-min": "1001 kWh"
+                }
+            },
+        )
+
+        print(asset)
+
+        await client.close()
+
+
+    asyncio.run(main())
+
+
+For a slightly larger self-contained script, see `this script for sending data <examples/send_data_to_asset.py>`_.
+It sets up an asset and sensor (checking if they exist first), and then sends data to it using `post_measurements()`.
 
 
 Scheduling
