@@ -141,11 +141,7 @@ async def upload_sensor_data(
 
         elif data_type == "file":
             # Upload file data
-            csv_file = (
-                "examples/sensor_data_kw.csv"
-                if sensor_unit == "kW"
-                else "examples/sensor_data.csv"
-            )
+            csv_file = "examples/sensor_data.csv"
 
             # For sensors with 1-hour resolution, we need to adjust the data
             if event_resolution == "PT1H":
