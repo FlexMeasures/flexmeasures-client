@@ -74,11 +74,13 @@ async def main():
                 if snsr["name"] == sensor_name:
                     sensor = snsr
                     break
+    if not sensor:
+        raise ValueError("No sensor found")
 
     print(f"Asset ID: {asset['id']}")
     print(f"Sensor ID: {sensor['id']}")
 
-    await client.post_measurements(
+    await client.post_sensor_data(
         sensor_id=sensor["id"],
         start="2025-07-07T04:00:00+02:00",
         duration="PT4H",
