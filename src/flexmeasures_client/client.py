@@ -296,6 +296,20 @@ class FlexMeasuresClient:
 
         return version_info
 
+    async def get_asset_types(self) -> list:
+        """Get the asset types currently supported by FlexMeasures server."""
+        response, status = await self.request(
+            uri="assets/types",
+            method="GET",
+        )
+        if not isinstance(response, list):
+            raise ContentTypeError(
+                f"Expected a list of asset types, but got {type(response)}",
+            )
+        check_for_status(status, 200)
+
+        return response
+
     async def post_measurements(
         self,
         sensor_id: int,
