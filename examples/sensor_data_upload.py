@@ -127,6 +127,7 @@ async def main():
             client, solar_sensor["id"], solar_sensor["unit"], "PT15M"
         )
         await upload_file_data(client, solar_sensor["id"], "examples/sensor_data.csv")
+        await upload_file_data(client, solar_sensor["id"], "examples/sensor_data.xlsx")
 
     except Exception as e:
         print(f"Error: {e}")

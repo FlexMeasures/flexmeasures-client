@@ -415,6 +415,17 @@ class FlexMeasuresClient:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 
+        # Determine content type based on file extension
+        file_extension = os.path.splitext(file_path)[1].lower()
+        content_type_map = {
+            ".csv": "text/csv",
+            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".xls": "application/vnd.ms-excel",
+            ".json": "application/json",
+            ".txt": "text/plain",
+        }
+        content_type = content_type_map.get(file_extension, "application/octet-stream")
+
         # Prepare form data for file upload
         # Based on the documentation, we need to send the file content directly
         # and the server will process it based on the filename
@@ -423,7 +434,7 @@ class FlexMeasuresClient:
             "uploaded-files",
             open(file_path, "rb"),
             filename=os.path.basename(file_path),
-            content_type="text/csv",
+            content_type=content_type,
         )
 
         # Build URL for file upload endpoint
