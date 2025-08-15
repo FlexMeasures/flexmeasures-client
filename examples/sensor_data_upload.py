@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """
-Sensor Post Data Example
+Simple Sensor Data Upload Example
 
 This example demonstrates how to:
 1. Find an appropriate sensor for data upload
 2. Create a new sensor if none exists
-3. Upload data using both JSON and file methods
-4. Verify the uploaded data
+3. Upload data using the new post_sensor_data method
 
-This is useful for automated data upload scenarios where you need to ensure
-a suitable sensor exists before uploading data.
+This is a simple demonstration of the new functionality.
 """
 
 import asyncio
@@ -31,15 +29,6 @@ host = "127.0.0.1:5000"  # FlexMeasures host
 async def find_or_create_sensor(client, sensor_name, unit, event_resolution="PT15M"):
     """
     Find a sensor with the given name and unit, or create one if it doesn't exist.
-
-    Args:
-        client: FlexMeasuresClient instance
-        sensor_name: Name of the sensor to find or create
-        unit: Unit of measurement (e.g., "kW", "MW", "kWh")
-        event_resolution: Event resolution (default: "PT15M" for 15 minutes)
-
-    Returns:
-        dict: Sensor information
     """
     print(f"Looking for sensor: {sensor_name} ({unit})")
 
@@ -50,15 +39,10 @@ async def find_or_create_sensor(client, sensor_name, unit, event_resolution="PT1
         # Look for existing sensor with matching name and unit
         for sensor in sensors:
             if sensor["name"] == sensor_name and sensor["unit"] == unit:
-                print(
-                    f"Found existing sensor: ID={sensor['id']}, Name={sensor['name']}, Unit={sensor['unit']}"
-                )
+                print(f"Found existing sensor: ID={sensor['id']}")
                 return sensor
 
-        print(
-            f"Sensor '{sensor_name}' with unit '{unit}' not found. Creating new sensor..."
-        )
-
+        print(f"Creating new sensor: {sensor_name}")
         # Get available assets
         assets = await client.get_assets()
         if not assets:
@@ -66,7 +50,6 @@ async def find_or_create_sensor(client, sensor_name, unit, event_resolution="PT1
 
         # Use the first available asset
         asset = assets[0]
-        print(f"Using asset: ID={asset['id']}, Name={asset['name']}")
 
         # Create new sensor
         new_sensor = await client.add_sensor(
@@ -76,177 +59,77 @@ async def find_or_create_sensor(client, sensor_name, unit, event_resolution="PT1
             generic_asset_id=asset["id"],
         )
 
-        print(
-            f"Created new sensor: ID={new_sensor['id']}, Name={new_sensor['name']}, Unit={new_sensor['unit']}"
-        )
+        print(f"Created sensor: ID={new_sensor['id']}")
         return new_sensor
 
     except Exception as e:
-        print(f"Error finding/creating sensor: {e}")
+        print(f"Error: {e}")
         raise
 
 
-async def upload_sensor_data(
-    client, sensor_id, sensor_unit, data_type="json", event_resolution="PT15M"
-):
+async def upload_json_data(client, sensor_id, sensor_unit, event_resolution="PT15M"):
     """
-    Upload data to a sensor using either JSON or file upload.
-
-    Args:
-        client: FlexMeasuresClient instance
-        sensor_id: ID of the sensor to upload data to
-        sensor_unit: Unit of the sensor
-        data_type: "json" or "file"
-
-    Returns:
-        bool: True if upload successful, False otherwise
+    Upload JSON data to a sensor.
     """
-    print(f"\nUploading {data_type.upper()} data to sensor {sensor_id}")
-
     try:
-        if data_type == "json":
-            # Upload JSON data
-            start_time = datetime.now(timezone.utc).replace(microsecond=0)
+        start_time = datetime.now(timezone.utc).replace(microsecond=0)
+        duration = timedelta(hours=1)
+        values = [10.5, 11.2, 12.1, 11.8]  # 4 values for 1 hour
+        print(f"Uploading {len(values)} values")
 
-            # Adjust data based on sensor resolution
-            if event_resolution == "PT1H":
-                duration = timedelta(hours=2)
-                values = [10.5, 11.2]  # 2 hourly values
-            else:
-                duration = timedelta(hours=1)
-                values = [10.5, 11.2, 12.1, 11.8]  # 4 15-minute values
-
-            await client.post_sensor_data(
-                sensor_id=sensor_id,
-                start=start_time,
-                duration=duration,
-                values=values,
-                unit=sensor_unit,
-            )
-            print("JSON data uploaded successfully")
-
-            # Verify the uploaded data
-            print("Verifying uploaded data...")
-            sensor_data = await client.get_sensor_data(
-                sensor_id=sensor_id,
-                start=start_time,
-                duration=duration,
-                unit=sensor_unit,
-                resolution=event_resolution,
-            )
-
-            print(f"Retrieved data: {sensor_data}")
-            print(f"   Expected values: {values}")
-            print(f"   Retrieved values: {sensor_data.get('values', [])}")
-
-        elif data_type == "file":
-            # Upload file data
-            csv_file = "examples/sensor_data.csv"
-
-            # For sensors with 1-hour resolution, we need to adjust the data
-            if event_resolution == "PT1H":
-                # Create hourly data instead of 15-minute data
-                start_time = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-                duration = timedelta(hours=2)
-                values = [10.5, 11.2]  # 2 hourly values instead of 8 15-minute values
-
-                await client.post_sensor_data(
-                    sensor_id=sensor_id,
-                    start=start_time,
-                    duration=duration,
-                    values=values,
-                    unit=sensor_unit,
-                )
-                print("Hourly data uploaded successfully")
-
-                # Verify the uploaded data
-                print("Verifying uploaded data...")
-                sensor_data = await client.get_sensor_data(
-                    sensor_id=sensor_id,
-                    start=start_time,
-                    duration=duration,
-                    unit=sensor_unit,
-                    resolution="PT1H",
-                )
-
-                print(f"Retrieved data: {sensor_data}")
-                print(f"   Expected values: {values}")
-                print(f"   Retrieved values: {sensor_data.get('values', [])}")
-                return True
-
-            await client.post_sensor_data(
-                sensor_id=sensor_id,
-                file_path=csv_file,
-            )
-            print("File uploaded successfully")
-
-            # Verify the uploaded data
-            print("Verifying uploaded data...")
-            start_time = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-            duration = timedelta(hours=2)
-
-            sensor_data = await client.get_sensor_data(
-                sensor_id=sensor_id,
-                start=start_time,
-                duration=duration,
-                unit=sensor_unit,
-                resolution="PT15M",
-            )
-
-            print(f"Retrieved data: {sensor_data}")
-            expected_values = [10.5, 11.2, 12.1, 11.8, 10.9, 11.5, 12.3, 11.7]
-            print(f"   Expected values: {expected_values}")
-            print(f"   Retrieved values: {sensor_data.get('values', [])}")
-
+        await client.post_sensor_data(
+            sensor_id=sensor_id,
+            start=start_time,
+            duration=duration,
+            values=values,
+            unit=sensor_unit,
+        )
+        print(f"Uploaded {len(values)} values")
         return True
 
     except Exception as e:
-        print(f"{data_type.upper()} upload failed: {e}")
+        print(f"Upload failed: {e}")
+        return False
+
+
+async def upload_file_data(client, sensor_id, file_path):
+    """
+    Upload file data to a sensor.
+    """
+    try:
+        await client.post_sensor_data(
+            sensor_id=sensor_id,
+            file_path=file_path,
+        )
+        print(f"File uploaded: {file_path}")
+        return True
+
+    except Exception as e:
+        print(f"File upload failed: {e}")
         return False
 
 
 async def main():
-    """Main function demonstrating smart sensor data upload."""
-    print("Sensor Post Data Example")
-    print("=" * 50)
+    """Main function demonstrating sensor data upload."""
+    print("Sensor Data Upload Example")
 
     client = FlexMeasuresClient(email=usr, password=pwd, host=host)
 
     try:
         # Test connection
         versions = await client.get_versions()
-        print(f"Connected to FlexMeasures server v{versions['server_version']}")
-
-        # Example 1: Find or create a solar sensor
-        print("\n" + "=" * 50)
-        print("Example 1: Solar Sensor")
-        print("=" * 50)
+        print(f"Connected to FlexMeasures v{versions['server_version']}")
 
         solar_sensor = await find_or_create_sensor(
             client=client, sensor_name="solar", unit="kW", event_resolution="PT15M"
         )
-
-        # Upload data to solar sensor
-        await upload_sensor_data(
-            client, solar_sensor["id"], solar_sensor["unit"], "json", "PT15M"
+        await upload_json_data(
+            client, solar_sensor["id"], solar_sensor["unit"], "PT15M"
         )
-        await upload_sensor_data(
-            client, solar_sensor["id"], solar_sensor["unit"], "file", "PT15M"
-        )
+        await upload_file_data(client, solar_sensor["id"], "examples/sensor_data.csv")
 
-        # Example 2: Find or create a battery storage sensor
-        print("\n" + "=" * 50)
-        print("Example 2: Battery Storage Sensor")
-        print("=" * 50)
-
-        battery_sensor = await find_or_create_sensor(
-            client=client, sensor_name="battery", unit="kWh", event_resolution="PT1H"
-        )
-
-        # Upload data to battery sensor
-        await upload_sensor_data(
-            client, battery_sensor["id"], battery_sensor["unit"], "json", "PT1H"
-        )
+    except Exception as e:
+        print(f"Error: {e}")
 
     finally:
         await client.close()
