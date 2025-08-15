@@ -189,8 +189,8 @@ async def create_battery_asset(
         generic_asset_id=battery_asset["id"],
     )
 
-    # Store battery settings in asset attributes
-    print("Updating battery asset with settings...")
+    # Store battery settings in flex_model attribute (attributes["flex_model"])
+    print("Updating battery asset with flex_model settings...")
     battery_settings = {
         "soc_unit": "kWh",
         "soc_at_start": 5.0,  # 50% of 10kWh capacity
@@ -200,8 +200,10 @@ async def create_battery_asset(
         "capacity_kwh": 10.0,  # Total battery capacity
     }
 
+    # Store in attributes["flex_model"] for now, will be easy to adapt to new flex_model attribute
     await client.update_asset(
-        asset_id=battery_asset["id"], updates={"attributes": battery_settings}
+        asset_id=battery_asset["id"],
+        updates={"attributes": {"flex_model": battery_settings}},
     )
 
     print(f"Created battery asset with ID: {battery_asset['id']}")
@@ -275,9 +277,8 @@ async def configure_sensors_to_show(
     print("Sensors to show configured successfully")
 
 
-async def create_asset_with_sensor(client: FlexMeasuresClient):
+async def create_building_assets_and_sensors(client: FlexMeasuresClient, account: dict):
 
-    account = await client.get_account()
     account_id = account["id"]
     print("Creating building asset with PV and battery sensors")
     price_sensor = await create_public_price_sensor(client)
@@ -402,6 +403,9 @@ async def main():
     try:
         # Get user account information
         account = await client.get_account()
+        if not account:
+            raise Exception("No account found. Please create an account first.")
+
         account_id = account["id"]
         print(f" Connected to account: {account['name']} (ID: {account_id})")
 
@@ -419,12 +423,12 @@ async def main():
             print(
                 "Creating building asset, with PV and battery sensors, and weather station"
             )
-            await create_asset_with_sensor(client)
+            await create_building_assets_and_sensors(client, account)
         else:
             answer = input(f"Asset '{building_name}' already exists. Re-create?")
             if answer.lower() in ["y", "yes"]:
                 await client.delete_asset(asset_id=asset["id"])
-                await create_asset_with_sensor(client)
+                await create_building_assets_and_sensors(client, account)
             else:
                 print("Tutorial setup complete")
 
