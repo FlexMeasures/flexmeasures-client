@@ -435,45 +435,22 @@ def load_and_align_csv_data(
     return aligned_df
 
 
-async def upload_csv_data_to_sensor(
+async def upload_csv_file_to_sensor(
     client: FlexMeasuresClient,
     sensor_id: int,
-    df: pd.DataFrame,
-    end_date: str = None,
-    unit: str = None,
+    file_path: str,
 ):
-    """Upload CSV data to a sensor, optionally filtering by end date."""
-    if end_date:
-        end_dt = pd.to_datetime(end_date)
-        df = df[df["event_start"] <= end_dt].copy()
-
-    if df.empty:
-        print("No data to upload after filtering")
+    """Upload CSV file directly to a sensor using file upload."""
+    try:
+        await client.post_sensor_data(
+            sensor_id=sensor_id,
+            file_path=file_path,
+        )
+        print(f"Uploaded {file_path} to sensor {sensor_id}")
+        return True
+    except Exception as e:
+        print(f"Failed to upload {file_path} to sensor {sensor_id}: {e}")
         return False
-
-    # Determine resolution from data
-    if len(df) > 1:
-        time_diff = df["event_start"].iloc[1] - df["event_start"].iloc[0]
-        duration = pd.Timedelta(time_diff * len(df))
-    else:
-        duration = pd.Timedelta(hours=1)
-
-    # Get sensor info for unit if not provided
-    if unit is None:
-        sensor_info = await client.get_sensor(sensor_id)
-        unit = sensor_info.get("unit", "kW")
-
-    # Upload data
-    await client.post_sensor_data(
-        sensor_id=sensor_id,
-        start=df["event_start"].iloc[0],
-        duration=duration,
-        values=df["event_value"].tolist(),
-        unit=unit,
-    )
-
-    print(f"Uploaded {len(df)} data points to sensor {sensor_id}")
-    return True
 
 
 async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
@@ -483,45 +460,40 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
     # Find all required sensors
     sensors = {}
     sensor_mappings = [
-        ("electricity-price", price_market_name, "EUR/kWh"),
-        ("electricity-consumption", building_name, "kW"),
-        ("irradiation", weather_station_name, "W/m²"),
-        ("electricity-production", pv_name, "kWh"),
+        ("electricity-price", price_market_name),
+        ("electricity-consumption", building_name),
+        ("irradiation", weather_station_name),
+        ("electricity-production", pv_name),
     ]
 
-    for sensor_name, asset_name, unit in sensor_mappings:
+    for sensor_name, asset_name in sensor_mappings:
         sensor = await find_sensor_by_name_and_asset(client, sensor_name, asset_name)
         if sensor:
-            sensors[sensor_name] = {"id": sensor["id"], "unit": unit}
+            sensors[sensor_name] = sensor["id"]
         else:
             print(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
             return False
 
-    # Load and upload data files
+    # Upload data files directly
     data_files = [
-        ("HEMS data/price_data.csv", "electricity-price", 60),
-        ("HEMS data/building_data.csv", "electricity-consumption", 15),
-        ("HEMS data/irradiation_data.csv", "irradiation", 60),
-        ("HEMS data/PV_production_data.csv", "electricity-production", 60),
+        ("HEMS data/price_data.csv", "electricity-price"),
+        ("HEMS data/building_data.csv", "electricity-consumption"),
+        ("HEMS data/irradiation_data.csv", "irradiation"),
+        ("HEMS data/PV_production_data.csv", "electricity-production"),
     ]
 
-    for file_path, sensor_key, resolution_min in data_files:
+    for file_path, sensor_key in data_files:
         if sensor_key not in sensors:
             print(f"Skipping {file_path} - sensor not found")
             continue
 
         print(f"Processing {file_path}...")
 
-        # Load and align data
-        df = load_and_align_csv_data(file_path, TUTORIAL_START_DATE, resolution_min)
-
-        # Upload first two weeks only
-        success = await upload_csv_data_to_sensor(
+        # Upload CSV file directly
+        success = await upload_csv_file_to_sensor(
             client=client,
-            sensor_id=sensors[sensor_key]["id"],
-            df=df,
-            end_date=FIRST_TWO_WEEKS_END,
-            unit=sensors[sensor_key]["unit"],
+            sensor_id=sensors[sensor_key],
+            file_path=file_path,
         )
 
         if success:
@@ -797,7 +769,7 @@ async def main():
     - Graph configuration for building asset
     """
 
-    print("Starting FlexMeasures HEMS Setup")
+    print("Starting FlexMeasures HEMS")
     print("=" * 50)
 
     # NOTE: Account and admin user creation must be done via FlexMeasures CLI first:
