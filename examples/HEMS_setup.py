@@ -5,6 +5,10 @@ and all required sensors with proper flex-context configuration.
 """
 
 import asyncio
+import subprocess
+from datetime import timedelta
+
+import pandas as pd
 
 from flexmeasures_client import FlexMeasuresClient
 
@@ -23,6 +27,14 @@ price_market_name = "Energy Market"
 # Location coordinates (Amsterdam as example)
 latitude = 52.3676
 longitude = 4.9041
+
+# Data configuration
+TUTORIAL_START_DATE = "2025-01-01T00:00:00+00:00"
+FIRST_TWO_WEEKS_END = "2025-01-14T23:59:59+00:00"
+THIRD_WEEK_START = "2025-01-15T00:00:00+00:00"
+THIRD_WEEK_END = "2025-01-21T23:59:59+00:00"
+SIMULATION_STEP_HOURS = 4
+FORECAST_HORIZON_HOURS = 24
 
 
 async def create_public_price_sensor(client: FlexMeasuresClient):
@@ -285,28 +297,29 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
     building_asset, consumption_sensor, energy_costs_sensor = (
         await create_building_asset(client, account_id, price_sensor["id"])
     )
-    print(f"Asset ID: {building_asset['id']}")
-    print(f"Sensor ID: {consumption_sensor['id']}")
+    print(f"Building asset ID: {building_asset['id']}")
+    print(f"Consumption sensor ID: {consumption_sensor['id']}")
+    print(f"Energy costs sensor ID: {energy_costs_sensor['id']}")
     print("Creating PV asset with production sensor")
     pv_asset, pv_production_sensor = await create_pv_asset(
         client, account_id, building_asset["id"]
     )
-    print(f"Asset ID: {pv_asset['id']}")
-    print(f"Sensor ID: {pv_production_sensor['id']}")
+    print(f"PV asset ID: {pv_asset['id']}")
+    print(f"PV production sensor ID: {pv_production_sensor['id']}")
     print("Creating battery asset with power and SoC sensors")
     battery_asset, battery_power_sensor, battery_soc_sensor = (
         await create_battery_asset(client, account_id, building_asset["id"])
     )
-    print(f"Asset ID: {battery_asset['id']}")
-    print(f"Sensor ID: {battery_power_sensor['id']}")
-    print(f"Sensor ID: {battery_soc_sensor['id']}")
+    print(f"Battery asset ID: {battery_asset['id']}")
+    print(f"Battery power sensor ID: {battery_power_sensor['id']}")
+    print(f"Battery SoC sensor ID: {battery_soc_sensor['id']}")
     print("Creating weather station with irradiation and cloud coverage sensors")
     weather_asset, irradiation_sensor, cloud_coverage_sensor = (
         await create_weather_station(client)
     )
-    print(f"Asset ID: {weather_asset['id']}")
-    print(f"Sensor ID: {irradiation_sensor['id']}")
-    print(f"Sensor ID: {cloud_coverage_sensor['id']}")
+    print(f"Weather station asset ID: {weather_asset['id']}")
+    print(f"Irradiation sensor ID: {irradiation_sensor['id']}")
+    print(f"Cloud coverage sensor ID: {cloud_coverage_sensor['id']}")
     print("Configuring building flex-context ...")
     await configure_building_flex_context(
         client,
@@ -377,6 +390,399 @@ async def cleanup_existing_assets(client: FlexMeasuresClient):
         print("Continuing with setup...")
 
 
+async def find_sensor_by_name_and_asset(
+    client: FlexMeasuresClient, sensor_name: str, asset_name: str
+):
+    """Find a sensor by name within a specific asset."""
+    assets = await client.get_assets()
+    target_asset = None
+    for asset in assets:
+        if asset["name"] == asset_name:
+            target_asset = asset
+            break
+
+    if not target_asset:
+        print(f"Asset '{asset_name}' not found")
+        return None
+
+    sensors = await client.get_sensors(asset_id=target_asset["id"])
+    for sensor in sensors:
+        if sensor["name"] == sensor_name:
+            return sensor
+
+    print(f"Sensor '{sensor_name}' not found in asset '{asset_name}'")
+    return None
+
+
+def load_and_align_csv_data(
+    file_path: str, target_start_date: str, resolution_minutes: int = 60
+):
+    """Load CSV data and align it to the target start date."""
+    df = pd.read_csv(file_path)
+    df["event_start"] = pd.to_datetime(df["event_start"])
+    df = df.sort_values("event_start")
+
+    # Create new date range starting from target date
+    target_start = pd.to_datetime(target_start_date)
+    freq = f"{resolution_minutes}min"
+    new_dates = pd.date_range(start=target_start, periods=len(df), freq=freq)
+
+    # Create aligned dataframe
+    aligned_df = df.copy()
+    aligned_df["event_start"] = new_dates
+
+    print(f"Aligned {len(df)} records from {file_path}")
+    return aligned_df
+
+
+async def upload_csv_data_to_sensor(
+    client: FlexMeasuresClient,
+    sensor_id: int,
+    df: pd.DataFrame,
+    end_date: str = None,
+    unit: str = None,
+):
+    """Upload CSV data to a sensor, optionally filtering by end date."""
+    if end_date:
+        end_dt = pd.to_datetime(end_date)
+        df = df[df["event_start"] <= end_dt].copy()
+
+    if df.empty:
+        print("No data to upload after filtering")
+        return False
+
+    # Determine resolution from data
+    if len(df) > 1:
+        time_diff = df["event_start"].iloc[1] - df["event_start"].iloc[0]
+        duration = pd.Timedelta(time_diff * len(df))
+    else:
+        duration = pd.Timedelta(hours=1)
+
+    # Get sensor info for unit if not provided
+    if unit is None:
+        sensor_info = await client.get_sensor(sensor_id)
+        unit = sensor_info.get("unit", "kW")
+
+    # Upload data
+    await client.post_sensor_data(
+        sensor_id=sensor_id,
+        start=df["event_start"].iloc[0],
+        duration=duration,
+        values=df["event_value"].tolist(),
+        unit=unit,
+    )
+
+    print(f"Uploaded {len(df)} data points to sensor {sensor_id}")
+    return True
+
+
+async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
+    """Upload historical data for the first two weeks."""
+    print("Uploading data for first two weeks...")
+
+    # Find all required sensors
+    sensors = {}
+    sensor_mappings = [
+        ("electricity-price", price_market_name, "EUR/kWh"),
+        ("electricity-consumption", building_name, "kW"),
+        ("irradiation", weather_station_name, "W/m²"),
+        ("electricity-production", pv_name, "kWh"),
+    ]
+
+    for sensor_name, asset_name, unit in sensor_mappings:
+        sensor = await find_sensor_by_name_and_asset(client, sensor_name, asset_name)
+        if sensor:
+            sensors[sensor_name] = {"id": sensor["id"], "unit": unit}
+        else:
+            print(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
+            return False
+
+    # Load and upload data files
+    data_files = [
+        ("HEMS data/price_data.csv", "electricity-price", 60),
+        ("HEMS data/building_data.csv", "electricity-consumption", 15),
+        ("HEMS data/irradiation_data.csv", "irradiation", 60),
+        ("HEMS data/PV_production_data.csv", "electricity-production", 60),
+    ]
+
+    for file_path, sensor_key, resolution_min in data_files:
+        if sensor_key not in sensors:
+            print(f"Skipping {file_path} - sensor not found")
+            continue
+
+        print(f"Processing {file_path}...")
+
+        # Load and align data
+        df = load_and_align_csv_data(file_path, TUTORIAL_START_DATE, resolution_min)
+
+        # Upload first two weeks only
+        success = await upload_csv_data_to_sensor(
+            client=client,
+            sensor_id=sensors[sensor_key]["id"],
+            df=df,
+            end_date=FIRST_TWO_WEEKS_END,
+            unit=sensors[sensor_key]["unit"],
+        )
+
+        if success:
+            print(f"Successfully uploaded {sensor_key} data")
+        else:
+            print(f"Failed to upload {sensor_key} data")
+
+    return True
+
+
+async def generate_pv_forecasts(client: FlexMeasuresClient):
+    """Generate PV forecasts using FlexMeasures CLI for the second week."""
+    print("Generating PV forecasts...")
+
+    # Check if flexmeasures CLI is available
+    check_cmd = ["which", "flexmeasures"]
+    check_result = subprocess.run(check_cmd, capture_output=True, text=True)
+
+    if check_result.returncode != 0:
+        print("FlexMeasures CLI not found. Skipping forecast generation.")
+        return False
+
+    # Find sensors
+    pv_sensor = await find_sensor_by_name_and_asset(
+        client, "electricity-production", pv_name
+    )
+    irradiation_sensor = await find_sensor_by_name_and_asset(
+        client, "irradiation", weather_station_name
+    )
+
+    if not pv_sensor or not irradiation_sensor:
+        print("Could not find required sensors for forecasting")
+        return False
+
+    # Run CLI command
+    cmd = [
+        "flexmeasures",
+        "add",
+        "forecasts",
+        "--sensor-id",
+        str(pv_sensor["id"]),
+        "--start-offset",
+        "P7D",
+        "--end-offset",
+        "P14D",
+        "--use-regressors",
+        str(irradiation_sensor["id"]),
+        "--training-start",
+        "2025-01-01T00:00:00+00:00",
+        "--training-end",
+        "2025-01-07T23:59:59+00:00",
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+    if result.returncode == 0:
+        print("PV forecasts generated successfully")
+        return True
+    else:
+        print(f"PV forecast generation failed: {result.stderr}")
+        return False
+
+
+async def run_scheduling_simulation(client: FlexMeasuresClient):
+    """Run step-by-step scheduling simulation for the third week."""
+    print("Running scheduling simulation for third week...")
+
+    # Find required assets and sensors
+    building_asset = None
+    assets = await client.get_assets()
+
+    for asset in assets:
+        if asset["name"] == building_name:
+            building_asset = asset
+            break
+
+    if not building_asset:
+        print("Could not find building asset for scheduling")
+        return False
+
+    # Find sensors
+    sensors = {}
+    sensor_mappings = [
+        ("electricity-consumption", building_name),
+        ("electricity-production", pv_name),
+        ("electricity-power", battery_name),
+        ("state-of-charge", battery_name),
+        ("electricity-price", price_market_name),
+    ]
+
+    for sensor_name, asset_name in sensor_mappings:
+        sensor = await find_sensor_by_name_and_asset(client, sensor_name, asset_name)
+        if sensor:
+            sensors[sensor_name] = sensor
+        else:
+            print(f"Could not find sensor '{sensor_name}'")
+            return False
+
+    # Load complete datasets for simulation
+    building_df = load_and_align_csv_data(
+        "HEMS data/building_data.csv", TUTORIAL_START_DATE, 15
+    )
+    pv_df = load_and_align_csv_data(
+        "HEMS data/PV_production_data.csv", TUTORIAL_START_DATE, 60
+    )
+
+    # Initialize simulation
+    current_time = pd.to_datetime(THIRD_WEEK_START)
+    end_time = pd.to_datetime(THIRD_WEEK_END)
+    current_soc = 5.0  # Starting SoC from battery settings
+
+    step_num = 1
+
+    while current_time < end_time:
+        print(f"Simulation step {step_num}: {current_time}")
+
+        # Create schedule for the building
+        try:
+            schedule_start = current_time
+            schedule_duration = timedelta(hours=FORECAST_HORIZON_HOURS)
+
+            # Create flex model for battery
+            flex_model = client.create_storage_flex_model(
+                soc_unit="kWh",
+                soc_at_start=current_soc,
+                soc_max=9.0,
+                soc_min=1.5,
+                roundtrip_efficiency=0.85,
+            )
+
+            # Create flex context
+            flex_context = {
+                "consumption-price-sensor": sensors["electricity-price"]["id"],
+                "inflexible-device-sensors": [
+                    sensors["electricity-consumption"]["id"],
+                    sensors["electricity-production"]["id"],
+                ],
+            }
+
+            schedule_result = await client.trigger_and_get_schedule(
+                start=schedule_start,
+                duration=schedule_duration,
+                flex_model=[
+                    {"sensor": sensors["electricity-power"]["id"], **flex_model}
+                ],
+                flex_context=flex_context,
+                asset_id=building_asset["id"],
+            )
+
+            print("Schedule created successfully")
+
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Scheduling failed: {error_msg}")
+
+            # Continue simulation with zero battery power
+            schedule_result = [
+                {
+                    "values": [0.0] * SIMULATION_STEP_HOURS,
+                    "sensor": sensors["electricity-power"]["id"],
+                }
+            ]
+
+        # Extract scheduled battery power for the next 4 hours
+        step_end_time = current_time + timedelta(hours=SIMULATION_STEP_HOURS)
+
+        if isinstance(schedule_result, list) and len(schedule_result) > 0:
+            battery_schedule = schedule_result[0]
+            scheduled_power = battery_schedule["values"][:SIMULATION_STEP_HOURS]
+        else:
+            scheduled_power = [0.0] * SIMULATION_STEP_HOURS
+
+        # Upload measurements for the simulation step
+        try:
+            # Upload battery power
+            battery_power_duration = timedelta(hours=SIMULATION_STEP_HOURS)
+            await client.post_sensor_data(
+                sensor_id=sensors["electricity-power"]["id"],
+                start=current_time,
+                duration=battery_power_duration,
+                values=scheduled_power,
+                unit="kW",
+            )
+
+            # Upload building consumption for this period
+            building_data_step = building_df[
+                (building_df["event_start"] >= current_time)
+                & (building_df["event_start"] < step_end_time)
+            ]
+
+            if not building_data_step.empty:
+                step_duration = pd.Timedelta(
+                    (
+                        building_data_step["event_start"].iloc[-1]
+                        - building_data_step["event_start"].iloc[0]
+                    )
+                    + pd.Timedelta(minutes=15)
+                )
+                await client.post_sensor_data(
+                    sensor_id=sensors["electricity-consumption"]["id"],
+                    start=building_data_step["event_start"].iloc[0],
+                    duration=step_duration,
+                    values=building_data_step["event_value"].tolist(),
+                    unit="kW",
+                )
+
+            # Upload PV production for this period
+            pv_data_step = pv_df[
+                (pv_df["event_start"] >= current_time)
+                & (pv_df["event_start"] < step_end_time)
+            ]
+
+            if not pv_data_step.empty:
+                await client.post_sensor_data(
+                    sensor_id=sensors["electricity-production"]["id"],
+                    start=pv_data_step["event_start"].iloc[0],
+                    duration=timedelta(hours=len(pv_data_step)),
+                    values=pv_data_step["event_value"].tolist(),
+                    unit="kWh",
+                )
+
+            # Calculate and update battery SoC
+            average_power = (
+                sum(scheduled_power) / len(scheduled_power) if scheduled_power else 0
+            )
+            energy_change = average_power * SIMULATION_STEP_HOURS
+            new_soc = max(1.5, min(9.0, current_soc + energy_change * 0.85))
+
+            # Upload SoC measurements
+            soc_values = []
+            for i in range(SIMULATION_STEP_HOURS):
+                soc_values.append(
+                    current_soc
+                    + (new_soc - current_soc) * (i + 1) / SIMULATION_STEP_HOURS
+                )
+
+            await client.post_sensor_data(
+                sensor_id=sensors["state-of-charge"]["id"],
+                start=current_time,
+                duration=timedelta(hours=SIMULATION_STEP_HOURS),
+                values=soc_values,
+                unit="kWh",
+            )
+
+            print(f"Updated SoC: {current_soc:.2f} -> {new_soc:.2f} kWh")
+            current_soc = new_soc
+
+        except Exception as e:
+            print(f"Failed to upload measurements: {e}")
+
+        # Move to next simulation step
+        current_time = step_end_time
+        step_num += 1
+
+        # Add small delay between steps
+        await asyncio.sleep(1)
+
+    print("Scheduling simulation completed")
+    return True
+
+
 async def main():
     """
     Complete HEMS setup using FlexMeasures client.
@@ -430,7 +836,25 @@ async def main():
                 await client.delete_asset(asset_id=asset["id"])
                 await create_building_assets_and_sensors(client, account)
             else:
-                print("Tutorial setup complete")
+                print("Assets already exist, skipping to data upload")
+
+        # Part 2: Upload data for first two weeks
+        print("\n" + "=" * 50)
+        print("PART 2: UPLOADING DATA")
+        await upload_data_for_first_two_weeks(client)
+
+        # Generate PV forecasts for second week
+        print("\n" + "=" * 50)
+        print("GENERATING PV FORECASTS")
+        await generate_pv_forecasts(client)
+
+        # Part 3: Run scheduling simulation for third week
+        print("\n" + "=" * 50)
+        print("PART 3: SCHEDULING SIMULATION")
+        await run_scheduling_simulation(client)
+
+        print("\n" + "=" * 50)
+        print("HEMS Tutorial completed successfully!")
 
     except Exception as e:
         print(f" Error during setup: {e}")
