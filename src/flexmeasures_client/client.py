@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import socket
 from dataclasses import dataclass
@@ -296,7 +297,81 @@ class FlexMeasuresClient:
 
         return version_info
 
-    async def post_measurements(
+    async def post_sensor_data(
+        self,
+        sensor_id: int,
+        *,
+        # Parameters for JSON data upload
+        start: str | datetime | None = None,
+        duration: str | timedelta | None = None,
+        values: list[float] | None = None,
+        unit: str | None = None,
+        prior: str | None = None,
+        # Parameters for file upload
+        file_path: str | None = None,
+    ):
+        """
+        Post sensor data for the given time range.
+
+        This method supports two modes:
+        1. JSON data upload: Provide start, duration, values, and unit parameters
+        2. File upload: Provide file_path parameter
+
+        The method automatically chooses the appropriate API endpoint based on the provided parameters.
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        # Check parameter combinations
+        json_params = [start, duration, values, unit]
+        has_json_params = any(param is not None for param in json_params)
+        has_file_param = file_path is not None
+
+        if not has_json_params and not has_file_param:
+            raise ValueError(
+                "Either provide JSON data parameters (start, duration, values, unit) "
+                "or a file_path parameter, but not neither."
+            )
+
+        if has_json_params and has_file_param:
+            raise ValueError(
+                "Either provide JSON data parameters (start, duration, values, unit) "
+                "or a file_path parameter, but not both."
+            )
+
+        if has_json_params:
+            # Validate required JSON parameters
+            if any(param is None for param in json_params):
+                raise ValueError(
+                    "When using JSON data upload, all parameters (start, duration, values, unit) "
+                    "must be provided."
+                )
+
+            # Type assertions to help the type checker understand that parameters are not None
+            assert start is not None
+            assert duration is not None
+            assert values is not None
+            assert unit is not None
+
+            # Use the existing JSON endpoint
+            return await self._post_sensor_data_json(
+                sensor_id=sensor_id,
+                start=start,
+                duration=duration,
+                values=values,
+                unit=unit,
+                prior=prior,
+            )
+        else:
+            # Type assertion to help the type checker understand that file_path is not None
+            assert file_path is not None
+
+            # Use the file upload endpoint
+            return await self._post_sensor_data_file(
+                sensor_id=sensor_id,
+                file_path=file_path,
+            )
+
+    async def _post_sensor_data_json(
         self,
         sensor_id: int,
         start: str | datetime,
@@ -306,8 +381,7 @@ class FlexMeasuresClient:
         prior: str | None = None,
     ):
         """
-        Post sensor data for the given time range.
-        This function raises a ValueError when an unhandled status code is returned.
+        Post sensor data using JSON payload (original post_measurements functionality).
         """
         json_payload = dict(
             sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
@@ -326,7 +400,118 @@ class FlexMeasuresClient:
             json_payload=json_payload,
         )
         check_for_status(status, 200)
-        logging.info("Sensor data sent successfully.")
+        logging.info("Sensor data sent successfully via JSON.")
+
+    async def _post_sensor_data_file(
+        self,
+        sensor_id: int,
+        file_path: str,
+    ):
+        """
+        Post sensor data using file upload.
+        """
+        from aiohttp import FormData
+
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        # Determine content type based on file extension
+        file_extension = os.path.splitext(file_path)[1].lower()
+        content_type_map = {
+            ".csv": "text/csv",
+            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".xls": "application/vnd.ms-excel",
+            ".json": "application/json",
+            ".txt": "text/plain",
+        }
+        content_type = content_type_map.get(file_extension, "application/octet-stream")
+
+        # Prepare form data for file upload
+        # Based on the documentation, we need to send the file content directly
+        # and the server will process it based on the filename
+        form_data = FormData()
+        form_data.add_field(
+            "uploaded-files",
+            open(file_path, "rb"),
+            filename=os.path.basename(file_path),
+            content_type=content_type,
+        )
+
+        # Build URL for file upload endpoint
+        url = self.build_url(f"sensors/{sensor_id}/data/upload")
+
+        # Get headers (without content-type as it will be set by FormData)
+        headers = await self.get_headers(include_auth=True)
+        # Remove content-type header as FormData will set it with boundary
+        if "Content-Type" in headers:
+            del headers["Content-Type"]
+
+        self.ensure_session()
+
+        try:
+            async with async_timeout.timeout(self.request_timeout):
+                response = await cast(ClientSession, self.session).post(
+                    url=url,
+                    data=form_data,
+                    headers=headers,
+                    ssl=self.ssl,
+                    allow_redirects=False,
+                )
+
+                # Check response status
+                if response.status != 200:
+                    try:
+                        error_data = await response.json()
+                        error_message = f"Request failed with status code {response.status}: {error_data}"
+                    except Exception as e:
+                        logging.error(f"Error parsing response: {e}")
+                        error_message = (
+                            f"Request failed with status code {response.status}"
+                        )
+                    raise ValueError(error_message)
+
+                # Parse response
+                response_data = await response.json()
+                logging.info(
+                    f"File uploaded successfully: {os.path.basename(file_path)}"
+                )
+                return response_data, response.status
+
+        except Exception as e:
+            logging.error(f"Error uploading file {file_path}: {e}")
+            raise
+
+    # Keep the old method name for backward compatibility
+    async def post_measurements(
+        self,
+        sensor_id: int,
+        start: str | datetime,
+        duration: str | timedelta,
+        values: list[float],
+        unit: str,
+        prior: str | None = None,
+    ):
+        """
+        Post sensor data for the given time range.
+        This function raises a ValueError when an unhandled status code is returned.
+
+        DEPRECATED: Use post_sensor_data() instead.
+        """
+        import warnings
+
+        warnings.warn(
+            "post_measurements() is deprecated. Use post_sensor_data() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await self._post_sensor_data_json(
+            sensor_id=sensor_id,
+            start=start,
+            duration=duration,
+            values=values,
+            unit=unit,
+            prior=prior,
+        )
 
     async def get_schedule(
         self,
