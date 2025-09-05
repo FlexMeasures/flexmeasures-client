@@ -327,7 +327,7 @@ See releases in GitHub Actions at https://github.com/FlexMeasures/flexmeasures-c
 HEMS tutorial
 ===================
 
-`See the Usage docs <documentation/HEMS.rst>`_.
+`See the Usage docs <docs/HEMS.rst>`_.
 
 
 ===================
