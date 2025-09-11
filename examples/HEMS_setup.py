@@ -545,6 +545,8 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         "2025-01-21T23:59:59+00:00",
         "--max-forecast-horizon",
         f"PT{FORECAST_HORIZON_HOURS}H",
+        "--forecast-frequency",
+        f"PT{SIMULATION_STEP_HOURS}H",
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
