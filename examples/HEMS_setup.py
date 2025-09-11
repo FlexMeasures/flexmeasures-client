@@ -539,7 +539,7 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         "P7D",
         "--end-offset",
         "P14D",
-        "--use-regressors",
+        "--past-regressors",  # TODO: to be changed to --regressors when the sensor has irradiance forecasts
         str(irradiation_sensor["id"]),
         "--training-start",
         "2025-01-01T00:00:00+00:00",
