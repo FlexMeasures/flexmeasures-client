@@ -439,7 +439,10 @@ class FlexMeasuresClient:
             filename=os.path.basename(file_path),
             content_type=content_type,
         )
-
+        form_data.add_field(
+            "belief-time-measured-instantly",
+            str(belief_time_measured_instantly),
+        )
         # Build URL for file upload endpoint
         url = self.build_url(f"sensors/{sensor_id}/data/upload")
 
