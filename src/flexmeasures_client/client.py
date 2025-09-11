@@ -309,6 +309,7 @@ class FlexMeasuresClient:
         prior: str | None = None,
         # Parameters for file upload
         file_path: str | None = None,
+        belief_time_measured_instantly: bool = False,
     ):
         """
         Post sensor data for the given time range.
@@ -369,6 +370,7 @@ class FlexMeasuresClient:
             return await self._post_sensor_data_file(
                 sensor_id=sensor_id,
                 file_path=file_path,
+                belief_time_measured_instantly=belief_time_measured_instantly,
             )
 
     async def _post_sensor_data_json(
