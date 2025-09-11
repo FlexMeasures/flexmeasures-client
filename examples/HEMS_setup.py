@@ -539,8 +539,8 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         str(irradiation_sensor["id"]),
         "--train-start",
         "2025-01-01T00:00:00+00:00",
-        "--training-end",
-        "2025-01-07T23:59:59+00:00",
+        "--from-date",
+        "2025-01-08T00:00:00+00:00",
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
