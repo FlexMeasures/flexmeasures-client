@@ -445,7 +445,7 @@ async def upload_csv_file_to_sensor(
         await client.post_sensor_data(
             sensor_id=sensor_id,
             file_path=file_path,
-            belief_time_measured_instantly=True,  # Assume data is measured instantly
+            belief_time_measured_instantly=True,  # Set belief_time immediately after event ends
         )
         print(f"Uploaded {file_path} to sensor {sensor_id}")
         return True
