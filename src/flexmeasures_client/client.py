@@ -406,6 +406,7 @@ class FlexMeasuresClient:
         self,
         sensor_id: int,
         file_path: str,
+        belief_time_measured_instantly: bool = False,
     ):
         """
         Post sensor data using file upload.
