@@ -533,7 +533,7 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         "flexmeasures",
         "add",
         "forecasts",
-        "--sensor-id",
+        "--sensor",
         str(pv_sensor["id"]),
         "--start-offset",
         "P7D",
