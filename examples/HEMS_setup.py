@@ -346,9 +346,7 @@ async def cleanup_existing_assets(client: FlexMeasuresClient):
 
     # Asset names to clean up
     asset_names_to_clean = [
-        building_name,
-        pv_name,
-        battery_name,
+        building_name,   # Deleting this asset also deletes child assets (battery, PV)
         weather_station_name,
         price_market_name,
     ]
