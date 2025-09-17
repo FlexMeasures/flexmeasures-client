@@ -624,6 +624,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 soc_min=1.5,
                 roundtrip_efficiency=0.85,
             )
+            flex_model["power_capacity"] = "100kW"  # Add arbitrary power capacity limit to avoid error.
 
             # Create flex context
             flex_context = {
