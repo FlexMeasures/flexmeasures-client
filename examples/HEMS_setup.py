@@ -542,7 +542,7 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         "--from-date",
         SECOND_WEEK_START,
         "--to-date",
-        "2025-01-21T23:59:59+00:00",
+        THIRD_WEEK_END,
         "--max-forecast-horizon",
         f"PT{FORECAST_HORIZON_HOURS}H",
         "--forecast-frequency",
