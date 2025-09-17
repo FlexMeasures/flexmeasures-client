@@ -538,7 +538,7 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         "--past-regressors",  # TODO: to be changed to --regressors when the sensor has irradiance forecasts
         str(irradiation_sensor["id"]),
         "--train-start",
-        "2025-01-01T00:00:00+00:00",
+        TUTORIAL_START_DATE,
         "--from-date",
         SECOND_WEEK_START,
         "--to-date",
