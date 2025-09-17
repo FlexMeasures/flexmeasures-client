@@ -347,7 +347,7 @@ async def cleanup_existing_assets(client: FlexMeasuresClient):
 
     # Asset names to clean up
     asset_names_to_clean = [
-        building_name,   # Deleting this asset also deletes child assets (battery, PV)
+        building_name,  # Deleting this asset also deletes child assets (battery, PV)
         weather_station_name,
         price_market_name,
     ]
@@ -625,7 +625,9 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 soc_min=1.5,
                 roundtrip_efficiency=0.85,
             )
-            flex_model["power-capacity"] = "100kW"  # Add arbitrary power capacity limit to avoid error.
+            flex_model["power-capacity"] = (
+                "100kW"  # Add arbitrary power capacity limit to avoid error.
+            )
 
             # Create flex context
             flex_context = {
