@@ -819,12 +819,12 @@ async def main():
 
         # Generate PV forecasts for second week
         print("\n" + "=" * 50)
-        print("GENERATING PV FORECASTS")
+        print("PART 3: GENERATING PV FORECASTS")
         await generate_pv_forecasts(client)
 
         # Part 3: Run scheduling simulation for third week
         print("\n" + "=" * 50)
-        print("PART 3: SCHEDULING SIMULATION")
+        print("PART 4: SCHEDULING SIMULATION")
         await run_scheduling_simulation(client)
 
         print("\n" + "=" * 50)
