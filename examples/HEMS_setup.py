@@ -30,6 +30,7 @@ longitude = 4.9041
 
 # Data configuration
 TUTORIAL_START_DATE = "2025-01-01T00:00:00+00:00"
+SECOND_WEEK_START = "2025-01-08T00:00:00+00:00"
 FIRST_TWO_WEEKS_END = "2025-01-14T23:59:59+00:00"
 THIRD_WEEK_START = "2025-01-15T00:00:00+00:00"
 THIRD_WEEK_END = "2025-01-21T23:59:59+00:00"
@@ -539,7 +540,7 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         "--train-start",
         "2025-01-01T00:00:00+00:00",
         "--from-date",
-        "2025-01-08T00:00:00+00:00",
+        SECOND_WEEK_START,
         "--to-date",
         "2025-01-21T23:59:59+00:00",
         "--max-forecast-horizon",
