@@ -37,13 +37,19 @@ Next steps:
 Run the tutorial script
 =======================
 
-Open two terminals. In the first terminal, run the server:
+Open three terminals. In the first terminal, run the server:
 
 ```
 flexmeasures run
 ```
 
-In the second terminal, run the client script:
+In the second terminal, run a flexmeasures worker for the scheduling jobs:
+
+```
+flexmeasures jobs run-worker --queue "scheduling"
+```
+
+In the third terminal, run the client script:
 
 ```
 python3 examples/HEMS_setup.py
