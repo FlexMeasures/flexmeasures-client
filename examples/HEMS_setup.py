@@ -627,7 +627,6 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
 
             # Create flex context
             flex_context = {
-                "consumption-price": {"sensor": sensors["electricity-price"]["id"]},
                 "inflexible-device-sensors": [
                     sensors["electricity-consumption"]["id"],
                     sensors["electricity-production"]["id"],
