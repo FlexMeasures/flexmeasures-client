@@ -157,11 +157,11 @@ async def create_pv_asset(
         parent_asset_id=building_asset_id,  # Child of building
     )
 
-    # Create production sensor (15min, kWh)
+    # Create production sensor (15min, kW)
     pv_production_sensor = await client.add_sensor(
         name="electricity-production",
         event_resolution="PT15M",
-        unit="kWh",
+        unit="kW",
         generic_asset_id=pv_asset["id"],
     )
 
