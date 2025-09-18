@@ -628,6 +628,8 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
             flex_model["power-capacity"] = (
                 "100kW"  # Add arbitrary power capacity limit to avoid error.
             )
+            # Have FlexMeasures save the SoC schedule to the SoC sensor
+            flex_model["state-of-charge"] = {"sensor": sensors["state-of-charge"]["id"]}
 
             # Create flex context
             flex_context = {
