@@ -192,6 +192,7 @@ async def create_battery_asset(
         event_resolution="PT15M",
         unit="kW",
         generic_asset_id=battery_asset["id"],
+        attributes=dict(consumption_is_positive=True),
     )
 
     # Create state-of-charge sensor (15min, kWh)
