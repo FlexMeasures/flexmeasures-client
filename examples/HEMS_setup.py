@@ -626,7 +626,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 roundtrip_efficiency=0.85,
             )
             flex_model["power-capacity"] = (
-                "100kW"  # Add arbitrary power capacity limit to avoid error.
+                "20kW"
             )
             # Have FlexMeasures save the SoC schedule to the SoC sensor
             flex_model["state-of-charge"] = {"sensor": sensors["state-of-charge"]["id"]}
