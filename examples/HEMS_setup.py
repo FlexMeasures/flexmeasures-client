@@ -197,7 +197,7 @@ async def create_battery_asset(
     # Create state-of-charge sensor (15min, kWh)
     battery_soc_sensor = await client.add_sensor(
         name="state-of-charge",
-        event_resolution="PT15M",
+        event_resolution="PT0M",
         unit="kWh",
         generic_asset_id=battery_asset["id"],
     )
