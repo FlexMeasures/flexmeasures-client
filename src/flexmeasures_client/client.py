@@ -684,7 +684,7 @@ class FlexMeasuresClient:
             return await self.get_schedule(
                 sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
             )
-        else:
+        elif flex_model is not None:
             # Get the schedule for a collection of devices (one by one)
             schedule: list[dict] = []
             for sensor_flex_model in flex_model:
