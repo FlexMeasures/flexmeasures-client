@@ -525,6 +525,8 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
     sensor_mappings = [
         ("electricity-price", price_market_name),
         ("electricity-consumption", building_name),
+        ("max-consumption-capacity", building_name),
+        ("max-production-capacity", building_name),
         ("irradiation", weather_station_name),
         ("electricity-production", pv_name),
     ]
