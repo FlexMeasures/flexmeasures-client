@@ -145,7 +145,7 @@ async def create_building_asset(
         unit="kW",
         generic_asset_id=building_asset["id"],
     )
-    
+
     # Create max production capacity sensor for the building
     max_production_sensor = await client.add_sensor(
         name="max-production-capacity",
@@ -306,6 +306,9 @@ async def configure_sensors_to_show(
     pv_production_sensor,
     battery_power_sensor,
     battery_soc_sensor,
+    aggregate_sensor,
+    max_production_sensor,
+    max_consumption_sensor,
 ):
     """Configure sensors_to_show for building asset graphs."""
     print("Configuring sensors to show...")
@@ -320,7 +323,14 @@ async def configure_sensors_to_show(
                 battery_power_sensor["id"],
             ],
         },
-        {"title": "Battery SoC", "sensors": [battery_soc_sensor["id"]]},
+        {
+            "title": "Aggregate Power",
+            "sensors": [
+                aggregate_sensor["id"],
+                max_consumption_sensor["id"],
+                max_production_sensor["id"],
+            ],
+        },
     ]
 
     # Update building asset with sensors_to_show
