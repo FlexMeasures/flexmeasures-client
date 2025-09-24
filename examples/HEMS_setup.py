@@ -313,7 +313,7 @@ async def configure_sensors_to_show(
     # Configure graph displays as requested
     sensors_to_show = [
         {
-            "title": "Energy Flows",
+            "title": "Power flow by type",
             "sensors": [
                 consumption_sensor["id"],
                 pv_production_sensor["id"],
