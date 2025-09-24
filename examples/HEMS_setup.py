@@ -161,6 +161,14 @@ async def create_building_asset(
         unit="kW",
         generic_asset_id=building_asset["id"],
     )
+
+    # Create self-consumption sensor for the building
+    self_consumption_sensor = await client.add_sensor(
+        name="self-consumption",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=building_asset["id"],
+    )
 async def create_pv_asset(
     client: FlexMeasuresClient, account_id: int, building_asset_id: int
 ):
