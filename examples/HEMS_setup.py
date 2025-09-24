@@ -397,6 +397,10 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         pv_production_sensor,
         battery_power_sensor,
         battery_soc_sensor,
+        aggregate_sensor,
+        self_consumption_sensor,
+        max_production_sensor,
+        max_consumption_sensor,
     )
 
 
