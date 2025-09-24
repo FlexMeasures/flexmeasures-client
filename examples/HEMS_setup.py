@@ -138,9 +138,13 @@ async def create_building_asset(
         generic_asset_id=building_asset["id"],
     )
 
-    print(f"Created building asset with ID: {building_asset['id']}")
-    return building_asset, consumption_sensor, energy_costs_sensor
-
+    # Create aggregate power sensor for the building
+    aggregate_sensor = await client.add_sensor(
+        name="electricity-aggregate",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=building_asset["id"],
+    )
 
 async def create_pv_asset(
     client: FlexMeasuresClient, account_id: int, building_asset_id: int
