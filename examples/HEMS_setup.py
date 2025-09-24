@@ -596,6 +596,9 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         return False
 
     # Run CLI command
+    # NOTE: This uses the CLI because there is no public API yet.
+    #       An API endpoint is coming soon, so this can later be done via the client.
+    #       Requires FlexMeasures PR #1546.
     cmd = [
         "flexmeasures",
         "add",
