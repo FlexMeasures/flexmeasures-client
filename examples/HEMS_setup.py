@@ -324,7 +324,7 @@ async def configure_sensors_to_show(
             ],
         },
         {
-            "title": "Aggregate Power",
+            "title": "Site capacity",
             "sensors": [
                 aggregate_sensor["id"],
                 max_consumption_sensor["id"],
