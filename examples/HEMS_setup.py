@@ -299,7 +299,7 @@ async def configure_building_flex_context(
     print("Building flex-context configured successfully")
 
 
-async def configure_sensors_to_show(
+async def configure_building_dashboard(
     client: FlexMeasuresClient,
     building_asset,
     consumption_sensor,
@@ -389,8 +389,8 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         pv_production_sensor,
         battery_power_sensor,
     )
-    print("Configuring sensors to show ...")
-    await configure_sensors_to_show(
+    print("Configuring building dashboard ...")
+    await configure_building_dashboard(
         client,
         building_asset,
         consumption_sensor,
