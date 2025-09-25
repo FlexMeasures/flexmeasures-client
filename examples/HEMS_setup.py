@@ -4,8 +4,8 @@ Creates a comprehensive structure with building, PV, battery, weather station as
 and all required sensors with proper flex-context configuration.
 """
 
-import json
 import asyncio
+import json
 import subprocess
 from datetime import timedelta
 
@@ -327,10 +327,7 @@ async def configure_building_dashboard(
         },
         {
             "title": "Solar self-consumption",
-            "sensors": [
-                self_consumption_sensor["id"],
-                pv_production_sensor["id"]
-            ],
+            "sensors": [self_consumption_sensor["id"], pv_production_sensor["id"]],
         },
         {"title": "Battery Soc", "sensors": [battery_soc_sensor["id"]]},
         {
@@ -532,7 +529,9 @@ async def upload_csv_file_to_sensor(
         return False
 
 
-async def find_sensors_by_asset(client: FlexMeasuresClient, sensor_mappings: list[tuple[str, str]]):
+async def find_sensors_by_asset(
+    client: FlexMeasuresClient, sensor_mappings: list[tuple[str, str]]
+):
     """Find multiple sensors by name and asset name."""
     sensors = {}
     for sensor_name, asset_name in sensor_mappings:
@@ -581,7 +580,7 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
         # Upload CSV file directly
         success = await upload_csv_file_to_sensor(
             client=client,
-            sensor_id=sensors[sensor_key]['id'],
+            sensor_id=sensors[sensor_key]["id"],
             file_path=file_path,
         )
 
@@ -823,7 +822,10 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 sum(scheduled_power) / len(scheduled_power) if scheduled_power else 0
             )
             energy_change = average_power * SIMULATION_STEP_HOURS
-            new_soc = max(soc_min, min(soc_max, current_soc + energy_change * roundtrip_efficiency))
+            new_soc = max(
+                soc_min,
+                min(soc_max, current_soc + energy_change * roundtrip_efficiency),
+            )
 
             # Upload SoC measurements
             soc_values = []
@@ -918,9 +920,7 @@ def run_reporter_cmd(reporter_map: dict, start: str, end: str) -> bool:
         return False
 
 
-async def create_reporters(
-    client: FlexMeasuresClient
-):
+async def create_reporters(client: FlexMeasuresClient):
     """Generate Reporters using FlexMeasures CLI."""
     print("Generating Reporters...")
 
@@ -938,7 +938,7 @@ async def create_reporters(
         ("electricity-consumption", building_name),
         ("electricity-power", battery_name),
         ("electricity-aggregate", building_name),
-        ("self-consumption", building_name)
+        ("self-consumption", building_name),
     ]
     sensors = await find_sensors_by_asset(client, sensor_mappings)
 
@@ -952,7 +952,7 @@ async def create_reporters(
         output_sensor=sensors["electricity-aggregate"]["id"],
         start=THIRD_WEEK_START,
         end=THIRD_WEEK_END,
-        reporter_type="aggregate"
+        reporter_type="aggregate",
     )
 
     # Prepare parameters for self-consumption reporter
@@ -964,7 +964,7 @@ async def create_reporters(
         output_sensor=sensors["self-consumption"]["id"],
         start=THIRD_WEEK_START,
         end=THIRD_WEEK_END,
-        reporter_type="self_consumption"
+        reporter_type="self_consumption",
     )
 
     # Run AggregateReporter command
