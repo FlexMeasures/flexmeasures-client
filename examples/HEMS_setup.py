@@ -324,6 +324,7 @@ async def configure_building_dashboard(
                 battery_power_sensor["id"],
             ],
         },
+        {"title": "Battery Soc", "sensors": [battery_soc_sensor["id"]]},
         {
             "title": "Site capacity",
             "sensors": [
