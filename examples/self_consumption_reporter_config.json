@@ -1,0 +1,29 @@
+{
+    "required_input" :[{"name":"production","unit": "kW"},{"name":"aggregate-power","unit": "kW"}],
+    "required_output" :[{"name":"self-consumption","unit": "kW"}],
+        "transformations" : [
+            {
+                "df_input": "aggregate-power",
+                "df_output": "feed_in",
+                "method": "clip",
+                "kwargs": {
+                    "upper": 0
+
+                }
+            },
+            {
+                "df_input": "feed_in",
+                "df_output": "feed_in",
+                "method": "multiply",
+                "args": [-1]
+
+            },
+            {
+                "df_input": "production",
+                "df_output": "self-consumption",
+                "method": "sub",
+                "args": ["@feed_in"]
+            }
+
+     ]
+}

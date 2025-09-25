@@ -1,0 +1,8 @@
+{
+    "method": "sum",
+    "weights": {
+        "pv": -1.0,
+        "consumption": 1.0,
+        "battery": 1.0
+    }
+}
