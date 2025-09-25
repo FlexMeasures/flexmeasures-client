@@ -638,16 +638,19 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
     print("Running scheduling simulation for third week...")
 
     # Find required assets and sensors
-    building_asset = None
     assets = await client.get_assets()
 
-    for asset in assets:
-        if asset["name"] == building_name:
-            building_asset = asset
-            break
+    # Find building and battery assets
+    assets_by_name = {a["name"]: a for a in assets}
+    building_asset = assets_by_name.get(building_name)
+    battery_asset = assets_by_name.get(battery_name)
 
     if not building_asset:
         print("Could not find building asset for scheduling")
+        return False
+
+    if not battery_asset:
+        print("Could not find battery asset for scheduling")
         return False
 
     # Find sensors
@@ -675,6 +678,17 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
     pv_df = load_and_align_csv_data(
         "HEMS data/PV_production_data.csv", TUTORIAL_START_DATE, 60
     )
+
+    # Get battery soc settings
+    battery_flex_model = json.loads(battery_asset["attributes"]).get("flex_model")
+    if not battery_flex_model:
+        print("Battery asset missing flex_model settings")
+        return False
+    soc_unit = battery_flex_model.get("soc_unit")
+    soc_at_start = battery_flex_model.get("soc_at_start")
+    soc_max = battery_flex_model.get("soc_max")
+    soc_min = battery_flex_model.get("soc_min")
+    roundtrip_efficiency = battery_flex_model.get("roundtrip_efficiency")
 
     # Initialize simulation
     current_time = pd.to_datetime(THIRD_WEEK_START)
