@@ -4,6 +4,7 @@ Creates a comprehensive structure with building, PV, battery, weather station as
 and all required sensors with proper flex-context configuration.
 """
 
+import json
 import asyncio
 import subprocess
 from datetime import timedelta
