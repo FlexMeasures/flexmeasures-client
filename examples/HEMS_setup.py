@@ -347,8 +347,9 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
     then configure the building's flex context and dashboard.
     """
     account_id = account["id"]
-    print("Creating building asset with PV and battery sensors")
+    print("Creating price market asset and associated price sensor")
     price_sensor = await create_public_price_sensor(client)
+    print("Creating building asset with PV and battery sensors")
     (
         building_asset,
         consumption_sensor,
