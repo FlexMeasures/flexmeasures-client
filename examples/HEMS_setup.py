@@ -357,6 +357,7 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         consumption_sensor,
         energy_costs_sensor,
         aggregate_sensor,
+        self_consumption_sensor,
         max_production_sensor,
         max_consumption_sensor,
     ) = await create_building_asset(client, account_id, price_sensor["id"])
@@ -366,6 +367,7 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
     print(f"Aggregate sensor ID: {aggregate_sensor['id']}")
     print(f"Max production sensor ID: {max_production_sensor['id']}")
     print(f"Max consumption sensor ID: {max_consumption_sensor['id']}")
+    print(f"Self-consumption sensor ID: {self_consumption_sensor['id']}")
     print("Creating PV asset with production sensor")
     pv_asset, pv_production_sensor = await create_pv_asset(
         client, account_id, building_asset["id"]
