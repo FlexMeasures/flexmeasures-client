@@ -522,12 +522,24 @@ async def upload_csv_file_to_sensor(
         return False
 
 
+async def find_sensors_by_asset(client: FlexMeasuresClient, sensor_mappings: list[tuple[str, str]]):
+    """Find multiple sensors by name and asset name."""
+    sensors = {}
+    for sensor_name, asset_name in sensor_mappings:
+        sensor = await find_sensor_by_name_and_asset(client, sensor_name, asset_name)
+        if sensor:
+            sensors[sensor_name] = sensor
+        else:
+            print(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
+            return False
+    return sensors
+
+
 async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
     """Upload historical data for the first two weeks."""
     print("Uploading data for first two weeks...")
 
     # Find all required sensors
-    sensors = {}
     sensor_mappings = [
         ("electricity-price", price_market_name),
         ("electricity-consumption", building_name),
@@ -537,13 +549,7 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
         ("electricity-production", pv_name),
     ]
 
-    for sensor_name, asset_name in sensor_mappings:
-        sensor = await find_sensor_by_name_and_asset(client, sensor_name, asset_name)
-        if sensor:
-            sensors[sensor_name] = sensor["id"]
-        else:
-            print(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
-            return False
+    sensors = await find_sensors_by_asset(client, sensor_mappings)
 
     # Upload data files directly
     data_files = [
@@ -656,7 +662,6 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
         return False
 
     # Find sensors
-    sensors = {}
     sensor_mappings = [
         ("electricity-consumption", building_name),
         ("electricity-production", pv_name),
@@ -665,13 +670,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
         ("electricity-price", price_market_name),
     ]
 
-    for sensor_name, asset_name in sensor_mappings:
-        sensor = await find_sensor_by_name_and_asset(client, sensor_name, asset_name)
-        if sensor:
-            sensors[sensor_name] = sensor
-        else:
-            print(f"Could not find sensor '{sensor_name}'")
-            return False
+    sensors = await find_sensors_by_asset(client, sensor_mappings)
 
     # Load complete datasets for simulation
     building_df = load_and_align_csv_data(
