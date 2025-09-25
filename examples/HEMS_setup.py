@@ -308,6 +308,7 @@ async def configure_building_dashboard(
     battery_power_sensor,
     battery_soc_sensor,
     aggregate_sensor,
+    self_consumption_sensor,
     max_production_sensor,
     max_consumption_sensor,
 ):
@@ -322,6 +323,13 @@ async def configure_building_dashboard(
                 consumption_sensor["id"],
                 pv_production_sensor["id"],
                 battery_power_sensor["id"],
+            ],
+        },
+        {
+            "title": "Solar self-consumption",
+            "sensors": [
+                self_consumption_sensor["id"],
+                pv_production_sensor["id"]
             ],
         },
         {"title": "Battery Soc", "sensors": [battery_soc_sensor["id"]]},
