@@ -880,6 +880,33 @@ def fill_reporter_params(
         json.dump(params, f, indent=4)
 
 
+def run_reporter_cmd(reporter_map: dict, start: str, end: str) -> bool:
+    """Run subprocess command for reporter and print result."""
+
+    cmd = [
+        "flexmeasures",
+        "add",
+        "report",
+        "--reporter",
+        reporter_map["reporter"],
+        "--config",
+        f"{reporter_map['name']}_reporter_config.json",
+        "--parameters",
+        f"{reporter_map['name']}_reporter_param.json",
+        "--start",
+        start,
+        "--end",
+        end,
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=3000)
+    if result.returncode == 0:
+        print(f"{reporter_map['name']} reporters generated successfully")
+        return True
+    else:
+        print(f"{reporter_map['name']} reporter generation failed: {result.stderr}")
+        return False
+
 
 async def main():
     """
