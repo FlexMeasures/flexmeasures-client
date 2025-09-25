@@ -694,7 +694,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
     # Initialize simulation
     current_time = pd.to_datetime(THIRD_WEEK_START)
     end_time = pd.to_datetime(THIRD_WEEK_END)
-    current_soc = 5.0  # Starting SoC from battery settings
+    current_soc = soc_at_start  # Starting SoC from battery settings
 
     step_num = 1
 
@@ -708,11 +708,11 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
 
             # Create flex model for battery
             flex_model = client.create_storage_flex_model(
-                soc_unit="kWh",
+                soc_unit=soc_unit,
                 soc_at_start=current_soc,
-                soc_max=9.0,
-                soc_min=1.5,
-                roundtrip_efficiency=0.85,
+                soc_max=soc_max,
+                soc_min=soc_min,
+                roundtrip_efficiency=roundtrip_efficiency,
             )
             flex_model["power-capacity"] = "20kW"
             # Have FlexMeasures save the SoC schedule to the SoC sensor
@@ -813,7 +813,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 sum(scheduled_power) / len(scheduled_power) if scheduled_power else 0
             )
             energy_change = average_power * SIMULATION_STEP_HOURS
-            new_soc = max(1.5, min(9.0, current_soc + energy_change * 0.85))
+            new_soc = max(soc_min, min(soc_max, current_soc + energy_change * roundtrip_efficiency))
 
             # Upload SoC measurements
             soc_values = []
