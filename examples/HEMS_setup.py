@@ -848,6 +848,39 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
     return True
 
 
+def fill_reporter_params(
+    input_sensors: list[dict],
+    output_sensor: str,
+    start: str,
+    end: str,
+    reporter_type: str,
+):
+    """Fill reporter parameters and save to JSON file."""
+    params = {
+        "input": [
+            {
+                "name": name,
+                "sensor": sensor,
+                "exclude_source_types": ["scheduler", "forecaster"],
+            }
+            for sensor_dict in input_sensors
+            for name, sensor in sensor_dict.items()
+        ],
+        "output": (
+            [{"sensor": output_sensor}]
+            if reporter_type == "aggregate"
+            else [{"name": "self-consumption", "sensor": output_sensor}]
+        ),
+        "start": start,
+        "end": end,
+    }
+
+    # overwrite the file (creates it if not exists)
+    with open(f"{reporter_type}_reporter_param.json", "w") as f:
+        json.dump(params, f, indent=4)
+
+
+
 async def main():
     """
     Complete HEMS setup using FlexMeasures client.
