@@ -1034,12 +1034,12 @@ async def main():
         print("PART 2: UPLOADING DATA")
         await upload_data_for_first_two_weeks(client)
 
-        # Generate PV forecasts for second week
+        # Part 3: Generate PV forecasts for second week
         print("\n" + "=" * 50)
         print("PART 3: GENERATING PV FORECASTS")
         await generate_pv_forecasts(client)
 
-        # Part 3: Run scheduling simulation for third week
+        # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
         print("PART 4: SCHEDULING SIMULATION")
         await run_scheduling_simulation(client)
