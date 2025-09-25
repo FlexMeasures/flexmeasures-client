@@ -908,6 +908,72 @@ def run_reporter_cmd(reporter_map: dict, start: str, end: str) -> bool:
         return False
 
 
+async def create_reporters(
+    client: FlexMeasuresClient
+):
+    """Generate Reporters using FlexMeasures CLI."""
+    print("Generating Reporters...")
+
+    # Check if flexmeasures CLI is available
+    check_cmd = ["which", "flexmeasures"]
+    check_result = subprocess.run(check_cmd, capture_output=True, text=True)
+
+    if check_result.returncode != 0:
+        print("FlexMeasures CLI not found. Skipping reporter generation.")
+        return False
+
+    # Find all required sensors
+    sensor_mappings = [
+        ("electricity-production", pv_name),
+        ("electricity-consumption", building_name),
+        ("electricity-power", battery_name),
+        ("electricity-aggregate", building_name),
+        ("self-consumption", building_name)
+    ]
+    sensors = await find_sensors_by_asset(client, sensor_mappings)
+
+    # Prepare parameters for the aggregate reporter
+    fill_reporter_params(
+        input_sensors=[
+            {"pv": sensors["electricity-production"]["id"]},
+            {"consumption": sensors["electricity-consumption"]["id"]},
+            {"battery": sensors["electricity-power"]["id"]},
+        ],
+        output_sensor=sensors["electricity-aggregate"]["id"],
+        start=THIRD_WEEK_START,
+        end=THIRD_WEEK_END,
+        reporter_type="aggregate"
+    )
+
+    # Prepare parameters for self-consumption reporter
+    fill_reporter_params(
+        input_sensors=[
+            {"production": sensors["electricity-production"]["id"]},
+            {"aggregate-power": sensors["electricity-aggregate"]["id"]},
+        ],
+        output_sensor=sensors["self-consumption"]["id"],
+        start=THIRD_WEEK_START,
+        end=THIRD_WEEK_END,
+        reporter_type="self_consumption"
+    )
+
+    # Run AggregateReporter command
+    aggregate_result = run_reporter_cmd(
+        reporter_map={"name": "aggregate", "reporter": "AggregateReporter"},
+        start=THIRD_WEEK_START,
+        end=THIRD_WEEK_END,
+    )
+
+    # Run SelfConsumptionReporter command
+    self_consumption_result = run_reporter_cmd(
+        reporter_map={"name": "self_consumption", "reporter": "PandasReporter"},
+        start=THIRD_WEEK_START,
+        end=THIRD_WEEK_END,
+    )
+
+    return self_consumption_result and aggregate_result
+
+
 async def main():
     """
     Complete HEMS setup using FlexMeasures client.
@@ -978,6 +1044,10 @@ async def main():
         print("PART 4: SCHEDULING SIMULATION")
         await run_scheduling_simulation(client)
 
+        # Part 5 : Create reporters
+        print("\n" + "=" * 50)
+        print("PART 5: CREATING REPORTERS")
+        await create_reporters(client)
         print("\n" + "=" * 50)
         print("HEMS Tutorial completed successfully!")
 
