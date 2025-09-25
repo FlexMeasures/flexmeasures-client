@@ -571,7 +571,7 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
         # Upload CSV file directly
         success = await upload_csv_file_to_sensor(
             client=client,
-            sensor_id=sensors[sensor_key],
+            sensor_id=sensors[sensor_key]['id'],
             file_path=file_path,
         )
 
