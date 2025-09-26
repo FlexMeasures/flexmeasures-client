@@ -1,6 +1,7 @@
 {
     "required_input" :[{"name":"production","unit": "kW"},{"name":"aggregate-power","unit": "kW"}],
     "required_output" :[{"name":"self-consumption","unit": "kW"}],
+    "droplevels": true,
         "transformations" : [
             {
                 "df_input": "aggregate-power",
