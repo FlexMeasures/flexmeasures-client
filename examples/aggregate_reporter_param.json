@@ -1,0 +1,35 @@
+{
+    "input": [
+        {
+            "name": "pv",
+            "sensor": 148,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        },
+        {
+            "name": "consumption",
+            "sensor": 142,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        },
+        {
+            "name": "battery",
+            "sensor": 149,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        }
+    ],
+    "output": [
+        {
+            "sensor": 144
+        }
+    ],
+    "start": "2025-01-15T00:00:00+00:00",
+    "end": "2025-01-22T00:00:00+00:00"
+}
