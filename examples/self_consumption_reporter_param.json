@@ -2,7 +2,7 @@
     "input": [
         {
             "name": "production",
-            "sensor": 148,
+            "sensor": 180,
             "exclude_source_types": [
                 "scheduler",
                 "forecaster"
@@ -10,7 +10,7 @@
         },
         {
             "name": "aggregate-power",
-            "sensor": 144,
+            "sensor": 176,
             "exclude_source_types": [
                 "scheduler",
                 "forecaster"
@@ -20,7 +20,7 @@
     "output": [
         {
             "name": "self-consumption",
-            "sensor": 147
+            "sensor": 179
         }
     ],
     "start": "2025-01-15T00:00:00+00:00",

@@ -402,10 +402,10 @@ async def create_evse_asset(
         attributes=dict(consumption_is_positive=True),
     )
 
-    # Create state-of-charge sensor (15min, kWh)
+    # Create state-of-charge sensor (instantaneous, kWh)
     evse_soc_sensor = await client.add_sensor(
         name="state-of-charge",
-        event_resolution="PT15M",
+        event_resolution="PT0M",
         unit="kWh",
         generic_asset_id=evse_asset["id"],
     )

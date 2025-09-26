@@ -2,7 +2,7 @@
     "input": [
         {
             "name": "pv",
-            "sensor": 148,
+            "sensor": 180,
             "exclude_source_types": [
                 "scheduler",
                 "forecaster"
@@ -10,7 +10,7 @@
         },
         {
             "name": "consumption",
-            "sensor": 142,
+            "sensor": 174,
             "exclude_source_types": [
                 "scheduler",
                 "forecaster"
@@ -18,7 +18,7 @@
         },
         {
             "name": "battery",
-            "sensor": 149,
+            "sensor": 181,
             "exclude_source_types": [
                 "scheduler",
                 "forecaster"
@@ -27,7 +27,7 @@
     ],
     "output": [
         {
-            "sensor": 144
+            "sensor": 176
         }
     ],
     "start": "2025-01-15T00:00:00+00:00",
