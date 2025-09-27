@@ -1072,10 +1072,6 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
     # Initialize simulation
     current_time = pd.to_datetime(THIRD_WEEK_START)
     end_time = pd.to_datetime(THIRD_WEEK_END)
-    current_battery_soc = battery_soc_at_start  # Starting SoC from battery settings
-    current_evse1_soc = evse1_flex_model.get("soc_at_start", 12.0)  # Start at 20%
-    current_evse2_soc = evse2_flex_model.get("soc_at_start", 12.0)  # Start at 20%
-
     step_num = 1
 
     while current_time < end_time:
@@ -1089,10 +1085,11 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
             # Create flex model for battery
             battery_power_capacity = battery_flex_model.get("power_capacity_kw", BATTERY_CONFIG["power_capacity_kw"])
             battery_capacity_kwh = battery_flex_model.get("capacity_kwh", BATTERY_CONFIG["capacity_kwh"])  # Use actual physical capacity
+            battery_current_soc = battery_soc_at_start  # Use initial SoC for first step, FlexMeasures handles updates
             battery_scheduler_flex_model = create_device_flex_model(
                 client=client,
                 device_type="battery",
-                current_soc=current_battery_soc,
+                current_soc=battery_current_soc,
                 capacity_kwh=battery_capacity_kwh,  # Use actual physical capacity, not the operational max
                 power_capacity_kw=battery_power_capacity,
                 min_soc_percent=battery_soc_min / battery_capacity_kwh,  # Calculate percentage against physical capacity
@@ -1124,10 +1121,11 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
             # Create flex models for EVSE 1
             evse1_power_capacity = evse1_flex_model.get("power_capacity_kw", EV_CONFIG["default_power_capacity_kw"])
             evse1_efficiency = evse1_flex_model.get("roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"])
+            evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)  # Use initial SoC, FlexMeasures handles updates
             evse1_scheduler_flex_model = create_device_flex_model(
                 client=client,
                 device_type="evse",
-                current_soc=current_evse1_soc,
+                current_soc=evse1_current_soc,
                 capacity_kwh=evse1_capacity,
                 power_capacity_kw=evse1_power_capacity,
                 min_soc_percent=EV_CONFIG["min_soc_percent"],
@@ -1139,10 +1137,11 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
             # Create flex models for EVSE 2 (similar pattern, could be different car)
             evse2_power_capacity = evse2_flex_model.get("power_capacity_kw", EV_CONFIG["default_power_capacity_kw"])
             evse2_efficiency = evse2_flex_model.get("roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"])
+            evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)  # Use initial SoC, FlexMeasures handles updates
             evse2_scheduler_flex_model = create_device_flex_model(
                 client=client,
                 device_type="evse",
-                current_soc=current_evse2_soc,
+                current_soc=evse2_current_soc,
                 capacity_kwh=evse2_capacity,
                 power_capacity_kw=evse2_power_capacity,
                 min_soc_percent=EV_CONFIG["min_soc_percent"],
@@ -1178,8 +1177,8 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 print(f"[FLEX-MODEL] {device_name}: {model}")
             print()
 
-            # Schedule multiple flexible devices simultaneously
-            schedule_result = await client.trigger_and_get_schedule(
+            # Trigger scheduling and get job UUID to retrieve both power and SoC schedules
+            job_uuid = await client.trigger_schedule(
                 start=schedule_start,
                 duration=schedule_duration,
                 flex_model=final_flex_models,
@@ -1187,7 +1186,53 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 asset_id=building_asset["id"],
             )
 
-            print("Multi-device schedule created successfully")
+            print(f"Multi-device scheduling job triggered with UUID: {job_uuid}")
+            
+            # Get power schedules for each device
+            schedule_result = []
+            for flex_model in final_flex_models:
+                sensor_id = flex_model["sensor"]
+                power_schedule = await client.get_schedule(
+                    sensor_id=sensor_id,
+                    schedule_id=job_uuid,
+                    duration=schedule_duration
+                )
+                power_schedule["sensor"] = sensor_id
+                schedule_result.append(power_schedule)
+            
+            # Get SoC schedules computed by FlexMeasures using the same job UUID
+            # This retrieves the SoC values that FlexMeasures computed based on the flex-model constraints
+            try:
+                battery_soc_schedule = await client.get_schedule(
+                    sensor_id=sensors["battery-soc"]["id"],
+                    schedule_id=job_uuid,
+                    duration=schedule_duration
+                )
+            except Exception as e:
+                print(f"Warning: Could not retrieve battery SoC schedule: {e}")
+                battery_soc_schedule = {"values": []}
+            
+            try:
+                evse1_soc_schedule = await client.get_schedule(
+                    sensor_id=sensors["evse1-soc"]["id"], 
+                    schedule_id=job_uuid,
+                    duration=schedule_duration
+                )
+            except Exception as e:
+                print(f"Warning: Could not retrieve EVSE1 SoC schedule: {e}")
+                evse1_soc_schedule = {"values": []}
+            
+            try:
+                evse2_soc_schedule = await client.get_schedule(
+                    sensor_id=sensors["evse2-soc"]["id"],
+                    schedule_id=job_uuid, 
+                    duration=schedule_duration
+                )
+            except Exception as e:
+                print(f"Warning: Could not retrieve EVSE2 SoC schedule: {e}")
+                evse2_soc_schedule = {"values": []}
+            
+            print("Multi-device power and SoC schedules retrieved successfully")
 
         except Exception as e:
             error_msg = str(e)
@@ -1208,6 +1253,11 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                     "sensor": sensors["evse2-power"]["id"],
                 },
             ]
+            
+            # Set empty SoC schedules for error case
+            battery_soc_schedule = {"values": []}
+            evse1_soc_schedule = {"values": []}
+            evse2_soc_schedule = {"values": []}
 
         # Extract scheduled power for all devices for the next 4 hours
         step_end_time = current_time + timedelta(hours=SIMULATION_STEP_HOURS)
@@ -1309,169 +1359,87 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                     unit="kWh",
                 )
 
-            # Calculate and update battery SoC
+            # Upload FlexMeasures-computed SoC schedules to sensor data
+            # Extract SoC values for the current simulation step
+            battery_soc_values = battery_soc_schedule["values"][:SIMULATION_STEP_HOURS] if battery_soc_schedule.get("values") else []
+            evse1_soc_values = evse1_soc_schedule["values"][:SIMULATION_STEP_HOURS] if evse1_soc_schedule.get("values") else []
+            evse2_soc_values = evse2_soc_schedule["values"][:SIMULATION_STEP_HOURS] if evse2_soc_schedule.get("values") else []
+
+            # Upload battery SoC measurements (FlexMeasures computed)
+            if battery_soc_values:
+                await client.post_sensor_data(
+                    sensor_id=sensors["battery-soc"]["id"],
+                    start=current_time,
+                    duration=timedelta(hours=len(battery_soc_values)),
+                    values=battery_soc_values,
+                    unit="kWh",
+                )
+                print(f"[BATTERY-SOC] Uploaded {len(battery_soc_values)} FlexMeasures-computed SoC values")
+
+            # Upload EVSE 1 SoC measurements (FlexMeasures computed)
+            if evse1_soc_values:
+                await client.post_sensor_data(
+                    sensor_id=sensors["evse1-soc"]["id"],
+                    start=current_time,
+                    duration=timedelta(hours=len(evse1_soc_values)),
+                    values=evse1_soc_values,
+                    unit="kWh",
+                )
+                print(f"[EVSE1-SOC] Uploaded {len(evse1_soc_values)} FlexMeasures-computed SoC values")
+
+            # Upload EVSE 2 SoC measurements (FlexMeasures computed)
+            if evse2_soc_values:
+                await client.post_sensor_data(
+                    sensor_id=sensors["evse2-soc"]["id"],
+                    start=current_time,
+                    duration=timedelta(hours=len(evse2_soc_values)),
+                    values=evse2_soc_values,
+                    unit="kWh",
+                )
+                print(f"[EVSE2-SOC] Uploaded {len(evse2_soc_values)} FlexMeasures-computed SoC values")
+
+            # Display FlexMeasures-computed SoC and power data
+            print(f"\n[FLEXMEASURES-RESULTS] === FLEX-MODEL COMPUTED SCHEDULES ===")
+            
+            # Log power and SoC schedules for this step
             battery_average_power = (
                 sum(battery_scheduled_power) / len(battery_scheduled_power) if battery_scheduled_power else 0
             )
-            battery_energy_change = battery_average_power * SIMULATION_STEP_HOURS
-            new_battery_soc = max(
-                battery_soc_min,
-                min(battery_soc_max, current_battery_soc + battery_energy_change * battery_roundtrip_efficiency),
-            )
-
-            # Calculate and update EVSE 1 SoC
             evse1_average_power = (
                 sum(evse1_scheduled_power) / len(evse1_scheduled_power) if evse1_scheduled_power else 0
             )
-            evse1_energy_change = evse1_average_power * SIMULATION_STEP_HOURS
-            evse1_efficiency = evse1_flex_model.get("roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"])
-            evse1_min_soc = evse1_capacity * EV_CONFIG["min_soc_percent"]
-            
-            # Check if car is unavailable during this period and simulate driving consumption
-            evse1_driving_consumption = 0.0
-            print(f"   [DEBUG] EVSE 1 checking driving consumption for {current_time}")
-            print(f"   [DEBUG] EVSE 1 constraints: {evse1_constraints.get('consumption_capacity', 'None')}")
-            
-            if evse1_constraints.get("consumption_capacity"):
-                for capacity_constraint in evse1_constraints["consumption_capacity"]:
-                    if capacity_constraint["value"] == "0 kW":
-                        # Car is unavailable (driving), simulate energy consumption
-                        constraint_start = pd.to_datetime(capacity_constraint["start"])
-                        constraint_end = pd.to_datetime(capacity_constraint["end"])
-                        current_pd = pd.to_datetime(current_time)
-                        step_end_pd = pd.to_datetime(current_time) + pd.Timedelta(hours=SIMULATION_STEP_HOURS)
-                        
-                        print(f"   [DEBUG] Constraint period: {constraint_start} to {constraint_end}")
-                        print(f"   [DEBUG] Current step: {current_pd} to {step_end_pd}")
-                        
-                        # Check if unavailable period overlaps with current simulation step
-                        overlap_start = max(constraint_start, current_pd)
-                        overlap_end = min(constraint_end, step_end_pd)
-                        
-                        print(f"   [DEBUG] Overlap period: {overlap_start} to {overlap_end}")
-                        
-                        if overlap_start < overlap_end:
-                            overlap_hours = (overlap_end - overlap_start).total_seconds() / 3600
-                            # Simulate driving consumption using configured rate
-                            evse1_driving_consumption = EV_CONFIG["driving_consumption_kwh_per_hour"] * overlap_hours
-                            print(f"   [DRIVING] EVSE 1 driving for {overlap_hours:.1f}h, consuming {evse1_driving_consumption:.1f} kWh")
-                        else:
-                            print(f"   [DEBUG] No overlap - no driving consumption")
-            
-            new_evse1_soc = max(
-                evse1_min_soc,
-                min(evse1_capacity, current_evse1_soc + evse1_energy_change * evse1_efficiency - evse1_driving_consumption),
-            )
-
-            # Calculate and update EVSE 2 SoC
             evse2_average_power = (
                 sum(evse2_scheduled_power) / len(evse2_scheduled_power) if evse2_scheduled_power else 0
             )
-            evse2_energy_change = evse2_average_power * SIMULATION_STEP_HOURS
-            evse2_efficiency = evse2_flex_model.get("roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"])
-            evse2_min_soc = evse2_capacity * EV_CONFIG["min_soc_percent"]
             
-            # Check if car is unavailable during this period and simulate driving consumption
-            evse2_driving_consumption = 0.0
-            if evse2_constraints.get("consumption_capacity"):
-                for capacity_constraint in evse2_constraints["consumption_capacity"]:
-                    if capacity_constraint["value"] == "0 kW":
-                        # Car is unavailable (driving), simulate energy consumption
-                        constraint_start = pd.to_datetime(capacity_constraint["start"])
-                        constraint_end = pd.to_datetime(capacity_constraint["end"])
-                        current_pd = pd.to_datetime(current_time)
-                        step_end_pd = pd.to_datetime(current_time) + pd.Timedelta(hours=SIMULATION_STEP_HOURS)
-                        
-                        # Check if unavailable period overlaps with current simulation step
-                        overlap_start = max(constraint_start, current_pd)
-                        overlap_end = min(constraint_end, step_end_pd)
-                        
-                        if overlap_start < overlap_end:
-                            overlap_hours = (overlap_end - overlap_start).total_seconds() / 3600
-                            # Simulate driving consumption using configured rate
-                            evse2_driving_consumption = EV_CONFIG["driving_consumption_kwh_per_hour"] * overlap_hours
-                            print(f"   [DRIVING] EVSE 2 driving for {overlap_hours:.1f}h, consuming {evse2_driving_consumption:.1f} kWh")
+            # Show SoC progression if available
+            if battery_soc_values:
+                battery_soc_start = battery_soc_values[0]
+                battery_soc_end = battery_soc_values[-1]
+                battery_soc_change = battery_soc_end - battery_soc_start
+                print(f"[BATTERY] Power: {battery_average_power:.2f} kW | SoC: {battery_soc_start:.1f} → {battery_soc_end:.1f} kWh ({battery_soc_change:+.1f} kWh)")
+            else:
+                print(f"[BATTERY] Power: {battery_average_power:.2f} kW | SoC: Not available")
             
-            new_evse2_soc = max(
-                evse2_min_soc,
-                min(evse2_capacity, current_evse2_soc + evse2_energy_change * evse2_efficiency - evse2_driving_consumption),
-            )
-
-            # Upload battery SoC measurements
-            battery_soc_values = []
-            for i in range(SIMULATION_STEP_HOURS):
-                battery_soc_values.append(
-                    current_battery_soc
-                    + (new_battery_soc - current_battery_soc) * (i + 1) / SIMULATION_STEP_HOURS
-                )
-
-            await client.post_sensor_data(
-                sensor_id=sensors["battery-soc"]["id"],
-                start=current_time,
-                duration=timedelta(hours=SIMULATION_STEP_HOURS),
-                values=battery_soc_values,
-                unit="kWh",
-            )
-
-            # Upload EVSE 1 SoC measurements
-            evse1_soc_values = []
-            for i in range(SIMULATION_STEP_HOURS):
-                evse1_soc_values.append(
-                    current_evse1_soc
-                    + (new_evse1_soc - current_evse1_soc) * (i + 1) / SIMULATION_STEP_HOURS
-                )
-
-            await client.post_sensor_data(
-                sensor_id=sensors["evse1-soc"]["id"],
-                start=current_time,
-                duration=timedelta(hours=SIMULATION_STEP_HOURS),
-                values=evse1_soc_values,
-                unit="kWh",
-            )
-
-            # Upload EVSE 2 SoC measurements
-            evse2_soc_values = []
-            for i in range(SIMULATION_STEP_HOURS):
-                evse2_soc_values.append(
-                    current_evse2_soc
-                    + (new_evse2_soc - current_evse2_soc) * (i + 1) / SIMULATION_STEP_HOURS
-                )
-
-            await client.post_sensor_data(
-                sensor_id=sensors["evse2-soc"]["id"],
-                start=current_time,
-                duration=timedelta(hours=SIMULATION_STEP_HOURS),
-                values=evse2_soc_values,
-                unit="kWh",
-            )
-
-            print(f"\n[SOC-UPDATES] === SoC UPDATES ===")
-            print(f"[BATTERY] SoC: {current_battery_soc:.1f} kWh -> {new_battery_soc:.1f} kWh ({((new_battery_soc/battery_soc_max)*100):.1f}%)")
-            print(f"   Average power: {battery_average_power:.2f} kW for {SIMULATION_STEP_HOURS}h")
-            print(f"   Energy change: {battery_energy_change:.2f} kWh")
+            if evse1_soc_values:
+                evse1_soc_start = evse1_soc_values[0]
+                evse1_soc_end = evse1_soc_values[-1]
+                evse1_soc_change = evse1_soc_end - evse1_soc_start
+                evse1_capacity = evse1_flex_model.get("capacity_kwh", EV_CONFIG["default_capacity_kwh"])
+                evse1_percent_end = (evse1_soc_end / evse1_capacity) * 100
+                print(f"[EVSE-1] Power: {evse1_average_power:.2f} kW | SoC: {evse1_soc_start:.1f} → {evse1_soc_end:.1f} kWh ({evse1_soc_change:+.1f} kWh, {evse1_percent_end:.1f}%)")
+            else:
+                print(f"[EVSE-1] Power: {evse1_average_power:.2f} kW | SoC: Not available")
             
-            # Determine power direction for logging
-            evse1_power_direction = "charging" if evse1_average_power >= 0 else "discharging"
-            evse2_power_direction = "charging" if evse2_average_power >= 0 else "discharging"
-            
-            print(f"[EVSE-1] SoC: {current_evse1_soc:.1f} kWh -> {new_evse1_soc:.1f} kWh ({((new_evse1_soc/evse1_capacity)*100):.1f}%)")
-            print(f"   Average power: {evse1_average_power:.2f} kW for {SIMULATION_STEP_HOURS}h")
-            print(f"   Energy change: {evse1_energy_change:.2f} kWh ({evse1_power_direction})")
-            if evse1_driving_consumption > 0:
-                print(f"   Driving consumption: -{evse1_driving_consumption:.2f} kWh")
-                print(f"   Net energy change: {evse1_energy_change * evse1_efficiency - evse1_driving_consumption:.2f} kWh")
-            
-            print(f"[EVSE-2] SoC: {current_evse2_soc:.1f} kWh -> {new_evse2_soc:.1f} kWh ({((new_evse2_soc/evse2_capacity)*100):.1f}%)")
-            print(f"   Average power: {evse2_average_power:.2f} kW for {SIMULATION_STEP_HOURS}h")
-            print(f"   Energy change: {evse2_energy_change:.2f} kWh ({evse2_power_direction})")
-            if evse2_driving_consumption > 0:
-                print(f"   Driving consumption: -{evse2_driving_consumption:.2f} kWh")
-                print(f"   Net energy change: {evse2_energy_change * evse2_efficiency - evse2_driving_consumption:.2f} kWh")
-            
-            # Update current SoC values for next iteration
-            current_battery_soc = new_battery_soc
-            current_evse1_soc = new_evse1_soc
-            current_evse2_soc = new_evse2_soc
+            if evse2_soc_values:
+                evse2_soc_start = evse2_soc_values[0]
+                evse2_soc_end = evse2_soc_values[-1]
+                evse2_soc_change = evse2_soc_end - evse2_soc_start
+                evse2_capacity = evse2_flex_model.get("capacity_kwh", EV_CONFIG["default_capacity_kwh"])
+                evse2_percent_end = (evse2_soc_end / evse2_capacity) * 100
+                print(f"[EVSE-2] Power: {evse2_average_power:.2f} kW | SoC: {evse2_soc_start:.1f} → {evse2_soc_end:.1f} kWh ({evse2_soc_change:+.1f} kWh, {evse2_percent_end:.1f}%)")
+            else:
+                print(f"[EVSE-2] Power: {evse2_average_power:.2f} kW | SoC: Not available")
 
         except Exception as e:
             print(f"Failed to upload measurements: {e}")
