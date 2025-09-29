@@ -651,8 +651,8 @@ class FlexMeasuresClient:
         self,
         start: str | datetime,
         duration: str | timedelta,
-        flex_model: dict | list[dict],
-        flex_context: dict,
+        flex_model: dict | list[dict] | None = None,
+        flex_context: dict | None = None,
         sensor_id: int | None = None,
         asset_id: int | None = None,
     ) -> dict | list[dict]:
@@ -690,6 +690,9 @@ class FlexMeasuresClient:
             return await self.get_schedule(
                 sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
             )
+        elif flex_model is None:
+            # If there is no flex-model referencing power sensors, no power schedules are retrieved
+            return []
         else:
             # Get the schedule for a collection of devices (one by one)
             schedule: list[dict] = []
@@ -984,8 +987,8 @@ class FlexMeasuresClient:
         self,
         start: str | datetime,
         duration: str | timedelta,
-        flex_model: dict | list[dict],
-        flex_context: dict,
+        flex_model: dict | list[dict] | None = None,
+        flex_context: dict | None = None,
         sensor_id: int | None = None,
         asset_id: int | None = None,
     ) -> str:
@@ -996,9 +999,11 @@ class FlexMeasuresClient:
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
             "duration": pd.Timedelta(duration).isoformat(),
-            "flex-model": flex_model,
-            "flex-context": flex_context,
         }
+        if flex_model is not None:
+            message["flex-model"] = flex_model
+        if flex_context is not None:
+            message["flex-context"] = flex_context
         if sensor_id is not None:
             response, status = await self.request(
                 uri=f"sensors/{sensor_id}/schedules/trigger",
