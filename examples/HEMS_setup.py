@@ -362,11 +362,11 @@ async def create_building_asset(
         generic_asset_id=building_asset["id"],
     )
 
-    # Create energy costs KPI sensor (1D resolution, EUR/kWh)
+    # Create energy costs KPI sensor (1D resolution, EUR)
     energy_costs_sensor = await client.add_sensor(
         name="energy-costs-kpi",
         event_resolution="P1D",
-        unit="EUR/kWh",
+        unit="EUR",
         generic_asset_id=building_asset["id"],
     )
 
