@@ -1183,6 +1183,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 flex_model=final_flex_models,
                 flex_context=flex_context,
                 asset_id=building_asset["id"],
+                prior=current_time,
             )
 
             print(f"Multi-device scheduling job triggered with UUID: {job_uuid}")
