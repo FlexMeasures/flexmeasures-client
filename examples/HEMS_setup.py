@@ -1524,12 +1524,19 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
 
 def fill_reporter_params(
     input_sensors: list[dict],
-    output_sensor: str,
+    output_sensors: list[str] | str,
     start: str,
     end: str,
     reporter_type: str,
 ):
     """Fill reporter parameters and save to JSON file."""
+    
+    if reporter_type == "aggregate":
+        # For the aggregate reporter, output_sensors is a single sensor ID
+        output = [{"sensor": output_sensors}]
+    else:
+        output = [{"name": reporter_type, "sensor": s} for s in output_sensors]
+
     params = {
         "input": [
             {
@@ -1540,11 +1547,7 @@ def fill_reporter_params(
             for sensor_dict in input_sensors
             for name, sensor in sensor_dict.items()
         ],
-        "output": (
-            [{"sensor": output_sensor}]
-            if reporter_type == "aggregate"
-            else [{"name": "self-consumption", "sensor": output_sensor}]
-        ),
+        "output": output,
         "start": start,
         "end": end,
     }
@@ -1611,7 +1614,7 @@ async def create_reporters(client: FlexMeasuresClient):
             {"consumption": sensors["electricity-consumption"]["id"]},
             {"battery": sensors["electricity-power"]["id"]},
         ],
-        output_sensor=sensors["electricity-aggregate"]["id"],
+        output_sensors=sensors["electricity-aggregate"]["id"],
         start=SCHEDULING_START,
         end=SCHEDULING_END,
         reporter_type="aggregate",
@@ -1623,7 +1626,7 @@ async def create_reporters(client: FlexMeasuresClient):
             {"production": sensors["electricity-production"]["id"]},
             {"aggregate-power": sensors["electricity-aggregate"]["id"]},
         ],
-        output_sensor=sensors["self-consumption"]["id"],
+        output_sensors=[sensors["self-consumption"]["id"]],
         start=SCHEDULING_START,
         end=SCHEDULING_END,
         reporter_type="self_consumption",
