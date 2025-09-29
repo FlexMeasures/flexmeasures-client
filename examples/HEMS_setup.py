@@ -766,8 +766,6 @@ async def cleanup_existing_assets(client: FlexMeasuresClient):
         building_name,  # Deleting this asset also deletes child assets (battery, PV, EVSEs)
         weather_station_name,
         price_market_name,
-        evse1_name,  # Clean up EVSE assets (though they'll be deleted with building)
-        evse2_name,
     ]
 
     try:
