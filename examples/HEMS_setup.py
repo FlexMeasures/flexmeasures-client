@@ -1373,7 +1373,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 await client.post_sensor_data(
                     sensor_id=sensors["battery-soc"]["id"],
                     start=current_time,
-                    duration=battery_soc_schedule["duration"],
+                    duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
                     prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
                     values=battery_soc_values,
                     unit="kWh",
@@ -1385,7 +1385,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 await client.post_sensor_data(
                     sensor_id=sensors["evse1-soc"]["id"],
                     start=current_time,
-                    duration=evse1_soc_schedule["duration"],
+                    duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
                     prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
                     values=evse1_soc_values,
                     unit="kWh",
@@ -1397,7 +1397,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 await client.post_sensor_data(
                     sensor_id=sensors["evse2-soc"]["id"],
                     start=current_time,
-                    duration=evse2_soc_schedule["duration"],
+                    duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
                     prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
                     values=evse2_soc_values,
                     unit="kWh",
