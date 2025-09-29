@@ -24,12 +24,12 @@ pip install flexmeasures
 Next steps:
 
 - Follow instructions to set up flexmeasures (fresh database, etc).
-- Create an organisation account and a user with:
+- Create an organisation account and an admin with:
 
   :code-block:
 
       flexmeasures add account
-      flexmeasures add user
+      flexmeasures add user --roles admin
 
 - Update the credentials in the ``HEMS_setup.py`` script accordingly.
 
