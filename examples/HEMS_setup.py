@@ -410,6 +410,14 @@ async def create_building_asset(
         generic_asset_id=building_asset["id"],
     )
 
+    # Create daily total energy costs sensor for the building
+    daily_total_energy_costs_sensor = await client.add_sensor(
+        name="daily-total-energy-costs",
+        event_resolution="P1D",
+        unit="EUR",
+        generic_asset_id=building_asset["id"],
+    )
+
     print(f"Created building asset with ID: {building_asset['id']}")
     return (
         building_asset,
@@ -420,6 +428,7 @@ async def create_building_asset(
         max_production_sensor,
         max_consumption_sensor,
         total_energy_costs_sensor,
+        daily_total_energy_costs_sensor,
     )
 
 
@@ -697,6 +706,7 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         max_production_sensor,
         max_consumption_sensor,
         total_energy_costs_sensor,
+        daily_total_energy_costs_sensor,
     ) = await create_building_asset(client, account_id, price_sensor["id"])
     print(f"Building asset ID: {building_asset['id']}")
     print(f"Consumption sensor ID: {consumption_sensor['id']}")
