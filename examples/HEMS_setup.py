@@ -853,13 +853,14 @@ async def upload_csv_file_to_sensor(
     client: FlexMeasuresClient,
     sensor_id: int,
     file_path: str,
+    belief_time_measured_instantly: bool,
 ):
     """Upload CSV file directly to a sensor using file upload."""
     try:
         await client.post_sensor_data(
             sensor_id=sensor_id,
             file_path=file_path,
-            belief_time_measured_instantly=True,  # Set belief_time immediately after event ends
+            belief_time_measured_instantly=belief_time_measured_instantly,  # Set belief_time immediately after event ends
         )
         print(f"Uploaded {file_path} to sensor {sensor_id}")
         return True
@@ -901,15 +902,15 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
 
     # Upload data files directly
     data_files = [
-        ("HEMS data/price_data.csv", "electricity-price"),
-        ("HEMS data/building_data.csv", "electricity-consumption"),
-        ("HEMS data/irradiation_data.csv", "irradiation"),
-        ("HEMS data/PV_production_data.csv", "electricity-production"),
-        ("HEMS data/max_consumption_capacity.csv", "max-consumption-capacity"),
-        ("HEMS data/max_production_capacity.csv", "max-production-capacity"),
+        ("HEMS data/price_data.csv", "electricity-price", False),
+        ("HEMS data/building_data.csv", "electricity-consumption", True),
+        ("HEMS data/irradiation_data.csv", "irradiation", True),
+        ("HEMS data/PV_production_data.csv", "electricity-production", True),
+        ("HEMS data/max_consumption_capacity.csv", "max-consumption-capacity", True),
+        ("HEMS data/max_production_capacity.csv", "max-production-capacity", True),
     ]
 
-    for file_path, sensor_key in data_files:
+    for file_path, sensor_key, belief_time_measured_instantly in data_files:
         if sensor_key not in sensors:
             print(f"Skipping {file_path} - sensor not found")
             continue
@@ -921,6 +922,7 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
             client=client,
             sensor_id=sensors[sensor_key]["id"],
             file_path=file_path,
+            belief_time_measured_instantly=belief_time_measured_instantly
         )
 
         if success:
