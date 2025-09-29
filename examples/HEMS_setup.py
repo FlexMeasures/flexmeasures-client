@@ -1210,7 +1210,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 )
             except Exception as e:
                 print(f"Warning: Could not retrieve battery SoC schedule: {e}")
-                battery_soc_schedule = {"values": []}
+                battery_soc_schedule = {"values": [], "duration": "PT0H"}
             
             try:
                 evse1_soc_schedule = await client.get_schedule(
