@@ -708,7 +708,7 @@ async def configure_building_dashboard(
 
     # Update building asset with sensors_to_show
     await client.update_asset(
-        asset_id=building_asset["id"], updates={"sensors_to_show": sensors_to_show}
+        asset_id=building_asset["id"], updates={"sensors_to_show": sensors_to_show, "sensors_to_show_as_kpis": sensors_to_show_as_kpis}
     )
 
     print("Sensors to show configured successfully")
