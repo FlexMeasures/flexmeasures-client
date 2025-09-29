@@ -1145,6 +1145,8 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 soc_sensor_id=sensors["battery-soc"]["id"],
                 max_soc_percent=BATTERY_CONFIG["max_soc_percent"],  # Use configured operational max (90%)
             )
+            # Set battery power capacity
+            battery_scheduler_flex_model["power-capacity"] = "20kW"
 
             # Calculate dynamic EV constraints for current day
             current_time_ts = pd.Timestamp(current_time)
