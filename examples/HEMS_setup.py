@@ -780,28 +780,28 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
     print(f"Cloud coverage sensor ID: {cloud_coverage_sensor['id']}")
     print("Configuring building flex-context ...")
     await configure_building_flex_context(
-        client,
-        building_asset,
-        price_sensor,
-        consumption_sensor,
-        pv_production_sensor,
-        battery_power_sensor,
+        client=client,
+        building_asset=building_asset,
+        price_sensor=price_sensor,
+        consumption_sensor=consumption_sensor,
+        pv_production_sensor=pv_production_sensor,
+        battery_power_sensor=battery_power_sensor,
     )
     print("Configuring building dashboard ...")
     await configure_building_dashboard(
-        client,
-        building_asset,
-        consumption_sensor,
-        pv_production_sensor,
-        battery_power_sensor,
-        battery_soc_sensor,
-        aggregate_sensor,
-        self_consumption_sensor,
-        max_production_sensor,
-        max_consumption_sensor,
-        price_sensor,
-        total_energy_costs_sensor,
-        daily_total_energy_costs_sensor,
+        client=client,
+        building_asset=building_asset,
+        consumption_sensor=consumption_sensor,
+        pv_production_sensor=pv_production_sensor,
+        battery_power_sensor=battery_power_sensor,
+        battery_soc_sensor=battery_soc_sensor,
+        aggregate_sensor=aggregate_sensor,
+        self_consumption_sensor=self_consumption_sensor,
+        max_production_sensor=max_production_sensor,
+        max_consumption_sensor=max_consumption_sensor,
+        price_sensor=price_sensor,
+        total_energy_costs_sensor=total_energy_costs_sensor,
+        daily_total_energy_costs_sensor=daily_total_energy_costs_sensor,
     )
 
 
