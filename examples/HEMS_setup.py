@@ -652,6 +652,7 @@ async def configure_building_dashboard(
     max_production_sensor,
     max_consumption_sensor,
     price_sensor,
+    total_energy_costs_sensor,
 ):
     """Configure sensors_to_show for building asset graphs."""
     print("Configuring sensors to show...")
@@ -674,6 +675,12 @@ async def configure_building_dashboard(
             "title": "Prices",
             "sensors": [
                 price_sensor["id"],
+            ],
+        },
+        {
+            "title": "Energy costs",
+            "sensors": [
+                total_energy_costs_sensor["id"],
             ],
         },
         {"title": "Battery Soc", "sensors": [battery_soc_sensor["id"]]},
@@ -781,6 +788,7 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         max_production_sensor,
         max_consumption_sensor,
         price_sensor,
+        total_energy_costs_sensor,
     )
 
 
