@@ -33,9 +33,9 @@ longitude = 4.9041
 
 # Data configuration
 TUTORIAL_START_DATE = "2025-01-01T00:00:00+00:00"
-SECOND_WEEK_START = "2025-01-15T00:00:00+00:00"
-THIRD_WEEK_START = "2025-01-15T00:00:00+00:00"
-THIRD_WEEK_END = "2025-01-16T00:00:00+00:00"
+FORECASTING_START = "2025-01-15T00:00:00+00:00"
+SCHEDULING_START = "2025-01-15T00:00:00+00:00"
+SCHEDULING_END = "2025-01-16T00:00:00+00:00"
 SIMULATION_STEP_HOURS = 4
 FORECAST_HORIZON_HOURS = 24
 
@@ -972,9 +972,9 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         "--train-start",
         TUTORIAL_START_DATE,
         "--from-date",
-        SECOND_WEEK_START,
+        FORECASTING_START,
         "--to-date",
-        THIRD_WEEK_END,
+        SCHEDULING_END,
         "--max-forecast-horizon",
         f"PT{FORECAST_HORIZON_HOURS}H",
         "--forecast-frequency",
@@ -1069,8 +1069,8 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
     evse2_capacity = evse2_flex_model.get("capacity_kwh", EV_CONFIG["default_capacity_kwh"])
 
     # Initialize simulation
-    current_time = pd.to_datetime(THIRD_WEEK_START)
-    end_time = pd.to_datetime(THIRD_WEEK_END)
+    current_time = pd.to_datetime(SCHEDULING_START)
+    end_time = pd.to_datetime(SCHEDULING_END)
     step_num = 1
 
     while current_time < end_time:
@@ -1547,8 +1547,8 @@ async def create_reporters(client: FlexMeasuresClient):
             {"battery": sensors["electricity-power"]["id"]},
         ],
         output_sensor=sensors["electricity-aggregate"]["id"],
-        start=THIRD_WEEK_START,
-        end=THIRD_WEEK_END,
+        start=SCHEDULING_START,
+        end=SCHEDULING_END,
         reporter_type="aggregate",
     )
 
@@ -1559,23 +1559,23 @@ async def create_reporters(client: FlexMeasuresClient):
             {"aggregate-power": sensors["electricity-aggregate"]["id"]},
         ],
         output_sensor=sensors["self-consumption"]["id"],
-        start=THIRD_WEEK_START,
-        end=THIRD_WEEK_END,
+        start=SCHEDULING_START,
+        end=SCHEDULING_END,
         reporter_type="self_consumption",
     )
 
     # Run AggregateReporter command
     aggregate_result = run_reporter_cmd(
         reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
-        start=THIRD_WEEK_START,
-        end=THIRD_WEEK_END,
+        start=SCHEDULING_START,
+        end=SCHEDULING_END,
     )
 
     # Run SelfConsumptionReporter command
     self_consumption_result = run_reporter_cmd(
         reporter_map={"name": "self_consumption", "reporter": "PandasReporter"},
-        start=THIRD_WEEK_START,
-        end=THIRD_WEEK_END,
+        start=SCHEDULING_START,
+        end=SCHEDULING_END,
     )
 
     return self_consumption_result and aggregate_result
