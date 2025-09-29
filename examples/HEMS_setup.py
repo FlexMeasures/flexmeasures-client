@@ -1567,7 +1567,7 @@ async def create_reporters(client: FlexMeasuresClient):
 
     # Run AggregateReporter command
     aggregate_result = run_reporter_cmd(
-        reporter_map={"name": "aggregate", "reporter": "AggregateReporter"},
+        reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
         start=THIRD_WEEK_START,
         end=THIRD_WEEK_END,
     )
