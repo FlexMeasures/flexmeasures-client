@@ -611,7 +611,10 @@ async def configure_building_flex_context(
         # Price sensor reference (new format)
         "consumption-price": {"sensor": price_sensor["id"]},
         # Consumption capacity limit (not typically needed for private homes, but including as requested)
-        "site-consumption-capacity": "50 kW",  # Relaxed constraint for residential
+        # Calculated using a smaller connection category: 3 x 25 A at 230 V
+        "site-consumption-capacity": "17.25 kW",  # Relaxed constraint for residential
+        "site-production-capacity": "0 kW",  # Relaxed constraint for residential
+        "site-power-capacity": "20 kVA",
         # Enable soft constraints for SoC minima (this makes soc-minima soft constraints instead of hard)
         "relax-soc-constraints": True,
         # Configure breach prices for soft constraints
