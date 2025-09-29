@@ -1300,6 +1300,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 sensor_id=sensors["battery-power"]["id"],
                 start=current_time,
                 duration=battery_power_duration,
+                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
                 values=battery_scheduled_power,
                 unit="kW",
             )
@@ -1309,6 +1310,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 sensor_id=sensors["evse1-power"]["id"],
                 start=current_time,
                 duration=battery_power_duration,
+                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
                 values=evse1_scheduled_power,
                 unit="kW",
             )
@@ -1318,6 +1320,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 sensor_id=sensors["evse2-power"]["id"],
                 start=current_time,
                 duration=battery_power_duration,
+                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
                 values=evse2_scheduled_power,
                 unit="kW",
             )
@@ -1340,6 +1343,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                     sensor_id=sensors["building-consumption"]["id"],
                     start=building_data_step["event_start"].iloc[0],
                     duration=step_duration,
+                    prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
                     values=building_data_step["event_value"].tolist(),
                     unit="kW",
                 )
@@ -1355,6 +1359,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                     sensor_id=sensors["pv-production"]["id"],
                     start=pv_data_step["event_start"].iloc[0],
                     duration=timedelta(hours=len(pv_data_step)),
+                    prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
                     values=pv_data_step["event_value"].tolist(),
                     unit="kWh",
                 )
