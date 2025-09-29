@@ -1629,7 +1629,7 @@ async def create_reporters(client: FlexMeasuresClient):
         output_sensors=[sensors["self-consumption"]["id"]],
         start=SCHEDULING_START,
         end=SCHEDULING_END,
-        reporter_type="self_consumption",
+        reporter_type="self-consumption",
     )
 
     # Run AggregateReporter command
@@ -1641,7 +1641,7 @@ async def create_reporters(client: FlexMeasuresClient):
 
     # Run SelfConsumptionReporter command
     self_consumption_result = run_reporter_cmd(
-        reporter_map={"name": "self_consumption", "reporter": "PandasReporter"},
+        reporter_map={"name": "self-consumption", "reporter": "PandasReporter"},
         start=SCHEDULING_START,
         end=SCHEDULING_END,
     )
