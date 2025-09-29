@@ -651,10 +651,11 @@ class FlexMeasuresClient:
         self,
         start: str | datetime,
         duration: str | timedelta,
-        flex_model: dict | list[dict],
-        flex_context: dict,
+        flex_model: dict | list[dict] | None = None,
+        flex_context: dict | None = None,
         sensor_id: int | None = None,
         asset_id: int | None = None,
+        prior: datetime | None = None,
     ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
 
@@ -683,6 +684,7 @@ class FlexMeasuresClient:
             duration=duration,
             flex_model=flex_model,
             flex_context=flex_context,
+            prior=prior,
         )
 
         if sensor_id is not None:
@@ -690,6 +692,9 @@ class FlexMeasuresClient:
             return await self.get_schedule(
                 sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
             )
+        elif flex_model is None:
+            # If there is no flex-model referencing power sensors, no power schedules are retrieved
+            return []
         else:
             # Get the schedule for a collection of devices (one by one)
             schedule: list[dict] = []
@@ -902,6 +907,8 @@ class FlexMeasuresClient:
             updates["flex_model"] = json.dumps(updates["flex_model"])
         if "sensors_to_show" in updates:
             updates["sensors_to_show"] = json.dumps(updates["sensors_to_show"])
+        if "sensors_to_show_as_kpis" in updates:
+            updates["sensors_to_show_as_kpis"] = json.dumps(updates["sensors_to_show_as_kpis"])
         for key, val in updates.items():
             if type(val) not in (str, bytes, bytearray):
                 raise ContentTypeError(
@@ -982,10 +989,11 @@ class FlexMeasuresClient:
         self,
         start: str | datetime,
         duration: str | timedelta,
-        flex_model: dict | list[dict],
-        flex_context: dict,
+        flex_model: dict | list[dict] | None = None,
+        flex_context: dict | None = None,
         sensor_id: int | None = None,
         asset_id: int | None = None,
+        prior: datetime | None = None,
     ) -> str:
         if (sensor_id is None) == (asset_id is None):
             raise ValueError("Pass either a sensor_id or an asset_id.")
@@ -994,9 +1002,15 @@ class FlexMeasuresClient:
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
             "duration": pd.Timedelta(duration).isoformat(),
-            "flex-model": flex_model,
-            "flex-context": flex_context,
         }
+        if flex_model is not None:
+            message["flex-model"] = flex_model
+        if flex_context is not None:
+            message["flex-context"] = flex_context
+
+        if prior is not None:
+            message["prior"] = pd.Timestamp(prior).isoformat()
+
         if sensor_id is not None:
             response, status = await self.request(
                 uri=f"sensors/{sensor_id}/schedules/trigger",
