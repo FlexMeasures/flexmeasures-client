@@ -1361,16 +1361,19 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
 
             # Upload FlexMeasures-computed SoC schedules to sensor data
             # Extract SoC values for the current simulation step
-            battery_soc_values = battery_soc_schedule["values"][:SIMULATION_STEP_HOURS] if battery_soc_schedule.get("values") else []
-            evse1_soc_values = evse1_soc_schedule["values"][:SIMULATION_STEP_HOURS] if evse1_soc_schedule.get("values") else []
-            evse2_soc_values = evse2_soc_schedule["values"][:SIMULATION_STEP_HOURS] if evse2_soc_schedule.get("values") else []
+            battery_resolution_in_hours = pd.Timedelta(battery_soc_schedule["duration"]) // pd.Timedelta(hours=1) / (len(battery_soc_schedule["values"]) - 1)
+            evse1_resolution_in_hours = pd.Timedelta(evse1_soc_schedule["duration"]) // pd.Timedelta(hours=1) / (len(evse1_soc_schedule["values"]) - 1)
+            evse2_resolution_in_hours = pd.Timedelta(evse2_soc_schedule["duration"]) // pd.Timedelta(hours=1) / (len(evse2_soc_schedule["values"]) - 1)
+            battery_soc_values = battery_soc_schedule["values"][:int(SIMULATION_STEP_HOURS / battery_resolution_in_hours)] if battery_soc_schedule.get("values") else []
+            evse1_soc_values = evse1_soc_schedule["values"][:int(SIMULATION_STEP_HOURS / evse1_resolution_in_hours)] if evse1_soc_schedule.get("values") else []
+            evse2_soc_values = evse2_soc_schedule["values"][:int(SIMULATION_STEP_HOURS / evse2_resolution_in_hours)] if evse2_soc_schedule.get("values") else []
 
             # Upload battery SoC measurements (FlexMeasures computed)
             if battery_soc_values:
                 await client.post_sensor_data(
                     sensor_id=sensors["battery-soc"]["id"],
                     start=current_time,
-                    duration=timedelta(hours=len(battery_soc_values)),
+                    duration=battery_soc_schedule["duration"],
                     values=battery_soc_values,
                     unit="kWh",
                 )
@@ -1381,7 +1384,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 await client.post_sensor_data(
                     sensor_id=sensors["evse1-soc"]["id"],
                     start=current_time,
-                    duration=timedelta(hours=len(evse1_soc_values)),
+                    duration=evse1_soc_schedule["duration"],
                     values=evse1_soc_values,
                     unit="kWh",
                 )
@@ -1392,7 +1395,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 await client.post_sensor_data(
                     sensor_id=sensors["evse2-soc"]["id"],
                     start=current_time,
-                    duration=timedelta(hours=len(evse2_soc_values)),
+                    duration=evse2_soc_schedule["duration"],
                     values=evse2_soc_values,
                     unit="kWh",
                 )
@@ -1642,10 +1645,10 @@ async def main():
         print("PART 2: UPLOADING DATA")
         await upload_data_for_first_two_weeks(client)
 
-        # Part 3: Generate PV forecasts for second week
-        print("\n" + "=" * 50)
-        print("PART 3: GENERATING PV FORECASTS")
-        await generate_pv_forecasts(client)
+        # # Part 3: Generate PV forecasts for second week
+        # print("\n" + "=" * 50)
+        # print("PART 3: GENERATING PV FORECASTS")
+        # await generate_pv_forecasts(client)
 
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
