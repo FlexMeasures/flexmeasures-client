@@ -655,6 +655,7 @@ class FlexMeasuresClient:
         flex_context: dict | None = None,
         sensor_id: int | None = None,
         asset_id: int | None = None,
+        prior: datetime | None = None,
     ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
 
@@ -683,6 +684,7 @@ class FlexMeasuresClient:
             duration=duration,
             flex_model=flex_model,
             flex_context=flex_context,
+            prior=prior,
         )
 
         if sensor_id is not None:
