@@ -1220,7 +1220,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 )
             except Exception as e:
                 print(f"Warning: Could not retrieve EVSE1 SoC schedule: {e}")
-                evse1_soc_schedule = {"values": []}
+                evse1_soc_schedule = {"values": [], "duration": "PT0H"}
             
             try:
                 evse2_soc_schedule = await client.get_schedule(
@@ -1230,7 +1230,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 )
             except Exception as e:
                 print(f"Warning: Could not retrieve EVSE2 SoC schedule: {e}")
-                evse2_soc_schedule = {"values": []}
+                evse2_soc_schedule = {"values": [], "duration": "PT0H"}
             
             print("Multi-device power and SoC schedules retrieved successfully")
 
@@ -1255,9 +1255,9 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
             ]
             
             # Set empty SoC schedules for error case
-            battery_soc_schedule = {"values": []}
-            evse1_soc_schedule = {"values": []}
-            evse2_soc_schedule = {"values": []}
+            battery_soc_schedule = {"values": [], "duration": "PT0H"}
+            evse1_soc_schedule = {"values": [], "duration": "PT0H"}
+            evse2_soc_schedule = {"values": [], "duration": "PT0H"}
 
         # Extract scheduled power for all devices for the next 4 hours
         step_end_time = current_time + timedelta(hours=SIMULATION_STEP_HOURS)
