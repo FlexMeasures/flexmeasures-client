@@ -495,7 +495,7 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         values: list[float],
         unit: str,
-        prior: str | None = None,
+        prior: str | datetime | None = None,
     ):
         """
         Post sensor data for the given time range.
