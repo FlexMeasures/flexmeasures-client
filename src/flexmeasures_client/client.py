@@ -993,6 +993,7 @@ class FlexMeasuresClient:
         flex_context: dict | None = None,
         sensor_id: int | None = None,
         asset_id: int | None = None,
+        prior: datetime | None = None,
     ) -> str:
         if (sensor_id is None) == (asset_id is None):
             raise ValueError("Pass either a sensor_id or an asset_id.")
@@ -1006,6 +1007,10 @@ class FlexMeasuresClient:
             message["flex-model"] = flex_model
         if flex_context is not None:
             message["flex-context"] = flex_context
+
+        if prior is not None:
+            message["prior"] = pd.Timestamp(prior).isoformat()
+
         if sensor_id is not None:
             response, status = await self.request(
                 uri=f"sensors/{sensor_id}/schedules/trigger",
