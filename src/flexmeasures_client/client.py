@@ -306,7 +306,7 @@ class FlexMeasuresClient:
         duration: str | timedelta | None = None,
         values: list[float] | None = None,
         unit: str | None = None,
-        prior: str | None = None,
+        prior: str | datetime | None = None,
         # Parameters for file upload
         file_path: str | None = None,
     ):
@@ -378,7 +378,7 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         values: list[float],
         unit: str,
-        prior: str | None = None,
+        prior: str | datetime | None = None,
     ):
         """
         Post sensor data using JSON payload (original post_measurements functionality).
@@ -393,7 +393,7 @@ class FlexMeasuresClient:
             unit=unit,
         )
         if prior:
-            json_payload["prior"] = prior
+            json_payload["prior"] = pd.Timestamp(prior).isoformat()
 
         _response, status = await self.request(
             uri="sensors/data",
@@ -489,7 +489,7 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         values: list[float],
         unit: str,
-        prior: str | None = None,
+        prior: str | datetime | None = None,
     ):
         """
         Post sensor data for the given time range.
