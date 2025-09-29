@@ -1243,14 +1243,17 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 {
                     "values": [0.0] * SIMULATION_STEP_HOURS,
                     "sensor": sensors["battery-power"]["id"],
+                    "duration": f"PT{SIMULATION_STEP_HOURS}H",
                 },
                 {
                     "values": [0.0] * SIMULATION_STEP_HOURS,
                     "sensor": sensors["evse1-power"]["id"],
+                    "duration": f"PT{SIMULATION_STEP_HOURS}H",
                 },
                 {
                     "values": [0.0] * SIMULATION_STEP_HOURS,
                     "sensor": sensors["evse2-power"]["id"],
+                    "duration": f"PT{SIMULATION_STEP_HOURS}H",
                 },
             ]
             
@@ -1272,7 +1275,8 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
             print(f"[SCHEDULE-DEBUG] === SCHEDULE RESULTS ===")
             for i, schedule in enumerate(schedule_result):
                 sensor_id = schedule["sensor"]
-                power_values = schedule["values"][:SIMULATION_STEP_HOURS]
+                resolution_in_hours = pd.Timedelta(schedule["duration"]) // pd.Timedelta(hours=1) / len(schedule["values"])
+                power_values = schedule["values"][:int(SIMULATION_STEP_HOURS / resolution_in_hours)]
                 
                 # Find which sensor this is for logging
                 sensor_name = "Unknown"
