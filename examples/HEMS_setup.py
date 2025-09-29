@@ -653,6 +653,7 @@ async def configure_building_dashboard(
     max_consumption_sensor,
     price_sensor,
     total_energy_costs_sensor,
+    daily_total_energy_costs_sensor,
 ):
     """Configure sensors_to_show for building asset graphs."""
     print("Configuring sensors to show...")
@@ -691,6 +692,17 @@ async def configure_building_dashboard(
                 max_consumption_sensor["id"],
                 max_production_sensor["id"],
             ],
+        },
+    ]
+
+    sensors_to_show_as_kpis = [
+        {
+            "title": "Daily costs",
+            "sensors": [
+                daily_total_energy_costs_sensor["id"],
+            ],
+            "function": "sum"
+
         },
     ]
 
@@ -789,6 +801,7 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         max_consumption_sensor,
         price_sensor,
         total_energy_costs_sensor,
+        daily_total_energy_costs_sensor,
     )
 
 
