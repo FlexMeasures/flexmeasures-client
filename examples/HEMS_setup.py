@@ -317,6 +317,9 @@ def create_device_flex_model(
     if constraints:
         if constraints.get("soc_minima"):
             flex_model["soc-minima"] = constraints["soc_minima"]
+            soc_usage = constraints["soc_minima"][-1].copy()
+            soc_usage["value"] = f'{EV_CONFIG["driving_consumption_kwh_per_hour"]} kW'
+            flex_model["soc-usage"] = [[soc_usage]]
         if constraints.get("consumption_capacity"):
             flex_model["consumption-capacity"] = constraints["consumption_capacity"]
 
