@@ -1221,6 +1221,9 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
     current_time = pd.to_datetime(SCHEDULING_START)
     end_time = pd.to_datetime(SCHEDULING_END)
     step_num = 1
+    battery_next_current_soc = None
+    evse1_next_current_soc = None
+    evse2_next_current_soc = None
 
     while current_time < end_time:
         print(f"Simulation step {step_num}: {current_time}")
@@ -1237,7 +1240,10 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
             battery_capacity_kwh = battery_flex_model.get(
                 "capacity_kwh", BATTERY_CONFIG["capacity_kwh"]
             )  # Use actual physical capacity
-            battery_current_soc = battery_soc_at_start  # Use initial SoC for first step, FlexMeasures handles updates
+            if battery_next_current_soc is None:
+                battery_current_soc = battery_soc_at_start  # Use initial SoC for first step
+            else:
+                battery_current_soc = battery_next_current_soc
             battery_scheduler_flex_model = create_device_flex_model(
                 client=client,
                 device_type="battery",
@@ -1286,9 +1292,11 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
             evse1_efficiency = evse1_flex_model.get(
                 "roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"]
             )
-            evse1_current_soc = evse1_flex_model.get(
-                "soc_at_start", 12.0
-            )  # Use initial SoC, FlexMeasures handles updates
+            if evse1_next_current_soc is None:
+                # Use initial SoC for first step
+                evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)
+            else:
+                evse1_current_soc = evse1_next_current_soc
             evse1_scheduler_flex_model = create_device_flex_model(
                 client=client,
                 device_type="evse",
@@ -1308,9 +1316,11 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
             evse2_efficiency = evse2_flex_model.get(
                 "roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"]
             )
-            evse2_current_soc = evse2_flex_model.get(
-                "soc_at_start", 12.0
-            )  # Use initial SoC, FlexMeasures handles updates
+            if evse2_next_current_soc is None:
+                # Use initial SoC for first step
+                evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
+            else:
+                evse2_current_soc = evse2_next_current_soc
             evse2_scheduler_flex_model = create_device_flex_model(
                 client=client,
                 device_type="evse",
@@ -1577,6 +1587,9 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 if battery_soc_schedule.get("values")
                 else []
             )
+            battery_next_current_soc = battery_soc_schedule["values"][int(SIMULATION_STEP_HOURS / battery_resolution_in_hours)]
+            evse1_next_current_soc = evse1_soc_schedule["values"][int(SIMULATION_STEP_HOURS / evse1_resolution_in_hours)]
+            evse2_next_current_soc = evse2_soc_schedule["values"][int(SIMULATION_STEP_HOURS / evse2_resolution_in_hours)]
             evse1_soc_values = (
                 evse1_soc_schedule["values"][
                     : int(SIMULATION_STEP_HOURS / evse1_resolution_in_hours)
