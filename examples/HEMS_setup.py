@@ -1106,9 +1106,9 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
     return True
 
 
-async def generate_pv_forecasts(client: FlexMeasuresClient):
-    """Generate PV forecasts using FlexMeasures CLI for the second week."""
-    print("Generating PV forecasts...")
+async def generate_forecasts(client: FlexMeasuresClient, sensor_name: str, asset_name: str, regressors: list[tuple[str, str]] | None = None):
+    """Generate forecasts using FlexMeasures CLI for the second week."""
+    print(f"Generating {sensor_name} forecasts for {asset_name}...")
 
     # Check if flexmeasures CLI is available
     check_cmd = ["which", "flexmeasures"]
@@ -1119,14 +1119,18 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         return False
 
     # Find sensors
-    pv_sensor = await find_sensor_by_name_and_asset(
-        client, "electricity-production", pv_name
+    target_sensor = await find_sensor_by_name_and_asset(
+        client, sensor_name, asset_name
     )
-    irradiation_sensor = await find_sensor_by_name_and_asset(
-        client, "irradiation", weather_station_name
-    )
+    regressor_sensors = []
+    if regressors is not None:
+        for regressor in regressors:
+            regressor_sensor = await find_sensor_by_name_and_asset(
+                client, regressor[0], regressor[1]
+            )
+            regressor_sensors.append(regressor_sensor)
 
-    if not pv_sensor or not irradiation_sensor:
+    if not target_sensor:
         print("Could not find required sensors for forecasting")
         return False
 
@@ -1139,9 +1143,9 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         "add",
         "forecasts",
         "--sensor",
-        str(pv_sensor["id"]),
-        "--past-regressors",  # TODO: to be changed to --regressors when the sensor has irradiance forecasts
-        str(irradiation_sensor["id"]),
+        str(target_sensor["id"]),
+        "--past-regressors" if regressor_sensors else "",  # TODO: to be changed to --regressors when the sensor has irradiance forecasts
+        ",".join([str(sensor["id"]) for sensor in regressor_sensors]),
         "--train-start",
         TUTORIAL_START_DATE,
         "--from-date",
@@ -1158,10 +1162,10 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
     if result.returncode == 0:
-        print("PV forecasts generated successfully")
+        print(f"{sensor_name} forecasts for {asset_name} generated successfully")
         return True
     else:
-        print(f"PV forecast generation failed: {result.stderr}")
+        print(f"{sensor_name} forecasts for {asset_name} failed: {result.stderr}")
         return False
 
 
@@ -1982,10 +1986,11 @@ async def main():
         print("PART 2: UPLOADING DATA")
         await upload_data_for_first_two_weeks(client)
 
-        # # Part 3: Generate PV forecasts for second week
-        # print("\n" + "=" * 50)
-        # print("PART 3: GENERATING PV FORECASTS")
-        # await generate_pv_forecasts(client)
+        # Part 3: Generate PV forecasts for second week
+        print("\n" + "=" * 50)
+        print("PART 3: GENERATING PV FORECASTS")
+        await generate_forecasts(client, asset_name=pv_name, sensor_name="electricity-production", regressors=[("irradiation", weather_station_name)])
+        await generate_forecasts(client, asset_name=building_name, sensor_name="electricity-consumption")
 
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
