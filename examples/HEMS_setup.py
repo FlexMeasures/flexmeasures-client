@@ -1778,6 +1778,9 @@ async def create_reporters(client: FlexMeasuresClient):
         ("electricity-power", battery_name),
         ("electricity-aggregate", building_name),
         ("self-consumption", building_name),
+        ("electricity-price", price_market_name),
+        ("total-energy-costs", building_name),
+        ("daily-total-energy-costs", building_name),
     ]
     sensors = await find_sensors_by_asset(client, sensor_mappings)
 
@@ -1804,6 +1807,21 @@ async def create_reporters(client: FlexMeasuresClient):
         start=SCHEDULING_START,
         end=SCHEDULING_END,
         reporter_type="self-consumption",
+    )
+
+    # Prepare parameters for the total energy costs reporter
+    fill_reporter_params(
+        input_sensors=[
+            {"aggregate-power": sensors["electricity-aggregate"]["id"]},
+            {"consumption-production-price": sensors["electricity-price"]["id"]},
+        ],
+        output_sensors=[
+            sensors["total-energy-costs"]["id"],
+            sensors["daily-total-energy-costs"]["id"],
+        ],
+        start=SCHEDULING_START,
+        end=SCHEDULING_END,
+        reporter_type="total-energy-costs",
     )
 
     # Run AggregateReporter command
