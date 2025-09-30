@@ -1154,6 +1154,7 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         f"PT{SIMULATION_STEP_HOURS}H",
     ]
 
+    print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
     if result.returncode == 0:
@@ -1821,6 +1822,7 @@ def run_reporter_cmd(reporter_map: dict, start: str, end: str) -> bool:
         end,
     ]
 
+    print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=3000)
     if result.returncode == 0:
         print(f"{reporter_map['name']} reporters generated successfully")
