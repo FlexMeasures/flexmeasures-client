@@ -1160,8 +1160,6 @@ async def generate_forecasts(client: FlexMeasuresClient, sensor_name: str, asset
         "forecasts",
         "--sensor",
         str(target_sensor["id"]),
-        "--past-regressors" if regressor_sensors else "",  # TODO: to be changed to --regressors when the sensor has irradiance forecasts
-        ",".join([str(sensor["id"]) for sensor in regressor_sensors]),
         "--train-start",
         TUTORIAL_START_DATE,
         "--from-date",
@@ -1173,6 +1171,14 @@ async def generate_forecasts(client: FlexMeasuresClient, sensor_name: str, asset
         "--forecast-frequency",
         f"PT{SIMULATION_STEP_HOURS}H",
     ]
+
+    if regressor_sensors:
+        cmd.extend(
+            [
+                "--past-regressors",
+                ",".join([str(sensor["id"]) for sensor in regressor_sensors]),
+            ]
+        )  # TODO: to be changed to --regressors when the sensor has irradiance forecasts
 
     print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
