@@ -1875,6 +1875,7 @@ async def create_reporters(client: FlexMeasuresClient):
         ("electricity-price", price_market_name),
         ("total-energy-costs", building_name),
         ("daily-total-energy-costs", building_name),
+        ("daily-share-of-self-consumption", building_name),
     ]
     sensors = await find_sensors_by_asset(client, sensor_mappings)
 
@@ -1897,7 +1898,7 @@ async def create_reporters(client: FlexMeasuresClient):
             {"production": sensors["electricity-production"]["id"]},
             {"aggregate-power": sensors["electricity-aggregate"]["id"]},
         ],
-        output_sensors=[sensors["self-consumption"]["id"]],
+        output_sensors=[sensors["self-consumption"]["id"], sensors["daily-share-of-self-consumption"]["id"]],
         start=SCHEDULING_START,
         end=SCHEDULING_END,
         reporter_type="self-consumption",
