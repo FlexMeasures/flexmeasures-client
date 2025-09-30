@@ -199,7 +199,7 @@ def calculate_ev_soc_targets_and_constraints(
                 "value": f"{min_soc_kwh} kWh",
             }
         )
-        print(f"  [DISABLED] Charging disabled during unavailable period (0 kW)")
+        print("  [DISABLED] Charging disabled during unavailable period (0 kW)")
         print(
             f"  [MIN-SOC] Minimum SoC maintained: {min_soc_kwh:.1f} kWh during unavailable period"
         )
@@ -213,11 +213,11 @@ def calculate_ev_soc_targets_and_constraints(
         print(
             f"  [FLEXIBLE] Minimum: {target_soc_kwh:.1f} kWh by end of day ({end_of_day.strftime('%H:%M')})"
         )
-        print(f"  [AVAILABLE] No availability restrictions - can charge anytime")
+        print("  [AVAILABLE] No availability restrictions - can charge anytime")
 
     # Handle random trips - reduce SoC randomly to simulate unplanned usage
     if has_random_trip:
-        print(f"  [RANDOM-TRIP] Trip detected!")
+        print("  [RANDOM-TRIP] Trip detected!")
         # Random trip consumes configured percentage range of battery
         import random
 
@@ -241,7 +241,7 @@ def calculate_ev_soc_targets_and_constraints(
                 f"    [ADJUSTED] Minimum: {original_minimum_kwh:.1f} kWh -> {adjusted_minimum:.1f} kWh (+{trip_consumption_kwh:.1f} kWh for trip)"
             )
 
-    print(f"  [SUMMARY] Final constraints:")
+    print("  [SUMMARY] Final constraints:")
     if constraints["soc_minima"]:
         for minima in constraints["soc_minima"]:
             if "datetime" in minima:
@@ -1234,7 +1234,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
             # Calculate dynamic EV constraints for current day
             current_time_ts = pd.Timestamp(current_time)
 
-            print(f"\n[EVSE-SCHEDULING] === EVSE SCHEDULING CALCULATIONS ===")
+            print("\n[EVSE-SCHEDULING] === EVSE SCHEDULING CALCULATIONS ===")
             print(
                 f"Simulation step {step_num} at {current_time.strftime('%Y-%m-%d %H:%M')}"
             )
@@ -1243,16 +1243,16 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
             evse1_has_trip = simulate_random_trip()
             evse2_has_trip = simulate_random_trip()
 
-            print(f"\n[RANDOM-TRIPS] Trip simulation results:")
+            print("\n[RANDOM-TRIPS] Trip simulation results:")
             print(f"  EVSE 1: {'Trip scheduled' if evse1_has_trip else 'No trip'}")
             print(f"  EVSE 2: {'Trip scheduled' if evse2_has_trip else 'No trip'}")
 
-            print(f"\n[EVSE-1] Constraints Calculation:")
+            print("\n[EVSE-1] Constraints Calculation:")
             evse1_constraints = calculate_ev_soc_targets_and_constraints(
                 current_time_ts, evse1_capacity, evse1_has_trip
             )
 
-            print(f"[EVSE-2] Constraints Calculation:")
+            print("[EVSE-2] Constraints Calculation:")
             evse2_constraints = calculate_ev_soc_targets_and_constraints(
                 current_time_ts, evse2_capacity, evse2_has_trip
             )
@@ -1325,7 +1325,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 {"sensor": sensors["evse2-power"]["id"], **evse2_scheduler_flex_model},
             ]
 
-            print(f"[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
+            print("[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
             for i, model in enumerate(final_flex_models):
                 device_name = ["Battery", "EVSE-1", "EVSE-2"][i]
                 print(f"[FLEX-MODEL] {device_name}: {model}")
@@ -1427,7 +1427,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
 
         if isinstance(schedule_result, list) and len(schedule_result) >= 3:
             # Extract schedules for each device
-            print(f"[SCHEDULE-DEBUG] === SCHEDULE RESULTS ===")
+            print("[SCHEDULE-DEBUG] === SCHEDULE RESULTS ===")
             for i, schedule in enumerate(schedule_result):
                 sensor_id = schedule["sensor"]
                 resolution_in_hours = (
@@ -1613,7 +1613,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 )
 
             # Display FlexMeasures-computed SoC and power data
-            print(f"\n[FLEXMEASURES-RESULTS] === FLEX-MODEL COMPUTED SCHEDULES ===")
+            print("\n[FLEXMEASURES-RESULTS] === FLEX-MODEL COMPUTED SCHEDULES ===")
 
             # Log power and SoC schedules for this step
             battery_average_power = (
