@@ -900,7 +900,9 @@ class FlexMeasuresClient:
         if "sensors_to_show" in updates:
             updates["sensors_to_show"] = json.dumps(updates["sensors_to_show"])
         if "sensors_to_show_as_kpis" in updates:
-            updates["sensors_to_show_as_kpis"] = json.dumps(updates["sensors_to_show_as_kpis"])
+            updates["sensors_to_show_as_kpis"] = json.dumps(
+                updates["sensors_to_show_as_kpis"]
+            )
         for key, val in updates.items():
             if type(val) not in (str, bytes, bytearray):
                 raise ContentTypeError(
