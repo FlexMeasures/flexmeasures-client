@@ -687,8 +687,12 @@ async def configure_building_flex_context(
         "consumption-price": {"sensor": price_sensor["id"]},
         # Consumption capacity limit (not typically needed for private homes, but including as requested)
         # Calculated using a smaller connection category: 3 x 25 A at 230 V
-        "site-consumption-capacity": {"sensor": max_consumption_sensor["id"]},  # Relaxed constraint for residential
-        "site-production-capacity": {"sensor": max_production_sensor["id"]},  # Relaxed constraint for residential
+        "site-consumption-capacity": {
+            "sensor": max_consumption_sensor["id"]
+        },  # Relaxed constraint for residential
+        "site-production-capacity": {
+            "sensor": max_production_sensor["id"]
+        },  # Relaxed constraint for residential
         "site-power-capacity": "20 kVA",
         # Enable soft constraints for SoC minima (this makes soc-minima soft constraints instead of hard)
         "relax-soc-constraints": True,
@@ -1241,7 +1245,9 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 "capacity_kwh", BATTERY_CONFIG["capacity_kwh"]
             )  # Use actual physical capacity
             if battery_next_current_soc is None:
-                battery_current_soc = battery_soc_at_start  # Use initial SoC for first step
+                battery_current_soc = (
+                    battery_soc_at_start  # Use initial SoC for first step
+                )
             else:
                 battery_current_soc = battery_next_current_soc
             battery_scheduler_flex_model = create_device_flex_model(
@@ -1587,9 +1593,15 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 if battery_soc_schedule.get("values")
                 else []
             )
-            battery_next_current_soc = battery_soc_schedule["values"][int(SIMULATION_STEP_HOURS / battery_resolution_in_hours)]
-            evse1_next_current_soc = evse1_soc_schedule["values"][int(SIMULATION_STEP_HOURS / evse1_resolution_in_hours)]
-            evse2_next_current_soc = evse2_soc_schedule["values"][int(SIMULATION_STEP_HOURS / evse2_resolution_in_hours)]
+            battery_next_current_soc = battery_soc_schedule["values"][
+                int(SIMULATION_STEP_HOURS / battery_resolution_in_hours)
+            ]
+            evse1_next_current_soc = evse1_soc_schedule["values"][
+                int(SIMULATION_STEP_HOURS / evse1_resolution_in_hours)
+            ]
+            evse2_next_current_soc = evse2_soc_schedule["values"][
+                int(SIMULATION_STEP_HOURS / evse2_resolution_in_hours)
+            ]
             evse1_soc_values = (
                 evse1_soc_schedule["values"][
                     : int(SIMULATION_STEP_HOURS / evse1_resolution_in_hours)
