@@ -804,9 +804,7 @@ async def configure_building_dashboard(
     sensors_to_show_as_kpis = [
         {
             "title": "Daily costs",
-            "sensors": [
-                daily_total_energy_costs_sensor["id"],
-            ],
+            "sensor": daily_total_energy_costs_sensor["id"],
             "function": "sum",
         },
     ]
