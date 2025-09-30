@@ -1,64 +1,90 @@
 {
     "required_input" :[{"name":"production","unit": "kW"},{"name":"aggregate-power","unit": "kW"}, {"name":"battery-power","unit": "kW"}],
-    "required_output" :[{"name":"self-consumption","unit": "kW"}],
+    "required_output" :[{"name":"self-consumption","unit": "kW"}, {"name":"daily share of self-consumption","unit": "%"}],
     "droplevels": true,
-        "transformations" : [
-            {
-                "df_input": "battery-power",
-                "df_output": "battery-consumption",
-                "method": "clip",
-                "kwargs": {
-                    "lower": 0
-                }
-            },
-            {
-                "df_input": "battery-power",
-                "df_output": "battery-production",
-                "method": "clip",
-                "kwargs": {
-                    "upper": 0
-                }
-            },
-            {
-                "df_input": "battery-production",
-                "df_output": "battery-production",
-                "method": "multiply",
-                "args": [-1]
-            },
-            {
-                "df_input": "aggregate-power",
-                "df_output": "feed_in",
-                "method": "clip",
-                "kwargs": {
-                    "upper": 0
-                }
-            },
-            {
-                "df_input": "feed_in",
-                "df_output": "feed_in",
-                "method": "multiply",
-                "args": [-1]
-
-            },
-            {
-                "df_input": "production",
-                "df_output": "total-production",
-                "method": "add",
-                "args": ["@battery-production"]
-            },
-            {
-                "df_input": "total-production",
-                "df_output": "self-consumption",
-                "method": "sub",
-                "args": ["@feed_in"]
-            },
-            {
-                "df_input": "self-consumption",
-                "df_output": "self-consumption",
-                "method": "sub",
-                "args": ["@battery-consumption"]
+    "transformations" : [
+        {
+            "df_input": "battery-power",
+            "df_output": "battery-consumption",
+            "method": "clip",
+            "kwargs": {
+                "lower": 0
             }
+        },
+        {
+            "df_input": "battery-power",
+            "df_output": "battery-production",
+            "method": "clip",
+            "kwargs": {
+                "upper": 0
+            }
+        },
+        {
+            "df_input": "battery-production",
+            "df_output": "battery-production",
+            "method": "multiply",
+            "args": [-1]
+        },
+        {
+            "df_input": "aggregate-power",
+            "df_output": "feed_in",
+            "method": "clip",
+            "kwargs": {
+                "upper": 0
+            }
+        },
+        {
+            "df_input": "feed_in",
+            "df_output": "feed_in",
+            "method": "multiply",
+            "args": [-1]
 
-
-     ]
+        },
+        {
+            "df_input": "production",
+            "df_output": "total-production",
+            "method": "add",
+            "args": ["@battery-production"]
+        },
+        {
+            "df_input": "total-production",
+            "df_output": "self-consumption",
+            "method": "sub",
+            "args": ["@feed_in"]
+        },
+        {
+            "df_input": "self-consumption",
+            "df_output": "self-consumption",
+            "method": "sub",
+            "args": ["@battery-consumption"]
+        },
+        {
+            "df_input": "self-consumption",
+            "df_output": "daily self-consumption",
+            "method": "resample",
+            "args": ["P1D"]
+        },
+        {
+            "method": "sum"
+        },
+        {
+            "df_input": "production",
+            "df_output": "daily solar production",
+            "method": "resample",
+            "args": ["P1D"]
+        },
+        {
+            "method": "sum"
+        },
+        {
+            "df_input": "daily self-consumption",
+            "df_output": "daily share of self-consumption",
+            "method": "divide",
+            "args": ["@daily solar production"]
+        },
+        {
+            "method": "multiply",
+            "args": [100]
+        }
+    ]
 }
