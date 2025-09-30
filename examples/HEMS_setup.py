@@ -652,10 +652,28 @@ async def create_evse_asset(
         "power_capacity_kw": EV_CONFIG["default_power_capacity_kw"],
     }
 
+    # Configure graph displays as requested
+    sensors_to_show = [
+        {
+            "title": "State of charge",
+            "sensors": [
+                evse_soc_sensor["id"],
+                evse_soc_min_sensor["id"],
+                evse_soc_max_sensor["id"],
+            ],
+        },
+        {
+            "title": "Power",
+            "sensors": [
+                evse_power_sensor["id"],
+            ],
+        },
+    ]
+
     # Store in attributes["flex_model"]
     await client.update_asset(
         asset_id=evse_asset["id"],
-        updates={"attributes": {"flex_model": evse_settings}},
+        updates={"attributes": {"flex_model": evse_settings, "sensors_to_show": sensors_to_show}},
     )
 
     print(f"Created EVSE asset {evse_name} with ID: {evse_asset['id']}")
