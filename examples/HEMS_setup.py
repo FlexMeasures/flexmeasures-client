@@ -316,6 +316,8 @@ def create_device_flex_model(
     # Add dynamic constraints if provided
     if constraints:
         if constraints.get("soc_minima"):
+            # todo: here we remove the last soc_minima constraint and set it up as a soc_usage component instead
+            # this is a workaround; we should define the SoC drop during the trip as a soc_usage component straightaway
             soc_usage = constraints["soc_minima"].pop(-1)
             flex_model["soc-minima"] = constraints["soc_minima"]
             soc_usage["value"] = f'{EV_CONFIG["driving_consumption_kwh_per_hour"]} kW'
