@@ -490,6 +490,15 @@ async def create_building_asset(
         timezone="Europe/Amsterdam",
     )
 
+    # Create daily share of self-consumption sensor for the building
+    daily_share_of_self_consumption_sensor = await client.add_sensor(
+        name="daily-share-of-self-consumption",
+        event_resolution="P1D",
+        unit="%",
+        generic_asset_id=building_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+
     print(f"Created building asset with ID: {building_asset['id']}")
     return (
         building_asset,
@@ -501,6 +510,7 @@ async def create_building_asset(
         max_consumption_sensor,
         total_energy_costs_sensor,
         daily_total_energy_costs_sensor,
+        daily_share_of_self_consumption_sensor,
     )
 
 
@@ -760,6 +770,7 @@ async def configure_building_dashboard(
     price_sensor,
     total_energy_costs_sensor,
     daily_total_energy_costs_sensor,
+    daily_share_of_self_consumption_sensor,
 ):
     """Configure sensors_to_show for building asset graphs."""
     print("Configuring sensors to show...")
@@ -807,6 +818,11 @@ async def configure_building_dashboard(
             "sensor": daily_total_energy_costs_sensor["id"],
             "function": "sum",
         },
+        {
+            "title": "Self-consumption",
+            "sensor": daily_share_of_self_consumption_sensor["id"],
+            "function": "mean",
+        },
     ]
 
     # Update building asset with sensors_to_show
@@ -840,6 +856,7 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         max_consumption_sensor,
         total_energy_costs_sensor,
         daily_total_energy_costs_sensor,
+        daily_share_of_self_consumption_sensor,
     ) = await create_building_asset(client, account_id, price_sensor["id"])
     print(f"Building asset ID: {building_asset['id']}")
     print(f"Consumption sensor ID: {consumption_sensor['id']}")
@@ -919,6 +936,7 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         price_sensor=price_sensor,
         total_energy_costs_sensor=total_energy_costs_sensor,
         daily_total_energy_costs_sensor=daily_total_energy_costs_sensor,
+        daily_share_of_self_consumption_sensor=daily_share_of_self_consumption_sensor,
     )
 
 
