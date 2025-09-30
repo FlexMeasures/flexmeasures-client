@@ -872,7 +872,7 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
     )
 
 
-async def cleanup_existing_assets(client: FlexMeasuresClient):
+async def cleanup_existing_assets(client: FlexMeasuresClient, account_id: int):
     """Clean up existing HEMS assets to avoid naming conflicts."""
     print("Cleaning up existing assets...")
 
@@ -893,6 +893,11 @@ async def cleanup_existing_assets(client: FlexMeasuresClient):
             if asset["name"] in asset_names_to_clean:
                 print(f"Deleting existing asset: {asset['name']} (ID: {asset['id']})")
                 try:
+                    if asset.get("account_id") != account_id:
+                        print(
+                            f"Warning: Asset {asset['name']} (ID: {asset['id']}) does not belong to the current account."
+                        )
+                        raise
                     await client.delete_asset(asset_id=asset["id"], confirm_first=False)
                     deleted_count += 1
                 except Exception as delete_error:
@@ -1851,7 +1856,7 @@ async def main():
         print(f" Connected to account: {account['name']} (ID: {account_id})")
 
         # Clean up existing assets first
-        await cleanup_existing_assets(client)
+        await cleanup_existing_assets(client=client, account_id=account_id)
 
         asset = None  # Initialize asset variable
         assets = await client.get_assets()
