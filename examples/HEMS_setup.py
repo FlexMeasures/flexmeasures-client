@@ -178,9 +178,19 @@ def calculate_ev_soc_targets_and_constraints(
             hour=return_hour, minute=return_minute
         )
         unavailable_duration = return_datetime - departure_datetime
-        print(
-            f"  [UNAVAILABLE] Period: {departure_datetime.strftime('%H:%M')} - {return_datetime.strftime('%H:%M')} ({unavailable_duration})"
-        )
+
+        # Check if we are currently in the unavailable period
+        if current_time >= departure_datetime and current_time <= return_datetime:
+            print("  [UNAVAILABLE] Currently in unavailable period")
+            return_datetime += pd.Timedelta(days=1)
+            print(
+                f"  [UNAVAILABLE] Period: {departure_datetime.strftime('%H:%M')} - {return_datetime.strftime('%H:%M')} ({unavailable_duration})"
+            )
+            constraints["unavailable"] = True
+        else:
+            print(
+                f"  [UNAVAILABLE] Period: {departure_datetime.strftime('%H:%M')} - {return_datetime.strftime('%H:%M')} ({unavailable_duration})"
+            )
 
         # Disable charging during unavailable period by setting consumption capacity to 0
         constraints["consumption_capacity"] = [
@@ -1311,54 +1321,57 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
             evse2_constraints = calculate_ev_soc_targets_and_constraints(
                 current_time_ts, evse2_capacity, evse2_has_trip
             )
+            if not evse1_constraints.get("unavailable"):
 
-            # Create flex models for EVSE 1
-            evse1_power_capacity = evse1_flex_model.get(
-                "power_capacity_kw", EV_CONFIG["default_power_capacity_kw"]
-            )
-            evse1_efficiency = evse1_flex_model.get(
-                "roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"]
-            )
-            if evse1_next_current_soc is None:
-                # Use initial SoC for first step
-                evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)
-            else:
-                evse1_current_soc = evse1_next_current_soc
-            evse1_scheduler_flex_model = create_device_flex_model(
-                client=client,
-                device_type="evse",
-                current_soc=evse1_current_soc,
-                capacity_kwh=evse1_capacity,
-                power_capacity_kw=evse1_power_capacity,
-                min_soc_percent=EV_CONFIG["min_soc_percent"],
-                roundtrip_efficiency=evse1_efficiency,
-                soc_sensor_id=sensors["evse1-soc"]["id"],
-                constraints=evse1_constraints,
-            )
+                # Create flex models for EVSE 1
+                evse1_power_capacity = evse1_flex_model.get(
+                    "power_capacity_kw", EV_CONFIG["default_power_capacity_kw"]
+                )
+                evse1_efficiency = evse1_flex_model.get(
+                    "roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"]
+                )
+                if evse1_next_current_soc is None:
+                    # Use initial SoC for first step
+                    evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)
+                else:
+                    evse1_current_soc = evse1_next_current_soc
+                evse1_scheduler_flex_model = create_device_flex_model(
+                    client=client,
+                    device_type="evse",
+                    current_soc=evse1_current_soc,
+                    capacity_kwh=evse1_capacity,
+                    power_capacity_kw=evse1_power_capacity,
+                    min_soc_percent=EV_CONFIG["min_soc_percent"],
+                    roundtrip_efficiency=evse1_efficiency,
+                    soc_sensor_id=sensors["evse1-soc"]["id"],
+                    constraints=evse1_constraints,
+                )
+                
 
-            # Create flex models for EVSE 2 (similar pattern, could be different car)
-            evse2_power_capacity = evse2_flex_model.get(
-                "power_capacity_kw", EV_CONFIG["default_power_capacity_kw"]
-            )
-            evse2_efficiency = evse2_flex_model.get(
-                "roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"]
-            )
-            if evse2_next_current_soc is None:
-                # Use initial SoC for first step
-                evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
-            else:
-                evse2_current_soc = evse2_next_current_soc
-            evse2_scheduler_flex_model = create_device_flex_model(
-                client=client,
-                device_type="evse",
-                current_soc=evse2_current_soc,
-                capacity_kwh=evse2_capacity,
-                power_capacity_kw=evse2_power_capacity,
-                min_soc_percent=EV_CONFIG["min_soc_percent"],
-                roundtrip_efficiency=evse2_efficiency,
-                soc_sensor_id=sensors["evse2-soc"]["id"],
-                constraints=evse2_constraints,
-            )
+            if not evse2_constraints.get("unavailable"):
+                # Create flex models for EVSE 2 (similar pattern, could be different car)
+                evse2_power_capacity = evse2_flex_model.get(
+                    "power_capacity_kw", EV_CONFIG["default_power_capacity_kw"]
+                )
+                evse2_efficiency = evse2_flex_model.get(
+                    "roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"]
+                )
+                if evse2_next_current_soc is None:
+                    # Use initial SoC for first step
+                    evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
+                else:
+                    evse2_current_soc = evse2_next_current_soc
+                evse2_scheduler_flex_model = create_device_flex_model(
+                    client=client,
+                    device_type="evse",
+                    current_soc=evse2_current_soc,
+                    capacity_kwh=evse2_capacity,
+                    power_capacity_kw=evse2_power_capacity,
+                    min_soc_percent=EV_CONFIG["min_soc_percent"],
+                    roundtrip_efficiency=evse2_efficiency,
+                    soc_sensor_id=sensors["evse2-soc"]["id"],
+                    constraints=evse2_constraints,
+                )
 
             # Create flex context for all devices
             flex_context = {
@@ -1374,15 +1387,29 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 ],
             }
 
-            # Create final flex models for scheduling
+            # Start with the battery flex model
             final_flex_models = [
                 {
                     "sensor": sensors["battery-power"]["id"],
                     **battery_scheduler_flex_model,
                 },
-                {"sensor": sensors["evse1-power"]["id"], **evse1_scheduler_flex_model},
-                {"sensor": sensors["evse2-power"]["id"], **evse2_scheduler_flex_model},
             ]
+
+            # Conditionally add EVSE flex models if they are not on a trip
+            if not evse1_constraints.get("unavailable"):
+                final_flex_models.append(
+                    {"sensor": sensors["evse1-power"]["id"], **evse1_scheduler_flex_model}
+                )
+            else:
+                print("EVSE 1 is on a trip, skipping scheduling.")
+
+            if not evse2_constraints.get("unavailable"):
+                final_flex_models.append(
+                    {"sensor": sensors["evse2-power"]["id"], **evse2_scheduler_flex_model}
+                )
+            else:
+                print("EVSE 2 is on a trip, skipping scheduling.")
+
 
             print("[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
             for i, model in enumerate(final_flex_models):
@@ -1530,6 +1557,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 values=battery_scheduled_power,
                 unit="kW",
             )
+        
 
             # Upload EVSE 1 power
             await client.post_sensor_data(
