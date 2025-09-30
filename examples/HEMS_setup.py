@@ -326,9 +326,12 @@ def create_device_flex_model(
     # Add dynamic constraints if provided
     if constraints:
         if constraints.get("soc_minima"):
+            # todo: here we remove the last soc_minima constraint and set it up as a soc_usage component instead
+            # this is a workaround; we should define the SoC drop during the trip as a soc_usage component straightaway
+            soc_usage = constraints["soc_minima"].pop(-1)
             flex_model["soc-minima"] = constraints["soc_minima"]
-            soc_usage = constraints["soc_minima"][-1].copy()
             soc_usage["value"] = f'{EV_CONFIG["driving_consumption_kwh_per_hour"]} kW'
+            # add soc_usage as a component (soc-usage supports a list of usage components)
             flex_model["soc-usage"] = [[soc_usage]]
         if constraints.get("consumption_capacity"):
             flex_model["consumption-capacity"] = constraints["consumption_capacity"]
@@ -497,6 +500,15 @@ async def create_building_asset(
         timezone="Europe/Amsterdam",
     )
 
+    # Create daily share of self-consumption sensor for the building
+    daily_share_of_self_consumption_sensor = await client.add_sensor(
+        name="daily-share-of-self-consumption",
+        event_resolution="P1D",
+        unit="%",
+        generic_asset_id=building_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+
     print(f"Created building asset with ID: {building_asset['id']}")
     return (
         building_asset,
@@ -508,6 +520,7 @@ async def create_building_asset(
         max_consumption_sensor,
         total_energy_costs_sensor,
         daily_total_energy_costs_sensor,
+        daily_share_of_self_consumption_sensor,
     )
 
 
@@ -767,6 +780,7 @@ async def configure_building_dashboard(
     price_sensor,
     total_energy_costs_sensor,
     daily_total_energy_costs_sensor,
+    daily_share_of_self_consumption_sensor,
 ):
     """Configure sensors_to_show for building asset graphs."""
     print("Configuring sensors to show...")
@@ -811,10 +825,13 @@ async def configure_building_dashboard(
     sensors_to_show_as_kpis = [
         {
             "title": "Daily costs",
-            "sensors": [
-                daily_total_energy_costs_sensor["id"],
-            ],
+            "sensor": daily_total_energy_costs_sensor["id"],
             "function": "sum",
+        },
+        {
+            "title": "Self-consumption",
+            "sensor": daily_share_of_self_consumption_sensor["id"],
+            "function": "mean",
         },
     ]
 
@@ -849,6 +866,7 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         max_consumption_sensor,
         total_energy_costs_sensor,
         daily_total_energy_costs_sensor,
+        daily_share_of_self_consumption_sensor,
     ) = await create_building_asset(client, account_id, price_sensor["id"])
     print(f"Building asset ID: {building_asset['id']}")
     print(f"Consumption sensor ID: {consumption_sensor['id']}")
@@ -928,6 +946,7 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         price_sensor=price_sensor,
         total_energy_costs_sensor=total_energy_costs_sensor,
         daily_total_energy_costs_sensor=daily_total_energy_costs_sensor,
+        daily_share_of_self_consumption_sensor=daily_share_of_self_consumption_sensor,
     )
 
 
@@ -1113,9 +1132,9 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
     return True
 
 
-async def generate_pv_forecasts(client: FlexMeasuresClient):
-    """Generate PV forecasts using FlexMeasures CLI for the second week."""
-    print("Generating PV forecasts...")
+async def generate_forecasts(client: FlexMeasuresClient, sensor_name: str, asset_name: str, regressors: list[tuple[str, str]] | None = None):
+    """Generate forecasts using FlexMeasures CLI for the second week."""
+    print(f"Generating {sensor_name} forecasts for {asset_name}...")
 
     # Check if flexmeasures CLI is available
     check_cmd = ["which", "flexmeasures"]
@@ -1126,14 +1145,18 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         return False
 
     # Find sensors
-    pv_sensor = await find_sensor_by_name_and_asset(
-        client, "electricity-production", pv_name
+    target_sensor = await find_sensor_by_name_and_asset(
+        client, sensor_name, asset_name
     )
-    irradiation_sensor = await find_sensor_by_name_and_asset(
-        client, "irradiation", weather_station_name
-    )
+    regressor_sensors = []
+    if regressors is not None:
+        for regressor in regressors:
+            regressor_sensor = await find_sensor_by_name_and_asset(
+                client, regressor[0], regressor[1]
+            )
+            regressor_sensors.append(regressor_sensor)
 
-    if not pv_sensor or not irradiation_sensor:
+    if not target_sensor:
         print("Could not find required sensors for forecasting")
         return False
 
@@ -1146,9 +1169,7 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         "add",
         "forecasts",
         "--sensor",
-        str(pv_sensor["id"]),
-        "--past-regressors",  # TODO: to be changed to --regressors when the sensor has irradiance forecasts
-        str(irradiation_sensor["id"]),
+        str(target_sensor["id"]),
         "--train-start",
         TUTORIAL_START_DATE,
         "--from-date",
@@ -1161,13 +1182,22 @@ async def generate_pv_forecasts(client: FlexMeasuresClient):
         f"PT{SIMULATION_STEP_HOURS}H",
     ]
 
+    if regressor_sensors:
+        cmd.extend(
+            [
+                "--past-regressors",
+                ",".join([str(sensor["id"]) for sensor in regressor_sensors]),
+            ]
+        )  # TODO: to be changed to --regressors when the sensor has irradiance forecasts
+
+    print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
     if result.returncode == 0:
-        print("PV forecasts generated successfully")
+        print(f"{sensor_name} forecasts for {asset_name} generated successfully")
         return True
     else:
-        print(f"PV forecast generation failed: {result.stderr}")
+        print(f"{sensor_name} forecasts for {asset_name} failed: {result.stderr}")
         return False
 
 
@@ -1820,6 +1850,7 @@ def fill_reporter_params(
         "output": output,
         "start": start,
         "end": end,
+        "belief_time": end,  # Use end time as belief time to include all data up to end
     }
 
     # overwrite the file (creates it if not exists)
@@ -1846,6 +1877,7 @@ def run_reporter_cmd(reporter_map: dict, start: str, end: str) -> bool:
         end,
     ]
 
+    print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=3000)
     if result.returncode == 0:
         print(f"{reporter_map['name']} reporters generated successfully")
@@ -1877,6 +1909,7 @@ async def create_reporters(client: FlexMeasuresClient):
         ("electricity-price", price_market_name),
         ("total-energy-costs", building_name),
         ("daily-total-energy-costs", building_name),
+        ("daily-share-of-self-consumption", building_name),
     ]
     sensors = await find_sensors_by_asset(client, sensor_mappings)
 
@@ -1885,7 +1918,7 @@ async def create_reporters(client: FlexMeasuresClient):
         input_sensors=[
             {"pv": sensors["electricity-production"]["id"]},
             {"consumption": sensors["electricity-consumption"]["id"]},
-            {"battery": sensors["electricity-power"]["id"]},
+            {"battery-power": sensors["electricity-power"]["id"]},
         ],
         output_sensors=sensors["electricity-aggregate"]["id"],
         start=SCHEDULING_START,
@@ -1898,8 +1931,9 @@ async def create_reporters(client: FlexMeasuresClient):
         input_sensors=[
             {"production": sensors["electricity-production"]["id"]},
             {"aggregate-power": sensors["electricity-aggregate"]["id"]},
+            {"battery-power": sensors["electricity-power"]["id"]},
         ],
-        output_sensors=[sensors["self-consumption"]["id"]],
+        output_sensors=[sensors["self-consumption"]["id"], sensors["daily-share-of-self-consumption"]["id"]],
         start=SCHEDULING_START,
         end=SCHEDULING_END,
         reporter_type="self-consumption",
@@ -2005,10 +2039,11 @@ async def main():
         print("PART 2: UPLOADING DATA")
         await upload_data_for_first_two_weeks(client)
 
-        # # Part 3: Generate PV forecasts for second week
-        # print("\n" + "=" * 50)
-        # print("PART 3: GENERATING PV FORECASTS")
-        # await generate_pv_forecasts(client)
+        # Part 3: Generate PV forecasts for second week
+        print("\n" + "=" * 50)
+        print("PART 3: GENERATING PV FORECASTS")
+        await generate_forecasts(client, asset_name=pv_name, sensor_name="electricity-production", regressors=[("irradiation", weather_station_name)])
+        await generate_forecasts(client, asset_name=building_name, sensor_name="electricity-consumption")
 
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
