@@ -32,10 +32,10 @@ latitude = 52.3676
 longitude = 4.9041
 
 # Data configuration
-TUTORIAL_START_DATE = "2026-01-01T00:00:00+00:00"
-FORECASTING_START = "2026-01-15T00:00:00+00:00"
-SCHEDULING_START = "2026-01-15T00:00:00+00:00"
-SCHEDULING_END = "2026-01-16T00:00:00+00:00"
+TUTORIAL_START_DATE = "2026-01-01T00:00:00+01:00"
+FORECASTING_START = "2026-01-15T00:00:00+01:00"
+SCHEDULING_START = "2026-01-15T00:00:00+01:00"
+SCHEDULING_END = "2026-01-16T00:00:00+01:00"
 SIMULATION_STEP_HOURS = 4
 FORECAST_HORIZON_HOURS = 24
 
@@ -349,6 +349,7 @@ async def create_public_price_sensor(client: FlexMeasuresClient):
         event_resolution="PT1H",
         unit="EUR/kWh",
         generic_asset_id=price_market_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     print(f"Created public price sensor with ID: {price_sensor['id']}")
@@ -378,6 +379,7 @@ async def create_weather_station(client: FlexMeasuresClient):
         event_resolution="PT1H",
         unit="W/m²",
         generic_asset_id=weather_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     # Create cloud coverage sensor (1H, %)
@@ -386,6 +388,7 @@ async def create_weather_station(client: FlexMeasuresClient):
         event_resolution="PT1H",
         unit="%",
         generic_asset_id=weather_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     print(f"Created weather station with ID: {weather_asset['id']}")
@@ -413,6 +416,7 @@ async def create_building_asset(
         event_resolution="PT15M",
         unit="kW",
         generic_asset_id=building_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     # Create energy costs KPI sensor (1D resolution, EUR)
@@ -421,6 +425,7 @@ async def create_building_asset(
         event_resolution="P1D",
         unit="EUR",
         generic_asset_id=building_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     # Create aggregate power sensor for the building
@@ -429,6 +434,7 @@ async def create_building_asset(
         event_resolution="PT15M",
         unit="kW",
         generic_asset_id=building_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     # Create max production capacity sensor for the building
@@ -437,6 +443,7 @@ async def create_building_asset(
         event_resolution="PT1H",
         unit="kW",
         generic_asset_id=building_asset["id"],
+        timezone="Europe/Amsterdam",
         attributes=dict(consumption_is_positive=True),
     )
 
@@ -446,6 +453,7 @@ async def create_building_asset(
         event_resolution="PT1H",
         unit="kW",
         generic_asset_id=building_asset["id"],
+        timezone="Europe/Amsterdam",
         attributes=dict(consumption_is_positive=True),
     )
 
@@ -455,6 +463,7 @@ async def create_building_asset(
         event_resolution="PT15M",
         unit="kW",
         generic_asset_id=building_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     # Create total energy costs sensor for the building
@@ -463,6 +472,7 @@ async def create_building_asset(
         event_resolution="PT15M",
         unit="EUR",
         generic_asset_id=building_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     # Create daily total energy costs sensor for the building
@@ -471,6 +481,7 @@ async def create_building_asset(
         event_resolution="P1D",
         unit="EUR",
         generic_asset_id=building_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     print(f"Created building asset with ID: {building_asset['id']}")
@@ -509,6 +520,7 @@ async def create_pv_asset(
         event_resolution="PT15M",
         unit="kW",
         generic_asset_id=pv_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     print(f"Created PV asset with ID: {pv_asset['id']}")
@@ -537,6 +549,7 @@ async def create_battery_asset(
         event_resolution="PT15M",
         unit="kW",
         generic_asset_id=battery_asset["id"],
+        timezone="Europe/Amsterdam",
         attributes=dict(consumption_is_positive=True),
     )
 
@@ -546,6 +559,7 @@ async def create_battery_asset(
         event_resolution="PT0M",
         unit="kWh",
         generic_asset_id=battery_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     # Store battery settings in flex_model attribute (attributes["flex_model"])
@@ -594,6 +608,7 @@ async def create_evse_asset(
         event_resolution="PT15M",
         unit="kW",
         generic_asset_id=evse_asset["id"],
+        timezone="Europe/Amsterdam",
         attributes=dict(consumption_is_positive=True),
     )
 
@@ -603,6 +618,7 @@ async def create_evse_asset(
         event_resolution="PT0M",
         unit="kWh",
         generic_asset_id=evse_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     # Create soc-min sensor (15min, kWh)
@@ -611,6 +627,7 @@ async def create_evse_asset(
         event_resolution="PT15M",
         unit="kWh",
         generic_asset_id=evse_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     # Create soc-max sensor (15min, kWh)
@@ -619,6 +636,7 @@ async def create_evse_asset(
         event_resolution="PT15M",
         unit="kWh",
         generic_asset_id=evse_asset["id"],
+        timezone="Europe/Amsterdam",
     )
 
     # Store EVSE settings in flex_model attribute
