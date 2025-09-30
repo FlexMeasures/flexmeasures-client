@@ -1798,6 +1798,7 @@ def fill_reporter_params(
         "output": output,
         "start": start,
         "end": end,
+        "belief_time": end,  # Use end time as belief time to include all data up to end
     }
 
     # overwrite the file (creates it if not exists)
