@@ -437,6 +437,7 @@ async def create_building_asset(
         event_resolution="PT1H",
         unit="kW",
         generic_asset_id=building_asset["id"],
+        attributes=dict(consumption_is_positive=True),
     )
 
     # Create max consumption capacity sensor for the building
@@ -445,6 +446,7 @@ async def create_building_asset(
         event_resolution="PT1H",
         unit="kW",
         generic_asset_id=building_asset["id"],
+        attributes=dict(consumption_is_positive=True),
     )
 
     # Create self-consumption sensor for the building
@@ -655,6 +657,8 @@ async def configure_building_flex_context(
     consumption_sensor,
     pv_production_sensor,
     battery_power_sensor,
+    max_consumption_sensor,
+    max_production_sensor,
 ):
     """Configure building asset with comprehensive flex-context."""
     print("Configuring building flex-context...")
@@ -665,8 +669,8 @@ async def configure_building_flex_context(
         "consumption-price": {"sensor": price_sensor["id"]},
         # Consumption capacity limit (not typically needed for private homes, but including as requested)
         # Calculated using a smaller connection category: 3 x 25 A at 230 V
-        "site-consumption-capacity": "17.25 kW",  # Relaxed constraint for residential
-        "site-production-capacity": "0 kW",  # Relaxed constraint for residential
+        "site-consumption-capacity": {"sensor": max_consumption_sensor["id"]},  # Relaxed constraint for residential
+        "site-production-capacity": {"sensor": max_production_sensor["id"]},  # Relaxed constraint for residential
         "site-power-capacity": "20 kVA",
         # Enable soft constraints for SoC minima (this makes soc-minima soft constraints instead of hard)
         "relax-soc-constraints": True,
@@ -853,6 +857,8 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         consumption_sensor=consumption_sensor,
         pv_production_sensor=pv_production_sensor,
         battery_power_sensor=battery_power_sensor,
+        max_consumption_sensor=max_consumption_sensor,
+        max_production_sensor=max_production_sensor,
     )
     print("Configuring building dashboard ...")
     await configure_building_dashboard(
