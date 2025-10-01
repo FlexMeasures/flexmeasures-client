@@ -1,6 +1,6 @@
 {
     "required_input" :[{"name":"production","unit": "kW"},{"name":"aggregate-power","unit": "kW"}, {"name":"battery-power","unit": "kW"}],
-    "required_output" :[{"name":"self-consumption","unit": "kW"}, {"name":"daily share of self-consumption","unit": "%"}],
+    "required_output" :[{"name":"self-consumption","unit": "kW"}, {"name":"daily-share-of-self-consumption", "unit": "%"}],
     "droplevels": true,
     "transformations" : [
         {
@@ -78,7 +78,7 @@
         },
         {
             "df_input": "daily self-consumption",
-            "df_output": "daily share of self-consumption",
+            "df_output": "daily-share-of-self-consumption",
             "method": "divide",
             "args": ["@daily solar production"]
         },
