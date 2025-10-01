@@ -1969,15 +1969,14 @@ async def create_reports(client: FlexMeasuresClient):
         end=SCHEDULING_END,
     )
 
-    ## Commented out for debugging purposes
-    # # Run TotalEnergyCostsReporter
-    # total_energy_costs_result = run_report_cmd(
-    #     reporter_map={"name": "total-energy-costs", "reporter": "PandasReporter"},
-    #     start=SCHEDULING_START,
-    #     end=SCHEDULING_END,
-    # )
+    # Run TotalEnergyCostsReporter
+    total_energy_costs_result = run_report_cmd(
+        reporter_map={"name": "total-energy-costs", "reporter": "PandasReporter"},
+        start=SCHEDULING_START,
+        end=SCHEDULING_END,
+    )
 
-    return self_consumption_result and aggregate_result  # and total_energy_costs_result
+    return self_consumption_result and aggregate_result and total_energy_costs_result
 
 
 async def main():
