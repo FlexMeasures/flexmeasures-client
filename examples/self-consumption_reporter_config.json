@@ -62,7 +62,7 @@
             "df_input": "self-consumption",
             "df_output": "daily self-consumption",
             "method": "resample",
-            "args": ["P1D"]
+            "args": ["1D"]
         },
         {
             "method": "sum"
@@ -71,7 +71,7 @@
             "df_input": "production",
             "df_output": "daily solar production",
             "method": "resample",
-            "args": ["P1D"]
+            "args": ["1D"]
         },
         {
             "method": "sum"
