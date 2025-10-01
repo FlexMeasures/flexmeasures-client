@@ -1858,8 +1858,8 @@ def fill_reporter_params(
         json.dump(params, f, indent=4)
 
 
-def run_reporter_cmd(reporter_map: dict, start: str, end: str) -> bool:
-    """Run subprocess command for reporter and print result."""
+def run_report_cmd(reporter_map: dict, start: str, end: str) -> bool:
+    """Run subprocess command for report and print result."""
 
     cmd = [
         "flexmeasures",
@@ -1887,16 +1887,16 @@ def run_reporter_cmd(reporter_map: dict, start: str, end: str) -> bool:
         return False
 
 
-async def create_reporters(client: FlexMeasuresClient):
-    """Generate Reporters using FlexMeasures CLI."""
-    print("Generating Reporters...")
+async def create_reports(client: FlexMeasuresClient):
+    """Generate reports using FlexMeasures CLI."""
+    print("Generating reports...")
 
     # Check if flexmeasures CLI is available
     check_cmd = ["which", "flexmeasures"]
     check_result = subprocess.run(check_cmd, capture_output=True, text=True)
 
     if check_result.returncode != 0:
-        print("FlexMeasures CLI not found. Skipping reporter generation.")
+        print("FlexMeasures CLI not found. Skipping report generation.")
         return False
 
     # Find all required sensors
@@ -1954,23 +1954,23 @@ async def create_reporters(client: FlexMeasuresClient):
         reporter_type="total-energy-costs",
     )
 
-    # Run AggregateReporter command
-    aggregate_result = run_reporter_cmd(
+    # Run AggregatorReporter
+    aggregate_result = run_report_cmd(
         reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
         start=SCHEDULING_START,
         end=SCHEDULING_END,
     )
 
-    # Run SelfConsumptionReporter command
-    self_consumption_result = run_reporter_cmd(
+    # Run SelfConsumptionReporter
+    self_consumption_result = run_report_cmd(
         reporter_map={"name": "self-consumption", "reporter": "PandasReporter"},
         start=SCHEDULING_START,
         end=SCHEDULING_END,
     )
 
     ## Commented out for debugging purposes
-    # # Run TotalEnergyCostsReporter command
-    # total_energy_costs_result = run_reporter_cmd(
+    # # Run TotalEnergyCostsReporter
+    # total_energy_costs_result = run_report_cmd(
     #     reporter_map={"name": "total-energy-costs", "reporter": "PandasReporter"},
     #     start=SCHEDULING_START,
     #     end=SCHEDULING_END,
@@ -2050,10 +2050,10 @@ async def main():
         print("PART 4: SCHEDULING SIMULATION")
         await run_scheduling_simulation(client)
 
-        # Part 5 : Create reporters
+        # Part 5 : Create reports
         print("\n" + "=" * 50)
-        print("PART 5: CREATING REPORTERS")
-        await create_reporters(client)
+        print("PART 5: CREATING REPORTS")
+        await create_reports(client)
         print("\n" + "=" * 50)
         print("HEMS Tutorial completed successfully!")
 
