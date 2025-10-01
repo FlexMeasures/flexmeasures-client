@@ -1833,9 +1833,9 @@ def fill_reporter_params(
 
     if reporter_type == "aggregate":
         # For the aggregate reporter, output_sensors is a single sensor ID
-        output = [{"sensor": output_sensors}]
+        output = [{"sensor": output_sensors['id']}]
     else:
-        output = [{"name": reporter_type, "sensor": s} for s in output_sensors]
+        output = [{"name": s['name'], "sensor": s['id']} for s in output_sensors]
 
     params = {
         "input": [
@@ -1920,7 +1920,7 @@ async def create_reports(client: FlexMeasuresClient):
             {"consumption": sensors["electricity-consumption"]["id"]},
             {"battery-power": sensors["electricity-power"]["id"]},
         ],
-        output_sensors=sensors["electricity-aggregate"]["id"],
+        output_sensors=sensors["electricity-aggregate"],
         start=SCHEDULING_START,
         end=SCHEDULING_END,
         reporter_type="aggregate",
@@ -1933,7 +1933,7 @@ async def create_reports(client: FlexMeasuresClient):
             {"aggregate-power": sensors["electricity-aggregate"]["id"]},
             {"battery-power": sensors["electricity-power"]["id"]},
         ],
-        output_sensors=[sensors["self-consumption"]["id"], sensors["daily-share-of-self-consumption"]["id"]],
+        output_sensors=[sensors["self-consumption"], sensors["daily-share-of-self-consumption"]],
         start=SCHEDULING_START,
         end=SCHEDULING_END,
         reporter_type="self-consumption",
@@ -1946,8 +1946,8 @@ async def create_reports(client: FlexMeasuresClient):
             {"consumption-production-price": sensors["electricity-price"]["id"]},
         ],
         output_sensors=[
-            sensors["total-energy-costs"]["id"],
-            sensors["daily-total-energy-costs"]["id"],
+            sensors["total-energy-costs"],
+            sensors["daily-total-energy-costs"],
         ],
         start=SCHEDULING_START,
         end=SCHEDULING_END,
