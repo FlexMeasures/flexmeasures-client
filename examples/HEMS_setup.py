@@ -1075,14 +1075,14 @@ async def upload_csv_file_to_sensor(
 
 
 async def find_sensors_by_asset(
-    client: FlexMeasuresClient, sensor_mappings: list[tuple[str, str]]
+    client: FlexMeasuresClient, sensor_mappings: list[tuple[str, str, str]]
 ):
     """Find multiple sensors by name and asset name."""
     sensors = {}
-    for sensor_name, asset_name in sensor_mappings:
+    for key, sensor_name, asset_name in sensor_mappings:
         sensor = await find_sensor_by_name_and_asset(client, sensor_name, asset_name)
         if sensor:
-            sensors[sensor_name] = sensor
+            sensors[key] = sensor
         else:
             print(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
             return False
@@ -1095,12 +1095,12 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
 
     # Find all required sensors
     sensor_mappings = [
-        ("electricity-price", price_market_name),
-        ("electricity-consumption", building_name),
-        ("max-consumption-capacity", building_name),
-        ("max-production-capacity", building_name),
-        ("irradiation", weather_station_name),
-        ("electricity-production", pv_name),
+        ("electricity-price", "electricity-price", price_market_name),
+        ("electricity-consumption", "electricity-consumption", building_name),
+        ("max-consumption-capacity", "max-consumption-capacity", building_name),
+        ("max-production-capacity", "max-production-capacity", building_name),
+        ("irradiation", "irradiation", weather_station_name),
+        ("electricity-production", "electricity-production", pv_name),
     ]
 
     sensors = await find_sensors_by_asset(client, sensor_mappings)
@@ -1908,15 +1908,17 @@ async def create_reports(client: FlexMeasuresClient):
 
     # Find all required sensors
     sensor_mappings = [
-        ("electricity-production", pv_name),
-        ("electricity-consumption", building_name),
-        ("electricity-power", battery_name),
-        ("electricity-aggregate", building_name),
-        ("self-consumption", building_name),
-        ("electricity-price", price_market_name),
-        ("total-energy-costs", building_name),
-        ("daily-total-energy-costs", building_name),
-        ("daily-share-of-self-consumption", building_name),
+        ("electricity-production", "electricity-production", pv_name),
+        ("electricity-consumption", "electricity-consumption", building_name),
+        ("electricity-power", "electricity-power", battery_name),
+        ("evse1-power", "electricity-power", evse1_name),
+        ("evse2-power", "electricity-power", evse2_name),
+        ("electricity-aggregate", "electricity-aggregate", building_name),
+        ("self-consumption", "self-consumption", building_name),
+        ("electricity-price", "electricity-price", price_market_name),
+        ("total-energy-costs", "total-energy-costs", building_name),
+        ("daily-total-energy-costs", "daily-total-energy-costs", building_name),
+        ("daily-share-of-self-consumption", "daily-share-of-self-consumption", building_name),
     ]
     sensors = await find_sensors_by_asset(client, sensor_mappings)
 
@@ -1926,6 +1928,8 @@ async def create_reports(client: FlexMeasuresClient):
             {"pv": sensors["electricity-production"]["id"]},
             {"consumption": sensors["electricity-consumption"]["id"]},
             {"battery-power": sensors["electricity-power"]["id"]},
+            {"evse1-power": sensors["evse1-power"]["id"]},
+            {"evse2-power": sensors["evse2-power"]["id"]},
         ],
         output_sensors=sensors["electricity-aggregate"],
         start=SCHEDULING_START,
