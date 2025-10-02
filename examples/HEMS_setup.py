@@ -1105,8 +1105,8 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
         ("HEMS data/building_data.csv", "electricity-consumption", True),
         ("HEMS data/irradiation_data.csv", "irradiation", True),
         ("HEMS data/PV_production_data.csv", "electricity-production", True),
-        ("HEMS data/max_consumption_capacity.csv", "max-consumption-capacity", True),
-        ("HEMS data/max_production_capacity.csv", "max-production-capacity", True),
+        ("HEMS data/max_consumption_capacity.csv", "max-consumption-capacity", False),
+        ("HEMS data/max_production_capacity.csv", "max-production-capacity", False),
     ]
 
     for file_path, sensor_key, belief_time_measured_instantly in data_files:
