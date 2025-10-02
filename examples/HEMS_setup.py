@@ -773,6 +773,8 @@ async def configure_building_dashboard(
     pv_production_sensor,
     battery_power_sensor,
     battery_soc_sensor,
+    evse1_power_sensor,
+    evse2_power_sensor,
     aggregate_sensor,
     self_consumption_sensor,
     max_production_sensor,
@@ -793,6 +795,8 @@ async def configure_building_dashboard(
                 consumption_sensor["id"],
                 pv_production_sensor["id"],
                 battery_power_sensor["id"],
+                evse1_power_sensor["id"],
+                # evse2_power_sensor["id"],  # Just showing one now to avoid cluttering the chart
             ],
         },
         {
@@ -939,6 +943,8 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         pv_production_sensor=pv_production_sensor,
         battery_power_sensor=battery_power_sensor,
         battery_soc_sensor=battery_soc_sensor,
+        evse1_power_sensor=evse1_power_sensor,
+        evse2_power_sensor=evse2_power_sensor,
         aggregate_sensor=aggregate_sensor,
         self_consumption_sensor=self_consumption_sensor,
         max_production_sensor=max_production_sensor,
