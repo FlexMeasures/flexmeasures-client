@@ -1830,7 +1830,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
 
 def fill_reporter_params(
     input_sensors: list[dict],
-    output_sensors: list[str] | str,
+    output_sensors: list[dict] | dict,
     start: str,
     end: str,
     reporter_type: str,
