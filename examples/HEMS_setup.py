@@ -1208,7 +1208,7 @@ async def generate_forecasts(client: FlexMeasuresClient, sensor_name: str, asset
         return False
 
 
-async def run_scheduling_simulation(client: FlexMeasuresClient):
+async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_corrections: bool = True):
     """Run step-by-step scheduling simulation for the third week with EV charging."""
     print("Running scheduling simulation for third week with EV charging...")
 
@@ -1461,7 +1461,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient):
                 flex_model=final_flex_models,
                 flex_context=flex_context,
                 asset_id=building_asset["id"],
-                prior=current_time,
+                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS) if simulate_live_corrections else current_time,
             )
 
             print(f"Multi-device scheduling job triggered with UUID: {job_uuid}")
