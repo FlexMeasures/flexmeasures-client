@@ -6,6 +6,7 @@ and all required sensors with proper flex-context configuration.
 
 import asyncio
 import json
+import random
 import subprocess
 from datetime import timedelta
 
@@ -97,8 +98,6 @@ def get_day_pattern(date_time: pd.Timestamp) -> tuple:
 
 def simulate_random_trip() -> bool:
     """Simulate random shopping trips based on configured probability."""
-    import random
-
     return random.random() < EV_CONFIG["random_trip_probability"]
 
 
@@ -231,8 +230,6 @@ def calculate_ev_soc_targets_and_constraints(
     if has_random_trip:
         print("  [RANDOM-TRIP] Trip detected!")
         # Random trip consumes configured percentage range of battery
-        import random
-
         min_consumption, max_consumption = EV_CONFIG["random_trip_consumption_range"]
         trip_consumption_percent = random.uniform(min_consumption, max_consumption)
         trip_consumption_kwh = trip_consumption_percent * capacity_kwh
