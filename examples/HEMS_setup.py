@@ -451,6 +451,7 @@ async def create_building_asset(
         unit="kW",
         generic_asset_id=building_asset["id"],
         timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=True),
     )
 
     # Create max production capacity sensor for the building
@@ -1245,6 +1246,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
         ("evse2-power", evse2_name, "electricity-power"),
         ("evse2-soc", evse2_name, "state-of-charge"),
         ("electricity-price", price_market_name, "electricity-price"),
+        ("electricity-aggregate", building_name, "electricity-aggregate"),
     ]
 
     sensors = {}
@@ -1422,6 +1424,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
                     sensors["building-consumption"]["id"],
                     sensors["pv-production"]["id"],
                 ],
+                "aggregate-power": {"sensor": sensors["electricity-aggregate"]["id"]}
             }
 
             # Start with the battery flex model
