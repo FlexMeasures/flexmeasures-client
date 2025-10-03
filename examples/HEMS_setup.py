@@ -1943,6 +1943,8 @@ async def create_reports(client: FlexMeasuresClient):
         input_sensors=[
             {"production": sensors["electricity-production"]["id"]},
             {"building-consumption": sensors["electricity-consumption"]["id"]},
+            {"evse1-consumption": sensors["evse1-power"]["id"]},
+            {"evse2-consumption": sensors["evse2-power"]["id"]},
             {"battery-power": sensors["electricity-power"]["id"]},
         ],
         output_sensors=[sensors["self-consumption"], sensors["daily-share-of-self-consumption"]],
