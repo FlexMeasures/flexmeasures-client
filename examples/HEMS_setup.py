@@ -433,6 +433,7 @@ async def create_building_asset(
         unit="kW",
         generic_asset_id=building_asset["id"],
         timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=True),
     )
 
     # Create energy costs KPI sensor (1D resolution, EUR)
@@ -481,6 +482,7 @@ async def create_building_asset(
         unit="kW",
         generic_asset_id=building_asset["id"],
         timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=True),
     )
 
     # Create total energy costs sensor for the building
