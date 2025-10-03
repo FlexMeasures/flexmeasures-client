@@ -1,8 +1,14 @@
 {
-    "required_input" :[{"name":"production","unit": "kW"},{"name":"aggregate-power","unit": "kW"}, {"name":"battery-power","unit": "kW"}],
+    "required_input" :[{"name":"production","unit": "kW"},{"name":"evse1-consumption","unit": "kW"},{"name":"evse2-consumption","unit": "kW"},{"name":"building-consumption","unit": "kW"}, {"name":"battery-power","unit": "kW"}],
     "required_output" :[{"name":"self-consumption","unit": "kW"}, {"name":"daily-share-of-self-consumption", "unit": "%"}],
     "droplevels": true,
     "transformations" : [
+        {
+            "df_input": "evse1-consumption",
+            "df_output": "total-evse-consumption",
+            "method": "sum",
+            "args": ["@evse2-consumption"]
+        },
         {
             "df_input": "battery-power",
             "df_output": "battery-consumption",
@@ -12,51 +18,32 @@
             }
         },
         {
-            "df_input": "battery-power",
-            "df_output": "battery-production",
-            "method": "clip",
-            "kwargs": {
-                "upper": 0
-            }
+            "df_input": "battery-consumption",
+            "df_output": "total-load",
+            "method": "sum",
+            "args": ["@building-consumption"]
         },
         {
-            "df_input": "battery-production",
-            "df_output": "battery-production",
-            "method": "multiply",
-            "args": [-1]
-        },
-        {
-            "df_input": "aggregate-power",
-            "df_output": "feed_in",
-            "method": "clip",
-            "kwargs": {
-                "upper": 0
-            }
-        },
-        {
-            "df_input": "feed_in",
-            "df_output": "feed_in",
-            "method": "multiply",
-            "args": [-1]
-
+            "method": "sum",
+            "args": ["@total-evse-consumption"]
         },
         {
             "df_input": "production",
-            "df_output": "total-production",
-            "method": "add",
-            "args": ["@battery-production"]
+            "df_output": "excess-pv",
+            "method": "sub",
+            "args": ["@total-load"]
         },
         {
-            "df_input": "total-production",
-            "df_output": "self-consumption",
-            "method": "sub",
-            "args": ["@feed_in"]
+            "df_input": "excess-pv",
+            "df_output": "excess-pv",
+            "method": "clip",
+            "kwargs": {"lower": 0}
         },
         {
-            "df_input": "self-consumption",
+            "df_input": "production",
             "df_output": "self-consumption",
             "method": "sub",
-            "args": ["@battery-consumption"]
+            "args": ["@excess-pv"]
         },
         {
             "df_input": "self-consumption",
