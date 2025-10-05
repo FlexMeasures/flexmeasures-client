@@ -741,17 +741,17 @@ async def configure_building_flex_context(
         },  # Relaxed constraint for residential
         "site-power-capacity": "20 kVA",
         # Enable soft constraints for SoC minima (this makes soc-minima soft constraints instead of hard)
-        "relax-soc-constraints": True,
+        "relax-constraints": True,
         # Configure breach prices for soft constraints
         # Energy price units (match electricity-price sensor): EUR/kWh
         # Moderate penalty for not meeting soc-minima (allows some flexibility)
-        "soc-minima-breach-price": "100 EUR/kWh",  # Lower penalty for soft constraint
-        "soc-maxima-breach-price": "1000 EUR/kWh",  # Higher penalty for safety limits
+        # "soc-minima-breach-price": "100000 EUR/kWh",  # Lower penalty for soft constraint
+        # "soc-maxima-breach-price": "100000 EUR/kWh",  # Higher penalty for safety limits
         # Capacity price units (for power capacity constraints): EUR/MW
-        "site-consumption-breach-price": "1000 EUR/MW",
-        "site-production-breach-price": "1000 EUR/MW",
-        "consumption-breach-price": "1000 EUR/MW",
-        "production-breach-price": "1000 EUR/MW",
+        # "site-consumption-breach-price": "100000000 EUR/MW",
+        # "site-production-breach-price": "10000000 EUR/MW",
+        # "consumption-breach-price": "1000 EUR/MW",
+        # "production-breach-price": "1000 EUR/MW",
         # Add inflexible devices as requested
         "inflexible-device-sensors": [
             consumption_sensor["id"],  # General consumption
@@ -1415,10 +1415,10 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
             flex_context = {
                 "consumption-price": {"sensor": sensors["electricity-price"]["id"]},
                 # Enable soft constraints for EV charging flexibility
-                "relax-soc-constraints": True,
+                "relax-constraints": True,
                 # Configure breach prices for soft constraints (EV charging optimization)
-                "soc-minima-breach-price": "50 EUR/kWh",  # Moderate penalty - allows flexibility vs price optimization
-                "soc-maxima-breach-price": "1000 EUR/kWh",  # High penalty for safety limits
+                # "soc-minima-breach-price": "50 EUR/kWh",  # Moderate penalty - allows flexibility vs price optimization
+                # "soc-maxima-breach-price": "1000 EUR/kWh",  # High penalty for safety limits
                 "inflexible-device-sensors": [
                     sensors["building-consumption"]["id"],
                 ],
