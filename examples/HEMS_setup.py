@@ -756,7 +756,6 @@ async def configure_building_flex_context(
         "inflexible-device-sensors": [
             consumption_sensor["id"],  # General consumption
             pv_production_sensor["id"],  # PV production
-            battery_power_sensor["id"],  # Battery power
         ],
     }
 
