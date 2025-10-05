@@ -1261,9 +1261,6 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
     building_df = load_and_align_csv_data(
         "HEMS data/building_data.csv", TUTORIAL_START_DATE, 15
     )
-    pv_df = load_and_align_csv_data(
-        "HEMS data/PV_production_data.csv", TUTORIAL_START_DATE, 60
-    )
 
     # Get battery soc settings
     battery_flex_model = json.loads(battery_asset["attributes"]).get("flex_model")
@@ -1384,7 +1381,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
                     soc_sensor_id=sensors["evse1-soc"]["id"],
                     constraints=evse1_constraints,
                 )
-                
+
 
             if not evse2_constraints.get("unavailable"):
                 # Create flex models for EVSE 2 (similar pattern, could be different car)
@@ -1556,6 +1553,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
         battery_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
         evse1_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
         evse2_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
+        pv_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
 
         if isinstance(schedule_result, list) and len(schedule_result) >= 3:
             # Extract schedules for each device
@@ -1582,6 +1580,9 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
                 elif sensor_id == sensors["evse2-power"]["id"]:
                     evse2_scheduled_power = power_values
                     sensor_name = "EVSE-2"
+                elif sensor_id == sensors["pv-production"]["id"]:
+                    pv_scheduled_power = [-v for v in power_values]
+                    sensor_name = "PV"
 
                 print(
                     f"[SCHEDULE] {sensor_name} (sensor {sensor_id}): {power_values} kW"
@@ -1603,7 +1604,15 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
                 values=battery_scheduled_power,
                 unit="kW",
             )
-        
+            # Upload PV power
+            await client.post_sensor_data(
+                sensor_id=sensors["pv-production"]["id"],
+                start=current_time,
+                duration=battery_power_duration,
+                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+                values=pv_scheduled_power,
+                unit="kW",
+            )
 
             # Upload EVSE 1 power
             await client.post_sensor_data(
@@ -1646,22 +1655,6 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
                     prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
                     values=building_data_step["event_value"].tolist(),
                     unit="kW",
-                )
-
-            # Upload PV production for this period
-            pv_data_step = pv_df[
-                (pv_df["event_start"] >= current_time)
-                & (pv_df["event_start"] < step_end_time)
-            ]
-
-            if not pv_data_step.empty:
-                await client.post_sensor_data(
-                    sensor_id=sensors["pv-production"]["id"],
-                    start=pv_data_step["event_start"].iloc[0],
-                    duration=timedelta(hours=len(pv_data_step)),
-                    prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-                    values=pv_data_step["event_value"].tolist(),
-                    unit="kWh",
                 )
 
             # Upload FlexMeasures-computed SoC schedules to sensor data
