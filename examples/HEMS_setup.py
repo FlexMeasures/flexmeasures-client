@@ -755,7 +755,6 @@ async def configure_building_flex_context(
         # Add inflexible devices as requested
         "inflexible-device-sensors": [
             consumption_sensor["id"],  # General consumption
-            pv_production_sensor["id"],  # PV production
         ],
     }
 
@@ -1422,17 +1421,24 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
                 "soc-maxima-breach-price": "1000 EUR/kWh",  # High penalty for safety limits
                 "inflexible-device-sensors": [
                     sensors["building-consumption"]["id"],
-                    sensors["pv-production"]["id"],
                 ],
                 "aggregate-power": {"sensor": sensors["electricity-aggregate"]["id"]}
             }
 
-            # Start with the battery flex model
+            # Start with the battery and PV flex models
+            curtailable_pv_flex_model = {
+                "consumption-capacity": "0 kW",
+                "production-capacity": {"sensor": sensors["pv-production"]["id"]},
+            }
             final_flex_models = [
                 {
                     "sensor": sensors["battery-power"]["id"],
                     **battery_scheduler_flex_model,
                 },
+                {
+                    "sensor": sensors["pv-production"]["id"],
+                    **curtailable_pv_flex_model,
+                }
             ]
 
             # Conditionally add EVSE flex models if they are not on a trip
@@ -1453,7 +1459,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
 
             print("[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
             for i, model in enumerate(final_flex_models):
-                device_name = ["Battery", "EVSE-1", "EVSE-2"][i]
+                device_name = ["Battery", "PV", "EVSE-1", "EVSE-2"][i]
                 print(f"[FLEX-MODEL] {device_name}: {model}")
             print()
 
