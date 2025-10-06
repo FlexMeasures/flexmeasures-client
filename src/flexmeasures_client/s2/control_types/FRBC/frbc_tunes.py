@@ -456,10 +456,12 @@ class FillRateBasedControlTUNES(FRBC):
             ],
             axis=1,
         )
+        print(schedule)
 
         instructions = fm_schedule_to_instructions(
             schedule, system_description, soc_at_start
         )
+        print(instructions)
 
         # Put the instruction in the sending queue
         for instruction in instructions:
