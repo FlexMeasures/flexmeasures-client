@@ -112,6 +112,9 @@ class CEM(Handler):
         # add sending queue
         control_type_handler._sending_queue = self._sending_queue
 
+        # Add logger
+        control_type_handler._logger = self._logger
+
         # store control_type_handler
         self._control_types_handlers[control_type_handler._control_type] = (
             control_type_handler
