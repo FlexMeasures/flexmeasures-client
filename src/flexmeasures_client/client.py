@@ -384,7 +384,6 @@ class FlexMeasuresClient:
         Post sensor data using JSON payload (original post_measurements functionality).
         """
         json_payload = dict(
-            sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
             start=pd.Timestamp(
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
@@ -396,7 +395,7 @@ class FlexMeasuresClient:
             json_payload["prior"] = pd.Timestamp(prior).isoformat()
 
         _response, status = await self.request(
-            uri="sensors/data",
+            uri=f"sensors/{sensor_id}/data",
             json_payload=json_payload,
         )
         check_for_status(status, 200)
