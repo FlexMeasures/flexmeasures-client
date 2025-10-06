@@ -168,7 +168,7 @@ class FillRateBasedControlTUNES(FRBC):
             return
 
         try:
-            await self._fm_client.post_measurements(
+            await self._fm_client.post_sensor_data(
                 self._fill_level_sensor_id,
                 start=self.now(),
                 values=[status.present_fill_level * FILL_LEVEL_SCALE],
@@ -192,7 +192,7 @@ class FillRateBasedControlTUNES(FRBC):
                 minute=(start.minute // 15) * 15, second=0, microsecond=0
             )
 
-            await self._fm_client.post_measurements(
+            await self._fm_client.post_sensor_data(
                 self._leakage_beaviour_sensor_id,
                 start=start,
                 values=[
@@ -243,7 +243,7 @@ class FillRateBasedControlTUNES(FRBC):
         ) * FILL_LEVEL_SCALE
 
         # Send data to the sensor of the fill rate corresponding to the active operation mode
-        await self._fm_client.post_measurements(
+        await self._fm_client.post_sensor_data(
             sensor_id=active_operation_mode_fill_rate_sensor_id,
             start=dt,
             values=[fill_rate],
@@ -252,7 +252,7 @@ class FillRateBasedControlTUNES(FRBC):
         )
 
         # Send data to the sensor of the input fill_rate to the storage device
-        await self._fm_client.post_measurements(
+        await self._fm_client.post_sensor_data(
             sensor_id=self._fill_rate_sensor_id,
             start=dt,
             values=[fill_rate],
@@ -260,7 +260,7 @@ class FillRateBasedControlTUNES(FRBC):
             duration=timedelta(minutes=15),
         )
 
-        await self._fm_client.post_measurements(
+        await self._fm_client.post_sensor_data(
             sensor_id=self._active_actuator_id_sensor_id,
             start=dt,
             values=[active_operation_mode_fill_rate_sensor_id],
@@ -536,7 +536,7 @@ class FillRateBasedControlTUNES(FRBC):
             else:
                 continue
 
-            await self._fm_client.post_measurements(
+            await self._fm_client.post_sensor_data(
                 sensor_id=cast(int, sensor_id),
                 start=start_time,
                 values=[
@@ -551,7 +551,7 @@ class FillRateBasedControlTUNES(FRBC):
             )
 
         # Send SOC Maxima and SOC Minima
-        await self._fm_client.post_measurements(
+        await self._fm_client.post_sensor_data(
             sensor_id=self._soc_minima_sensor_id,
             start=start_time,
             values=system_description.storage.fill_level_range.start_of_range
@@ -560,7 +560,7 @@ class FillRateBasedControlTUNES(FRBC):
             duration=CONVERSION_EFFICIENCY_DURATION,
         )
 
-        await self._fm_client.post_measurements(
+        await self._fm_client.post_sensor_data(
             sensor_id=self._soc_maxima_sensor_id,
             start=start_time,
             values=system_description.storage.fill_level_range.end_of_range
@@ -600,7 +600,7 @@ class FillRateBasedControlTUNES(FRBC):
 
         scale = timedelta(minutes=15) / timedelta(seconds=1)
 
-        await self._fm_client.post_measurements(
+        await self._fm_client.post_sensor_data(
             sensor_id=self._usage_forecast_sensor_id,
             start=start_time,
             values=(usage_forecast * scale).tolist(),
@@ -628,7 +628,7 @@ class FillRateBasedControlTUNES(FRBC):
         duration = str(pd.Timedelta(RESOLUTION) * len(soc_maxima))
 
         # POST SOC Minima measurements to FlexMeasures
-        await self._fm_client.post_measurements(
+        await self._fm_client.post_sensor_data(
             sensor_id=self._soc_minima_sensor_id,
             start=fill_level_target_profile.start_time,
             values=soc_minima,
@@ -637,7 +637,7 @@ class FillRateBasedControlTUNES(FRBC):
         )
 
         # POST SOC Maxima measurements to FlexMeasures
-        await self._fm_client.post_measurements(
+        await self._fm_client.post_sensor_data(
             sensor_id=self._soc_maxima_sensor_id,
             start=fill_level_target_profile.start_time,
             values=soc_maxima,
