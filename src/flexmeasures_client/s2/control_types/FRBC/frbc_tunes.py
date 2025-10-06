@@ -360,16 +360,12 @@ class FillRateBasedControlTUNES(FRBC):
 
         duration = timedelta(hours=24)
 
-        schedule = await self._fm_client.trigger_and_get_schedule(
-            sensor_id=self._rm_discharge_sensor_id,
-            start=start,
-            duration=duration,
-            flex_context={
-                "consumption-price": {"sensor": self._consumption_price_sensor_id},
-                "production-price": {"sensor": self._production_price_sensor_id},
-                "site-power-capacity": "1000MVA",
-            },
-            flex_model={
+        flex_context = {
+            "consumption-price": {"sensor": self._consumption_price_sensor_id},
+            "production-price": {"sensor": self._production_price_sensor_id},
+            "site-power-capacity": "1000MVA",
+        }
+        flex_model = {
                 "state-of-charge": {"sensor": self._state_of_charge_sensor_id},
                 "soc-at-start": f"{soc_at_start} {ENERGY_UNIT}",
                 "soc-max": f"{soc_max} {ENERGY_UNIT}",
@@ -380,7 +376,16 @@ class FillRateBasedControlTUNES(FRBC):
                 "power-capacity": f"{charging_capacity} {POWER_UNIT}",
                 "consumption-capacity": f"{charging_capacity} {POWER_UNIT}",
                 "production-capacity": f"0 {POWER_UNIT}",
-            },
+            }
+        self._logger.info(flex_context)
+        self._logger.info(flex_model)
+
+        schedule = await self._fm_client.trigger_and_get_schedule(
+            sensor_id=self._rm_discharge_sensor_id,
+            start=start,
+            duration=duration,
+            flex_context=flex_context,
+            flex_model=flex_model,
         )
 
         idx = pd.DatetimeIndex(
