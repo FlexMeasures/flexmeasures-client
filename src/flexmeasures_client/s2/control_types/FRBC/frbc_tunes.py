@@ -344,6 +344,9 @@ class FillRateBasedControlTUNES(FRBC):
             reversed(self._system_description_history.values())
         )
         print(most_recent_system_description)
+        self._logger.info("Warn")
+        self._logger.info("Info")
+        self._logger.debug("Debug")
         soc_at_start = (
             most_recent_system_description.storage.fill_level_range.end_of_range
             * FILL_LEVEL_SCALE
