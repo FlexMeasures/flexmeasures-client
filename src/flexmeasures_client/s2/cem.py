@@ -205,10 +205,10 @@ class CEM(Handler):
 
         # check if the RM supports the control type
         if control_type not in self._resource_manager_details.available_control_types:
-            self._logger.warning(f"RM doesn not support `{control_type}` control type.")
+            self._logger.warning(f"RM does not support `{control_type}` control type.")
             return None
 
-        # RM initialization succeded
+        # RM initialization succeeded
         if self._control_type is not None:
             message_id = get_unique_id()
 
