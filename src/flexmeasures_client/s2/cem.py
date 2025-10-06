@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from asyncio import Queue
 from logging import Logger
 from typing import Dict, Optional
@@ -35,6 +36,8 @@ from flexmeasures_client.s2.utils import (
     get_reception_status,
     get_unique_id,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class CEM(Handler):
@@ -74,7 +77,7 @@ class CEM(Handler):
         if not logger:
             logger = Logger(__name__)
 
-        self._logger = logger
+        self._logger = _LOGGER
         self._is_closed = False
 
     def supports_control_type(self, control_type: ControlType):
