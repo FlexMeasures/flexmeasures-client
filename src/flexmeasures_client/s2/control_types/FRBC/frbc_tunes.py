@@ -379,6 +379,8 @@ class FillRateBasedControlTUNES(FRBC):
             }
         self._logger.info(flex_context)
         self._logger.info(flex_model)
+        print(flex_context)
+        print(flex_model)
 
         schedule = await self._fm_client.trigger_and_get_schedule(
             sensor_id=self._rm_discharge_sensor_id,
