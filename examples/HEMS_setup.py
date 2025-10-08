@@ -744,7 +744,7 @@ async def configure_building_flex_context(
         # Enable soft constraints for SoC minima (this makes soc-minima soft constraints instead of hard)
         "relax-constraints": True,
         "site-peak-consumption-price": "26 EUR/MW",
-        "site-peak-consumption": {"sensor": aggregate_sensor["id"]},
+        "site-peak-consumption": "0 kW",
         # Configure breach prices for soft constraints
         # Energy price units (match electricity-price sensor): EUR/kWh
         # Moderate penalty for not meeting soc-minima (allows some flexibility)
@@ -1418,7 +1418,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
                 # Enable soft constraints for EV charging flexibility
                 "relax-constraints": True,
                 "site-peak-consumption-price": "26 EUR/MW",
-                "site-peak-consumption": {"sensor": sensors["electricity-aggregate"]["id"]},
+                "site-peak-consumption": "0 kW",
                 # Configure breach prices for soft constraints (EV charging optimization)
                 # "soc-minima-breach-price": "50 EUR/kWh",  # Moderate penalty - allows flexibility vs price optimization
                 # "soc-maxima-breach-price": "1000 EUR/kWh",  # High penalty for safety limits
