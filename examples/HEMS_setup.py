@@ -55,7 +55,7 @@ EV_CONFIG = {
 
 BATTERY_CONFIG = {
     "capacity_kwh": 10.0,
-    "power_capacity_kw": 20.0,
+    "power_capacity_kw": 5.0,
     "min_soc_percent": 0.15,  # 15% minimum
     "max_soc_percent": 0.90,  # 90% maximum
     "soc_at_start_percent": 0.50,  # 50% starting
