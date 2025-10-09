@@ -1430,6 +1430,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
 
             # Start with the battery and PV flex models
             curtailable_pv_flex_model = {
+                "power-capacity": "12 kW",
                 "consumption-capacity": "0 kW",
                 "production-capacity": {"sensor": sensors["pv-production"]["id"]},
             }
