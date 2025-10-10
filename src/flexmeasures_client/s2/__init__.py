@@ -136,7 +136,6 @@ class Handler:
             self._timers[name] = datetime.now() + self._minimum_measurement_period
             return True
         else:
-            self._logger.debug(f"{name} timer not due until {self._timers[name]}")
             return False
 
     def is_revoked(self, message_id: str) -> bool:
