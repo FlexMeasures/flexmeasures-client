@@ -1281,9 +1281,9 @@ async def run_scheduling_simulation(
     if not battery_flex_model:
         print("Battery asset missing flex_model settings")
         return False
-    battery_soc_unit = battery_flex_model.get("soc_unit")
+    # battery_soc_unit = battery_flex_model.get("soc_unit")
     battery_soc_at_start = battery_flex_model.get("soc_at_start")
-    battery_soc_max = battery_flex_model.get("soc_max")
+    # battery_soc_max = battery_flex_model.get("soc_max")
     battery_soc_min = battery_flex_model.get("soc_min")
     battery_roundtrip_efficiency = battery_flex_model.get("roundtrip_efficiency")
 
