@@ -75,9 +75,9 @@ class CEM(Handler):
         self._default_control_type = default_control_type
 
         if not logger:
-            logger = Logger(__name__)
+            logger = _LOGGER
 
-        self._logger = _LOGGER
+        self._logger = logger
         self._is_closed = False
 
     def supports_control_type(self, control_type: ControlType):
