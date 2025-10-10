@@ -84,8 +84,6 @@ class FillRateBasedControlTUNES(FRBC):
     _consumption_price_sensor_id: int
     _production_price_sensor_id: int
 
-    _timers: dict[str, datetime]
-
     MIN_MEASUREMENT_PERIOD: float = 5  # in minutes
 
     def __init__(

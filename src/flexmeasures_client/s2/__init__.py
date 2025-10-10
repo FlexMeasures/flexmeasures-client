@@ -5,6 +5,7 @@ import inspect
 import json
 from collections import deque
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Callable, Coroutine, Dict, Type
 
 import pydantic
@@ -95,6 +96,8 @@ class Handler:
     outgoing_messages_status: SizeLimitOrderedDict
 
     background_tasks: set
+
+    _timers: dict[str, datetime]
 
     def __init__(self, max_size: int = 100) -> None:
         """
