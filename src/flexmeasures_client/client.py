@@ -724,7 +724,6 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned.
         """
         params = dict(
-            sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
             start=pd.Timestamp(
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
@@ -735,7 +734,7 @@ class FlexMeasuresClient:
         )
 
         response, status = await self.request(
-            uri="sensors/data", method="GET", params=params
+            uri=f"sensors/{sensor_id}/data", method="GET", params=params
         )
         check_for_status(status, 200)
         if not isinstance(response, dict):
