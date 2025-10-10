@@ -98,7 +98,7 @@ class Handler:
     background_tasks: set
 
     _minimum_measurement_period: timedelta = timedelta(minutes=5)
-    _timers: dict[str, datetime]
+    _timers: dict[str, datetime] = {}
 
     def __init__(self, max_size: int = 100) -> None:
         """
