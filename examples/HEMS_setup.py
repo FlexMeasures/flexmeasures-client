@@ -593,7 +593,7 @@ async def create_battery_asset(
     # Store battery settings in flex_model attribute (attributes["flex_model"])
     print("Updating battery asset with flex_model settings...")
     capacity = BATTERY_CONFIG["capacity_kwh"]
-    battery_settings = {
+    attributes_flex_model = {
         "soc_unit": "kWh",
         "soc_at_start": capacity * BATTERY_CONFIG["soc_at_start_percent"],
         "soc_max": capacity * BATTERY_CONFIG["max_soc_percent"],
@@ -606,7 +606,7 @@ async def create_battery_asset(
     # Store in attributes["flex_model"] for now, will be easy to adapt to new flex_model attribute
     await client.update_asset(
         asset_id=battery_asset["id"],
-        updates={"attributes": {"flex_model": battery_settings}},
+        updates={"attributes": {"flex_model": attributes_flex_model}},
     )
 
     print(f"Created battery asset with ID: {battery_asset['id']}")
@@ -670,7 +670,7 @@ async def create_evse_asset(
     # Store EVSE settings in flex_model attribute
     print(f"Updating {evse_name} asset with flex_model settings...")
     capacity = EV_CONFIG["default_capacity_kwh"]
-    evse_settings = {
+    attributes_flex_model = {
         "soc_unit": "kWh",
         "soc_at_start": capacity * EV_CONFIG["min_soc_percent"],  # Start at minimum SoC
         "soc_max": capacity,  # 100% of capacity (max physical limit)
@@ -701,7 +701,7 @@ async def create_evse_asset(
     # Store in attributes["flex_model"]
     await client.update_asset(
         asset_id=evse_asset["id"],
-        updates={"attributes": {"flex_model": evse_settings, "sensors_to_show": sensors_to_show}},
+        updates={"attributes": {"flex_model": attributes_flex_model, "sensors_to_show": sensors_to_show}},
     )
 
     print(f"Created EVSE asset {evse_name} with ID: {evse_asset['id']}")
