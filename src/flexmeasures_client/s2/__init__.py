@@ -6,7 +6,6 @@ import json
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from logging import Logger
 from typing import Callable, Coroutine, Dict, Type
 
 import pydantic
@@ -100,7 +99,6 @@ class Handler:
 
     _minimum_measurement_period: timedelta = timedelta(minutes=5)
     _timers: dict[str, datetime]
-    _logger: Logger
 
     def __init__(self, max_size: int = 100) -> None:
         """
