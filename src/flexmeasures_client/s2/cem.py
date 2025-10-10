@@ -87,7 +87,7 @@ class CEM(Handler):
         self._is_closed = True
 
         for control_type, handler in self._control_types_handlers.items():
-            print(control_type, handler)
+            self._logger.debug(f"Closing handler for {control_type}")
             await handler.close()
 
     def is_closed(self):
