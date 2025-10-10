@@ -79,8 +79,6 @@ class CEM(Handler):
 
         self._logger = logger
         self._is_closed = False
-        from dataclasses import asdict
-        self._logger.warning(asdict(fm_client))
 
     def supports_control_type(self, control_type: ControlType):
         return control_type in self._resource_manager_details.available_control_types
