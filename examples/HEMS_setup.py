@@ -701,7 +701,12 @@ async def create_evse_asset(
     # Store in attributes["flex_model"]
     await client.update_asset(
         asset_id=evse_asset["id"],
-        updates={"attributes": {"flex_model": attributes_flex_model, "sensors_to_show": sensors_to_show}},
+        updates={
+            "attributes": {
+                "flex_model": attributes_flex_model,
+                "sensors_to_show": sensors_to_show,
+            }
+        },
     )
 
     print(f"Created EVSE asset {evse_name} with ID: {evse_asset['id']}")
@@ -1142,7 +1147,12 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
     return True
 
 
-async def generate_forecasts(client: FlexMeasuresClient, sensor_name: str, asset_name: str, regressors: list[tuple[str, str]] | None = None):
+async def generate_forecasts(
+    client: FlexMeasuresClient,
+    sensor_name: str,
+    asset_name: str,
+    regressors: list[tuple[str, str]] | None = None,
+):
     """Generate forecasts using FlexMeasures CLI for the second week."""
     print(f"Generating {sensor_name} forecasts for {asset_name}...")
 
@@ -1155,9 +1165,7 @@ async def generate_forecasts(client: FlexMeasuresClient, sensor_name: str, asset
         return False
 
     # Find sensors
-    target_sensor = await find_sensor_by_name_and_asset(
-        client, sensor_name, asset_name
-    )
+    target_sensor = await find_sensor_by_name_and_asset(client, sensor_name, asset_name)
     regressor_sensors = []
     if regressors is not None:
         for regressor in regressors:
@@ -1190,7 +1198,7 @@ async def generate_forecasts(client: FlexMeasuresClient, sensor_name: str, asset
         f"PT{FORECAST_HORIZON_HOURS}H",
         "--forecast-frequency",
         f"PT{SIMULATION_STEP_HOURS}H",
-        "--ensure-positive"
+        "--ensure-positive",
     ]
 
     if regressor_sensors:
@@ -1212,7 +1220,9 @@ async def generate_forecasts(client: FlexMeasuresClient, sensor_name: str, asset
         return False
 
 
-async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_corrections: bool = True):
+async def run_scheduling_simulation(
+    client: FlexMeasuresClient, simulate_live_corrections: bool = True
+):
     """Run step-by-step scheduling simulation for the third week with EV charging."""
     print("Running scheduling simulation for third week with EV charging...")
 
@@ -1386,7 +1396,6 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
                     constraints=evse1_constraints,
                 )
 
-
             if not evse2_constraints.get("unavailable"):
                 # Create flex models for EVSE 2 (similar pattern, could be different car)
                 evse2_power_capacity = evse2_flex_model.get(
@@ -1425,7 +1434,7 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
                 "inflexible-device-sensors": [
                     sensors["building-consumption"]["id"],
                 ],
-                "aggregate-power": {"sensor": sensors["electricity-aggregate"]["id"]}
+                "aggregate-power": {"sensor": sensors["electricity-aggregate"]["id"]},
             }
 
             # Start with the battery and PV flex models
@@ -1442,24 +1451,29 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
                 {
                     "sensor": sensors["pv-production"]["id"],
                     **curtailable_pv_flex_model,
-                }
+                },
             ]
 
             # Conditionally add EVSE flex models if they are not on a trip
             if not evse1_constraints.get("unavailable"):
                 final_flex_models.append(
-                    {"sensor": sensors["evse1-power"]["id"], **evse1_scheduler_flex_model}
+                    {
+                        "sensor": sensors["evse1-power"]["id"],
+                        **evse1_scheduler_flex_model,
+                    }
                 )
             else:
                 print("EVSE 1 is on a trip, skipping scheduling.")
 
             if not evse2_constraints.get("unavailable"):
                 final_flex_models.append(
-                    {"sensor": sensors["evse2-power"]["id"], **evse2_scheduler_flex_model}
+                    {
+                        "sensor": sensors["evse2-power"]["id"],
+                        **evse2_scheduler_flex_model,
+                    }
                 )
             else:
                 print("EVSE 2 is on a trip, skipping scheduling.")
-
 
             print("[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
             for i, model in enumerate(final_flex_models):
@@ -1474,7 +1488,11 @@ async def run_scheduling_simulation(client: FlexMeasuresClient, simulate_live_co
                 flex_model=final_flex_models,
                 flex_context=flex_context,
                 asset_id=building_asset["id"],
-                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS) if simulate_live_corrections else current_time,
+                prior=(
+                    current_time + timedelta(hours=SIMULATION_STEP_HOURS)
+                    if simulate_live_corrections
+                    else current_time
+                ),
             )
 
             print(f"Multi-device scheduling job triggered with UUID: {job_uuid}")
@@ -1849,9 +1867,9 @@ def fill_reporter_params(
 
     if reporter_type == "aggregate":
         # For the aggregate reporter, output_sensors is a single sensor ID
-        output = [{"sensor": output_sensors['id']}]
+        output = [{"sensor": output_sensors["id"]}]
     else:
-        output = [{"name": s['name'], "sensor": s['id']} for s in output_sensors]
+        output = [{"name": s["name"], "sensor": s["id"]} for s in output_sensors]
 
     params = {
         "input": [
@@ -1928,7 +1946,11 @@ async def create_reports(client: FlexMeasuresClient):
         ("electricity-price", "electricity-price", price_market_name),
         ("total-energy-costs", "total-energy-costs", building_name),
         ("daily-total-energy-costs", "daily-total-energy-costs", building_name),
-        ("daily-share-of-self-consumption", "daily-share-of-self-consumption", building_name),
+        (
+            "daily-share-of-self-consumption",
+            "daily-share-of-self-consumption",
+            building_name,
+        ),
     ]
     sensors = await find_sensors_by_asset(client, sensor_mappings)
 
@@ -1956,7 +1978,10 @@ async def create_reports(client: FlexMeasuresClient):
             {"evse2-consumption": sensors["evse2-power"]["id"]},
             {"battery-power": sensors["electricity-power"]["id"]},
         ],
-        output_sensors=[sensors["self-consumption"], sensors["daily-share-of-self-consumption"]],
+        output_sensors=[
+            sensors["self-consumption"],
+            sensors["daily-share-of-self-consumption"],
+        ],
         start=SCHEDULING_START,
         end=SCHEDULING_END,
         reporter_type="self-consumption",
@@ -2064,8 +2089,15 @@ async def main():
         # Part 3: Generate PV forecasts for second week
         print("\n" + "=" * 50)
         print("PART 3: GENERATING PV FORECASTS")
-        await generate_forecasts(client, asset_name=pv_name, sensor_name="electricity-production", regressors=[("irradiation", weather_station_name)])
-        await generate_forecasts(client, asset_name=building_name, sensor_name="electricity-consumption")
+        await generate_forecasts(
+            client,
+            asset_name=pv_name,
+            sensor_name="electricity-production",
+            regressors=[("irradiation", weather_station_name)],
+        )
+        await generate_forecasts(
+            client, asset_name=building_name, sensor_name="electricity-consumption"
+        )
 
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
