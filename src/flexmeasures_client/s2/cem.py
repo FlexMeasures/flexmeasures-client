@@ -287,7 +287,7 @@ class CEM(Handler):
 
             # send measurement
             try:
-                await self._fm_client.post_measurements(
+                await self._fm_client.post_sensor_data(
                     sensor_id,
                     start=message.measurement_timestamp,
                     duration="PT1H",  # TODO: not specified in S2 Protocol
