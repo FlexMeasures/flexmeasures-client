@@ -372,32 +372,43 @@ class FillRateBasedControlTUNES(FRBC):
 
         self._logger.debug("Schedule returned:")
         self._logger.debug(schedule)
-
-        idx = pd.DatetimeIndex(
-            pd.date_range(
-                start=start, end=start + duration - timedelta(minutes=15), freq="15min"
+        try:
+            idx = pd.DatetimeIndex(
+                pd.date_range(
+                    start=start, end=start + duration - timedelta(minutes=15), freq="15min"
+                )
             )
-        )
+        except Exception as exc:
+            self._logger.error(str(exc))
 
-        thp_efficiency = await self._fm_client.get_sensor_data(
-            sensor_id=self._thp_efficiency_sensor_id,
-            start=start,
-            duration=duration,
-            unit="dimensionless",
-            resolution="PT15M",
-        )
+        try:
+            thp_efficiency = await self._fm_client.get_sensor_data(
+                sensor_id=self._thp_efficiency_sensor_id,
+                start=start,
+                duration=duration,
+                unit="dimensionless",
+                resolution="PT15M",
+            )
+        except Exception as exc:
+            self._logger.error(str(exc))
 
-        thp_efficiency = pd.Series(
-            thp_efficiency["values"], index=idx, name="thp_efficiency"
-        )
+        try:
+            thp_efficiency = pd.Series(
+                thp_efficiency["values"], index=idx, name="thp_efficiency"
+            )
+        except Exception as exc:
+            self._logger.error(str(exc))
 
-        nes_efficiency = await self._fm_client.get_sensor_data(
-            sensor_id=self._nes_efficiency_sensor_id,
-            start=start,
-            duration=duration,
-            unit="dimensionless",
-            resolution="PT15M",
-        )
+        try:
+            nes_efficiency = await self._fm_client.get_sensor_data(
+                sensor_id=self._nes_efficiency_sensor_id,
+                start=start,
+                duration=duration,
+                unit="dimensionless",
+                resolution="PT15M",
+            )
+        except Exception as exc:
+            self._logger.error(str(exc))
 
         nes_efficiency = pd.Series(
             nes_efficiency["values"], index=idx, name="nes_efficiency"
@@ -415,13 +426,16 @@ class FillRateBasedControlTUNES(FRBC):
             leakage_behaviour["values"], index=idx, name="leakage_behaviour"
         )
 
-        usage_forecast = await self._fm_client.get_sensor_data(
-            sensor_id=self._usage_forecast_sensor_id,
-            start=start,
-            duration=duration,
-            unit=POWER_UNIT,
-            resolution="PT15M",
-        )
+        try:
+            usage_forecast = await self._fm_client.get_sensor_data(
+                sensor_id=self._usage_forecast_sensor_id,
+                start=start,
+                duration=duration,
+                unit=POWER_UNIT,
+                resolution="PT15M",
+            )
+        except Exception as exc:
+            self._logger.error(str(exc))
 
         usage_forecast = pd.Series(
             usage_forecast["values"], index=idx, name="usage_forecast"
@@ -429,16 +443,19 @@ class FillRateBasedControlTUNES(FRBC):
 
         schedule_series = pd.Series(schedule["values"], index=idx, name="schedule")
 
-        schedule = pd.concat(
-            [
-                thp_efficiency,
-                nes_efficiency,
-                schedule_series,
-                usage_forecast,
-                leakage_behaviour,
-            ],
-            axis=1,
-        )
+        try:
+            schedule = pd.concat(
+                [
+                    thp_efficiency,
+                    nes_efficiency,
+                    schedule_series,
+                    usage_forecast,
+                    leakage_behaviour,
+                ],
+                axis=1,
+            )
+        except Exception as exc:
+            self._logger.error(str(exc))
 
         try:
             instructions = fm_schedule_to_instructions(
