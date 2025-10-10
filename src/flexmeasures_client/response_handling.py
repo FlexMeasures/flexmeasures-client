@@ -12,8 +12,6 @@ from flexmeasures_client.constants import CONTENT_TYPE
 if TYPE_CHECKING:  # Only imports the below statements during type checking
     from flexmeasures_client.client import FlexMeasuresClient
 
-logger = logging.getLogger(__name__)
-
 
 async def check_response(
     self: FlexMeasuresClient, response, polling_step: int, reauth_once: bool, url: URL
@@ -35,7 +33,7 @@ async def check_response(
         pass
     elif response.status == 303:
         message = f"Redirect to fallback schedule: {response.headers['location']}"  # noqa: E501
-        logger.debug(message)
+        self.logger.debug(message)
         url = response.headers["location"]
     elif status == 400 and (
         "Scheduling job waiting" in payload.get("message", "")
@@ -43,7 +41,7 @@ async def check_response(
     ):
         # can be removed in a later version GH issue #645 of the FlexMeasures repo
         message = f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."  # noqa: E501
-        logger.debug(message)
+        self.logger.debug(message)
         polling_step += 1
         await asyncio.sleep(self.polling_interval)
     elif status == 401 and reauth_once:
@@ -52,7 +50,7 @@ async def check_response(
         headers: {headers}
         payload: {payload}.
         Re-authenticating!"""
-        logger.debug(message)
+        self.logger.debug(message)
         await self.get_access_token()
         reauth_once = False
     elif status == 503 and "Retry-After" in headers:
@@ -67,7 +65,7 @@ async def check_response(
         headers: {headers}
         payload: {payload}.
         """
-        logger.error(message)
+        self.logger.error(message)
         # otherwise, raise if the status does not indicate okay
         response.raise_for_status()
     return polling_step, reauth_once, URL(url)
