@@ -377,13 +377,13 @@ class FillRateBasedControlTUNES(FRBC):
                 "consumption-capacity": f"{charging_capacity} {POWER_UNIT}",
                 "production-capacity": f"0 {POWER_UNIT}",
             }
-        self._logger.info(flex_context)
-        self._logger.info(flex_model)
-        print(self._rm_discharge_sensor_id)
-        print(start)
-        print(duration)
-        print(flex_context)
-        print(flex_model)
+
+        self._logger.debug("Triggering schedule with:")
+        self._logger.debug(self._rm_discharge_sensor_id)
+        self._logger.debug(start)
+        self._logger.debug(duration)
+        self._logger.debug(flex_context)
+        self._logger.debug(flex_model)
 
         schedule = await self._fm_client.trigger_and_get_schedule(
             sensor_id=self._rm_discharge_sensor_id,
@@ -392,7 +392,9 @@ class FillRateBasedControlTUNES(FRBC):
             flex_context=flex_context,
             flex_model=flex_model,
         )
-        print(schedule)
+
+        self._logger.debug("Schedule returned:")
+        self._logger.debug(schedule)
 
         idx = pd.DatetimeIndex(
             pd.date_range(
@@ -460,12 +462,12 @@ class FillRateBasedControlTUNES(FRBC):
             ],
             axis=1,
         )
-        print(schedule)
 
         instructions = fm_schedule_to_instructions(
             schedule, system_description, soc_at_start
         )
-        print(instructions)
+        self._logger.debug("Instructions generated:")
+        self._logger.debug(instructions)
 
         # Put the instruction in the sending queue
         for instruction in instructions:
