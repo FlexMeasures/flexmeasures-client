@@ -182,7 +182,7 @@ class CEM(Handler):
         """Call this function to get the messages to be sent to the RM
 
         Returns:
-            str: message in JSON forrmat
+            str: message in JSON format
         """
 
         message = await self._sending_queue.get()
