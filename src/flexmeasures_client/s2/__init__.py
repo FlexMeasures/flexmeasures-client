@@ -131,13 +131,12 @@ class Handler:
 
         self.discover()
 
-    def is_timer_due(self, name: str, logger):
+    def is_timer_due(self, name: str):
         if self._timers.get(name, datetime.now() - self._minimum_measurement_period) < datetime.now():
             self._timers[name] = datetime.now() + self._minimum_measurement_period
             return True
         else:
-            if logger is not None:
-                logger.debug(f"{name} timer not due until {self._timers[name]}")
+            self._logger.debug(f"{name} timer not due until {self._timers[name]}")
             return False
 
     def is_revoked(self, message_id: str) -> bool:
