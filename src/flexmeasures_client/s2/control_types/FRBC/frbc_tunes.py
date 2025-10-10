@@ -392,6 +392,7 @@ class FillRateBasedControlTUNES(FRBC):
             flex_context=flex_context,
             flex_model=flex_model,
         )
+        print(schedule)
 
         idx = pd.DatetimeIndex(
             pd.date_range(
