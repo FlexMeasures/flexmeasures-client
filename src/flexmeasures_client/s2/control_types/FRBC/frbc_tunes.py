@@ -379,6 +379,9 @@ class FillRateBasedControlTUNES(FRBC):
             }
         self._logger.info(flex_context)
         self._logger.info(flex_model)
+        print(self._rm_discharge_sensor_id)
+        print(start)
+        print(duration)
         print(flex_context)
         print(flex_model)
 
