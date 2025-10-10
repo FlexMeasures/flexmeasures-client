@@ -191,6 +191,7 @@ class CEM(Handler):
         # Pending for pydantic V2 to implement model.model_dump(mode="json") in
         # PR #1409 (https://github.com/pydantic/pydantic/issues/1409)
         message = json.loads(message.json())
+        self._logger.debug(f"Received: {message}")
 
         return message
 
@@ -320,6 +321,7 @@ class CEM(Handler):
         return get_reception_status(message, ReceptionStatusValues.OK)
 
     async def send_message(self, message):
+        self._logger.debug(f"Sent: {message}")
         await self._sending_queue.put(message)
 
 
