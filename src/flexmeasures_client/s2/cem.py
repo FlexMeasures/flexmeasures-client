@@ -140,6 +140,8 @@ class CEM(Handler):
         if isinstance(message, str):
             message = json.loads(message)
 
+        self._logger.debug(f"Received: {message}")
+
         # try to handle the message with the control_type handle
         if (
             self._control_type is not None
@@ -191,7 +193,6 @@ class CEM(Handler):
         # Pending for pydantic V2 to implement model.model_dump(mode="json") in
         # PR #1409 (https://github.com/pydantic/pydantic/issues/1409)
         message = json.loads(message.json())
-        self._logger.debug(f"Received: {message}")
 
         return message
 
