@@ -275,7 +275,6 @@ class CEM(Handler):
 
     @register(PowerMeasurement)
     async def handle_power_measurement(self, message: PowerMeasurement):
-        self._logger.debug("handle_power_measurement called")
         if not self.is_timer_due("power_measurement", logger=self._logger):
             self._logger.debug("Timer is not due yet")
             return
