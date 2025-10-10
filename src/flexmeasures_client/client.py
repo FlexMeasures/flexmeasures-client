@@ -34,6 +34,8 @@ from flexmeasures_client.response_handling import (
     check_response,
 )
 
+logger = logging.getLogger(__name__)
+
 MAX_POLLING_STEPS: int = 10  # seconds
 POLLING_TIMEOUT = 200.0  # seconds
 REQUEST_TIMEOUT = 20.0  # seconds
@@ -164,11 +166,11 @@ class FlexMeasuresClient:
                                 break
                     except asyncio.TimeoutError:
                         message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {self.polling_interval} seconds..."  # noqa: E501
-                        logging.debug(message)
+                        logger.debug(message)
                         polling_step += 1
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
-                        logging.debug(exception)
+                        logger.debug(exception)
                         raise ConnectionError(
                             f"Error occurred while communicating with the API: {exception}"
                         ) from exception
@@ -196,13 +198,13 @@ class FlexMeasuresClient:
         params_msg = f"params: {params}"
         method_msg = f"method: {method}"
         headers_msg = f"headers: {headers}"
-        logging.debug("===== Request =====")
-        logging.debug(url_msg)
-        logging.debug(json_msg)
-        logging.debug(params_msg)
-        logging.debug(method_msg)
-        logging.debug(headers_msg)
-        logging.debug("=" * 14)
+        logger.debug("===== Request =====")
+        logger.debug(url_msg)
+        logger.debug(json_msg)
+        logger.debug(params_msg)
+        logger.debug(method_msg)
+        logger.debug(headers_msg)
+        logger.debug("=" * 14)
 
         """Sends a single request to FlexMeasures and checks the response."""
         self.ensure_session()
@@ -220,11 +222,11 @@ class FlexMeasuresClient:
         response_payload_msg = f"payload: {payload}"
         headers_msg = f"headers: {response.headers}"
 
-        logging.debug("===== Response =====")
-        logging.debug(status_msg)
-        logging.debug(response_payload_msg)
-        logging.debug(headers_msg)
-        logging.debug("=" * 14)
+        logger.debug("===== Response =====")
+        logger.debug(status_msg)
+        logger.debug(response_payload_msg)
+        logger.debug(headers_msg)
+        logger.debug("=" * 14)
 
         polling_step, reauth_once, url = await check_response(
             self, response, polling_step, reauth_once, url
@@ -399,7 +401,7 @@ class FlexMeasuresClient:
             json_payload=json_payload,
         )
         check_for_status(status, 200)
-        logging.info("Sensor data sent successfully via JSON.")
+        logger.info("Sensor data sent successfully via JSON.")
 
     async def _post_sensor_data_file(
         self,
@@ -463,7 +465,7 @@ class FlexMeasuresClient:
                         error_data = await response.json()
                         error_message = f"Request failed with status code {response.status}: {error_data}"
                     except Exception as e:
-                        logging.error(f"Error parsing response: {e}")
+                        logger.error(f"Error parsing response: {e}")
                         error_message = (
                             f"Request failed with status code {response.status}"
                         )
@@ -471,13 +473,13 @@ class FlexMeasuresClient:
 
                 # Parse response
                 response_data = await response.json()
-                logging.info(
+                logger.info(
                     f"File uploaded successfully: {os.path.basename(file_path)}"
                 )
                 return response_data, response.status
 
         except Exception as e:
-            logging.error(f"Error uploading file {file_path}: {e}")
+            logger.error(f"Error uploading file {file_path}: {e}")
             raise
 
     # Keep the old method name for backward compatibility
@@ -1023,7 +1025,7 @@ class FlexMeasuresClient:
                     raise exc
         check_for_status(status, 200)
 
-        logging.info("Schedule triggered successfully.")
+        logger.info("Schedule triggered successfully.")
         if not isinstance(response, dict):
             raise ContentTypeError(
                 f"Expected a dictionary, but got {type(response)}",
