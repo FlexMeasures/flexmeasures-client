@@ -276,15 +276,11 @@ class CEM(Handler):
     @register(PowerMeasurement)
     async def handle_power_measurement(self, message: PowerMeasurement):
         self._logger.debug("handle_power_measurement called")
-        try:
-            if not self.is_timer_due("power_measurement"):
-                self._logger.debug("Timer is not due yet")
-                return
-            else:
-                self._logger.debug("Timer is due!")
-        except Exception as exc:
-            self._logger.error(str(exc))
-            pass
+        if not self.is_timer_due("power_measurement"):
+            self._logger.debug("Timer is not due yet")
+            return
+        else:
+            self._logger.debug("Timer is due!")
 
         for power_measurement in message.values:
             commodity_quantity = power_measurement.commodity_quantity.value
