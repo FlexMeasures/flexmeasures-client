@@ -137,8 +137,7 @@ class FillRateBasedControlTUNES(FRBC):
 
         self._timezone = pytz.timezone(timezone)
 
-        # delay the start of the schedule from the time `valid_from`
-        # of the FRBC.SystemDescritption
+        # delay the start of the schedule from the time `valid_from` of the FRBC.SystemDescription
         self._valid_from_shift = valid_from_shift
 
         self._active_recurring_schedule = False
