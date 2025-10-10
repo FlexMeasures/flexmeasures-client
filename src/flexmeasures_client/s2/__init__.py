@@ -130,13 +130,10 @@ class Handler:
         self.discover()
 
     def is_timer_due(self, name: str):
-        print("is_timer_due called")
         if self._timers.get(name, datetime.now() - self._minimum_measurement_period) < datetime.now():
-            print(True)
             self._timers[name] = datetime.now() + self._minimum_measurement_period
             return True
         else:
-            print(False)
             return False
 
     async def is_timer_due_async(self, name: str):
