@@ -5,7 +5,7 @@ import inspect
 import json
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, Coroutine, Dict, Type
 
 import pydantic
@@ -97,6 +97,7 @@ class Handler:
 
     background_tasks: set
 
+    _minimum_measurement_period: timedelta = timedelta(minutes=5)
     _timers: dict[str, datetime]
 
     def __init__(self, max_size: int = 100) -> None:
@@ -127,6 +128,13 @@ class Handler:
         self.outgoing_messages_status = SizeLimitOrderedDict(max_size=max_size)
 
         self.discover()
+
+    def is_timer_due(self, name: str):
+        if self._timers.get(name, datetime.now() - self._minimum_measurement_period) < datetime.now():
+            self._timers[name] = datetime.now() + self._minimum_measurement_period
+            return True
+        else:
+            return False
 
     def is_revoked(self, message_id: str) -> bool:
         return message_id in self.objects_revoked
