@@ -139,6 +139,16 @@ class Handler:
             print(False)
             return False
 
+    async def is_timer_due_async(self, name: str):
+        print("is_timer_due_async called")
+        if self._timers.get(name, datetime.now() - self._minimum_measurement_period) < datetime.now():
+            print(True)
+            self._timers[name] = datetime.now() + self._minimum_measurement_period
+            return True
+        else:
+            print(False)
+            return False
+
     def is_revoked(self, message_id: str) -> bool:
         return message_id in self.objects_revoked
 
