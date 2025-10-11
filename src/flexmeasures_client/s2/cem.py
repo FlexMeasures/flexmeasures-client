@@ -7,7 +7,7 @@ from asyncio import Queue
 from datetime import datetime, timedelta
 from logging import Logger
 from typing import Dict, Optional
-
+import pandas as pd
 import pydantic
 
 try:
@@ -59,7 +59,7 @@ class CEM(Handler):
     _sending_queue: Queue[pydantic.BaseModel]
 
     _timers: dict[str, datetime]
-    _minimum_measurement_period: timedelta = timedelta(minutes=5)
+    _minimum_measurement_period: pd.Timedelta = pd.Timedelta(minutes=5)
 
     def __init__(
         self,
@@ -313,7 +313,7 @@ class CEM(Handler):
                 await self._fm_client.post_sensor_data(
                     sensor_id,
                     start=message.measurement_timestamp,
-                    duration="PT1H",  # TODO: not specified in S2 Protocol
+                    duration=self._minimum_measurement_period.isoformat(),  # TODO: not specified in S2 Protocol
                     values=[power_measurement.value],
                     unit=get_commodity_unit(commodity_quantity),
                 )
