@@ -84,6 +84,9 @@ class FillRateBasedControlTUNES(FRBC):
     _consumption_price_sensor_id: int
     _production_price_sensor_id: int
 
+    _timers: dict[str, datetime]
+    _minimum_measurement_period: timedelta = timedelta(minutes=5)
+
     def __init__(
         self,
         soc_minima_sensor_id: int,
@@ -140,6 +143,13 @@ class FillRateBasedControlTUNES(FRBC):
         self._timers = dict()
 
         self.last_system_description_hash: int = 0
+
+    def is_timer_due(self, name: str):
+        if self._timers.get(name, datetime.now() - self._minimum_measurement_period) < datetime.now():
+            self._timers[name] = datetime.now() + self._minimum_measurement_period
+            return True
+        else:
+            return False
 
     def now(self):
         return datetime.now(self._timezone)

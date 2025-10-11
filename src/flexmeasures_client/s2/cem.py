@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from asyncio import Queue
+from datetime import datetime, timedelta
 from logging import Logger
 from typing import Dict, Optional
 
@@ -57,6 +58,9 @@ class CEM(Handler):
     _fm_client: FlexMeasuresClient
     _sending_queue: Queue[pydantic.BaseModel]
 
+    _timers: dict[str, datetime]
+    _minimum_measurement_period: timedelta = timedelta(minutes=5)
+
     def __init__(
         self,
         fm_client: FlexMeasuresClient,
@@ -79,6 +83,13 @@ class CEM(Handler):
 
         self._logger = logger
         self._is_closed = False
+
+    def is_timer_due(self, name: str):
+        if self._timers.get(name, datetime.now() - self._minimum_measurement_period) < datetime.now():
+            self._timers[name] = datetime.now() + self._minimum_measurement_period
+            return True
+        else:
+            return False
 
     def supports_control_type(self, control_type: ControlType):
         return control_type in self._resource_manager_details.available_control_types
@@ -239,6 +250,8 @@ class CEM(Handler):
                 SelectControlType(message_id=message_id, control_type=control_type)
             )
         return None
+
+
 
     @register(Handshake)
     def handle_handshake(self, message: Handshake):
