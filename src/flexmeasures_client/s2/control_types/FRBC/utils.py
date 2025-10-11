@@ -198,6 +198,7 @@ def fm_schedule_to_instructions(
 
                 operation_mode_factor = op_mode_compute_factor(op_mode_elem, value)
 
+            logger.debug("Creating instruction..")
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
                 id=get_unique_id(),
@@ -207,6 +208,7 @@ def fm_schedule_to_instructions(
                 execution_time=timestamp,
                 abnormal_condition=False,
             )
+            logger.debug(f"instruction: {instruction.to_json()}")
             instructions.append(instruction)
 
         storage_eff = (storage_efficiency - 1) / math.log(storage_efficiency)
@@ -215,14 +217,17 @@ def fm_schedule_to_instructions(
             storage_eff = 1
 
         # Update fill level
+        logger.debug("Updating fill level..")
         fill_level = (
             fill_level * (storage_efficiency)
             + (row["schedule"] * charging_efficiency * deltaT) * storage_eff
             - usage * deltaT
         )
 
+        logger.debug(f"fill_level: {fill_level}")
         fill_level = min(fill_level, soc_max)
         fill_level = max(fill_level, soc_min)
+        logger.debug(f"clipped fill_level: {fill_level}")
 
         previous_value = value
 
