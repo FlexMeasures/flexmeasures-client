@@ -148,6 +148,9 @@ class FillRateBasedControlTUNES(FRBC):
         if self._timers.get(name, datetime.now() - self._minimum_measurement_period) < datetime.now():
             self._timers[name] = datetime.now() + self._minimum_measurement_period
             self._logger.debug(f"Timer for {name} is due!")
+            self._logger.debug(self._timers.get(name, datetime.now()))
+            self._logger.debug(self._timers.get(name, datetime.now() - self._minimum_measurement_period))
+            self._logger.debug(datetime.now())
             return True
         else:
             self._logger.debug(f"Timer for {name} is not due until {self._timers[name]}")
