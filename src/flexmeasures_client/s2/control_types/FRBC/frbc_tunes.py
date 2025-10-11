@@ -145,12 +145,10 @@ class FillRateBasedControlTUNES(FRBC):
         self.last_system_description_hash: int = 0
 
     def is_timer_due(self, name: str):
-        if self._timers.get(name, datetime.now() - self._minimum_measurement_period) < datetime.now():
-            self._logger.debug(f"Timer for {name} is due!")
-            self._logger.debug(self._timers.get(name, datetime.now()))
-            self._logger.debug(self._timers.get(name, datetime.now() - self._minimum_measurement_period))
-            self._logger.debug(datetime.now())
-            self._timers[name] = datetime.now() + self._minimum_measurement_period
+        now = datetime.now()
+        due_time = self._timers.get(name, now - self._minimum_measurement_period)
+        if due_time <= now:
+            self._timers[name] = now + self._minimum_measurement_period
             return True
         else:
             self._logger.debug(f"Timer for {name} is not due until {self._timers[name]}")
