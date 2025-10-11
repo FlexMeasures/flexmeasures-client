@@ -38,6 +38,7 @@ async def check_response(
     elif status == 400 and (
         "Scheduling job waiting" in payload.get("message", "")
         or "Scheduling job in progress" in payload.get("message", "")
+        or "Scheduling job has an unknown status" in payload.get("message", "")
     ):
         # can be removed in a later version GH issue #645 of the FlexMeasures repo
         message = f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."  # noqa: E501
