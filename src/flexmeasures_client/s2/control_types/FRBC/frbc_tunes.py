@@ -354,6 +354,7 @@ class FillRateBasedControlTUNES(FRBC):
             self._logger.debug(f"last_storage_status: {last_storage_status}")
             self._logger.debug(f"last_storage_status.present_fill_level: {last_storage_status.present_fill_level}")
             soc_at_start = last_storage_status.present_fill_level * FILL_LEVEL_SCALE
+            self._logger.debug(f"soc_at_start: {soc_at_start}")
 
         duration = timedelta(hours=24)
 
