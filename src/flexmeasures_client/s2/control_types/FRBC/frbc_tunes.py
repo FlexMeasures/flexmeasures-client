@@ -344,6 +344,8 @@ class FillRateBasedControlTUNES(FRBC):
             most_recent_system_description.storage.fill_level_range.end_of_range
             * FILL_LEVEL_SCALE
         )
+        self._logger.debug(f"soc_at_start: {soc_at_start}")
+        self._logger.debug(f"len(self._storage_status_history): {len(self._storage_status_history)}")
 
         if len(self._storage_status_history) > 0:
             last_storage_status: FRBCStorageStatus = next(
