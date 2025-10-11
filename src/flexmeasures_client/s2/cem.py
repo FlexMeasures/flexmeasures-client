@@ -67,6 +67,7 @@ class CEM(Handler):
         logger: Logger | None = None,
         default_control_type: ControlType | None = None,
         timers: dict[str: datetime] | None = None,
+        power_sensor_id: int | None = None,
     ) -> None:
         """
         Customer Energy Manager (CEM)
@@ -76,6 +77,7 @@ class CEM(Handler):
         self._fm_client = fm_client
         self._sending_queue = Queue()
         self._power_sensors = dict()
+        self.power_sensor_id = power_sensor_id
         self._control_types_handlers = dict()
         self._default_control_type = default_control_type
 
@@ -300,10 +302,11 @@ class CEM(Handler):
         for power_measurement in message.values:
             commodity_quantity = power_measurement.commodity_quantity.value
 
-            if commodity_quantity in self._power_sensors:
-                sensor_id = self._power_sensors[commodity_quantity]
-            else:
-                sensor_id = 357  # TODO: create a new sensor or return ReceptionStatus
+            # if commodity_quantity in self._power_sensors:
+            #     sensor_id = self._power_sensors[commodity_quantity]
+            # else:
+            #     sensor_id = 357  # TODO: create a new sensor or return ReceptionStatus
+            sensor_id = self.power_sensor_id if self.power_sensor_id is not None else 357
 
             # send measurement
             try:
