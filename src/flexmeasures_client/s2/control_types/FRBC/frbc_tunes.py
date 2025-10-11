@@ -84,7 +84,7 @@ class FillRateBasedControlTUNES(FRBC):
     _consumption_price_sensor_id: int
     _production_price_sensor_id: int
 
-    _timers: dict[str, datetime | dict]
+    _timers: dict[str, datetime]
     _minimum_measurement_period: timedelta = timedelta(minutes=5)
 
     def __init__(
@@ -345,11 +345,11 @@ class FillRateBasedControlTUNES(FRBC):
             * FILL_LEVEL_SCALE
         )
         self._logger.debug(f"soc_at_start: {soc_at_start}")
-        self._logger.debug(f"len(self._timers['_storage_status_history']): {len(self._timers['_storage_status_history'])}")
+        self._logger.debug(f"len(self._storage_status_history): {len(self._storage_status_history)}")
 
-        if len(self._timers["_storage_status_history"]) > 0:
+        if len(self._storage_status_history) > 0:
             last_storage_status: FRBCStorageStatus = next(
-                reversed(self._timers["_storage_status_history"].values())
+                reversed(self._storage_status_history.values())
             )
             self._logger.debug(f"last_storage_status: {last_storage_status}")
             self._logger.debug(f"last_storage_status.present_fill_level: {last_storage_status.present_fill_level}")

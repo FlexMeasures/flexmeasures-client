@@ -1,4 +1,3 @@
-from datetime import datetime
 import asyncio
 
 import pydantic
@@ -43,11 +42,7 @@ class FRBC(ControlTypeHandler):
     _storage_status_history: SizeLimitOrderedDict[str, FRBCStorageStatus]
     background_tasks: set
 
-    def __init__(
-        self,
-        max_size: int = 100,
-        timers: dict[str: datetime] | None = None,
-    ) -> None:
+    def __init__(self, max_size: int = 100) -> None:
         super().__init__(max_size)
 
         self._system_description_history = SizeLimitOrderedDict(max_size=max_size)
@@ -66,9 +61,6 @@ class FRBC(ControlTypeHandler):
         self._leakage_behaviour_history = SizeLimitOrderedDict(max_size=max_size)
         self._usage_forecast_history = SizeLimitOrderedDict(max_size=max_size)
         self.background_tasks = set()
-        self._timers = timers if timers is not None else {}
-        if self._timers.get("_storage_status_history") is None:
-            self._timers["_storage_status_history"] = SizeLimitOrderedDict(max_size=max_size)
 
     @register(FRBCSystemDescription)
     def handle_system_description(
@@ -104,8 +96,7 @@ class FRBC(ControlTypeHandler):
     def handle_storage_status(self, message: FRBCStorageStatus) -> pydantic.BaseModel:
         message_id = str(message.message_id)
 
-        self._timers["_storage_status_history"][message_id] = message
-        # self._storage_status_history[message_id] = message
+        self._storage_status_history[message_id] = message
 
         task = asyncio.create_task(self.send_storage_status(message))
         self.background_tasks.add(
