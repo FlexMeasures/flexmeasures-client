@@ -146,6 +146,8 @@ def fm_schedule_to_instructions(
     for timestamp, row in schedule.iterrows():
         value = row["schedule"]
         usage = row["usage_forecast"]
+        if pd.isnull(usage):
+            usage = 0
         storage_efficiency = row["leakage_behaviour"]
         charging_efficiency = row["thp_efficiency"]
 
