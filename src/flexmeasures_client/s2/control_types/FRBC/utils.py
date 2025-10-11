@@ -211,7 +211,11 @@ def fm_schedule_to_instructions(
             logger.debug(f"instruction: {instruction.to_json()}")
             instructions.append(instruction)
 
-        storage_eff = (storage_efficiency - 1) / math.log(storage_efficiency)
+        logger.debug(f"computing storage_eff from {storage_efficiency}")
+        if np.isnan(storage_efficiency):
+            storage_eff = 1
+        else:
+            storage_eff = (storage_efficiency - 1) / math.log(storage_efficiency)
 
         if np.isnan(storage_eff):
             storage_eff = 1
