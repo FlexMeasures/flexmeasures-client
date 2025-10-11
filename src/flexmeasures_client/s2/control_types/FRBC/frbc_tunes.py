@@ -6,6 +6,7 @@ Used it at your own risk :)
 
 import asyncio
 from datetime import datetime, timedelta
+from requests.exceptions import HTTPError
 
 import pandas as pd
 
@@ -383,13 +384,17 @@ class FillRateBasedControlTUNES(FRBC):
         self._logger.debug(flex_context)
         self._logger.debug(flex_model)
 
-        schedule = await self._fm_client.trigger_and_get_schedule(
-            sensor_id=self._rm_discharge_sensor_id,
-            start=start,
-            duration=duration,
-            flex_context=flex_context,
-            flex_model=flex_model,
-        )
+        try:
+            schedule = await self._fm_client.trigger_and_get_schedule(
+                sensor_id=self._rm_discharge_sensor_id,
+                start=start,
+                duration=duration,
+                flex_context=flex_context,
+                flex_model=flex_model,
+            )
+        except HTTPError as exc:
+            self._logger.error(f"Failed to get a schedule: {str(exc)}")
+            return
 
         self._logger.debug("Schedule returned:")
         self._logger.debug(schedule)
