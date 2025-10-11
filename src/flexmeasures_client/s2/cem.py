@@ -66,6 +66,7 @@ class CEM(Handler):
         fm_client: FlexMeasuresClient,
         logger: Logger | None = None,
         default_control_type: ControlType | None = None,
+        timers: dict[str: datetime] | None = None,
     ) -> None:
         """
         Customer Energy Manager (CEM)
@@ -83,6 +84,8 @@ class CEM(Handler):
 
         self._logger = logger
         self._is_closed = False
+
+        self._timers = timers if timers is not None else {}
 
     def is_timer_due(self, name: str):
         now = datetime.now()

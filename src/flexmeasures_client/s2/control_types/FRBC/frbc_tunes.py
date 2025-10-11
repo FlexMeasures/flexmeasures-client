@@ -108,6 +108,7 @@ class FillRateBasedControlTUNES(FRBC):
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
         valid_from_shift: timedelta = timedelta(days=1),
+        timers: dict[str: datetime] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(max_size)
@@ -143,6 +144,8 @@ class FillRateBasedControlTUNES(FRBC):
         self._timers = dict()
 
         self.last_system_description_hash: int = 0
+
+        self._timers = timers if timers is not None else {}
 
     def is_timer_due(self, name: str):
         now = datetime.now()
