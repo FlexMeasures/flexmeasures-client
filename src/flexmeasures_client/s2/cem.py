@@ -296,11 +296,11 @@ class CEM(Handler):
 
     @register(PowerMeasurement)
     async def handle_power_measurement(self, message: PowerMeasurement):
-        if not self.is_timer_due("power_measurement"):
-            return
 
         for power_measurement in message.values:
             commodity_quantity = power_measurement.commodity_quantity.value
+            if not self.is_timer_due(f"power_measurement_{commodity_quantity}"):
+                continue
 
             # if commodity_quantity in self._power_sensors:
             #     sensor_id = self._power_sensors[commodity_quantity]
