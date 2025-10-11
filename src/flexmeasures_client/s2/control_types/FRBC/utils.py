@@ -213,10 +213,12 @@ def fm_schedule_to_instructions(
 
         logger.debug(f"computing storage_eff from {storage_efficiency}")
         if np.isnan(storage_efficiency):
+            logger.debug("leakage behaviour is unknown")
             storage_eff = 1
         else:
+            logger.debug("leakage behaviour is known")
             storage_eff = (storage_efficiency - 1) / math.log(storage_efficiency)
-
+        logger.debug(f"storage_eff: {storage_eff}")
         if np.isnan(storage_eff):
             storage_eff = 1
 
