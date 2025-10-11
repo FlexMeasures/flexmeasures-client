@@ -329,7 +329,7 @@ class FillRateBasedControlTUNES(FRBC):
                 continue
 
         if operation_mode is None:
-            print("ERROR: Couldn't find a valid operation mode.")
+            self._logger.error("Couldn't find a valid operation mode.")
             return
 
         charging_capacity = operation_mode.elements[0].power_ranges[0].end_of_range
