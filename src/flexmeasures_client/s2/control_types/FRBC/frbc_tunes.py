@@ -399,6 +399,7 @@ class FillRateBasedControlTUNES(FRBC):
             self._logger.error(str(exc))
         self._logger.debug("2")
         try:
+            self._logger.debug(f"Fetching THP efficiency (ID={self._thp_efficiency_sensor_id} from {start} for duration {duration}..")
             thp_efficiency = await self._fm_client.get_sensor_data(
                 sensor_id=self._thp_efficiency_sensor_id,
                 start=start,
