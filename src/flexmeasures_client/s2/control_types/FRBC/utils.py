@@ -89,6 +89,9 @@ def fm_schedule_to_instructions(
     initial_fill_level: float,
     logger,
 ) -> List[FRBCInstruction]:
+    logger.debug(schedule.to_json())
+    logger.debug(system_description.to_json())
+    logger.debug(initial_fill_level)
 
     if len(schedule) == 0 or len(system_description.actuators) == 0:
         return []
@@ -100,8 +103,11 @@ def fm_schedule_to_instructions(
     fill_level_range: NumberRange = system_description.storage.fill_level_range
 
     # get SOC Max and Min to be sent on the Flex Model
+    logger.debug("setting soc constraints")
     soc_min = fill_level_range.start_of_range * FILL_LEVEL_SCALE
     soc_max = fill_level_range.end_of_range * FILL_LEVEL_SCALE
+    logger.debug(f"soc_min: {soc_min}")
+    logger.debug(f"soc_max: {soc_max}")
 
     if len(system_description.actuators) != 1:
         raise NotImplementedError(
@@ -116,6 +122,7 @@ def fm_schedule_to_instructions(
         (mode for mode in operation_modes if "idle" in mode.diagnostic_label.lower()),
         None,
     )
+    logger.debug(f"idle_operation_mode: {idle_operation_mode}")
 
     if idle_operation_mode is None:
         print("No valid idle operation mode found.")
@@ -134,6 +141,7 @@ def fm_schedule_to_instructions(
             if "idle" not in op_mode.diagnostic_label.lower()
         ]
     )
+    logger.debug(f"max_eff: {max_eff}")
 
     for timestamp, row in schedule.iterrows():
         value = row["schedule"]
