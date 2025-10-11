@@ -87,6 +87,7 @@ def fm_schedule_to_instructions(
     schedule: pd.DataFrame,
     system_description: FRBCSystemDescription,
     initial_fill_level: float,
+    logger,
 ) -> List[FRBCInstruction]:
 
     if len(schedule) == 0 or len(system_description.actuators) == 0:

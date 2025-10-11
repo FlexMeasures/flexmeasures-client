@@ -482,12 +482,9 @@ class FillRateBasedControlTUNES(FRBC):
             self._logger.error(str(exc))
         self._logger.debug("12")
 
-        try:
-            instructions = fm_schedule_to_instructions(
-                schedule, system_description, soc_at_start
-            )
-        except Exception as exc:
-            self._logger.error(str(exc))
+        instructions = fm_schedule_to_instructions(
+            schedule, system_description, soc_at_start
+        )
         self._logger.debug("Instructions generated:")
         self._logger.debug(instructions)
 
