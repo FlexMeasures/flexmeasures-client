@@ -166,6 +166,7 @@ def fm_schedule_to_instructions(
                 ]
 
                 if not valid_operation_modes:
+                    logger.warning(f"Schedule does not map to a valid operation mode for {timestamp}.")
                     continue
 
                 max_fill_rate = max(
