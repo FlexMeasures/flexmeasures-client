@@ -70,7 +70,7 @@ class FillRateBasedControlTUNES(FRBC):
     _thp_efficiency_sensor_id: int
     _nes_fill_rate_sensor_id: int
     _nes_efficiency_sensor_id: int
-    _leakage_beaviour_sensor_id: int
+    _leakage_behaviour_sensor_id: int
 
     _active_actuator_id_sensor_id: int
 
@@ -120,7 +120,7 @@ class FillRateBasedControlTUNES(FRBC):
         self._thp_efficiency_sensor_id = thp_efficiency_sensor_id
         self._nes_fill_rate_sensor_id = nes_fill_rate_sensor_id
         self._nes_efficiency_sensor_id = nes_efficiency_sensor_id
-        self._leakage_beaviour_sensor_id = leakage_beaviour_sensor_id
+        self._leakage_behaviour_sensor_id = leakage_beaviour_sensor_id
 
         self._active_actuator_id_sensor_id = active_actuator_id_sensor_id
 
@@ -190,7 +190,7 @@ class FillRateBasedControlTUNES(FRBC):
             )
 
             await self._fm_client.post_sensor_data(
-                self._leakage_beaviour_sensor_id,
+                self._leakage_behaviour_sensor_id,
                 start=start,
                 values=[
                     leakage_behaviour_to_storage_efficieny(
@@ -368,7 +368,7 @@ class FillRateBasedControlTUNES(FRBC):
                 "soc-max": f"{soc_max} {ENERGY_UNIT}",
                 "soc-min": f"{soc_min} {ENERGY_UNIT}",
                 "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
-                "storage-efficiency": {"sensor": self._leakage_beaviour_sensor_id},
+                "storage-efficiency": {"sensor": self._leakage_behaviour_sensor_id},
                 "charging-efficiency": {"sensor": self._thp_efficiency_sensor_id},
                 "power-capacity": f"{charging_capacity} {POWER_UNIT}",
                 "consumption-capacity": f"{charging_capacity} {POWER_UNIT}",
@@ -438,7 +438,7 @@ class FillRateBasedControlTUNES(FRBC):
         self._logger.debug("6")
 
         leakage_behaviour = await self._fm_client.get_sensor_data(
-            sensor_id=self._leakage_beaviour_sensor_id,
+            sensor_id=self._leakage_behaviour_sensor_id,
             start=start,
             duration=duration,
             unit="dimensionless",
