@@ -69,7 +69,7 @@ async def setup_cem(resource_manager_details, rm_handshake, monkeypatch):
     )
 
     # disable rate limiting for testing
-    frbc._minimum_measurement_period = 0
+    frbc._minimum_measurement_period = timedelta(0)
 
     cem.register_control_type(frbc)
 
