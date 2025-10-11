@@ -225,7 +225,7 @@ def fm_schedule_to_instructions(
         # Update fill level
         logger.debug("Updating fill level..")
         fill_level = (
-            fill_level * (storage_efficiency)
+            fill_level * storage_eff
             + (row["schedule"] * charging_efficiency * deltaT) * storage_eff
             - usage * deltaT
         )
