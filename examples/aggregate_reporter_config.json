@@ -3,6 +3,8 @@
     "weights": {
         "pv": -1.0,
         "consumption": 1.0,
-        "battery-power": 1.0
+        "battery-power": 1.0,
+        "evse1-power": 1.0,
+        "evse2-power": 1.0
     }
 }
