@@ -1118,4 +1118,4 @@ class FlexMeasuresClient:
     def try_convert_to_iso_duration(dt: str | datetime) -> str:
         if isinstance(dt, str):
             return dt
-        pd.Timedelta(dt).isoformat()
+        return pd.Timedelta(dt).isoformat()
