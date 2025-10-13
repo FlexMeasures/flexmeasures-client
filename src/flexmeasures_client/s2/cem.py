@@ -345,7 +345,7 @@ class CEM(Handler):
             try:
                 await self._fm_client.post_sensor_data(
                     sensor_id,
-                    start=message.measurement_timestamp,
+                    start=bin_start.isoformat(),
                     duration=self._minimum_measurement_period.isoformat(),  # TODO: not specified in S2 Protocol
                     values=[avg_value],
                     unit=get_commodity_unit(commodity_quantity),
