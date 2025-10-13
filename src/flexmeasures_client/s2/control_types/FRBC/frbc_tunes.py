@@ -366,7 +366,8 @@ class FillRateBasedControlTUNES(FRBC):
         }
         flex_model = {
                 "state-of-charge": {"sensor": self._state_of_charge_sensor_id},
-                "soc-at-start": f"{soc_at_start} {ENERGY_UNIT}",
+                # "soc-at-start": f"{soc_at_start} {ENERGY_UNIT}",
+                "soc-at-start": f"{soc_min} {ENERGY_UNIT}",
                 "soc-max": f"{soc_max} {ENERGY_UNIT}",
                 "soc-min": f"{soc_min} {ENERGY_UNIT}",
                 # "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
