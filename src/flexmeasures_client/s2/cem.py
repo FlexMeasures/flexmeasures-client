@@ -307,12 +307,15 @@ class CEM(Handler):
             #     sensor_id = self._power_sensors[commodity_quantity]
             # else:
             #     sensor_id = 357  # TODO: create a new sensor or return ReceptionStatus
+            self._logger.debug(f"self.power_sensor_id: {self.power_sensor_id}")
+            self._logger.debug(f"commodity_quantity: {commodity_quantity}")
             if self.power_sensor_id is None and commodity_quantity == "ELECTRIC.POWER.L1":
                 sensor_id = 357
             else:
                 sensor_id = self.power_sensor_id.get("commodity_quantity")
                 if sensor_id is None:
                     continue
+            self._logger.debug(f"sensor_id: {sensor_id}")
 
             # Store the value in the buffer
             self._power_buffer[commodity_quantity].append(
