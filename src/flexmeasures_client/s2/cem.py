@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from asyncio import Queue
+from collections import defaultdict
 from datetime import datetime, timedelta
 from logging import Logger
 from typing import Dict, Optional
@@ -60,6 +61,8 @@ class CEM(Handler):
 
     _timers: dict[str, datetime]
     _minimum_measurement_period: pd.Timedelta = pd.Timedelta(minutes=5)
+
+    _power_buffer = defaultdict(list)  # {commodity_quantity: [(timestamp, value), ...]}
 
     def __init__(
         self,
@@ -299,8 +302,6 @@ class CEM(Handler):
 
         for power_measurement in message.values:
             commodity_quantity = power_measurement.commodity_quantity.value
-            if not self.is_timer_due(f"power_measurement_{commodity_quantity}"):
-                continue
 
             # if commodity_quantity in self._power_sensors:
             #     sensor_id = self._power_sensors[commodity_quantity]
@@ -308,19 +309,47 @@ class CEM(Handler):
             #     sensor_id = 357  # TODO: create a new sensor or return ReceptionStatus
             sensor_id = self.power_sensor_id if self.power_sensor_id is not None else 357
 
-            # send measurement
+            # Store the value in the buffer
+            self._power_buffer[commodity_quantity].append(
+                (message.measurement_timestamp, power_measurement.value)
+            )
+
+            # If timer not due, just collect values
+            if not self.is_timer_due(f"power_measurement_{commodity_quantity}"):
+                continue
+
+            # Compute average of all buffered values in last 5 minutes
+            buffer = self._power_buffer[commodity_quantity]
+            cutoff = self.now() - self._minimum_measurement_period
+            recent_values = [v for (t, v) in buffer if t >= cutoff]
+
+            if not recent_values:
+                self._logger.debug(f"No recent values to average for {commodity_quantity}")
+                continue
+
+            avg_value = sum(recent_values) / len(recent_values)
+            self._logger.debug(
+                f"Posting 5-minute average for {commodity_quantity}: {avg_value}"
+            )
+
+            # Send measurement
             try:
                 await self._fm_client.post_sensor_data(
                     sensor_id,
                     start=message.measurement_timestamp,
                     duration=self._minimum_measurement_period.isoformat(),  # TODO: not specified in S2 Protocol
-                    values=[power_measurement.value],
+                    values=[avg_value],
                     unit=get_commodity_unit(commodity_quantity),
                 )
             except Exception as e:
                 self._logger.warning(
                     f"POSTing power measurement failed with error: {e}"
                 )
+
+            # Remove old entries (keep buffer clean)
+            self._power_buffer[commodity_quantity] = [
+                (t, v) for (t, v) in buffer if t >= cutoff
+            ]
 
         return get_reception_status(message)
 

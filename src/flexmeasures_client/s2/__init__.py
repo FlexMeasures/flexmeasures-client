@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import inspect
 import json
+import pytz
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -97,7 +98,7 @@ class Handler:
 
     background_tasks: set
 
-    def __init__(self, max_size: int = 100) -> None:
+    def __init__(self, max_size: int = 100, timezone: str = "UTC") -> None:
         """
         Handler
         This class does the following:
@@ -123,6 +124,8 @@ class Handler:
         self.objects_revoked = deque(maxlen=max_size)
 
         self.outgoing_messages_status = SizeLimitOrderedDict(max_size=max_size)
+
+        self._timezone = pytz.timezone(timezone)
 
         self.discover()
 
@@ -235,7 +238,7 @@ class Handler:
             self.success_callbacks.pop(str(message.subject_message_id), None)
 
     @register(RevokeObject)
-    def handle_revoke_object(self, message: RevokeObject):
+    def handle_revoke_object(self, message: RevokeObject) -> ReceptionStatus:
         """
         Stores the revoked object ID into the objects_revoked list
         """
@@ -245,3 +248,6 @@ class Handler:
         return ReceptionStatus(
             subject_message_id=str(message.message_id), status=ReceptionStatusValues.OK
         )
+
+    def now(self):
+        return datetime.now(self._timezone)
