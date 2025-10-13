@@ -126,6 +126,12 @@ def fm_schedule_to_instructions(
     )
     logger.debug(f"idle_operation_mode: {idle_operation_mode}")
 
+    # Find 1 non-idle operation mode
+    non_idle_operation_mode = next(
+        (mode for mode in operation_modes if "idle" not in mode.diagnostic_label.lower()),
+        None,
+    )
+
     if idle_operation_mode is None:
         print("No valid idle operation mode found.")
         return []
@@ -155,7 +161,7 @@ def fm_schedule_to_instructions(
 
         if previous_value is None or not isclose(previous_value, value):
             if np.isclose(value, 0):
-                operation_mode = idle_operation_mode
+                operation_mode = non_idle_operation_mode
                 operation_mode_factor = 0.1
                 charging_efficiency = 1
             else:
