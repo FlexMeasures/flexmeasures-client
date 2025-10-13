@@ -116,6 +116,8 @@ def fm_schedule_to_instructions(
         )
 
     operation_modes: list[FRBCOperationMode] = actuator.operation_modes
+    logger.debug(f"operation_modes: {[mode.diagnostic_label.lower() for mode in operation_modes]}")
+
 
     # Find idle operation mode
     idle_operation_mode = next(
