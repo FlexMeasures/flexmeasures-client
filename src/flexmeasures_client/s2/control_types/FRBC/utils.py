@@ -226,6 +226,8 @@ def fm_schedule_to_instructions(
         logger.debug(f"storage_eff: {storage_eff}")
         if pd.isnull(storage_eff):
             storage_eff = 1
+        if pd.isnull(charging_efficiency):
+            charging_efficiency = 1
 
         # Update fill level
         logger.debug(f"Updating fill level for {timestamp}..")
