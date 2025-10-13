@@ -363,6 +363,7 @@ class FillRateBasedControlTUNES(FRBC):
             "consumption-price": {"sensor": self._consumption_price_sensor_id},
             "production-price": {"sensor": self._production_price_sensor_id},
             "site-power-capacity": "1000MVA",
+            "relax-constraints": True,
         }
         flex_model = {
                 "state-of-charge": {"sensor": self._state_of_charge_sensor_id},
