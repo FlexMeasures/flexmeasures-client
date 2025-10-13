@@ -162,7 +162,7 @@ def fm_schedule_to_instructions(
         if previous_value is None or not isclose(previous_value, value):
             if np.isclose(value, 0):
                 operation_mode = non_idle_operation_mode
-                operation_mode_factor = 0.5
+                operation_mode_factor = 0.1
                 charging_efficiency = 1
             else:
                 valid_operation_modes = [
