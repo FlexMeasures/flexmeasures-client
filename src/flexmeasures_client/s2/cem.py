@@ -70,7 +70,7 @@ class CEM(Handler):
         logger: Logger | None = None,
         default_control_type: ControlType | None = None,
         timers: dict[str: datetime] | None = None,
-        power_sensor_id: int | None = None,
+        power_sensor_id: dict[str: int] | None = None,
     ) -> None:
         """
         Customer Energy Manager (CEM)
@@ -307,7 +307,12 @@ class CEM(Handler):
             #     sensor_id = self._power_sensors[commodity_quantity]
             # else:
             #     sensor_id = 357  # TODO: create a new sensor or return ReceptionStatus
-            sensor_id = self.power_sensor_id if self.power_sensor_id is not None else 357
+            if self.power_sensor_id is None and commodity_quantity == "ELECTRIC.POWER.L1":
+                sensor_id = 357
+            else:
+                sensor_id = self.power_sensor_id.get("commodity_quantity")
+                if sensor_id is None:
+                    continue
 
             # Store the value in the buffer
             self._power_buffer[commodity_quantity].append(
