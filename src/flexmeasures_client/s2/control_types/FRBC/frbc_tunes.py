@@ -565,9 +565,9 @@ class FillRateBasedControlTUNES(FRBC):
         actuator = system_description.actuators[0]
 
         # Calculate the number of samples based on the conversion efficiency duration
-        # N_SAMPLES = int(
-        #     pd.Timedelta(SYSTEM_DESCRIPTION_VALID_DURATION) / pd.Timedelta(RESOLUTION)
-        # )
+        N_SAMPLES = int(
+            pd.Timedelta(SYSTEM_DESCRIPTION_VALID_DURATION) / pd.Timedelta(RESOLUTION)
+        )
 
         N_SAMPLES = 1
 
