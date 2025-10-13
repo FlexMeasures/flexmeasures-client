@@ -314,16 +314,20 @@ class CEM(Handler):
                 (message.measurement_timestamp, power_measurement.value)
             )
 
-            # If timer not due, just collect values
-            if not self.is_timer_due(f"power_measurement_{commodity_quantity}"):
-                continue
-
-            # Compute average of all buffered values in last 5 minutes
+            # Compute bin
             now = datetime.now(self._timezone)
             m = self._minimum_measurement_period // pd.Timedelta(minutes=1)
             bin_end = now.replace(second=0, microsecond=0, minute=(now.minute // m) * m)  # e.g. 10:15:00
             bin_start = bin_end - self._minimum_measurement_period
 
+            # If timer not due, just collect values
+            if not self.is_timer_due(f"power_measurement_{commodity_quantity}"):
+                self._logger.debug(
+                    f"Collecting 5-minute average for {commodity_quantity} ({bin_start.isoformat()} – {bin_end.isoformat()})"
+                )
+                continue
+
+            # Compute average of all buffered values in last 5 minutes
             buffer = self._power_buffer[commodity_quantity]
             period_values = [v for (t, v) in buffer if bin_start <= t < bin_end]
 
