@@ -60,7 +60,7 @@ POWER_UNIT = "MW"
 DIMENSIONLESS = "dimensionless"
 PERCENTAGE = "%"
 TASK_PERIOD_SECONDS = 1 * 60
-SYSTEM_DESCRIPTION_VALID_DURATION = "P1M"
+CONVERSION_EFFICIENCY_DURATION = "PT24H"
 
 
 class FillRateBasedControlTUNES(FRBC):
@@ -566,7 +566,7 @@ class FillRateBasedControlTUNES(FRBC):
 
         # Calculate the number of samples based on the conversion efficiency duration
         N_SAMPLES = int(
-            pd.Timedelta(SYSTEM_DESCRIPTION_VALID_DURATION) / pd.Timedelta(RESOLUTION)
+            pd.Timedelta(CONVERSION_EFFICIENCY_DURATION) / pd.Timedelta(RESOLUTION)
         )
 
         N_SAMPLES = 1
@@ -594,7 +594,7 @@ class FillRateBasedControlTUNES(FRBC):
                 ]
                 * N_SAMPLES,
                 unit="dimensionless",
-                duration=SYSTEM_DESCRIPTION_VALID_DURATION,
+                duration=CONVERSION_EFFICIENCY_DURATION,
             )
 
         # Send SOC Maxima and SOC Minima
@@ -604,7 +604,7 @@ class FillRateBasedControlTUNES(FRBC):
             values=system_description.storage.fill_level_range.start_of_range
             * FILL_LEVEL_SCALE,
             unit=ENERGY_UNIT,
-            duration=SYSTEM_DESCRIPTION_VALID_DURATION,
+            duration=CONVERSION_EFFICIENCY_DURATION,
         )
 
         await self._fm_client.post_sensor_data(
@@ -613,7 +613,7 @@ class FillRateBasedControlTUNES(FRBC):
             values=system_description.storage.fill_level_range.end_of_range
             * FILL_LEVEL_SCALE,
             unit=ENERGY_UNIT,
-            duration=SYSTEM_DESCRIPTION_VALID_DURATION,
+            duration=CONVERSION_EFFICIENCY_DURATION,
         )
 
     async def close(self):
