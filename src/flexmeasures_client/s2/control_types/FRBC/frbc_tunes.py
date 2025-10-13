@@ -48,7 +48,7 @@ from flexmeasures_client.s2 import register
 from flexmeasures_client.s2.control_types.FRBC import FRBC
 from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
 from flexmeasures_client.s2.control_types.translations import (
-    leakage_behaviour_to_storage_efficieny,
+    leakage_behaviour_to_storage_efficiency,
     translate_fill_level_target_profile,
     translate_usage_forecast_to_fm,
 )
@@ -194,7 +194,7 @@ class FillRateBasedControlTUNES(FRBC):
                 self._leakage_behaviour_sensor_id,
                 start=start,
                 values=[
-                    leakage_behaviour_to_storage_efficieny(
+                    leakage_behaviour_to_storage_efficiency(
                         message=leakage, resolution=timedelta(minutes=15)
                     )
                 ],

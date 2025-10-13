@@ -20,11 +20,11 @@ except ImportError:
     )
 
 
-def leakage_behaviour_to_storage_efficieny(
+def leakage_behaviour_to_storage_efficiency(
     message: FRBCLeakageBehaviour, resolution=timedelta(minutes=15)
 ) -> float:
     """
-    Convert a FRBC.LeakeageBehaviour message into a FlexMeasures compatible storage efficiency.
+    Convert a FRBC.LeakageBehaviour message into a FlexMeasures compatible storage efficiency.
 
     Definitions:
 
