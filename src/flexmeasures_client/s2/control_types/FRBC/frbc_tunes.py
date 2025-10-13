@@ -369,7 +369,12 @@ class FillRateBasedControlTUNES(FRBC):
                 "soc-at-start": f"{soc_at_start} {ENERGY_UNIT}",
                 "soc-max": f"{soc_max} {ENERGY_UNIT}",
                 "soc-min": f"{soc_min} {ENERGY_UNIT}",
-                "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
+                # "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
+                "soc-usage": [{
+                    "start": "2025-10-13T16:00+02",
+                    "duration": "PT1H",
+                    "value": "14 MW",
+                }],
                 "storage-efficiency": {"sensor": self._leakage_behaviour_sensor_id},
                 "charging-efficiency": {"sensor": self._thp_efficiency_sensor_id},
                 "power-capacity": f"{charging_capacity} {POWER_UNIT}",
