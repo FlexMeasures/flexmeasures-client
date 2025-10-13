@@ -391,7 +391,7 @@ class FlexMeasuresClient:
             start=pd.Timestamp(
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
-            duration=pd.Timedelta(duration).isoformat(),  # for example: PT1H
+            duration=self.try_convert_to_iso_duration(duration),  # for example: PT1H
             values=values,
             unit=unit,
         )
@@ -536,7 +536,7 @@ class FlexMeasuresClient:
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
             method="GET",
             params={
-                "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
+                "duration": self.try_convert_to_iso_duration(duration),  # for example: PT1H
             },
         )
         check_for_status(status, 200)
@@ -727,7 +727,7 @@ class FlexMeasuresClient:
             start=pd.Timestamp(
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
-            duration=pd.Timedelta(duration).isoformat(),  # for example: PT1H
+            duration=self.try_convert_to_iso_duration(duration),  # for example: PT1H
             unit=unit,
             resolution=resolution,
             **kwargs,
@@ -996,7 +996,7 @@ class FlexMeasuresClient:
             "start": pd.Timestamp(
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
-            "duration": pd.Timedelta(duration).isoformat(),
+            "duration": self.try_convert_to_iso_duration(duration),
         }
         if flex_model is not None:
             message["flex-model"] = flex_model
@@ -1113,3 +1113,9 @@ class FlexMeasuresClient:
                 f"Power conversion from {from_unit} to {to_unit} is not supported."
             )
         return values
+
+    @staticmethod
+    def try_convert_to_iso_duration(dt: str | datetime) -> str:
+        if isinstance(dt, str):
+            return dt
+        pd.Timedelta(dt).isoformat()
