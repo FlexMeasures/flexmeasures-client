@@ -152,7 +152,7 @@ def translate_usage_forecast_to_fm(
     values = [
         element.usage_rate_expected #  * FILL_LEVEL_SCALE
         for element in usage_forecast.elements
-    ]
+    ]  # e.g. [0, 1000] fill_level/s -> [0, 100] %/s
 
     return unevenly_ts_to_evenly(
         start=start,
