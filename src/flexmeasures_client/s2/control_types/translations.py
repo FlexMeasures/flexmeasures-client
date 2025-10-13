@@ -150,7 +150,7 @@ def translate_usage_forecast_to_fm(
 
     durations = [element.duration.to_timedelta() for element in usage_forecast.elements]
     values = [
-        element.usage_rate_expected * FILL_LEVEL_SCALE
+        element.usage_rate_expected #  * FILL_LEVEL_SCALE
         for element in usage_forecast.elements
     ]
 
