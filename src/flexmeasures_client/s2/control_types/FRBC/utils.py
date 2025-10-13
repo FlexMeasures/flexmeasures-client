@@ -22,7 +22,7 @@ except ImportError:
 from flexmeasures_client.s2.utils import get_unique_id
 
 
-def op_mode_compute_factor(op_mode_elem: FRBCOperationModeElement, fill_rate):
+def op_mode_compute_factor(op_mode_elem: FRBCOperationModeElement, fill_rate, logger):
     """
     Compute the operation mode factor for a fill_rate
     """
@@ -35,7 +35,10 @@ def op_mode_compute_factor(op_mode_elem: FRBCOperationModeElement, fill_rate):
     if np.isclose(delta_fill_rate, 0):
         return 1
 
-    return (fill_rate - start_fill_rate) / delta_fill_rate
+    omf = (fill_rate - start_fill_rate) / delta_fill_rate
+    if omf < 0 or omf > 1:
+        logger.error(f"Invalid operation mode factor {omf} computed from fill_rate {fill_rate}")
+    return omf
 
 
 def op_mode_range(op_mode: FRBCOperationMode):
@@ -201,7 +204,7 @@ def fm_schedule_to_instructions(
                     op_mode_elements, key=lambda x: x[0]
                 )[0]
 
-                operation_mode_factor = op_mode_compute_factor(op_mode_elem, value)
+                operation_mode_factor = op_mode_compute_factor(op_mode_elem, value, logger=logger)
 
             logger.debug("Creating instruction..")
             instruction = FRBCInstruction(
