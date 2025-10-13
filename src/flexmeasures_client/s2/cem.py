@@ -310,11 +310,11 @@ class CEM(Handler):
             self._logger.debug(f"self.power_sensor_id: {self.power_sensor_id}")
             self._logger.debug(f"commodity_quantity: {commodity_quantity}")
             self._logger.debug(f"type(commodity_quantity): {type(commodity_quantity)}")
-            self._logger.debug(f"self.power_sensor_id.get('commodity_quantity'): {self.power_sensor_id.get('commodity_quantity')}")
+            self._logger.debug(f"self.power_sensor_id.get(commodity_quantity): {self.power_sensor_id.get(commodity_quantity)}")
             if self.power_sensor_id is None and commodity_quantity == "ELECTRIC.POWER.L1":
                 sensor_id = 357
             else:
-                sensor_id = self.power_sensor_id.get("commodity_quantity")
+                sensor_id = self.power_sensor_id.get(commodity_quantity)
                 if sensor_id is None:
                     continue
             self._logger.debug(f"sensor_id: {sensor_id}")
