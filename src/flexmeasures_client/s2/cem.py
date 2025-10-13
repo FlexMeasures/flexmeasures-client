@@ -5,7 +5,7 @@ import json
 import logging
 from asyncio import Queue
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from logging import Logger
 from typing import Dict, Optional
 import pandas as pd
@@ -319,17 +319,22 @@ class CEM(Handler):
                 continue
 
             # Compute average of all buffered values in last 5 minutes
-            buffer = self._power_buffer[commodity_quantity]
-            cutoff = self.now() - self._minimum_measurement_period
-            recent_values = [v for (t, v) in buffer if t >= cutoff]
+            now = datetime.now(self._timezone)
+            m = self._minimum_measurement_period // pd.Timedelta(minutes=1)
+            bin_end = now.replace(second=0, microsecond=0, minute=(now.minute // m) * m)  # e.g. 10:15:00
+            bin_start = bin_end - self._minimum_measurement_period
 
-            if not recent_values:
-                self._logger.debug(f"No recent values to average for {commodity_quantity}")
+            buffer = self._power_buffer[commodity_quantity]
+            period_values = [v for (t, v) in buffer if bin_start <= t < bin_end]
+
+            if not period_values:
+                self._logger.debug(f"No samples found for {commodity_quantity} in {bin_start}–{bin_end}, skipping.")
                 continue
 
-            avg_value = sum(recent_values) / len(recent_values)
+            avg_value = sum(period_values) / len(period_values)
             self._logger.debug(
-                f"Posting 5-minute average for {commodity_quantity}: {avg_value}"
+                f"Posting 5-minute average for {commodity_quantity}: "
+                f"{avg_value} ({bin_start.isoformat()} – {bin_end.isoformat()})"
             )
 
             # Send measurement
@@ -346,9 +351,9 @@ class CEM(Handler):
                     f"POSTing power measurement failed with error: {e}"
                 )
 
-            # Remove old entries (keep buffer clean)
+            # Keep only samples newer than this bin (for next period)
             self._power_buffer[commodity_quantity] = [
-                (t, v) for (t, v) in buffer if t >= cutoff
+                (t, v) for (t, v) in buffer if t >= bin_end
             ]
 
         return get_reception_status(message)
