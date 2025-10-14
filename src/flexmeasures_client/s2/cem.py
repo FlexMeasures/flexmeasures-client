@@ -71,12 +71,11 @@ class CEM(Handler):
         default_control_type: ControlType | None = None,
         timers: dict[str: datetime] | None = None,
         power_sensor_id: dict[str: int] | None = None,
-        timezone: str | None = None,
     ) -> None:
         """
         Customer Energy Manager (CEM)
         """
-        super(CEM, self).__init__(timezone=timezone)
+        super(CEM, self).__init__()
 
         self._fm_client = fm_client
         self._sending_queue = Queue()
