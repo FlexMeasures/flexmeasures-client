@@ -154,19 +154,22 @@ def fm_schedule_to_instructions(
     )
     logger.debug(f"max_eff: {max_eff}")
 
-    instruction = FRBCInstruction(
-        message_id=get_unique_id(),
-        id=get_unique_id(),
-        actuator_id=actuator.id,
-        operation_mode=non_idle_operation_mode.id,
-        operation_mode_factor=1.0,
-        execution_time=pd.Timestamp("2025-10-14 09:30:00+00:00"),
-        abnormal_condition=False,
-    )
-    logger.debug(f"instruction: {instruction.to_json()}")
-    instructions.append(instruction)
 
     for timestamp, row in schedule.iterrows():
+        if pd.Timestamp(timestamp) == pd.Timestamp("2025-10-14 09:30:00+00:00"):
+            instruction = FRBCInstruction(
+                message_id=get_unique_id(),
+                id=get_unique_id(),
+                actuator_id=actuator.id,
+                operation_mode=non_idle_operation_mode.id,
+                operation_mode_factor=1.0,
+                execution_time=pd.Timestamp("2025-10-14 09:30:00+00:00"),
+                abnormal_condition=False,
+            )
+            logger.debug(f"instruction: {instruction.to_json()}")
+            instructions.append(instruction)
+            continue
+
         value = row["schedule"]
         usage = row["usage_forecast"]
         if pd.isnull(usage):
