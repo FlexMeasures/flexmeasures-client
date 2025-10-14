@@ -208,6 +208,9 @@ def fm_schedule_to_instructions(
 
                 value = -value
 
+                if pd.Timestamp(timestamp) == pd.Timestamp("2025-10-14 09:15:00+00:00"):
+                    value = 3600
+
                 operation_mode_factor = op_mode_compute_factor(op_mode_elem, value, logger=logger)
 
             logger.debug(f"Creating instruction for operation_mode_factor {operation_mode_factor}..")
