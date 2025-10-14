@@ -156,14 +156,14 @@ def fm_schedule_to_instructions(
 
 
     for timestamp, row in schedule.iterrows():
-        if pd.Timestamp(timestamp) == pd.Timestamp("2025-10-14 09:30:00+00:00"):
+        if pd.Timestamp(timestamp) < pd.Timestamp("2025-10-14 14:45:00+02:00"):
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
                 id=get_unique_id(),
                 actuator_id=actuator.id,
-                operation_mode=idle_operation_mode.id,
+                operation_mode=non_idle_operation_mode.id,
                 operation_mode_factor=0.,
-                execution_time=pd.Timestamp("2025-10-14 09:30:00+00:00"),
+                execution_time=timestamp,
                 abnormal_condition=False,
             )
             logger.debug(f"instruction: {instruction.to_json()}")
