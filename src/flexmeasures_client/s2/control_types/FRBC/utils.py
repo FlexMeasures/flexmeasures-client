@@ -1,7 +1,7 @@
 import math
+import pytz
 from datetime import timedelta
 from math import isclose
-from pytz.tzinfo import DstTzInfo
 from typing import List
 
 import numpy as np
@@ -111,7 +111,7 @@ def fm_schedule_to_instructions(
     system_description: FRBCSystemDescription,
     initial_fill_level: float,
     logger,
-    timezone: DstTzInfo | None = None,
+    timezone: pytz.timezone | None = None,
 ) -> List[FRBCInstruction]:
     logger.debug(schedule.to_json())
     logger.debug(system_description.to_json())
