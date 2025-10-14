@@ -88,6 +88,23 @@ def op_mode_elem_efficiency(op_mode_elem: FRBCOperationModeElement):
     )
 
 
+def compute_next_fill_level(
+    fill_level: float,
+    storage_eff: float,
+    power: float,
+    charging_efficiency: float,
+    deltaT: float,
+    usage: float,
+) -> float:
+    fill_rate = power * charging_efficiency * deltaT
+    next_fill_level = (
+        fill_level * storage_eff
+        + fill_rate * storage_eff
+        - usage * deltaT
+    )
+    return next_fill_level
+
+
 def fm_schedule_to_instructions(
     schedule: pd.DataFrame,
     system_description: FRBCSystemDescription,
@@ -264,10 +281,13 @@ def fm_schedule_to_instructions(
         logger.debug(f"deltaT: {deltaT}")
         logger.debug(f"usage: {usage}")
         logger.debug(f"charging_efficiency: {charging_efficiency}")
-        fill_level = (
-            fill_level * storage_eff
-            + (row["schedule"] * charging_efficiency * deltaT) * storage_eff
-            - usage * deltaT
+        fill_level = compute_next_fill_level(
+            fill_level=fill_level,
+            storage_eff=storage_eff,
+            power=row["schedule"],
+            charging_efficiency=charging_efficiency,
+            deltaT=deltaT,
+            usage=usage,
         )
 
         logger.debug(f"fill_level: {fill_level}")
