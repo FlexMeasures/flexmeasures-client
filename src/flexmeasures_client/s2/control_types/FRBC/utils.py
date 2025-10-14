@@ -31,6 +31,8 @@ def op_mode_compute_factor(op_mode_elem: FRBCOperationModeElement, fill_rate, lo
     end_fill_rate = op_mode_elem.fill_rate.end_of_range * FILL_LEVEL_SCALE
     delta_fill_rate = end_fill_rate - start_fill_rate
 
+    fill_rate = max(fill_rate, start_fill_rate)
+
     # Case that start_fill_rate == end_fill_rate
     if np.isclose(delta_fill_rate, 0):
         return 1
@@ -206,7 +208,7 @@ def fm_schedule_to_instructions(
 
                 operation_mode_factor = op_mode_compute_factor(op_mode_elem, value, logger=logger)
 
-            logger.debug("Creating instruction..")
+            logger.debug(f"Creating instruction for operation_mode_factor {operation_mode_factor}..")
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
                 id=get_unique_id(),
