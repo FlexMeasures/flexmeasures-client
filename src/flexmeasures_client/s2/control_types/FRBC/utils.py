@@ -111,7 +111,7 @@ def fm_schedule_to_instructions(
     system_description: FRBCSystemDescription,
     initial_fill_level: float,
     logger,
-    timezone: pytz.timezone | None = None,
+    timezone: pytz.timezone,
 ) -> List[FRBCInstruction]:
     logger.debug(schedule.to_json())
     logger.debug(system_description.to_json())
@@ -173,8 +173,7 @@ def fm_schedule_to_instructions(
     logger.debug(f"max_eff: {max_eff}")
 
     for timestamp, row in schedule.iterrows():
-        if timezone is not None:
-            timestamp = pd.Timestamp(timestamp).tz_convert(timezone)
+        timestamp = pd.Timestamp(timestamp).tz_convert(timezone)
         if pd.Timestamp(timestamp) >= pd.Timestamp("2025-10-14 15:00:00+02:00") and pd.Timestamp(timestamp) < pd.Timestamp("2025-10-14 15:15:00+02:00"):
             operation_mode = non_idle_operation_mode
             operation_mode_factor = 0.
