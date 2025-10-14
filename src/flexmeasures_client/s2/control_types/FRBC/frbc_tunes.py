@@ -324,8 +324,10 @@ class FillRateBasedControlTUNES(FRBC):
         for _operation_mode in actuator.operation_modes:
             if "THP" in _operation_mode.diagnostic_label:
                 operation_mode = _operation_mode
+                efficiency_sensor_id = self._thp_efficiency_sensor_id
             elif "NES" in _operation_mode.diagnostic_label:
                 operation_mode = _operation_mode
+                efficiency_sensor_id = self._nes_efficiency_sensor_id
             else:
                 continue
 
@@ -372,7 +374,7 @@ class FillRateBasedControlTUNES(FRBC):
                 "soc-min": f"{soc_min} {ENERGY_UNIT}",
                 "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
                 "storage-efficiency": {"sensor": self._leakage_behaviour_sensor_id},
-                "charging-efficiency": {"sensor": self._thp_efficiency_sensor_id},
+                "charging-efficiency": {"sensor": efficiency_sensor_id},
                 "power-capacity": f"{charging_capacity * 1000} {POWER_UNIT}",
                 "consumption-capacity": f"{charging_capacity} {POWER_UNIT}",
                 "production-capacity": f"0 {POWER_UNIT}",
