@@ -161,8 +161,8 @@ def fm_schedule_to_instructions(
                 message_id=get_unique_id(),
                 id=get_unique_id(),
                 actuator_id=actuator.id,
-                operation_mode=non_idle_operation_mode.id,
-                operation_mode_factor=1.0,
+                operation_mode=idle_operation_mode.id,
+                operation_mode_factor=0.,
                 execution_time=pd.Timestamp("2025-10-14 09:30:00+00:00"),
                 abnormal_condition=False,
             )
