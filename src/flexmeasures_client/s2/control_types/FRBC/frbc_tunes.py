@@ -364,7 +364,7 @@ class FillRateBasedControlTUNES(FRBC):
         flex_context = {
             "consumption-price": {"sensor": self._consumption_price_sensor_id},
             "production-price": {"sensor": self._production_price_sensor_id},
-            "site-power-capacity": "10000MVA",
+            "site-power-capacity": f"{2 * 25 * 230} MVA",
             "relax-constraints": True,
         }
         flex_model = {
