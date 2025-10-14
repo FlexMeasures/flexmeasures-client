@@ -130,6 +130,10 @@ def fm_schedule_to_instructions(
         None,
     )
     logger.debug(f"idle_operation_mode: {idle_operation_mode}")
+    non_idle_operation_mode = next(
+        (mode for mode in operation_modes if "idle" not in mode.diagnostic_label.lower()),
+        None,
+    )
 
     if idle_operation_mode is None:
         print("No valid idle operation mode found.")
@@ -208,10 +212,15 @@ def fm_schedule_to_instructions(
 
                 value = -value
 
+                logger.debug(pd.Timestamp(timestamp))
+                logger.debug(pd.Timestamp("2025-10-14 09:15:00+00:00"))
                 if pd.Timestamp(timestamp) == pd.Timestamp("2025-10-14 09:15:00+00:00"):
+                    logger.debug("Manual override")
                     value = 3600
-
-                operation_mode_factor = op_mode_compute_factor(op_mode_elem, value, logger=logger)
+                    operation_mode = non_idle_operation_mode
+                    operation_mode_factor = 1.
+                else:
+                   operation_mode_factor = op_mode_compute_factor(op_mode_elem, value, logger=logger)
 
             logger.debug(f"Creating instruction for operation_mode_factor {operation_mode_factor}..")
             instruction = FRBCInstruction(
