@@ -154,6 +154,18 @@ def fm_schedule_to_instructions(
     )
     logger.debug(f"max_eff: {max_eff}")
 
+    instruction = FRBCInstruction(
+        message_id=get_unique_id(),
+        id=get_unique_id(),
+        actuator_id=actuator.id,
+        operation_mode=non_idle_operation_mode.id,
+        operation_mode_factor=1.0,
+        execution_time=pd.Timestamp("2025-10-14 09:30:00+00:00"),
+        abnormal_condition=False,
+    )
+    logger.debug(f"instruction: {instruction.to_json()}")
+    instructions.append(instruction)
+
     for timestamp, row in schedule.iterrows():
         value = row["schedule"]
         usage = row["usage_forecast"]
@@ -212,16 +224,7 @@ def fm_schedule_to_instructions(
 
                 value = -value
 
-                logger.warning("Check this")
-                logger.warning(pd.Timestamp(timestamp))
-                logger.warning(pd.Timestamp("2025-10-14 09:15:00+00:00"))
-                if pd.Timestamp(timestamp) == pd.Timestamp("2025-10-14 09:15:00+00:00"):
-                    logger.warning("Manual override")
-                    value = 3600
-                    operation_mode = non_idle_operation_mode
-                    operation_mode_factor = 1.
-                else:
-                   operation_mode_factor = op_mode_compute_factor(op_mode_elem, value, logger=logger)
+                operation_mode_factor = op_mode_compute_factor(op_mode_elem, value, logger=logger)
 
             logger.debug(f"Creating instruction for operation_mode_factor {operation_mode_factor}..")
             instruction = FRBCInstruction(
