@@ -212,10 +212,11 @@ def fm_schedule_to_instructions(
 
                 value = -value
 
-                logger.debug(pd.Timestamp(timestamp))
-                logger.debug(pd.Timestamp("2025-10-14 09:15:00+00:00"))
+                logger.warning("Check this")
+                logger.warning(pd.Timestamp(timestamp))
+                logger.warning(pd.Timestamp("2025-10-14 09:15:00+00:00"))
                 if pd.Timestamp(timestamp) == pd.Timestamp("2025-10-14 09:15:00+00:00"):
-                    logger.debug("Manual override")
+                    logger.warning("Manual override")
                     value = 3600
                     operation_mode = non_idle_operation_mode
                     operation_mode_factor = 1.
