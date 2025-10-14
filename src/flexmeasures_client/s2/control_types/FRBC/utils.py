@@ -171,7 +171,7 @@ def fm_schedule_to_instructions(
     logger.debug(f"max_eff: {max_eff}")
 
     for timestamp, row in schedule.iterrows():
-        if pd.Timestamp(timestamp) < pd.Timestamp("2025-10-14 15:15:00+02:00"):
+        if pd.Timestamp(timestamp) >= pd.Timestamp("2025-10-14 15:00:00+02:00") and pd.Timestamp(timestamp) < pd.Timestamp("2025-10-14 15:15:00+02:00"):
             operation_mode = non_idle_operation_mode
             operation_mode_factor = 0.
             instruction = FRBCInstruction(
