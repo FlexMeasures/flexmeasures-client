@@ -499,8 +499,6 @@ class FillRateBasedControlTUNES(FRBC):
         instructions = fm_schedule_to_instructions(
             schedule, system_description, soc_at_start, logger=self._logger
         )
-        self._logger.debug("Instructions generated:")
-        self._logger.debug(instructions)
 
         # Put the instruction in the sending queue
         for instruction in instructions:

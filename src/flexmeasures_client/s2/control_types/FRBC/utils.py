@@ -123,7 +123,6 @@ def fm_schedule_to_instructions(
     operation_modes: list[FRBCOperationMode] = actuator.operation_modes
     logger.debug(f"operation_modes: {[mode.diagnostic_label.lower() for mode in operation_modes]}")
 
-
     # Find idle operation mode
     idle_operation_mode = next(
         (mode for mode in operation_modes if "idle" in mode.diagnostic_label.lower()),
@@ -154,19 +153,20 @@ def fm_schedule_to_instructions(
     )
     logger.debug(f"max_eff: {max_eff}")
 
-
     for timestamp, row in schedule.iterrows():
         if pd.Timestamp(timestamp) < pd.Timestamp("2025-10-14 14:45:00+02:00"):
+            operation_mode = non_idle_operation_mode
+            operation_mode_factor = 0.
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
                 id=get_unique_id(),
                 actuator_id=actuator.id,
-                operation_mode=non_idle_operation_mode.id,
-                operation_mode_factor=0.,
+                operation_mode=operation_mode.id,
+                operation_mode_factor=operation_mode_factor,
                 execution_time=timestamp,
                 abnormal_condition=False,
             )
-            logger.debug(f"instruction: {instruction.to_json()}")
+            logger.info(f"Instruction created: at {timestamp} set {actuator.diagnostic_label} to {operation_mode.diagnostic_label} with factor {operation_mode_factor}")
             instructions.append(instruction)
             continue
 
@@ -239,7 +239,7 @@ def fm_schedule_to_instructions(
                 execution_time=timestamp,
                 abnormal_condition=False,
             )
-            logger.debug(f"instruction: {instruction.to_json()}")
+            logger.info(f"Instruction created: at {timestamp} set {actuator.diagnostic_label} to {operation_mode.diagnostic_label} with factor {operation_mode_factor}")
             instructions.append(instruction)
 
         logger.debug(f"computing storage_eff from {storage_efficiency}")
