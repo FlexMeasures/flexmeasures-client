@@ -321,6 +321,7 @@ class FillRateBasedControlTUNES(FRBC):
         soc_max = fill_level_range.end_of_range * FILL_LEVEL_SCALE
 
         operation_mode = None
+        efficiency_sensor_id = None
         for _operation_mode in actuator.operation_modes:
             if "THP" in _operation_mode.diagnostic_label:
                 operation_mode = _operation_mode
