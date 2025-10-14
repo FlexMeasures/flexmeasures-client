@@ -396,17 +396,12 @@ class FillRateBasedControlTUNES(FRBC):
                 flex_context=flex_context,
                 flex_model=flex_model,
             )
-            soc_schedule = await self._fm_client.get_schedule(
-                sensor_id=self._state_of_charge_sensor_id,
-                duration=duration,
-            )
         except HTTPError as exc:
             self._logger.error(f"Failed to get a schedule: {str(exc)}")
             return
 
         self._logger.debug("Schedule returned:")
         self._logger.debug(schedule)
-        self._logger.debug(soc_schedule)
         self._logger.debug("1")
         try:
             idx = pd.DatetimeIndex(
