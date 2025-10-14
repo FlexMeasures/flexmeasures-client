@@ -389,12 +389,17 @@ class FillRateBasedControlTUNES(FRBC):
         self._logger.debug(flex_model)
 
         try:
-            schedule = await self._fm_client.trigger_and_get_schedule(
+            schedule_id = await self._fm_client.trigger_schedule(
                 sensor_id=self._rm_discharge_sensor_id,
                 start=start,
                 duration=duration,
                 flex_context=flex_context,
                 flex_model=flex_model,
+            )
+            schedule = await self._fm_client.get_schedule(
+                sensor_id=self._rm_discharge_sensor_id,
+                schedule_id=schedule_id,
+                duration="PT6H",
             )
         except HTTPError as exc:
             self._logger.error(f"Failed to get a schedule: {str(exc)}")
