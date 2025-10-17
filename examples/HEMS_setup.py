@@ -596,9 +596,9 @@ async def create_battery_asset(
     attributes_flex_model = {
         "soc_unit": "kWh",
         "soc_at_start": capacity * BATTERY_CONFIG["soc_at_start_percent"],
-        "soc_max": capacity * BATTERY_CONFIG["max_soc_percent"],
-        "soc_min": capacity * BATTERY_CONFIG["min_soc_percent"],
-        "roundtrip_efficiency": BATTERY_CONFIG["roundtrip_efficiency"],
+        # "soc_max": capacity * BATTERY_CONFIG["max_soc_percent"],
+        # "soc_min": capacity * BATTERY_CONFIG["min_soc_percent"],
+        # "roundtrip_efficiency": BATTERY_CONFIG["roundtrip_efficiency"],
         "capacity_kwh": capacity,
         "power_capacity_kw": BATTERY_CONFIG["power_capacity_kw"],
     }
