@@ -614,7 +614,7 @@ async def create_battery_asset(
     # Store in attributes["flex_model"] for now, will be easy to adapt to new flex_model attribute
     await client.update_asset(
         asset_id=battery_asset["id"],
-        updates={"attributes": {"flex_model": attributes_flex_model}},
+        updates={"flex_model": flex_model, "attributes": {"flex_model": attributes_flex_model}},
     )
 
     print(f"Created battery asset with ID: {battery_asset['id']}")
