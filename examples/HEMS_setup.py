@@ -1486,7 +1486,7 @@ async def run_scheduling_simulation(
                 start=schedule_start,
                 duration=schedule_duration,
                 flex_model=final_flex_models,
-                flex_context=flex_context,
+                #flex_context=flex_context,
                 asset_id=building_asset["id"],
                 prior=(
                     current_time + timedelta(hours=SIMULATION_STEP_HOURS)
