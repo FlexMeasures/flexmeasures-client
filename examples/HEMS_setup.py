@@ -603,6 +603,14 @@ async def create_battery_asset(
         "power_capacity_kw": BATTERY_CONFIG["power_capacity_kw"],
     }
 
+    flex_model = {
+        #"soc-max": f"{(capacity * 0.001) * BATTERY_CONFIG['max_soc_percent']} MWh",
+        #"soc-min": f"{(capacity * 0.001) * BATTERY_CONFIG['min_soc_percent']} MWh",
+        "roundtrip-efficiency": BATTERY_CONFIG["roundtrip_efficiency"],
+        # "capacity-kwh": capacity,
+        #"power-capacity": f"{0.001 * BATTERY_CONFIG['power_capacity_kw']} MW",
+    }
+
     # Store in attributes["flex_model"] for now, will be easy to adapt to new flex_model attribute
     await client.update_asset(
         asset_id=battery_asset["id"],
