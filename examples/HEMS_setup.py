@@ -1372,11 +1372,6 @@ async def run_scheduling_simulation(
                     client=client,
                     device_type="evse",
                     current_soc=evse1_current_soc,
-                    capacity_kwh=evse1_capacity,
-                    power_capacity_kw=evse1_power_capacity,
-                    min_soc_percent=EV_CONFIG["min_soc_percent"],
-                    roundtrip_efficiency=evse1_efficiency,
-                    soc_sensor_id=sensors["evse1-soc"]["id"],
                     constraints=evse1_constraints,
                 )
 
@@ -1397,11 +1392,6 @@ async def run_scheduling_simulation(
                     client=client,
                     device_type="evse",
                     current_soc=evse2_current_soc,
-                    capacity_kwh=evse2_capacity,
-                    power_capacity_kw=evse2_power_capacity,
-                    min_soc_percent=EV_CONFIG["min_soc_percent"],
-                    roundtrip_efficiency=evse2_efficiency,
-                    soc_sensor_id=sensors["evse2-soc"]["id"],
                     constraints=evse2_constraints,
                 )
 
