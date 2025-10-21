@@ -1285,9 +1285,9 @@ async def run_scheduling_simulation(
         return False
     # battery_soc_unit = battery_flex_model.get("soc_unit")
     battery_soc_at_start = battery_flex_model.get("soc_at_start")
-    # battery_soc_max = battery_flex_model.get("soc_max")
-    battery_soc_min = battery_flex_model.get("soc_min")
-    battery_roundtrip_efficiency = battery_flex_model.get("roundtrip_efficiency")
+    # # battery_soc_max = battery_flex_model.get("soc_max")
+    # battery_soc_min = battery_flex_model.get("soc_min")
+    # battery_roundtrip_efficiency = battery_flex_model.get("roundtrip_efficiency")
 
     # Get EVSE settings
     evse1_flex_model = json.loads(evse1_asset["attributes"]).get("flex_model")
@@ -1320,12 +1320,12 @@ async def run_scheduling_simulation(
             schedule_duration = timedelta(hours=FORECAST_HORIZON_HOURS)
 
             # Create flex model for battery
-            battery_power_capacity = battery_flex_model.get(
-                "power_capacity_kw", BATTERY_CONFIG["power_capacity_kw"]
-            )
-            battery_capacity_kwh = battery_flex_model.get(
-                "capacity_kwh", BATTERY_CONFIG["capacity_kwh"]
-            )  # Use actual physical capacity
+            # battery_power_capacity = battery_flex_model.get(
+            #     "power_capacity_kw", BATTERY_CONFIG["power_capacity_kw"]
+            # )
+            # battery_capacity_kwh = battery_flex_model.get(
+            #     "capacity_kwh", BATTERY_CONFIG["capacity_kwh"]
+            # )  # Use actual physical capacity
             if battery_next_current_soc is None:
                 battery_current_soc = (
                     battery_soc_at_start  # Use initial SoC for first step
