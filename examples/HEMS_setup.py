@@ -1426,7 +1426,7 @@ async def run_scheduling_simulation(
             # Create flex model for battery
             battery_scheduler_flex_model = {
                 "state-of-charge": {"sensor": sensors["battery-soc"]["id"]},
-                "soc-unit": battery_flex_model.get("soc-unit"),
+                "soc-unit": battery_flex_model.get("soc_unit"),
                 "soc-at-start": battery_current_soc,
             }
 
