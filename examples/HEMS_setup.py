@@ -1411,32 +1411,11 @@ async def run_scheduling_simulation(
                     evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
                 else:
                     evse2_current_soc = evse2_next_current_soc
-                evse2_scheduler_flex_model = create_device_flex_model(
-                    client=client,
-                    device_type="evse",
-                    current_soc=evse2_current_soc,
-                    capacity_kwh=evse2_capacity,
-                    power_capacity_kw=evse2_power_capacity,
-                    min_soc_percent=EV_CONFIG["min_soc_percent"],
-                    roundtrip_efficiency=evse2_efficiency,
-                    soc_sensor_id=sensors["evse2-soc"]["id"],
-                    constraints=evse2_constraints,
-                )
-
-            # Create flex context for all devices
-            flex_context = {
-                "consumption-price": {"sensor": sensors["electricity-price"]["id"]},
-                # Enable soft constraints for EV charging flexibility
-                "relax-constraints": True,
-                "site-peak-consumption-price": "26 EUR/MW",
-                "site-peak-consumption": "0 kW",
-                # Configure breach prices for soft constraints (EV charging optimization)
-                # "soc-minima-breach-price": "50 EUR/kWh",  # Moderate penalty - allows flexibility vs price optimization
-                # "soc-maxima-breach-price": "1000 EUR/kWh",  # High penalty for safety limits
-                "inflexible-device-sensors": [
-                    sensors["building-consumption"]["id"],
-                ],
-                "aggregate-power": {"sensor": sensors["electricity-aggregate"]["id"]},
+            # Create flex model for battery
+            battery_scheduler_flex_model = {
+                "state-of-charge": {"sensor": sensors["battery-soc"]["id"]},
+                "soc-unit": battery_flex_model.get("soc-unit"),
+                "soc-at-start": battery_current_soc,
             }
 
             # Start with the battery and PV flex models
