@@ -1411,6 +1411,18 @@ async def run_scheduling_simulation(
                     evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
                 else:
                     evse2_current_soc = evse2_next_current_soc
+                evse2_scheduler_flex_model = create_device_flex_model(
+                    client=client,
+                    device_type="evse",
+                    current_soc=evse2_current_soc,
+                    capacity_kwh=evse2_capacity,
+                    power_capacity_kw=evse2_power_capacity,
+                    min_soc_percent=EV_CONFIG["min_soc_percent"],
+                    roundtrip_efficiency=evse2_efficiency,
+                    soc_sensor_id=sensors["evse2-soc"]["id"],
+                    constraints=evse2_constraints,
+                )
+
             # Create flex model for battery
             battery_scheduler_flex_model = {
                 "state-of-charge": {"sensor": sensors["battery-soc"]["id"]},
