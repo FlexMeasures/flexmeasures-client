@@ -603,6 +603,7 @@ async def create_battery_asset(
         "soc-min": f"{capacity * BATTERY_CONFIG['min_soc_percent']} kWh",
         "roundtrip-efficiency": BATTERY_CONFIG["roundtrip_efficiency"],
         "power-capacity": f"{BATTERY_CONFIG['power_capacity_kw']}kW",
+        "state-of-charge": {"sensor": battery_soc_sensor["id"]},
     }
 
     # Store in attributes["flex_model"] for now, will be easy to adapt to new flex_model attribute
