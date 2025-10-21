@@ -283,13 +283,7 @@ def create_device_flex_model(
     client: FlexMeasuresClient,
     device_type: str,
     current_soc: float,
-    capacity_kwh: float,
-    power_capacity_kw: float,
-    min_soc_percent: float,
-    roundtrip_efficiency: float,
-    soc_sensor_id: int,
     constraints: dict = None,
-    max_soc_percent: float = 1.0,  # Allow override for operational vs physical capacity
 ) -> dict:
     """Create a standardized flex model for storage devices."""
 
@@ -299,28 +293,14 @@ def create_device_flex_model(
         flex_model = client.create_storage_flex_model(
             soc_unit="kWh",
             soc_at_start=current_soc,
-            soc_max=capacity_kwh
-            * max_soc_percent,  # Allow operational max to be different from physical capacity
-            soc_min=capacity_kwh * min_soc_percent,
-            roundtrip_efficiency=roundtrip_efficiency,
         )
-        # Override to make it unidirectional (charging only)
-        flex_model["power-capacity"] = f"{power_capacity_kw}kW"  # Total power capacity
-        flex_model["production-capacity"] = "0kW"  # No V2G capability
-        flex_model["state-of-charge"] = {"sensor": soc_sensor_id}
     else:
         # Batteries are bidirectional (can charge and discharge)
         # For batteries, we need to handle operational max vs physical capacity properly
         flex_model = client.create_storage_flex_model(
             soc_unit="kWh",
             soc_at_start=current_soc,
-            soc_max=capacity_kwh
-            * max_soc_percent,  # Use operational max (e.g., 90% of physical capacity)
-            soc_min=capacity_kwh * min_soc_percent,
-            roundtrip_efficiency=roundtrip_efficiency,
         )
-        flex_model["power-capacity"] = f"{power_capacity_kw}kW"
-        flex_model["state-of-charge"] = {"sensor": soc_sensor_id}
 
     # Add dynamic constraints if provided
     if constraints:
