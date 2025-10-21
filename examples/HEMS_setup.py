@@ -656,15 +656,10 @@ async def create_evse_asset(
     attributes_flex_model = {
         "soc_unit": "kWh",
         "soc_at_start": capacity * EV_CONFIG["min_soc_percent"],  # Start at minimum SoC
-        #"soc-max": capacity,  # 100% of capacity (max physical limit)
-        #"soc-min": capacity * EV_CONFIG["min_soc_percent"],  # Minimum SoC
-        #"roundtrip-efficiency": EV_CONFIG["roundtrip_efficiency"],
-        #"capacity-kwh": capacity,
-        #"power-capacity-kw": EV_CONFIG["default_power_capacity_kw"],
     }
 
     flex_model = {
-        "soc-max": f"{capacity} kWh",  # f"{capacity * EV_CONFIG['max_soc_percent']} kWh",
+        "soc-max": f"{capacity} kWh",
         "soc-min": f"{capacity * EV_CONFIG['min_soc_percent']} kWh",
         "roundtrip-efficiency": EV_CONFIG["roundtrip_efficiency"],
         "power-capacity": f"{EV_CONFIG['default_power_capacity_kw']}kW",
