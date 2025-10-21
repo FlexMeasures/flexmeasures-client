@@ -1343,12 +1343,6 @@ async def run_scheduling_simulation(
             if not evse1_constraints.get("unavailable"):
 
                 # Create flex models for EVSE 1
-                evse1_power_capacity = evse1_flex_model.get(
-                    "power_capacity_kw", EV_CONFIG["default_power_capacity_kw"]
-                )
-                evse1_efficiency = evse1_flex_model.get(
-                    "roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"]
-                )
                 if evse1_next_current_soc is None:
                     # Use initial SoC for first step
                     evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)
@@ -1362,13 +1356,8 @@ async def run_scheduling_simulation(
                 )
 
             if not evse2_constraints.get("unavailable"):
+
                 # Create flex models for EVSE 2 (similar pattern, could be different car)
-                evse2_power_capacity = evse2_flex_model.get(
-                    "power_capacity_kw", EV_CONFIG["default_power_capacity_kw"]
-                )
-                evse2_efficiency = evse2_flex_model.get(
-                    "roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"]
-                )
                 if evse2_next_current_soc is None:
                     # Use initial SoC for first step
                     evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
