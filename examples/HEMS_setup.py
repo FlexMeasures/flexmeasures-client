@@ -713,6 +713,7 @@ async def create_evse_asset(
     await client.update_asset(
         asset_id=evse_asset["id"],
         updates={
+            "flex_model": flex_model,
             "attributes": {
                 "flex_model": attributes_flex_model,
                 "sensors_to_show": sensors_to_show,
