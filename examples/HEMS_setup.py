@@ -602,7 +602,6 @@ async def create_battery_asset(
         "soc-max": f"{capacity * BATTERY_CONFIG['max_soc_percent']} kWh",
         "soc-min": f"{capacity * BATTERY_CONFIG['min_soc_percent']} kWh",
         "roundtrip-efficiency": BATTERY_CONFIG["roundtrip_efficiency"],
-        # "capacity-kwh": capacity,
         "power-capacity": f"{BATTERY_CONFIG['power_capacity_kw']}kW",
     }
 
