@@ -1323,20 +1323,11 @@ async def run_scheduling_simulation(
                 )
             else:
                 battery_current_soc = battery_next_current_soc
-            # battery_scheduler_flex_model = create_device_flex_model(
-            #     client=client,
-            #     device_type="battery",
-            #     current_soc=battery_current_soc,
-            #     capacity_kwh=battery_capacity_kwh,  # Use actual physical capacity, not the operational max
-            #     power_capacity_kw=battery_power_capacity,
-            #     min_soc_percent=battery_soc_min
-            #     / battery_capacity_kwh,  # Calculate percentage against physical capacity
-            #     roundtrip_efficiency=battery_roundtrip_efficiency,
-            #     soc_sensor_id=sensors["battery-soc"]["id"],
-            #     max_soc_percent=BATTERY_CONFIG[
-            #         "max_soc_percent"
-            #     ],  # Use configured operational max (90%)
-            # )
+            battery_scheduler_flex_model = create_device_flex_model(
+                client=client,
+                device_type="battery",
+                current_soc=battery_current_soc,
+            )
 
             # Calculate dynamic EV constraints for current day
             current_time_ts = pd.Timestamp(current_time)
@@ -1414,12 +1405,6 @@ async def run_scheduling_simulation(
                     constraints=evse2_constraints,
                 )
 
-            # Create flex model for battery
-            battery_scheduler_flex_model = {
-                "state-of-charge": {"sensor": sensors["battery-soc"]["id"]},
-                "soc-unit": battery_flex_model.get("soc_unit"),
-                "soc-at-start": battery_current_soc,
-            }
 
             # Start with the battery and PV flex models
             curtailable_pv_flex_model = {
