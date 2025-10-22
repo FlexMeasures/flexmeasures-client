@@ -286,7 +286,14 @@ def create_dynamic_storage_flex_model(
     current_soc: float,
     constraints: dict = None,
 ) -> dict[str, Any]:
-    """Create a standardized flex model for storage devices."""
+    """
+    Create a dynamic flex model for scheduling storage devices.
+
+    This function builds only the *ad hoc* part of the flex model, temporary values
+    defined at scheduling time for the current context, such as current SoC, SoC minima,
+    and SoC usage. Permanent properties of the device (e.g. capacities or efficiencies)
+    are defined on the asset's flex_model field.
+    """
 
     if device_type == "evse":
         # EVSEs should be unidirectional (charging only) - no V2G capability
