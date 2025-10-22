@@ -280,7 +280,7 @@ def calculate_ev_soc_targets_and_constraints(
     return constraints
 
 
-def create_device_flex_model(
+def create_dynamic_storage_flex_model(
     client: FlexMeasuresClient,
     device_type: str,
     current_soc: float,
