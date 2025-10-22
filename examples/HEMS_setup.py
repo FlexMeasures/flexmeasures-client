@@ -281,7 +281,6 @@ def calculate_ev_soc_targets_and_constraints(
 
 
 def create_dynamic_storage_flex_model(
-    client: FlexMeasuresClient,
     current_soc: float,
     constraints: dict = None,
 ) -> dict[str, Any]:
@@ -294,10 +293,9 @@ def create_dynamic_storage_flex_model(
     are defined on the asset's flex_model field.
     """
 
-    flex_model = client.create_storage_flex_model(
-        soc_unit="kWh",
-        soc_at_start=current_soc,
-    )
+    flex_model = {
+        "soc-at-start": current_soc,
+    }
 
     # Add dynamic constraints if provided
     if constraints:
