@@ -9,6 +9,7 @@ import json
 import random
 import subprocess
 from datetime import timedelta
+from typing import Any
 
 import pandas as pd
 
@@ -284,7 +285,7 @@ def create_device_flex_model(
     device_type: str,
     current_soc: float,
     constraints: dict = None,
-) -> dict:
+) -> dict[str, Any]:
     """Create a standardized flex model for storage devices."""
 
     if device_type == "evse":
