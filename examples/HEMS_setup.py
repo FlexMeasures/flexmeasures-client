@@ -1307,9 +1307,7 @@ async def run_scheduling_simulation(
                 )
             else:
                 battery_current_soc = battery_next_current_soc
-            battery_scheduler_flex_model = create_device_flex_model(
-                client=client,
-                device_type="battery",
+            battery_scheduler_flex_model = create_dynamic_storage_flex_model(
                 current_soc=battery_current_soc,
             )
 
@@ -1346,9 +1344,7 @@ async def run_scheduling_simulation(
                     evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)
                 else:
                     evse1_current_soc = evse1_next_current_soc
-                evse1_scheduler_flex_model = create_device_flex_model(
-                    client=client,
-                    device_type="evse",
+                evse1_scheduler_flex_model = create_dynamic_storage_flex_model(
                     current_soc=evse1_current_soc,
                     constraints=evse1_constraints,
                 )
@@ -1361,9 +1357,7 @@ async def run_scheduling_simulation(
                     evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
                 else:
                     evse2_current_soc = evse2_next_current_soc
-                evse2_scheduler_flex_model = create_device_flex_model(
-                    client=client,
-                    device_type="evse",
+                evse2_scheduler_flex_model = create_dynamic_storage_flex_model(
                     current_soc=evse2_current_soc,
                     constraints=evse2_constraints,
                 )
