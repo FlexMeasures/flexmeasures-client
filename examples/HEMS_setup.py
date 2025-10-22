@@ -282,7 +282,6 @@ def calculate_ev_soc_targets_and_constraints(
 
 def create_dynamic_storage_flex_model(
     client: FlexMeasuresClient,
-    device_type: str,
     current_soc: float,
     constraints: dict = None,
 ) -> dict[str, Any]:
@@ -295,20 +294,10 @@ def create_dynamic_storage_flex_model(
     are defined on the asset's flex_model field.
     """
 
-    if device_type == "evse":
-        # EVSEs should be unidirectional (charging only) - no V2G capability
-        # Use power-capacity for now and restrict with production-capacity
-        flex_model = client.create_storage_flex_model(
-            soc_unit="kWh",
-            soc_at_start=current_soc,
-        )
-    else:
-        # Batteries are bidirectional (can charge and discharge)
-        # For batteries, we need to handle operational max vs physical capacity properly
-        flex_model = client.create_storage_flex_model(
-            soc_unit="kWh",
-            soc_at_start=current_soc,
-        )
+    flex_model = client.create_storage_flex_model(
+        soc_unit="kWh",
+        soc_at_start=current_soc,
+    )
 
     # Add dynamic constraints if provided
     if constraints:
