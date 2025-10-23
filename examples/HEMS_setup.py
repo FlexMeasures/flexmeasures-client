@@ -660,7 +660,7 @@ async def create_evse_asset(
         "soc-max": f"{capacity} kWh",
         "soc-min": f"{capacity * EV_CONFIG['min_soc_percent']} kWh",
         "roundtrip-efficiency": EV_CONFIG["roundtrip_efficiency"],
-        "power-capacity": f"{EV_CONFIG['default_power_capacity_kw']}kW",
+        "power-capacity": f"{EV_CONFIG['default_power_capacity_kw']}kW",  # Total power capacity
         "production-capacity": "0kW",  # Charging only, no V2G capability
         "state-of-charge": {"sensor": evse_soc_sensor["id"]},
     }
