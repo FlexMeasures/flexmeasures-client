@@ -1307,6 +1307,7 @@ async def run_scheduling_simulation(
                 )
             else:
                 battery_current_soc = battery_next_current_soc
+            # Create dynamic flex model for battery (Current SoC updated each step)
             battery_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
                 current_soc=battery_current_soc,
             )
