@@ -569,7 +569,6 @@ async def create_battery_asset(
     print("Updating battery asset with flex_model settings...")
     capacity = BATTERY_CONFIG["capacity_kwh"]
     attributes_flex_model = {
-        "soc_unit": "kWh",
         "soc_at_start": capacity * BATTERY_CONFIG["soc_at_start_percent"],
     }
 
@@ -652,7 +651,6 @@ async def create_evse_asset(
     print(f"Updating {evse_name} asset with flex_model settings...")
     capacity = EV_CONFIG["default_capacity_kwh"]
     attributes_flex_model = {
-        "soc_unit": "kWh",
         "soc_at_start": capacity * EV_CONFIG["min_soc_percent"],  # Start at minimum SoC
     }
 
