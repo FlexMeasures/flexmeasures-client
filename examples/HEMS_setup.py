@@ -9,6 +9,7 @@ import json
 import random
 import subprocess
 from datetime import timedelta
+from typing import Any
 
 import pandas as pd
 
@@ -279,48 +280,22 @@ def calculate_ev_soc_targets_and_constraints(
     return constraints
 
 
-def create_device_flex_model(
-    client: FlexMeasuresClient,
-    device_type: str,
+def create_dynamic_storage_flex_model(
     current_soc: float,
-    capacity_kwh: float,
-    power_capacity_kw: float,
-    min_soc_percent: float,
-    roundtrip_efficiency: float,
-    soc_sensor_id: int,
     constraints: dict = None,
-    max_soc_percent: float = 1.0,  # Allow override for operational vs physical capacity
-) -> dict:
-    """Create a standardized flex model for storage devices."""
+) -> dict[str, Any]:
+    """
+    Create a dynamic flex model for scheduling storage devices.
 
-    if device_type == "evse":
-        # EVSEs should be unidirectional (charging only) - no V2G capability
-        # Use power-capacity for now and restrict with production-capacity
-        flex_model = client.create_storage_flex_model(
-            soc_unit="kWh",
-            soc_at_start=current_soc,
-            soc_max=capacity_kwh
-            * max_soc_percent,  # Allow operational max to be different from physical capacity
-            soc_min=capacity_kwh * min_soc_percent,
-            roundtrip_efficiency=roundtrip_efficiency,
-        )
-        # Override to make it unidirectional (charging only)
-        flex_model["power-capacity"] = f"{power_capacity_kw}kW"  # Total power capacity
-        flex_model["production-capacity"] = "0kW"  # No V2G capability
-        flex_model["state-of-charge"] = {"sensor": soc_sensor_id}
-    else:
-        # Batteries are bidirectional (can charge and discharge)
-        # For batteries, we need to handle operational max vs physical capacity properly
-        flex_model = client.create_storage_flex_model(
-            soc_unit="kWh",
-            soc_at_start=current_soc,
-            soc_max=capacity_kwh
-            * max_soc_percent,  # Use operational max (e.g., 90% of physical capacity)
-            soc_min=capacity_kwh * min_soc_percent,
-            roundtrip_efficiency=roundtrip_efficiency,
-        )
-        flex_model["power-capacity"] = f"{power_capacity_kw}kW"
-        flex_model["state-of-charge"] = {"sensor": soc_sensor_id}
+    This function builds only the *ad hoc* part of the flex model, temporary values
+    defined at scheduling time for the current context, such as current SoC, SoC minima,
+    and SoC usage. Permanent properties of the device (e.g. capacities or efficiencies)
+    are defined on the asset's flex_model field.
+    """
+
+    flex_model = {
+        "soc-at-start": current_soc,
+    }
 
     # Add dynamic constraints if provided
     if constraints:
@@ -594,27 +569,24 @@ async def create_battery_asset(
     print("Updating battery asset with flex_model settings...")
     capacity = BATTERY_CONFIG["capacity_kwh"]
     attributes_flex_model = {
-        "soc_unit": "kWh",
         "soc_at_start": capacity * BATTERY_CONFIG["soc_at_start_percent"],
-        # "soc_max": capacity * BATTERY_CONFIG["max_soc_percent"],
-        # "soc_min": capacity * BATTERY_CONFIG["min_soc_percent"],
-        # "roundtrip_efficiency": BATTERY_CONFIG["roundtrip_efficiency"],
-        "capacity_kwh": capacity,
-        "power_capacity_kw": BATTERY_CONFIG["power_capacity_kw"],
     }
 
     flex_model = {
-        #"soc-max": f"{(capacity * 0.001) * BATTERY_CONFIG['max_soc_percent']} MWh",
-        #"soc-min": f"{(capacity * 0.001) * BATTERY_CONFIG['min_soc_percent']} MWh",
+        "soc-max": f"{capacity * BATTERY_CONFIG['max_soc_percent']} kWh",  # Use operational max (e.g., 90% of physical capacity)
+        "soc-min": f"{capacity * BATTERY_CONFIG['min_soc_percent']} kWh",
         "roundtrip-efficiency": BATTERY_CONFIG["roundtrip_efficiency"],
-        # "capacity-kwh": capacity,
-        #"power-capacity": f"{0.001 * BATTERY_CONFIG['power_capacity_kw']} MW",
+        "power-capacity": f"{BATTERY_CONFIG['power_capacity_kw']}kW",
+        "state-of-charge": {"sensor": battery_soc_sensor["id"]},
     }
 
-    # Store in attributes["flex_model"] for now, will be easy to adapt to new flex_model attribute
+    # Store soc_at_start in attributes["flex_model"] for now, as it's not supported yet in asset flex_model field
     await client.update_asset(
         asset_id=battery_asset["id"],
-        updates={"flex_model": flex_model, "attributes": {"flex_model": attributes_flex_model}},
+        updates={
+            "flex_model": flex_model,
+            "attributes": {"flex_model": attributes_flex_model},
+        },
     )
 
     print(f"Created battery asset with ID: {battery_asset['id']}")
@@ -679,13 +651,16 @@ async def create_evse_asset(
     print(f"Updating {evse_name} asset with flex_model settings...")
     capacity = EV_CONFIG["default_capacity_kwh"]
     attributes_flex_model = {
-        "soc_unit": "kWh",
         "soc_at_start": capacity * EV_CONFIG["min_soc_percent"],  # Start at minimum SoC
-        "soc_max": capacity,  # 100% of capacity (max physical limit)
-        "soc_min": capacity * EV_CONFIG["min_soc_percent"],  # Minimum SoC
-        "roundtrip_efficiency": EV_CONFIG["roundtrip_efficiency"],
-        "capacity_kwh": capacity,
-        "power_capacity_kw": EV_CONFIG["default_power_capacity_kw"],
+    }
+
+    flex_model = {
+        "soc-max": f"{capacity} kWh",  # Allow operational max to be different from physical capacity
+        "soc-min": f"{capacity * EV_CONFIG['min_soc_percent']} kWh",
+        "roundtrip-efficiency": EV_CONFIG["roundtrip_efficiency"],
+        "power-capacity": f"{EV_CONFIG['default_power_capacity_kw']}kW",  # Total power capacity
+        "production-capacity": "0kW",  # Charging only, no V2G capability
+        "state-of-charge": {"sensor": evse_soc_sensor["id"]},
     }
 
     # Configure graph displays as requested
@@ -706,14 +681,15 @@ async def create_evse_asset(
         },
     ]
 
-    # Store in attributes["flex_model"]
+    # Store soc_at_start in attributes["flex_model"] for now, as it's not supported yet in asset flex_model field
     await client.update_asset(
         asset_id=evse_asset["id"],
         updates={
+            "flex_model": flex_model,
             "attributes": {
                 "flex_model": attributes_flex_model,
                 "sensors_to_show": sensors_to_show,
-            }
+            },
         },
     )
 
@@ -1289,11 +1265,8 @@ async def run_scheduling_simulation(
     if not battery_flex_model:
         print("Battery asset missing flex_model settings")
         return False
-    # battery_soc_unit = battery_flex_model.get("soc_unit")
+
     battery_soc_at_start = battery_flex_model.get("soc_at_start")
-    # battery_soc_max = battery_flex_model.get("soc_max")
-    battery_soc_min = battery_flex_model.get("soc_min")
-    battery_roundtrip_efficiency = battery_flex_model.get("roundtrip_efficiency")
 
     # Get EVSE settings
     evse1_flex_model = json.loads(evse1_asset["attributes"]).get("flex_model")
@@ -1326,31 +1299,15 @@ async def run_scheduling_simulation(
             schedule_duration = timedelta(hours=FORECAST_HORIZON_HOURS)
 
             # Create flex model for battery
-            battery_power_capacity = battery_flex_model.get(
-                "power_capacity_kw", BATTERY_CONFIG["power_capacity_kw"]
-            )
-            battery_capacity_kwh = battery_flex_model.get(
-                "capacity_kwh", BATTERY_CONFIG["capacity_kwh"]
-            )  # Use actual physical capacity
             if battery_next_current_soc is None:
                 battery_current_soc = (
                     battery_soc_at_start  # Use initial SoC for first step
                 )
             else:
                 battery_current_soc = battery_next_current_soc
-            battery_scheduler_flex_model = create_device_flex_model(
-                client=client,
-                device_type="battery",
+            # Create dynamic flex model for battery (Current SoC updated each step)
+            battery_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
                 current_soc=battery_current_soc,
-                capacity_kwh=battery_capacity_kwh,  # Use actual physical capacity, not the operational max
-                power_capacity_kw=battery_power_capacity,
-                min_soc_percent=battery_soc_min
-                / battery_capacity_kwh,  # Calculate percentage against physical capacity
-                roundtrip_efficiency=battery_roundtrip_efficiency,
-                soc_sensor_id=sensors["battery-soc"]["id"],
-                max_soc_percent=BATTERY_CONFIG[
-                    "max_soc_percent"
-                ],  # Use configured operational max (90%)
             )
 
             # Calculate dynamic EV constraints for current day
@@ -1381,69 +1338,30 @@ async def run_scheduling_simulation(
             if not evse1_constraints.get("unavailable"):
 
                 # Create flex models for EVSE 1
-                evse1_power_capacity = evse1_flex_model.get(
-                    "power_capacity_kw", EV_CONFIG["default_power_capacity_kw"]
-                )
-                evse1_efficiency = evse1_flex_model.get(
-                    "roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"]
-                )
                 if evse1_next_current_soc is None:
                     # Use initial SoC for first step
                     evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)
                 else:
                     evse1_current_soc = evse1_next_current_soc
-                evse1_scheduler_flex_model = create_device_flex_model(
-                    client=client,
-                    device_type="evse",
+                # Create dynamic flex model for EVSE 1 (Current SoC updated each step)
+                evse1_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
                     current_soc=evse1_current_soc,
-                    capacity_kwh=evse1_capacity,
-                    power_capacity_kw=evse1_power_capacity,
-                    min_soc_percent=EV_CONFIG["min_soc_percent"],
-                    roundtrip_efficiency=evse1_efficiency,
-                    soc_sensor_id=sensors["evse1-soc"]["id"],
                     constraints=evse1_constraints,
                 )
 
             if not evse2_constraints.get("unavailable"):
+
                 # Create flex models for EVSE 2 (similar pattern, could be different car)
-                evse2_power_capacity = evse2_flex_model.get(
-                    "power_capacity_kw", EV_CONFIG["default_power_capacity_kw"]
-                )
-                evse2_efficiency = evse2_flex_model.get(
-                    "roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"]
-                )
                 if evse2_next_current_soc is None:
                     # Use initial SoC for first step
                     evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
                 else:
                     evse2_current_soc = evse2_next_current_soc
-                evse2_scheduler_flex_model = create_device_flex_model(
-                    client=client,
-                    device_type="evse",
+                # Create dynamic flex model for EVSE 2 (Current SoC updated each step)
+                evse2_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
                     current_soc=evse2_current_soc,
-                    capacity_kwh=evse2_capacity,
-                    power_capacity_kw=evse2_power_capacity,
-                    min_soc_percent=EV_CONFIG["min_soc_percent"],
-                    roundtrip_efficiency=evse2_efficiency,
-                    soc_sensor_id=sensors["evse2-soc"]["id"],
                     constraints=evse2_constraints,
                 )
-
-            # Create flex context for all devices
-            flex_context = {
-                "consumption-price": {"sensor": sensors["electricity-price"]["id"]},
-                # Enable soft constraints for EV charging flexibility
-                "relax-constraints": True,
-                "site-peak-consumption-price": "26 EUR/MW",
-                "site-peak-consumption": "0 kW",
-                # Configure breach prices for soft constraints (EV charging optimization)
-                # "soc-minima-breach-price": "50 EUR/kWh",  # Moderate penalty - allows flexibility vs price optimization
-                # "soc-maxima-breach-price": "1000 EUR/kWh",  # High penalty for safety limits
-                "inflexible-device-sensors": [
-                    sensors["building-consumption"]["id"],
-                ],
-                "aggregate-power": {"sensor": sensors["electricity-aggregate"]["id"]},
-            }
 
             # Start with the battery and PV flex models
             curtailable_pv_flex_model = {
@@ -1454,7 +1372,7 @@ async def run_scheduling_simulation(
             final_flex_models = [
                 {
                     "sensor": sensors["battery-power"]["id"],
-                    **battery_scheduler_flex_model,
+                    **battery_scheduling_dynamic_flex_model,
                 },
                 {
                     "sensor": sensors["pv-production"]["id"],
@@ -1467,7 +1385,7 @@ async def run_scheduling_simulation(
                 final_flex_models.append(
                     {
                         "sensor": sensors["evse1-power"]["id"],
-                        **evse1_scheduler_flex_model,
+                        **evse1_scheduling_dynamic_flex_model,
                     }
                 )
             else:
@@ -1477,7 +1395,7 @@ async def run_scheduling_simulation(
                 final_flex_models.append(
                     {
                         "sensor": sensors["evse2-power"]["id"],
-                        **evse2_scheduler_flex_model,
+                        **evse2_scheduling_dynamic_flex_model,
                     }
                 )
             else:
@@ -1494,7 +1412,6 @@ async def run_scheduling_simulation(
                 start=schedule_start,
                 duration=schedule_duration,
                 flex_model=final_flex_models,
-                #flex_context=flex_context,
                 asset_id=building_asset["id"],
                 prior=(
                     current_time + timedelta(hours=SIMULATION_STEP_HOURS)
