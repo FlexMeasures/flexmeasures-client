@@ -580,7 +580,7 @@ async def create_battery_asset(
         "state-of-charge": {"sensor": battery_soc_sensor["id"]},
     }
 
-    # Store in attributes["flex_model"] for now, will be easy to adapt to new flex_model attribute
+    # Store soc_at_start in attributes["flex_model"] for now, as it's not supported yet in asset flex_model field
     await client.update_asset(
         asset_id=battery_asset["id"],
         updates={
@@ -681,7 +681,7 @@ async def create_evse_asset(
         },
     ]
 
-    # Store in attributes["flex_model"]
+    # Store soc_at_start in attributes["flex_model"] for now, as it's not supported yet in asset flex_model field
     await client.update_asset(
         asset_id=evse_asset["id"],
         updates={
