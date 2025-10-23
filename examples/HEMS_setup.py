@@ -1344,6 +1344,7 @@ async def run_scheduling_simulation(
                     evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)
                 else:
                     evse1_current_soc = evse1_next_current_soc
+                # Create dynamic flex model for EVSE 1 (Current SoC updated each step)
                 evse1_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
                     current_soc=evse1_current_soc,
                     constraints=evse1_constraints,
@@ -1357,6 +1358,7 @@ async def run_scheduling_simulation(
                     evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
                 else:
                     evse2_current_soc = evse2_next_current_soc
+                # Create dynamic flex model for EVSE 2 (Current SoC updated each step)
                 evse2_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
                     current_soc=evse2_current_soc,
                     constraints=evse2_constraints,
