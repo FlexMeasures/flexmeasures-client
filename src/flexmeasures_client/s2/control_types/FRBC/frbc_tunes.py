@@ -102,7 +102,7 @@ class FillRateBasedControlTUNES(FRBC):
         fill_rate_sensor_id: int,
         rm_discharge_sensor_id: int,
         active_actuator_id_sensor_id: int,
-        leakage_beaviour_sensor_id: int,
+        leakage_behaviour_sensor_id: int,
         production_price_sensor: int,
         consumption_price_sensor: int,
         state_of_charge_sensor_id: int,
@@ -122,7 +122,7 @@ class FillRateBasedControlTUNES(FRBC):
         self._thp_efficiency_sensor_id = thp_efficiency_sensor_id
         self._nes_fill_rate_sensor_id = nes_fill_rate_sensor_id
         self._nes_efficiency_sensor_id = nes_efficiency_sensor_id
-        self._leakage_behaviour_sensor_id = leakage_beaviour_sensor_id
+        self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
 
         self._active_actuator_id_sensor_id = active_actuator_id_sensor_id
 
