@@ -26,6 +26,8 @@ def op_mode_compute_factor(op_mode_elem: FRBCOperationModeElement, fill_rate, lo
     """
     Compute the operation mode factor for a fill_rate
     """
+    logger.debug(f"op_mode_elem: {op_mode_elem}")
+    logger.debug(f"fill_rate: {fill_rate}")
 
     start_fill_rate = op_mode_elem.fill_rate.start_of_range * FILL_LEVEL_SCALE
     end_fill_rate = op_mode_elem.fill_rate.end_of_range * FILL_LEVEL_SCALE
@@ -222,7 +224,10 @@ def fm_schedule_to_instructions(
                     op_mode_max_fill_rate(op_mode) for op_mode in valid_operation_modes
                 )
 
+                logger.debug(f"value: {value}")
+                logger.debug(f"max_fill_rate: {max_fill_rate}")
                 value = min(value * max_eff, max_fill_rate)
+                logger.debug(f"value after min(): {value}")
 
                 valid_operation_modes = [
                     op_mode
