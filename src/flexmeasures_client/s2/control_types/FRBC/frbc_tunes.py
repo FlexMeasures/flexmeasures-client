@@ -513,7 +513,11 @@ class FillRateBasedControlTUNES(FRBC):
             schedule, system_description, soc_at_start, logger=self._logger
         )
 
-        # Revoke all old instructions
+        # Revoke all previous instructions
+        if (n_previous_instruction := len(self._datastore["instructions"])) > 0:
+            self._logger.debug(f"Revoking all {n_previous_instruction} previous instructions..")
+        else:
+            self._logger.debug("No previous instructions to revoke..")
         for message_id, instruction in self._datastore["instructions"].items():
             revoke_instruction = RevokeObject(
                 message_id=get_unique_id(),
