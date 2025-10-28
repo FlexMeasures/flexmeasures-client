@@ -60,6 +60,7 @@ class CEM(Handler):
     _sending_queue: Queue[pydantic.BaseModel]
 
     _timers: dict[str, datetime]
+    _datastore: dict
     _minimum_measurement_period: pd.Timedelta = pd.Timedelta(minutes=5)
 
     _power_buffer = defaultdict(list)  # {commodity_quantity: [(timestamp, value), ...]}
@@ -70,7 +71,9 @@ class CEM(Handler):
         logger: Logger | None = None,
         default_control_type: ControlType | None = None,
         timers: dict[str: datetime] | None = None,
+        datastore: dict | None = None,
         power_sensor_id: dict[str: int] | None = None,
+        **kwargs,
     ) -> None:
         """
         Customer Energy Manager (CEM)
@@ -91,6 +94,7 @@ class CEM(Handler):
         self._is_closed = False
 
         self._timers = timers if timers is not None else {}
+        self._datastore = datastore if datastore is not None else {}
 
     def is_timer_due(self, name: str):
         now = datetime.now()
