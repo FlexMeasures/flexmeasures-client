@@ -253,8 +253,6 @@ def fm_schedule_to_instructions(
                     op_mode_elements, key=lambda x: x[0]
                 )[0]
 
-                value = -value
-
                 operation_mode_factor = op_mode_compute_factor(op_mode_elem, value, logger=logger)
 
             logger.debug(f"Creating instruction for operation_mode_factor {operation_mode_factor}..")
