@@ -318,7 +318,7 @@ class FillRateBasedControlTUNES(FRBC):
         fill_level_range: NumberRange = system_description.storage.fill_level_range
 
         # get SOC Max and Min to be sent on the Flex Model
-        soc_min = fill_level_range.start_of_range * FILL_LEVEL_SCALE + self._safety_margin
+        soc_min = fill_level_range.start_of_range * FILL_LEVEL_SCALE
         soc_max = fill_level_range.end_of_range * FILL_LEVEL_SCALE
 
         operation_mode = None
@@ -374,6 +374,7 @@ class FillRateBasedControlTUNES(FRBC):
                 "soc-at-start": f"{soc_at_start} {ENERGY_UNIT}",
                 "soc-max": f"{soc_max} {ENERGY_UNIT}",
                 "soc-min": f"{soc_min} {ENERGY_UNIT}",
+                "soc-minima": f"{soc_min + self._safety_margin} {ENERGY_UNIT}",
                 "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
                 "storage-efficiency": {"sensor": self._leakage_behaviour_sensor_id},
                 "charging-efficiency": {"sensor": efficiency_sensor_id},
