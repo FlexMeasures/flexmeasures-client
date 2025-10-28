@@ -34,6 +34,7 @@ def op_mode_compute_factor(op_mode_elem: FRBCOperationModeElement, fill_rate, lo
     delta_fill_rate = end_fill_rate - start_fill_rate
 
     fill_rate = max(fill_rate, start_fill_rate)
+    fill_rate = min(fill_rate, end_fill_rate)
 
     # Case that start_fill_rate == end_fill_rate
     if np.isclose(delta_fill_rate, 0):
