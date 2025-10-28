@@ -146,10 +146,11 @@ def fm_schedule_to_instructions(
         None,
     )
     logger.debug(f"idle_operation_mode: {idle_operation_mode}")
-    non_idle_operation_mode = next(
+    active_operation_mode = next(
         (mode for mode in operation_modes if "idle" not in mode.diagnostic_label.lower()),
         None,
     )
+    logger.debug(f"active_operation_mode: {active_operation_mode}")
 
     if idle_operation_mode is None:
         print("No valid idle operation mode found.")
@@ -172,7 +173,7 @@ def fm_schedule_to_instructions(
 
     for timestamp, row in schedule.iterrows():
         if pd.Timestamp(timestamp) >= pd.Timestamp("2025-10-14 15:00:00+02:00") and pd.Timestamp(timestamp) < pd.Timestamp("2025-10-14 15:15:00+02:00"):
-            operation_mode = non_idle_operation_mode
+            operation_mode = active_operation_mode
             operation_mode_factor = 0.
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
