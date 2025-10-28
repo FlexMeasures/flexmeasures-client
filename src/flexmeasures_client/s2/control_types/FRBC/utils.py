@@ -171,22 +171,6 @@ def fm_schedule_to_instructions(
     logger.debug(f"max_eff: {max_eff}")
 
     for timestamp, row in schedule.iterrows():
-        if pd.Timestamp(timestamp) >= pd.Timestamp("2025-10-14 15:00:00+02:00") and pd.Timestamp(timestamp) < pd.Timestamp("2025-10-14 15:15:00+02:00"):
-            operation_mode = active_operation_mode
-            operation_mode_factor = 0.
-            instruction = FRBCInstruction(
-                message_id=get_unique_id(),
-                id=get_unique_id(),
-                actuator_id=actuator.id,
-                operation_mode=operation_mode.id,
-                operation_mode_factor=operation_mode_factor,
-                execution_time=timestamp,
-                abnormal_condition=False,
-            )
-            logger.info(f"Instruction created: at {timestamp} set {actuator.diagnostic_label} to {operation_mode.diagnostic_label} with factor {operation_mode_factor}")
-            instructions.append(instruction)
-            continue
-
         value = row["schedule"]
         usage = row["usage_forecast"]
         if pd.isnull(usage):
@@ -249,7 +233,6 @@ def fm_schedule_to_instructions(
 
                 operation_mode_factor = op_mode_compute_factor(op_mode_elem, fill_rate=value, logger=logger)
 
-            logger.debug(f"Creating instruction for operation_mode_factor {operation_mode_factor}..")
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
                 id=get_unique_id(),
