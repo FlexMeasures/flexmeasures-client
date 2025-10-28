@@ -346,20 +346,17 @@ class FillRateBasedControlTUNES(FRBC):
             reversed(self._system_description_history.values())
         )
         soc_at_start = (
-            most_recent_system_description.storage.fill_level_range.end_of_range
+            most_recent_system_description.storage.fill_level_range.start_of_range
             * FILL_LEVEL_SCALE
         )
-        self._logger.debug(f"soc_at_start: {soc_at_start}")
-        self._logger.debug(f"len(self._storage_status_history): {len(self._storage_status_history)}")
-
         if len(self._storage_status_history) > 0:
             last_storage_status: FRBCStorageStatus = next(
                 reversed(self._storage_status_history.values())
             )
-            self._logger.debug(f"last_storage_status: {last_storage_status}")
-            self._logger.debug(f"last_storage_status.present_fill_level: {last_storage_status.present_fill_level}")
             soc_at_start = last_storage_status.present_fill_level * FILL_LEVEL_SCALE
-            self._logger.debug(f"soc_at_start: {soc_at_start}")
+        else:
+            self._logger.info(f"No present fill level known: assuming an empty buffer.")
+        self._logger.debug(f"soc_at_start: {soc_at_start}")
 
         duration = timedelta(hours=24)
 
