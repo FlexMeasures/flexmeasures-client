@@ -193,7 +193,12 @@ def fm_schedule_to_instructions(
         if pd.isnull(usage):
             usage = 0
         storage_efficiency = row["leakage_behaviour"]
-        charging_efficiency = row["thp_efficiency"]
+        if "THP" in active_operation_mode.diagnostic_label:
+            charging_efficiency = row["thp_efficiency"]
+        elif "NES" in active_operation_mode.diagnostic_label:
+            charging_efficiency = row["nes_efficiency"]
+        else:
+            charging_efficiency = 1
 
         if previous_value is None or not isclose(previous_value, value):
             if np.isclose(value, 0):
