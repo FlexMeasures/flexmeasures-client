@@ -26,7 +26,13 @@ import pydantic
 import pytz
 
 try:
-    from s2python.common import NumberRange, ReceptionStatus, ReceptionStatusValues
+    from s2python.common import (
+        NumberRange,
+        ReceptionStatus,
+        ReceptionStatusValues,
+        RevokableObjects,
+        RevokeObject,
+    )
     from s2python.frbc import (
         FRBCActuatorStatus,
         FRBCFillLevelTargetProfile,
@@ -85,6 +91,7 @@ class FillRateBasedControlTUNES(FRBC):
     _consumption_price_sensor_id: int
     _production_price_sensor_id: int
 
+    _datastore: dict
     _timers: dict[str, datetime]
     _minimum_measurement_period: timedelta = timedelta(minutes=5)
     _safety_margin = 20  # in ENERGY_UNIT
@@ -111,6 +118,7 @@ class FillRateBasedControlTUNES(FRBC):
         max_size: int = 100,
         valid_from_shift: timedelta = timedelta(days=1),
         timers: dict[str: datetime] | None = None,
+        datastore: dict | None = None,
         **kwargs,
     ) -> None:
         super().__init__(max_size)
@@ -148,6 +156,7 @@ class FillRateBasedControlTUNES(FRBC):
         self.last_system_description_hash: int = 0
 
         self._timers = timers if timers is not None else {}
+        self._datastore = datastore if datastore is not None else {}
 
     def is_timer_due(self, name: str):
         now = datetime.now()
@@ -504,9 +513,23 @@ class FillRateBasedControlTUNES(FRBC):
             schedule, system_description, soc_at_start, logger=self._logger
         )
 
+        # Revoke all old instructions
+        for message_id, instruction in self._datastore["instructions"].items():
+            revoke_instruction = RevokeObject(
+                message_id=get_unique_id(),
+                object_type=RevokableObjects.FRBC_Instruction,
+                object_id=instruction.message_id,
+            )
+            await self._sending_queue.put(revoke_instruction)
+        self._datastore["instructions"] = {}
+
         # Put the instruction in the sending queue
         for instruction in instructions:
             await self._sending_queue.put(instruction)
+
+        # Store instructions
+        for instruction in instructions:
+            self._datastore["instructions"][instruction.message_id] = instruction
 
     @register(FRBCSystemDescription)
     def handle_system_description(
