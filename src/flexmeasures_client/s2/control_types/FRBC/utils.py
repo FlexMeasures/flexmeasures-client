@@ -22,10 +22,8 @@ except ImportError:
 from flexmeasures_client.s2.utils import get_unique_id
 
 
-def op_mode_compute_factor(op_mode_elem: FRBCOperationModeElement, fill_rate, logger):
-    """
-    Compute the operation mode factor for a fill_rate
-    """
+def op_mode_compute_factor(op_mode_elem: FRBCOperationModeElement, fill_rate: float, logger) -> float:
+    """Compute the operation mode factor for a given fill rate."""
 
     start_fill_rate = op_mode_elem.fill_rate.start_of_range * FILL_LEVEL_SCALE
     end_fill_rate = op_mode_elem.fill_rate.end_of_range * FILL_LEVEL_SCALE
@@ -249,7 +247,7 @@ def fm_schedule_to_instructions(
                     op_mode_elements, key=lambda x: x[0]
                 )[0]
 
-                operation_mode_factor = op_mode_compute_factor(op_mode_elem, value, logger=logger)
+                operation_mode_factor = op_mode_compute_factor(op_mode_elem, fill_rate=value, logger=logger)
 
             logger.debug(f"Creating instruction for operation_mode_factor {operation_mode_factor}..")
             instruction = FRBCInstruction(
