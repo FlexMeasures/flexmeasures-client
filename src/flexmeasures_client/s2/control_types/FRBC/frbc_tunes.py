@@ -87,6 +87,7 @@ class FillRateBasedControlTUNES(FRBC):
 
     _timers: dict[str, datetime]
     _minimum_measurement_period: timedelta = timedelta(minutes=5)
+    _safety_margin = 20  # in ENERGY_UNIT
 
     def __init__(
         self,
@@ -317,7 +318,7 @@ class FillRateBasedControlTUNES(FRBC):
         fill_level_range: NumberRange = system_description.storage.fill_level_range
 
         # get SOC Max and Min to be sent on the Flex Model
-        soc_min = fill_level_range.start_of_range * FILL_LEVEL_SCALE
+        soc_min = fill_level_range.start_of_range * FILL_LEVEL_SCALE + self._safety_margin
         soc_max = fill_level_range.end_of_range * FILL_LEVEL_SCALE
 
         operation_mode = None
