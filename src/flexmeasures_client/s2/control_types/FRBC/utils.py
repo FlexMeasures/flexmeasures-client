@@ -22,7 +22,9 @@ except ImportError:
 from flexmeasures_client.s2.utils import get_unique_id
 
 
-def op_mode_compute_factor(op_mode_elem: FRBCOperationModeElement, fill_rate: float, logger) -> float:
+def op_mode_compute_factor(
+    op_mode_elem: FRBCOperationModeElement, fill_rate: float, logger
+) -> float:
     """Compute the operation mode factor for a given fill rate."""
 
     start_fill_rate = op_mode_elem.fill_rate.start_of_range * FILL_LEVEL_SCALE
@@ -38,7 +40,9 @@ def op_mode_compute_factor(op_mode_elem: FRBCOperationModeElement, fill_rate: fl
 
     omf = (fill_rate - start_fill_rate) / delta_fill_rate
     if omf < 0 or omf > 1:
-        logger.error(f"Invalid operation mode factor {omf} computed from fill_rate {fill_rate}")
+        logger.error(
+            f"Invalid operation mode factor {omf} computed from fill_rate {fill_rate}"
+        )
     return omf
 
 
@@ -97,9 +101,7 @@ def compute_next_fill_level(
 ) -> float:
     fill_rate = power * charging_efficiency * deltaT
     next_fill_level = (
-        fill_level * storage_eff
-        + fill_rate * storage_eff
-        - usage * deltaT
+        fill_level * storage_eff + fill_rate * storage_eff - usage * deltaT
     )
     return next_fill_level
 
@@ -137,7 +139,9 @@ def fm_schedule_to_instructions(
         )
 
     operation_modes: list[FRBCOperationMode] = actuator.operation_modes
-    logger.debug(f"operation_modes: {[mode.diagnostic_label.lower() for mode in operation_modes]}")
+    logger.debug(
+        f"operation_modes: {[mode.diagnostic_label.lower() for mode in operation_modes]}"
+    )
 
     # Find idle operation mode
     idle_operation_mode = next(
@@ -146,7 +150,11 @@ def fm_schedule_to_instructions(
     )
     logger.debug(f"idle_operation_mode: {idle_operation_mode}")
     active_operation_mode = next(
-        (mode for mode in operation_modes if "idle" not in mode.diagnostic_label.lower()),
+        (
+            mode
+            for mode in operation_modes
+            if "idle" not in mode.diagnostic_label.lower()
+        ),
         None,
     )
     logger.debug(f"active_operation_mode: {active_operation_mode}")
@@ -198,7 +206,9 @@ def fm_schedule_to_instructions(
                 ]
 
                 if not valid_operation_modes:
-                    logger.warning(f"Schedule does not map to a valid operation mode for {timestamp}.")
+                    logger.warning(
+                        f"Schedule does not map to a valid operation mode for {timestamp}."
+                    )
                     continue
 
                 max_fill_rate = max(
@@ -231,7 +241,9 @@ def fm_schedule_to_instructions(
                     op_mode_elements, key=lambda x: x[0]
                 )[0]
 
-                operation_mode_factor = op_mode_compute_factor(op_mode_elem, fill_rate=value, logger=logger)
+                operation_mode_factor = op_mode_compute_factor(
+                    op_mode_elem, fill_rate=value, logger=logger
+                )
 
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
@@ -242,7 +254,9 @@ def fm_schedule_to_instructions(
                 execution_time=timestamp,
                 abnormal_condition=False,
             )
-            logger.info(f"Instruction created: at {timestamp} set {actuator.diagnostic_label} to {operation_mode.diagnostic_label} with factor {operation_mode_factor}")
+            logger.info(
+                f"Instruction created: at {timestamp} set {actuator.diagnostic_label} to {operation_mode.diagnostic_label} with factor {operation_mode_factor}"
+            )
             instructions.append(instruction)
 
         logger.debug(f"computing storage_eff from {storage_efficiency}")
