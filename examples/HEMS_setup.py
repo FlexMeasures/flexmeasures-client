@@ -1582,6 +1582,10 @@ async def run_scheduling_simulation(
                     "sensor": sensors["pv-production"]["id"],
                     **curtailable_pv_flex_model,
                 },
+                {
+                    "sensor": sensors["heating-soc-usage"]["id"],
+                    **heating_scheduling_dynamic_flex_model,
+                },
             ]
 
             # Conditionally add EVSE flex models if they are not on a trip
@@ -1607,7 +1611,7 @@ async def run_scheduling_simulation(
 
             print("[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
             for i, model in enumerate(final_flex_models):
-                device_name = ["Battery", "PV", "EVSE-1", "EVSE-2"][i]
+                device_name = ["Battery", "PV", "EVSE-1", "EVSE-2", "Heating"][i]
                 print(f"[FLEX-MODEL] {device_name}: {model}")
             print()
 
