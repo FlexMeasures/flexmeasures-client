@@ -1264,6 +1264,7 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
         ("max-production-capacity", "max-production-capacity", building_name),
         ("irradiation", "irradiation", weather_station_name),
         ("electricity-production", "electricity-production", pv_name),
+        ("soc-usage", "soc-usage", heating_name),
     ]
 
     sensors = await find_sensors_by_asset(client, sensor_mappings)
@@ -1276,6 +1277,7 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
         ("HEMS data/PV_production_data.csv", "electricity-production", True),
         ("HEMS data/max_consumption_capacity.csv", "max-consumption-capacity", False),
         ("HEMS data/max_production_capacity.csv", "max-production-capacity", False),
+        ("HEMS data/heating_soc_usage_data.csv", "soc-usage", True),
     ]
 
     for file_path, sensor_key, belief_time_measured_instantly in data_files:
