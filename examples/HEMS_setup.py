@@ -1944,7 +1944,19 @@ async def run_scheduling_simulation(
                 print(
                     f"[EVSE2-SOC] Uploaded {len(evse2_soc_values)} FlexMeasures-computed SoC values"
                 )
-
+            # Upload heating SoC measurements (FlexMeasures computed)
+            if heating_soc_values:
+                await client.post_sensor_data(
+                    sensor_id=sensors["heating-soc"]["id"],
+                    start=current_time,
+                    duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
+                    prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+                    values=heating_soc_values,
+                    unit="kW",
+                )
+                print(
+                    f"[HEATING-SOC] Uploaded {len(heating_soc_values)} FlexMeasures-computed SoC values"
+                )
             # Display FlexMeasures-computed SoC and power data
             print("\n[FLEXMEASURES-RESULTS] === FLEX-MODEL COMPUTED SCHEDULES ===")
 
