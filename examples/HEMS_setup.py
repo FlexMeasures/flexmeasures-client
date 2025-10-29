@@ -26,6 +26,7 @@ pv_name = "Rooftop PV"
 battery_name = "Home Battery"
 evse1_name = "EV Connector 1"
 evse2_name = "EV Connector 2"
+heating_name = "Heat Pump"
 weather_station_name = "Local Weather Station"
 price_market_name = "Energy Market"
 
