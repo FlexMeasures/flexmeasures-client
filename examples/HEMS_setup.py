@@ -1758,6 +1758,9 @@ async def run_scheduling_simulation(
                 elif sensor_id == sensors["pv-production"]["id"]:
                     pv_scheduled_power = [-v for v in power_values]
                     sensor_name = "PV"
+                elif sensor_id == sensors["heating-soc-usage"]["id"]:
+                    heating_scheduled_power = power_values
+                    sensor_name = "Heating"
 
                 print(
                     f"[SCHEDULE] {sensor_name} (sensor {sensor_id}): {power_values} kW"
