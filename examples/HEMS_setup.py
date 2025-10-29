@@ -1606,7 +1606,7 @@ async def run_scheduling_simulation(
 
             print("[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
             for i, model in enumerate(final_flex_models):
-                device_name = ["Battery", "PV", "EVSE-1", "EVSE-2", "Heating"][i]
+                device_name = ["Battery", "PV", "Heating", "EVSE-1", "EVSE-2"][i]
                 print(f"[FLEX-MODEL] {device_name}: {model}")
             print()
 
