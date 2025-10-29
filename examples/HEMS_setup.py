@@ -1707,12 +1707,18 @@ async def run_scheduling_simulation(
                     "sensor": sensors["evse2-power"]["id"],
                     "duration": f"PT{SIMULATION_STEP_HOURS}H",
                 },
+                {
+                    "values": [0.0] * SIMULATION_STEP_HOURS,
+                    "sensor": sensors["heating-soc-usage"]["id"],
+                    "duration": f"PT{SIMULATION_STEP_HOURS}H",
+                },
             ]
 
             # Set empty SoC schedules for error case
             battery_soc_schedule = {"values": [], "duration": "PT0H"}
             evse1_soc_schedule = {"values": [], "duration": "PT0H"}
             evse2_soc_schedule = {"values": [], "duration": "PT0H"}
+            heating_soc_schedule = {"values": [], "duration": "PT0H"}
 
         # Extract scheduled power for all devices for the next 4 hours
         step_end_time = current_time + timedelta(hours=SIMULATION_STEP_HOURS)
