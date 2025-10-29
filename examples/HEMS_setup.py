@@ -879,7 +879,8 @@ async def configure_building_flex_context(
         },  # Relaxed constraint for residential
         "site-power-capacity": "20 kVA",
         # Enable soft constraints for SoC minima (this makes soc-minima soft constraints instead of hard)
-        "relax-constraints": True,
+        "relax-soc-constraints": True,
+        "relax-site-capacity-constraints": True,
         "site-peak-consumption-price": "26 EUR/MW",
         "site-peak-consumption": "0 kW",
         # Configure breach prices for soft constraints
