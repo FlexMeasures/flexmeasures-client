@@ -1953,7 +1953,7 @@ async def run_scheduling_simulation(
                     duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
                     prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
                     values=heating_soc_values,
-                    unit="kW",
+                    unit="kWh",
                 )
                 print(
                     f"[HEATING-SOC] Uploaded {len(heating_soc_values)} FlexMeasures-computed SoC values"
