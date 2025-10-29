@@ -1420,6 +1420,7 @@ async def run_scheduling_simulation(
         ("evse2-soc", evse2_name, "state-of-charge"),
         ("electricity-price", price_market_name, "electricity-price"),
         ("electricity-aggregate", building_name, "electricity-aggregate"),
+        ("heating-soc-usage", heating_name, "soc-usage"),
     ]
 
     sensors = {}
