@@ -1674,6 +1674,16 @@ async def run_scheduling_simulation(
                 print(f"Warning: Could not retrieve EVSE2 SoC schedule: {e}")
                 evse2_soc_schedule = {"values": [], "duration": "PT0H"}
 
+            try:
+                heating_soc_schedule = await client.get_schedule(
+                    sensor_id=sensors["heating-soc-usage"]["id"],
+                    schedule_id=job_uuid,
+                    duration=schedule_duration,
+                )
+            except Exception as e:
+                print(f"Warning: Could not retrieve heating SoC schedule: {e}")
+                heating_soc_schedule = {"values": [], "duration": "PT0H"}
+
             print("Multi-device power and SoC schedules retrieved successfully")
 
         except Exception as e:
