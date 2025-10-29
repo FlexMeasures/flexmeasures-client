@@ -802,10 +802,6 @@ async def create_heating_asset(
         "state-of-charge": {"sensor": heating_soc_sensor["id"]},
     }
 
-    attributes_flex_model = {
-        "soc_unit": "kWh",
-        "soc_at_start": HEATING_CONFIG["soc_at_start_percent"] * capacity,
-    }
 
     # === Configure graph displays ===
     sensors_to_show = [
@@ -838,7 +834,6 @@ async def create_heating_asset(
         updates={
             "flex_model": flex_model,
             "attributes": {
-                "flex_model": attributes_flex_model,
                 "sensors_to_show": sensors_to_show,
             },
         },
