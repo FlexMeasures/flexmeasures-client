@@ -1464,11 +1464,11 @@ async def run_scheduling_simulation(
         "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
     )
 
-    # Get heating asset soc settings
-    heating_flex_model = json.loads(heating_asset["attributes"]).get("flex_model")
-    if not heating_flex_model:
-        print("Heating asset missing flex_model settings")
-        return False
+    # # Get heating asset soc settings
+    # heating_flex_model = json.loads(heating_asset["attributes"]).get("flex_model")
+    # if not heating_flex_model:
+    #     print("Heating asset missing flex_model settings")
+    #     return False
 
     # Initialize simulation
     current_time = pd.to_datetime(SCHEDULING_START)
