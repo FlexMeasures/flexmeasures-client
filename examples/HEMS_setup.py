@@ -1862,6 +1862,11 @@ async def run_scheduling_simulation(
                 // pd.Timedelta(hours=1)
                 / (len(evse2_soc_schedule["values"]) - 1)
             )
+            heating_resolution_in_hours = (
+                pd.Timedelta(heating_soc_schedule["duration"])
+                // pd.Timedelta(hours=1)
+                / (len(heating_soc_schedule["values"]) - 1)
+            )
             battery_soc_values = (
                 battery_soc_schedule["values"][
                     : int(SIMULATION_STEP_HOURS / battery_resolution_in_hours)
