@@ -2025,6 +2025,17 @@ async def run_scheduling_simulation(
                 print(
                     f"[EVSE-2] Power: {evse2_average_power:.2f} kW | SoC: Not available"
                 )
+            if heating_soc_values:
+                heating_soc_start = heating_soc_values[0]
+                heating_soc_end = heating_soc_values[-1]
+                heating_soc_change = heating_soc_end - heating_soc_start
+                print(
+                    f"[HEATING] Power: {heating_average_power:.2f} kW | SoC: {heating_soc_start:.1f} → {heating_soc_end:.1f} kWh ({heating_soc_change:+.1f} kWh)"
+                )
+            else:
+                print(
+                    f"[HEATING] Power: {heating_average_power:.2f} kW | SoC: Not available"
+                )
 
         except Exception as e:
             print(f"Failed to upload measurements: {e}")
