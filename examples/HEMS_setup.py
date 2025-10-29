@@ -1809,7 +1809,7 @@ async def run_scheduling_simulation(
 
             # Upload heating power measurements
             await client.post_sensor_data(
-                sensor_id=sensors["heating-soc-usage"]["id"],
+                sensor_id=sensors["heating-power"]["id"],
                 start=current_time,
                 duration=battery_power_duration,
                 prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
