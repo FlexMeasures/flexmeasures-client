@@ -793,7 +793,7 @@ async def create_heating_asset(
     flex_model = {
         "soc-max": f"{capacity} kWh",
         "soc-min": f"{capacity * HEATING_CONFIG['min_soc_percent']} kWh",
-        # "soc-usage": [{"sensor": sensors["soc-usage"]["id"]}],
+        "soc-usage": [{"sensor": heating_soc_usage_sensor["id"]}],
         "charging-efficiency": f"{HEATING_CONFIG['charging_efficiency']*100} %",
         "consumption-capacity": "9 kW",
         "production-capacity": "0 kW",
