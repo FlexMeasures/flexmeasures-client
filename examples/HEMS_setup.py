@@ -1892,6 +1892,16 @@ async def run_scheduling_simulation(
                 if evse2_soc_schedule.get("values")
                 else []
             )
+            heating_soc_values = (
+                heating_soc_schedule["values"][
+                    : int(SIMULATION_STEP_HOURS / heating_resolution_in_hours)
+                ]
+                if heating_soc_schedule.get("values")
+                else []
+            )
+            heating_next_current_soc = heating_soc_schedule["values"][
+                int(SIMULATION_STEP_HOURS / heating_resolution_in_hours)
+            ]
 
             # Upload battery SoC measurements (FlexMeasures computed)
             if battery_soc_values:
