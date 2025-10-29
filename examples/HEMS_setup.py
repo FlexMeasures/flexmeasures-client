@@ -1767,7 +1767,7 @@ async def run_scheduling_simulation(
 
         # Upload measurements for the simulation step
         try:
-            # Upload battery power
+            # Upload battery power measurements
             battery_power_duration = timedelta(hours=SIMULATION_STEP_HOURS)
             await client.post_sensor_data(
                 sensor_id=sensors["battery-power"]["id"],
@@ -1777,7 +1777,7 @@ async def run_scheduling_simulation(
                 values=battery_scheduled_power,
                 unit="kW",
             )
-            # Upload PV power
+            # Upload PV power measurements
             await client.post_sensor_data(
                 sensor_id=sensors["pv-production"]["id"],
                 start=current_time,
@@ -1787,7 +1787,7 @@ async def run_scheduling_simulation(
                 unit="kW",
             )
 
-            # Upload EVSE 1 power
+            # Upload EVSE 1 power measurements
             await client.post_sensor_data(
                 sensor_id=sensors["evse1-power"]["id"],
                 start=current_time,
@@ -1797,7 +1797,7 @@ async def run_scheduling_simulation(
                 unit="kW",
             )
 
-            # Upload EVSE 2 power
+            # Upload EVSE 2 power measurements
             await client.post_sensor_data(
                 sensor_id=sensors["evse2-power"]["id"],
                 start=current_time,
@@ -1807,7 +1807,7 @@ async def run_scheduling_simulation(
                 unit="kW",
             )
 
-            # Upload heating power
+            # Upload heating power measurements
             await client.post_sensor_data(
                 sensor_id=sensors["heating-soc-usage"]["id"],
                 start=current_time,
