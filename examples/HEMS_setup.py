@@ -703,6 +703,141 @@ async def create_evse_asset(
     )
 
 
+async def create_heating_asset(
+    client: FlexMeasuresClient,
+    account_id: int,
+    building_asset_id: int,
+    heating_name: str,
+    latitude: float,
+    longitude: float,
+):
+    """Create heating asset (child of building) with temperature, power & energy sensors + settings."""
+    print(f"Creating heating asset: {heating_name}...")
+
+    # Create heating asset (generic asset type id = 5 if heating not defined in DB)
+    heating_asset = await client.add_asset(
+        name=heating_name,
+        latitude=latitude,
+        longitude=longitude,
+        generic_asset_type_id=5,  # Using battery type as placeholder for heating asset
+        account_id=account_id,
+        parent_asset_id=building_asset_id,
+    )
+
+    # Power sensors (15min, kW)
+    heating_power_sensor = await client.add_sensor(
+        name="power",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=heating_asset["id"],
+        timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=True),
+    )
+
+    # Soc usage sensor (15min, kW)
+    heating_soc_usage_sensor = await client.add_sensor(
+        name="soc-usage",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=heating_asset["id"],
+        timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=True),
+    )
+
+    # State of Charge sensors (15min, kWh)
+    heating_soc_sensor = await client.add_sensor(
+        name="state of charge",
+        event_resolution="PT15M",
+        unit="kWh",
+        generic_asset_id=heating_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+    heating_min_soc_sensor = await client.add_sensor(
+        name="min SoC",
+        event_resolution="PT15M",
+        unit="kWh",
+        generic_asset_id=heating_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+    heating_max_soc_sensor = await client.add_sensor(
+        name="max SoC",
+        event_resolution="PT15M",
+        unit="kWh",
+        generic_asset_id=heating_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+
+    # COP (Coefficient of Performance)
+    heating_COP = await client.add_sensor(
+        name="COP",
+        event_resolution="PT15M",
+        unit="%",
+        generic_asset_id=heating_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+
+    capacity = HEATING_CONFIG["capacity_kwh"]
+
+    # add flex_context ?
+    flex_model = {
+        "soc-max": f"{capacity} kWh",
+        "soc-min": f"{capacity * HEATING_CONFIG['min_soc_percent']} kWh",
+        # "soc-usage": [{"sensor": sensors["soc-usage"]["id"]}],
+        "charging-efficiency": f"{HEATING_CONFIG['charging_efficiency']*100} %",
+        "consumption-capacity": "9 kW",
+        "production-capacity": "0 kW",
+        "storage-efficiency": f"{HEATING_CONFIG['storage_efficiency']*100} %",
+        # "roundtrip-efficiency": HEATING_CONFIG["roundtrip_efficiency"],
+        "power-capacity": f"{HEATING_CONFIG['power_capacity_kw']}kW",
+        # "state-of-charge": {"sensor": sensors["state of charge"]["id"]},
+    }
+
+    attributes_flex_model = {
+        "soc_unit": "kWh",
+        "soc_at_start": HEATING_CONFIG["soc_at_start_percent"] * capacity,
+    }
+
+    # === Configure graph displays ===
+    sensors_to_show = [
+        {
+            "title": "State of Charge",
+            "sensors": [
+                heating_soc_sensor["id"],
+                heating_min_soc_sensor["id"],
+                heating_max_soc_sensor["id"],
+            ],
+        },
+        {
+            "title": "Power flows by type",
+            "sensors": [
+                heating_power_sensor["id"],
+                heating_soc_usage_sensor["id"],
+            ],
+        },
+        {
+            "title": "Power-to-heat efficiency",
+            "sensors": [
+                heating_COP["id"],
+            ],
+        },
+    ]
+
+    # === Update asset with all attributes ===
+    await client.update_asset(
+        asset_id=heating_asset["id"],
+        updates={
+            "flex_model": flex_model,
+            "attributes": {
+                "flex_model": attributes_flex_model,
+                "sensors_to_show": sensors_to_show,
+            },
+        },
+    )
+
+    print(f"Created heating asset '{heating_name}' with ID: {heating_asset['id']}")
+    return heating_asset, heating_power_sensor, heating_soc_usage_sensor, heating_soc_sensor, heating_min_soc_sensor, heating_max_soc_sensor, heating_COP
+
+
 async def configure_building_flex_context(
     client: FlexMeasuresClient,
     building_asset,
