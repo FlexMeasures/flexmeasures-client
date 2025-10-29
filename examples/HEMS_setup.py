@@ -1472,6 +1472,7 @@ async def run_scheduling_simulation(
     battery_next_current_soc = None
     evse1_next_current_soc = None
     evse2_next_current_soc = None
+    heating_next_current_soc = None
 
     while current_time < end_time:
         print(f"Simulation step {step_num}: {current_time}")
