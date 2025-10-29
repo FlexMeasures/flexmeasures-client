@@ -802,7 +802,6 @@ async def create_heating_asset(
         "state-of-charge": {"sensor": heating_soc_sensor["id"]},
     }
 
-
     # === Configure graph displays ===
     sensors_to_show = [
         {
@@ -1555,7 +1554,10 @@ async def run_scheduling_simulation(
 
             if heating_next_current_soc is None:
                 # Use initial SoC for first step
-                heating_current_soc = HEATING_CONFIG["soc_at_start_percent"] * HEATING_CONFIG["capacity_kwh"]
+                heating_current_soc = (
+                    HEATING_CONFIG["soc_at_start_percent"]
+                    * HEATING_CONFIG["capacity_kwh"]
+                )
             else:
                 heating_current_soc = heating_next_current_soc
             # Create dynamic flex model for heating (Current SoC updated each step)
