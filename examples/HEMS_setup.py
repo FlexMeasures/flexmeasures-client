@@ -83,7 +83,7 @@ HEATING_CONFIG = {
     "min_soc_percent": 0.2,  # 20% minimum
     "max_soc_percent": 0.90,  # 90% maximum
     "soc_at_start_percent": 0.20,  # 20% starting
-    "charging_efficiency": 1.0,  # 100% charging efficiency (heat pumps)
+    "charging_efficiency": 3.0,  # 300% charging efficiency (heat pumps)
     "storage_efficiency": 0.993,  # 99.3% storage efficiency (heat pumps)
 }
 
