@@ -67,7 +67,7 @@ To get started with the FlexMeasures Client, first an account needs to be regist
 To create a local instance of FlexMeasures, follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
 Registering to a hosted FlexMeasures instance instead can be done through `Seita BV <https://seita.nl/>`_.
 
-In these examples we show how to set up the client to connect to either ``http://localhost:5000`` or ``https://seita.energy``. To connect to a different host, adapt the host in the initialization of the client.
+In these examples we show how to set up the client to connect to either ``http://localhost:5000`` or ``https://ems.seita.energy``. To connect to a different host, adapt the host in the initialization of the client.
 
    .. code-block:: python
 
@@ -75,7 +75,7 @@ In these examples we show how to set up the client to connect to either ``http:/
 
     async def main():
         client = FlexMeasuresClient(host="localhost:5000", ssl=False, email="email@email.com", password="pw")
-        client = FlexMeasuresClient(host="seita.energy", ssl=True, email="email@email.com", password="pw")
+        client = FlexMeasuresClient(host="ems.seita.energy", ssl=True, email="email@email.com", password="pw")
 
 
 Retrieving available info
