@@ -798,7 +798,6 @@ async def create_heating_asset(
         "consumption-capacity": "5 kW",
         "production-capacity": "0 kW",
         "storage-efficiency": f"{HEATING_CONFIG['storage_efficiency']*100} %",
-        # "roundtrip-efficiency": HEATING_CONFIG["roundtrip_efficiency"],
         "power-capacity": f"{HEATING_CONFIG['power_capacity_kw']}kW",
         "state-of-charge": {"sensor": heating_soc_sensor["id"]},
     }
