@@ -1578,7 +1578,7 @@ async def run_scheduling_simulation(
                     **curtailable_pv_flex_model,
                 },
                 {
-                    "sensor": sensors["heating-soc-usage"]["id"],
+                    "sensor": sensors["heating-power"]["id"],
                     **heating_scheduling_dynamic_flex_model,
                 },
             ]
