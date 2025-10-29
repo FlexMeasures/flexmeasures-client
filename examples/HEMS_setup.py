@@ -1053,6 +1053,32 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
     print(f"EVSE 2 power sensor ID: {evse2_power_sensor['id']}")
     print(f"EVSE 2 SoC sensor ID: {evse2_soc_sensor['id']}")
 
+    # create heating asset
+    print("Creating heating asset with temperature, power & energy sensors")
+    (
+        heating_asset,
+        heating_power_sensor,
+        heating_soc_usage_sensor,
+        heating_soc_sensor,
+        heating_min_soc_sensor,
+        heating_max_soc_sensor,
+        heating_COP,
+    ) = await create_heating_asset(
+        client,
+        account_id,
+        building_asset["id"],
+        heating_name,
+        latitude,
+        longitude,
+    )
+    print(f"Heating asset ID: {heating_asset['id']}")
+    print(f"Heating power sensor ID: {heating_power_sensor['id']}")
+    print(f"Heating SoC usage sensor ID: {heating_soc_usage_sensor['id']}")
+    print(f"Heating SoC sensor ID: {heating_soc_sensor['id']}")
+    print(f"Heating min SoC sensor ID: {heating_min_soc_sensor['id']}")
+    print(f"Heating max SoC sensor ID: {heating_max_soc_sensor['id']}")
+    print(f"Heating COP sensor ID: {heating_COP['id']}")
+
     print("Creating weather station with irradiation and cloud coverage sensors")
     weather_asset, irradiation_sensor, cloud_coverage_sensor = (
         await create_weather_station(client)
