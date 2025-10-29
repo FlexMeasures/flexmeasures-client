@@ -1976,7 +1976,11 @@ async def run_scheduling_simulation(
                 if evse2_scheduled_power
                 else 0
             )
-
+            heating_average_power = (
+                sum(heating_scheduled_power) / len(heating_scheduled_power)
+                if heating_scheduled_power
+                else 0
+            )
             # Show SoC progression if available
             if battery_soc_values:
                 battery_soc_start = battery_soc_values[0]
