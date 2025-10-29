@@ -1728,6 +1728,7 @@ async def run_scheduling_simulation(
         evse1_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
         evse2_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
         pv_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
+        heating_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
 
         if isinstance(schedule_result, list) and len(schedule_result) >= 3:
             # Extract schedules for each device
