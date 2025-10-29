@@ -1391,6 +1391,7 @@ async def run_scheduling_simulation(
     battery_asset = assets_by_name.get(battery_name)
     evse1_asset = assets_by_name.get(evse1_name)
     evse2_asset = assets_by_name.get(evse2_name)
+    heating_asset = assets_by_name.get(heating_name)
 
     if not building_asset:
         print("Could not find building asset for scheduling")
@@ -1402,6 +1403,9 @@ async def run_scheduling_simulation(
 
     if not evse1_asset or not evse2_asset:
         print("Could not find EVSE assets for scheduling")
+        return False
+    if not heating_asset:
+        print("Could not find heating asset for scheduling")
         return False
 
     # Find sensors (including EVSE sensors) - using unique keys for duplicate sensor names
