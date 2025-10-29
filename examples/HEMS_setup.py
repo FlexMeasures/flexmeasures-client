@@ -77,6 +77,16 @@ EV_WEEKLY_PATTERNS = [
     (False, None, None, 40),  # Sunday - Free day
 ]
 
+HEATING_CONFIG = {
+    "capacity_kwh": 50.0,  # energy
+    "power_capacity_kw": 5.0,  # power
+    "min_soc_percent": 0.2,  # 20% minimum
+    "max_soc_percent": 0.90,  # 90% maximum
+    "soc_at_start_percent": 0.20,  # 20% starting
+    "charging_efficiency": 1.0,  # 100% charging efficiency (heat pumps)
+    "storage_efficiency": 0.993,  # 99.3% storage efficiency (heat pumps)
+}
+
 
 def get_day_pattern(date_time: pd.Timestamp) -> tuple:
     """Get the EV pattern for a specific day of the week."""
