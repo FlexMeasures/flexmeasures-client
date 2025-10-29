@@ -1671,7 +1671,7 @@ async def run_scheduling_simulation(
 
             try:
                 heating_soc_schedule = await client.get_schedule(
-                    sensor_id=sensors["heating-soc-usage"]["id"],
+                    sensor_id=sensors["heating-soc"]["id"],
                     schedule_id=job_uuid,
                     duration=schedule_duration,
                 )
