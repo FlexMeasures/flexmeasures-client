@@ -1557,6 +1557,16 @@ async def run_scheduling_simulation(
                     constraints=evse2_constraints,
                 )
 
+            if heating_next_current_soc is None:
+                # Use initial SoC for first step
+                heating_current_soc = heating_flex_model.get("soc_at_start", 12.0)
+            else:
+                heating_current_soc = heating_next_current_soc
+            # Create dynamic flex model for heating (Current SoC updated each step)
+            heating_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
+                current_soc=heating_current_soc,
+            )
+
             # Start with the battery and PV flex models
             curtailable_pv_flex_model = {
                 "power-capacity": "12 kW",
