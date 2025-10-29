@@ -1812,6 +1812,16 @@ async def run_scheduling_simulation(
                 unit="kW",
             )
 
+            # Upload heating power
+            await client.post_sensor_data(
+                sensor_id=sensors["heating-soc-usage"]["id"],
+                start=current_time,
+                duration=battery_power_duration,
+                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+                values=heating_scheduled_power,
+                unit="kW",
+            )
+
             # Upload building consumption for this period
             building_data_step = building_df[
                 (building_df["event_start"] >= current_time)
