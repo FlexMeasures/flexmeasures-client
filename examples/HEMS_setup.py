@@ -2303,6 +2303,9 @@ async def main():
         await generate_forecasts(
             client, asset_name=building_name, sensor_name="electricity-consumption"
         )
+        await generate_forecasts(
+            client, asset_name=heating_name, sensor_name="soc-usage"
+        )
 
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
