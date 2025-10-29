@@ -836,7 +836,15 @@ async def create_heating_asset(
     )
 
     print(f"Created heating asset '{heating_name}' with ID: {heating_asset['id']}")
-    return heating_asset, heating_power_sensor, heating_soc_usage_sensor, heating_soc_sensor, heating_min_soc_sensor, heating_max_soc_sensor, heating_COP
+    return (
+        heating_asset,
+        heating_power_sensor,
+        heating_soc_usage_sensor,
+        heating_soc_sensor,
+        heating_min_soc_sensor,
+        heating_max_soc_sensor,
+        heating_COP,
+    )
 
 
 async def configure_building_flex_context(
