@@ -2152,6 +2152,7 @@ async def create_reports(client: FlexMeasuresClient):
             "daily-share-of-self-consumption",
             building_name,
         ),
+        ("heating-power", "power", heating_name),
     ]
     sensors = await find_sensors_by_asset(client, sensor_mappings)
 
@@ -2163,6 +2164,7 @@ async def create_reports(client: FlexMeasuresClient):
             {"battery-power": sensors["electricity-power"]["id"]},
             {"evse1-power": sensors["evse1-power"]["id"]},
             {"evse2-power": sensors["evse2-power"]["id"]},
+            {"heating-power": sensors["heating-power"]["id"]},
         ],
         output_sensors=sensors["electricity-aggregate"],
         start=SCHEDULING_START,
@@ -2178,6 +2180,7 @@ async def create_reports(client: FlexMeasuresClient):
             {"evse1-consumption": sensors["evse1-power"]["id"]},
             {"evse2-consumption": sensors["evse2-power"]["id"]},
             {"battery-power": sensors["electricity-power"]["id"]},
+            {"heating-power": sensors["heating-power"]["id"]},
         ],
         output_sensors=[
             sensors["self-consumption"],
@@ -2193,6 +2196,7 @@ async def create_reports(client: FlexMeasuresClient):
         input_sensors=[
             {"aggregate-power": sensors["electricity-aggregate"]["id"]},
             {"consumption-production-price": sensors["electricity-price"]["id"]},
+            {"heating-power": sensors["heating-power"]["id"]},
         ],
         output_sensors=[
             sensors["total-energy-costs"],
