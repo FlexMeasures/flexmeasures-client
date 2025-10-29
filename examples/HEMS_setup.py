@@ -758,7 +758,7 @@ async def create_heating_asset(
     # State of Charge sensors (15min, kWh)
     heating_soc_sensor = await client.add_sensor(
         name="state of charge",
-        event_resolution="PT15M",
+        event_resolution="PT0M",
         unit="kWh",
         generic_asset_id=heating_asset["id"],
         timezone="Europe/Amsterdam",
