@@ -5,6 +5,7 @@ Used it at your own risk :)
 """
 
 import asyncio
+import math
 from datetime import datetime, timedelta
 from requests.exceptions import HTTPError
 
@@ -158,21 +159,35 @@ class FillRateBasedControlTUNES(FRBC):
         self._timers = timers if timers is not None else {}
         self._datastore = datastore if datastore is not None else {}
 
-    def is_timer_due(self, name: str):
+    def _is_timer_due(self, name: str) -> bool:
         now = datetime.now()
         due_time = self._timers.get(name, now - self._minimum_measurement_period)
         if due_time <= now:
-            self._timers[name] = now + self._minimum_measurement_period
+            # Get total seconds of the period
+            period_seconds = self._minimum_measurement_period.total_seconds()
+
+            # Seconds since start of the hour
+            seconds_since_hour = now.minute * 60 + now.second + now.microsecond / 1e6
+
+            # Ceil to next multiple of period_seconds
+            next_tick_seconds = (
+                math.ceil(seconds_since_hour / period_seconds) * period_seconds
+            )
+
+            # Compute next due datetime
+            next_due = now.replace(minute=0, second=0, microsecond=0) + timedelta(
+                seconds=next_tick_seconds
+            )
+            self._timers[name] = next_due
             return True
         else:
-            self._logger.debug(f"Timer for {name} is not due until {self._timers[name]}")
             return False
 
     def now(self):
         return datetime.now(self._timezone)
 
     async def send_storage_status(self, status: FRBCStorageStatus):
-        if not self.is_timer_due("storage_status"):
+        if not self._is_timer_due("storage_status"):
             return
 
         try:
@@ -192,7 +207,7 @@ class FillRateBasedControlTUNES(FRBC):
         await self.trigger_schedule()
 
     async def send_leakage_behaviour(self, leakage: FRBCLeakageBehaviour):
-        if not self.is_timer_due("leakage_behaviour"):
+        if not self._is_timer_due("leakage_behaviour"):
             return
 
         try:
@@ -220,7 +235,7 @@ class FillRateBasedControlTUNES(FRBC):
             await self._sending_queue.put(response)
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
-        if not self.is_timer_due("actuator_status"):
+        if not self._is_timer_due("actuator_status"):
             return
 
         factor = status.operation_mode_factor
@@ -318,7 +333,7 @@ class FillRateBasedControlTUNES(FRBC):
         """
         Ask FlexMeasures for a new schedule and create FRBC.Instructions to send back to the ResourceManager
         """
-        if not self.is_timer_due("trigger_schedule"):
+        if not self._is_timer_due("trigger_schedule"):
             return
 
         # Retrieve the latest system description from history
@@ -561,7 +576,7 @@ class FillRateBasedControlTUNES(FRBC):
         else:
             self.last_system_description_hash = system_description_hash
 
-        if not self.is_timer_due("handle_system_description"):
+        if not self._is_timer_due("handle_system_description"):
             return get_reception_status(message, status=ReceptionStatusValues.OK)
 
         system_description_id = str(message.message_id)
@@ -595,7 +610,7 @@ class FillRateBasedControlTUNES(FRBC):
             system_description (FRBCSystemDescription): The system description containing actuator details.
         """
 
-        if not self.is_timer_due("send_conversion_efficiencies"):
+        if not self._is_timer_due("send_conversion_efficiencies"):
             return
 
         start = system_description.valid_from
@@ -668,7 +683,7 @@ class FillRateBasedControlTUNES(FRBC):
         Args:
             usage_forecast (FRBCUsageForecast): The usage forecast to be translated and sent.
         """
-        if not self.is_timer_due("usage_forecast"):
+        if not self._is_timer_due("usage_forecast"):
             return
 
         start_time = usage_forecast.start_time
@@ -701,7 +716,7 @@ class FillRateBasedControlTUNES(FRBC):
         Args:
             fill_level_target_profile (FRBCFillLevelTargetProfile): The fill level target profile to be translated and sent.
         """
-        if not self.is_timer_due("fill_level_target_profile"):
+        if not self._is_timer_due("fill_level_target_profile"):
             return
 
         soc_minima, soc_maxima = translate_fill_level_target_profile(
