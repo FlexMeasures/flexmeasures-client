@@ -537,7 +537,7 @@ class FillRateBasedControlTUNES(FRBC):
 
         # Store instructions
         for instruction in instructions:
-            self._datastore["instructions"][instruction.message_id] = instruction
+            self._datastore["instructions"][instruction.message_id] = instruction.to_json()
 
     @register(FRBCSystemDescription)
     def handle_system_description(
