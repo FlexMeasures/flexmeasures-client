@@ -351,7 +351,7 @@ class CEM(Handler):
             bin_start = bin_end - self._minimum_measurement_period
 
             # If timer not due, just collect values
-            if not self.is_timer_due(f"power_measurement_{commodity_quantity}"):
+            if not self._is_timer_due(f"power_measurement_{commodity_quantity}"):
                 self._logger.debug(
                     f"Collecting 5-minute average for {commodity_quantity} ({bin_start.isoformat()} – {bin_end.isoformat()})"
                 )
