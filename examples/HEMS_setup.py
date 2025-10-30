@@ -80,8 +80,8 @@ EV_WEEKLY_PATTERNS = [
 HEATING_CONFIG = {
     "capacity_kwh": 15.0,  # energy
     "power_capacity_kw": 5.0,  # power
-    "min_soc_percent": 0.2,  # 20% minimum
-    "max_soc_percent": 0.90,  # 90% maximum
+    "min_soc_percent": 0,  # 0% minimum
+    "max_soc_percent": 1,  # 100% maximum
     "soc_at_start_percent": 0.20,  # 20% starting
     "charging_efficiency": 3.0,  # 300% charging efficiency (heat pumps)
     "storage_efficiency": 0.993,  # 99.3% storage efficiency (heat pumps)
