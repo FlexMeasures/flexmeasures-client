@@ -189,6 +189,7 @@ class FillRateBasedControlTUNES(FRBC):
                 status=ReceptionStatusValues.PERMANENT_ERROR,
             )
             await self._sending_queue.put(response)
+        await self.trigger_schedule()
 
     async def send_leakage_behaviour(self, leakage: FRBCLeakageBehaviour):
         if not self.is_timer_due("leakage_behaviour"):
@@ -317,6 +318,8 @@ class FillRateBasedControlTUNES(FRBC):
         """
         Ask FlexMeasures for a new schedule and create FRBC.Instructions to send back to the ResourceManager
         """
+        if not self.is_timer_due("trigger_schedule"):
+            return
 
         # Retrieve the latest system description from history
         system_description: FRBCSystemDescription = list(
