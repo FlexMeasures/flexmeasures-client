@@ -813,7 +813,7 @@ async def create_heating_asset(
             ],
         },
         {
-            "title": "Power flows by type",
+            "title": "Power and heat",
             "sensors": [
                 heating_power_sensor["id"],
                 heating_soc_usage_sensor["id"],
