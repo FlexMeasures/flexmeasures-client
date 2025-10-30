@@ -78,7 +78,7 @@ EV_WEEKLY_PATTERNS = [
 ]
 
 HEATING_CONFIG = {
-    "capacity_kwh": 50.0,  # energy
+    "capacity_kwh": 15.0,  # energy
     "power_capacity_kw": 5.0,  # power
     "min_soc_percent": 0.2,  # 20% minimum
     "max_soc_percent": 0.90,  # 90% maximum
