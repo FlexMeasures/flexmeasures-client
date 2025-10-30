@@ -525,9 +525,9 @@ class FillRateBasedControlTUNES(FRBC):
             revoke_instruction = RevokeObject(
                 message_id=get_unique_id(),
                 object_type=RevokableObjects.FRBC_Instruction,
-                object_id=instruction.message_id,
+                object_id=message_id,
             )
-            self._logger.debug(f"Sending revoke instruction for {instruction.message_id}")
+            self._logger.debug(f"Sending revoke instruction for {message_id}")
             await self._sending_queue.put(revoke_instruction)
         self._datastore["instructions"] = {}
 
