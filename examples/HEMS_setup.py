@@ -819,12 +819,6 @@ async def create_heating_asset(
                 heating_soc_usage_sensor["id"],
             ],
         },
-        {
-            "title": "Power-to-heat efficiency",
-            "sensors": [
-                heating_COP["id"],
-            ],
-        },
     ]
 
     # === Update asset with all attributes ===
