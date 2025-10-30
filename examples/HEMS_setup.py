@@ -827,7 +827,7 @@ async def create_heating_asset(
         updates={
             "flex_model": flex_model,
             "sensors_to_show": sensors_to_show,
-            },
+        },
     )
 
     print(f"Created heating asset '{heating_name}' with ID: {heating_asset['id']}")
@@ -950,7 +950,10 @@ async def configure_building_dashboard(
                 total_energy_costs_sensor["id"],
             ],
         },
-        {"title": "Storages SoC", "sensors": [battery_soc_sensor["id"], heating_soc_sensor["id"]]},
+        {
+            "title": "Storages SoC",
+            "sensors": [battery_soc_sensor["id"], heating_soc_sensor["id"]],
+        },
         {
             "title": "Site capacity",
             "sensors": [
