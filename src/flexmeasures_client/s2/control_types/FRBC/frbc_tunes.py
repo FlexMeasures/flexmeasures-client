@@ -669,13 +669,14 @@ class FillRateBasedControlTUNES(FRBC):
             duration=CONVERSION_EFFICIENCY_DURATION,
         )
 
-    # async def close(self):
-    #     """
-    #     Closing procedure:
-    #         1) Stop recurrent task
-    #     """
-    #
-    #     await self.stop_trigger_schedule()
+    async def close(self):
+        """
+        Closing procedure:
+            # 1) Stop recurrent task
+        """
+
+        # await self.stop_trigger_schedule()
+        self._logger.debug(f"Closing {self.__name__} handler")
 
     async def send_usage_forecast(self, usage_forecast: FRBCUsageForecast):
         """
