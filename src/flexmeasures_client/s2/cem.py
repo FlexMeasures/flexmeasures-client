@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 from asyncio import Queue
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from logging import Logger
 from typing import Dict, Optional
 import pandas as pd
@@ -96,11 +97,26 @@ class CEM(Handler):
         self._timers = timers if timers is not None else {}
         self._datastore = datastore if datastore is not None else {}
 
-    def is_timer_due(self, name: str):
+    def _is_timer_due(self, name: str) -> bool:
         now = datetime.now()
         due_time = self._timers.get(name, now - self._minimum_measurement_period)
         if due_time <= now:
-            self._timers[name] = now + self._minimum_measurement_period
+            # Get total seconds of the period
+            period_seconds = self._minimum_measurement_period.total_seconds()
+
+            # Seconds since start of the hour
+            seconds_since_hour = now.minute * 60 + now.second + now.microsecond / 1e6
+
+            # Ceil to next multiple of period_seconds
+            next_tick_seconds = (
+                math.ceil(seconds_since_hour / period_seconds) * period_seconds
+            )
+
+            # Compute next due datetime
+            next_due = now.replace(minute=0, second=0, microsecond=0) + timedelta(
+                seconds=next_tick_seconds
+            )
+            self._timers[name] = next_due
             return True
         else:
             self._logger.debug(f"Timer for {name} is not due until {self._timers[name]}")

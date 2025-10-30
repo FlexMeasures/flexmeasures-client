@@ -181,6 +181,7 @@ class FillRateBasedControlTUNES(FRBC):
             self._timers[name] = next_due
             return True
         else:
+            self._logger.debug(f"Timer for {name} is not due until {self._timers[name]}")
             return False
 
     def now(self):
