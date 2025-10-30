@@ -5,6 +5,7 @@
         "consumption": 1.0,
         "battery-power": 1.0,
         "evse1-power": 1.0,
-        "evse2-power": 1.0
+        "evse2-power": 1.0,
+        "heating-power": 1.0
     }
 }
