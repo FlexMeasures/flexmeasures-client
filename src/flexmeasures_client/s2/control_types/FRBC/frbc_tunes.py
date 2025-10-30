@@ -277,42 +277,42 @@ class FillRateBasedControlTUNES(FRBC):
             duration=timedelta(minutes=15),
         )
 
-    async def start_trigger_schedule(self):
-        """
-        Start a recurring task to create new schedules.
+    # async def start_trigger_schedule(self):
+    #     """
+    #     Start a recurring task to create new schedules.
+    #
+    #     This function ensures that the scheduling task is started only once.
+    #     """
+    #
+    #     if not self._active_recurring_schedule:
+    #         self._active_recurring_schedule = True
+    #         self._recurrent_task = asyncio.create_task(self.trigger_schedule_task())
+    #         self.background_tasks.add(
+    #             self._recurrent_task
+    #         )  # important to avoid a task disappearing mid-execution.
+    #         self._recurrent_task.add_done_callback(self.background_tasks.discard)
 
-        This function ensures that the scheduling task is started only once.
-        """
-
-        if not self._active_recurring_schedule:
-            self._active_recurring_schedule = True
-            self._recurrent_task = asyncio.create_task(self.trigger_schedule_task())
-            self.background_tasks.add(
-                self._recurrent_task
-            )  # important to avoid a task disappearing mid-execution.
-            self._recurrent_task.add_done_callback(self.background_tasks.discard)
-
-    async def stop_trigger_schedule(self):
-        """
-        Stop the recurring task that creates new schedules.
-
-        This function ensures that the scheduling task is stopped gracefully.
-        """
-
-        if self._active_recurring_schedule:
-            self._active_recurring_schedule = False
-            self._recurrent_task.cancel()
-
-    async def trigger_schedule_task(self):
-        """
-        Recurring task to trigger the schedule creation process.
-
-        This task runs continuously while the active recurring schedule is enabled.
-        """
-
-        while self._active_recurring_schedule:
-            await self.trigger_schedule()
-            await asyncio.sleep(TASK_PERIOD_SECONDS)
+    # async def stop_trigger_schedule(self):
+    #     """
+    #     Stop the recurring task that creates new schedules.
+    #
+    #     This function ensures that the scheduling task is stopped gracefully.
+    #     """
+    #
+    #     if self._active_recurring_schedule:
+    #         self._active_recurring_schedule = False
+    #         self._recurrent_task.cancel()
+    #
+    # async def trigger_schedule_task(self):
+    #     """
+    #     Recurring task to trigger the schedule creation process.
+    #
+    #     This task runs continuously while the active recurring schedule is enabled.
+    #     """
+    #
+    #     while self._active_recurring_schedule:
+    #         await self.trigger_schedule()
+    #         await asyncio.sleep(TASK_PERIOD_SECONDS)
 
     async def trigger_schedule(self):
         """
@@ -549,7 +549,7 @@ class FillRateBasedControlTUNES(FRBC):
         Process:
             1) Store system_description message for later.
             2) Send conversion efficiencies (COP) to FlexMeasures.
-            3) Start a recurring tasks to trigger the scheduler.
+            # 3) Start a recurring tasks to trigger the scheduler.
         """
 
         message_dict = message.to_dict()
@@ -576,12 +576,12 @@ class FillRateBasedControlTUNES(FRBC):
         )  # important to avoid a task disappearing mid-execution.
         task.add_done_callback(self.background_tasks.discard)
 
-        # schedule trigger_schedule to run soon concurrently
-        task = asyncio.create_task(self.start_trigger_schedule())
-        self.background_tasks.add(
-            task
-        )  # important to avoid a task disappearing mid-execution.
-        task.add_done_callback(self.background_tasks.discard)
+        # # schedule trigger_schedule to run soon concurrently
+        # task = asyncio.create_task(self.start_trigger_schedule())
+        # self.background_tasks.add(
+        #     task
+        # )  # important to avoid a task disappearing mid-execution.
+        # task.add_done_callback(self.background_tasks.discard)
 
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
@@ -653,13 +653,13 @@ class FillRateBasedControlTUNES(FRBC):
             duration=CONVERSION_EFFICIENCY_DURATION,
         )
 
-    async def close(self):
-        """
-        Closing procedure:
-            1) Stop recurrent task
-        """
-
-        await self.stop_trigger_schedule()
+    # async def close(self):
+    #     """
+    #     Closing procedure:
+    #         1) Stop recurrent task
+    #     """
+    #
+    #     await self.stop_trigger_schedule()
 
     async def send_usage_forecast(self, usage_forecast: FRBCUsageForecast):
         """
