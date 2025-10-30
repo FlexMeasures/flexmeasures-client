@@ -826,10 +826,8 @@ async def create_heating_asset(
         asset_id=heating_asset["id"],
         updates={
             "flex_model": flex_model,
-            "attributes": {
-                "sensors_to_show": sensors_to_show,
+            "sensors_to_show": sensors_to_show,
             },
-        },
     )
 
     print(f"Created heating asset '{heating_name}' with ID: {heating_asset['id']}")
