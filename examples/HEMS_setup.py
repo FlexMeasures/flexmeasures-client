@@ -12,7 +12,6 @@ from datetime import timedelta
 from typing import Any
 
 import pandas as pd
-
 from utils import fill_reporter_params, run_report_cmd
 
 from flexmeasures_client import FlexMeasuresClient
@@ -2059,8 +2058,6 @@ async def run_scheduling_simulation(
 
     print("Scheduling simulation completed")
     return True
-
-
 
 
 async def create_reports(client: FlexMeasuresClient):
