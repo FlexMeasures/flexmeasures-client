@@ -2092,7 +2092,7 @@ def fill_reporter_params(
     }
 
     # overwrite the file (creates it if not exists)
-    with open(f"{reporter_type}_reporter_param.json", "w") as f:
+    with open(f"configs/{reporter_type}_reporter_param.json", "w") as f:
         json.dump(params, f, indent=4)
 
 
