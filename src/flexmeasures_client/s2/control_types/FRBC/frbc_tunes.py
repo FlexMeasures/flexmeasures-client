@@ -386,7 +386,7 @@ class FillRateBasedControlTUNES(FRBC):
             self._logger.info(f"No present fill level known: assuming an empty buffer.")
         self._logger.debug(f"soc_at_start: {soc_at_start}")
 
-        duration = timedelta(hours=24)
+        duration = timedelta(hours=6)
 
         flex_context = {
             "consumption-price": {"sensor": self._consumption_price_sensor_id},
