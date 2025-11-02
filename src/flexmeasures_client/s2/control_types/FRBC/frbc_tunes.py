@@ -676,7 +676,7 @@ class FillRateBasedControlTUNES(FRBC):
         """
 
         # await self.stop_trigger_schedule()
-        self._logger.debug(f"Closing {self.__name__} handler")
+        self._logger.debug(f"Closing {self.__class__.__name__} handler")
 
     async def send_usage_forecast(self, usage_forecast: FRBCUsageForecast):
         """
