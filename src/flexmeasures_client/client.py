@@ -520,7 +520,7 @@ class FlexMeasuresClient:
         self,
         sensor_id: int,
         schedule_id: str,
-        duration: str | timedelta,
+        duration: str | timedelta | None = None,
     ) -> dict:
         """Get schedule with given ID.
 
@@ -532,12 +532,16 @@ class FlexMeasuresClient:
                       'unit': 'MW'
                   }
         """
+        if duration is not None:
+            params = {
+                "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
+            }
+        else:
+            params = {}
         schedule, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
             method="GET",
-            params={
-                "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
-            },
+            params=params,
         )
         check_for_status(status, 200)
         if not isinstance(schedule, dict):

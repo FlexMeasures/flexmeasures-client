@@ -426,7 +426,6 @@ class FillRateBasedControlTUNES(FRBC):
             schedule = await self._fm_client.get_schedule(
                 sensor_id=self._rm_discharge_sensor_id,
                 schedule_id=schedule_id,
-                duration="PT24H",
             )
         except HTTPError as exc:
             self._logger.error(f"Failed to get a schedule: {str(exc)}")
