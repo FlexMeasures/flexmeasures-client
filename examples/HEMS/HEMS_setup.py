@@ -71,6 +71,8 @@ async def main():
             print(
                 "Creating building asset, with PV and battery sensors, and weather station"
             )
+            # todo A1: create 2 sites and register them as children of a community asset (config variables become lists?)
+            # todo B1: the community asset should get a site-power-capacity sensor, and a flex-context with the site-power-capacity field referencing that sensor, and a power sensor
             await create_building_assets_and_sensors(client, account)
         else:
             answer = input(f"Asset '{building_name}' already exists. Re-create?")
@@ -83,11 +85,14 @@ async def main():
         # Part 2: Upload data for first two weeks
         print("\n" + "=" * 50)
         print("PART 2: UPLOADING DATA")
+        # todo A2: upload data for the 2 sites as before
+        # todo B3: fill the site-power-capacity sensor with a CSV file with 30 kVA (note that the sum of the sites' max_consumption_capacity / site-power-capacity is 35 kW, 40 kVA, respectively)
         await upload_data_for_first_two_weeks(client)
 
         # Part 3: Generate PV forecasts for second week
         print("\n" + "=" * 50)
         print("PART 3: GENERATING PV FORECASTS")
+        # todo A3: forecast data for the 2 sites as before
         await generate_forecasts(
             client,
             asset_name=pv_name,
@@ -104,11 +109,20 @@ async def main():
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
         print("PART 4: SCHEDULING SIMULATION")
+        # todo A4: schedule each site separately
+        # todo A5: rerun tutorial and review
+        # todo B4: after each scheduling step, run a reporter to save the community's aggregate power schedule to the power sensor
+        # todo B5: rerun tutorial and review: we now expect to see community capacity breaches
+        # todo C1: after the reporter from B4 is finished, determine the expected breaches (use some margin setting to decide between expecting a breach or not expecting a breach; we can refine this later)
+        # todo C2: if there are expected breaches, increase the site-peak-consumption-price in the flex-contexts of both sites within the period of the breach (the margin setting and the price delta should be defined in the same policy variable, e.g. `{"0 kW": 1 EUR/MWh", "5 kW": "100 EUR/MWh", "1 kW": "1000 EUR/MWh"}`)
+        # todo C3: rerun tutorial and review: we now expect to see a change in community capacity breaches
+        # todo C4: experiment with the community policy
         await run_scheduling_simulation(client)
 
         # Part 5 : Create reports
         print("\n" + "=" * 50)
         print("PART 5: CREATING REPORTS")
+        # todo B2: compute aggregate power flow for the community asset's power sensor
         await create_reports(client)
         print("\n" + "=" * 50)
         print("HEMS Tutorial completed successfully!")
