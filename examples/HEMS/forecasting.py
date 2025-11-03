@@ -62,6 +62,8 @@ async def generate_forecasts(
         "--forecast-frequency",
         f"PT{SIMULATION_STEP_HOURS}H",
         "--ensure-positive",
+        "--model-save-dir",
+        "forecaster_models",
     ]
 
     if regressor_sensors:
