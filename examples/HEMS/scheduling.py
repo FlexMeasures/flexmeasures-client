@@ -353,7 +353,7 @@ async def run_scheduling_simulation(
                 },
                 {
                     "values": [0.0] * SIMULATION_STEP_HOURS,
-                    "sensor": sensors["heating-soc-usage"]["id"],
+                    "sensor": sensors["heating-soc"]["id"],
                     "duration": f"PT{SIMULATION_STEP_HOURS}H",
                 },
             ]
