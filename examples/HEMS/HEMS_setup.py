@@ -6,23 +6,22 @@ and all required sensors with proper flex-context configuration.
 
 import asyncio
 
-from flexmeasures_client import FlexMeasuresClient
-
+from assets_setup import create_building_assets_and_sensors
 from const import (
-    usr,
-    pwd,
-    host,
     building_name,
-    pv_name,
     heating_name,
+    host,
+    pv_name,
+    pwd,
+    usr,
     weather_station_name,
 )
-
-from utils.asset_utils import upload_data_for_first_two_weeks, cleanup_existing_assets
-from assets_setup import create_building_assets_and_sensors
 from forecasting import generate_forecasts
-from scheduling import run_scheduling_simulation
 from reporters import create_reports
+from scheduling import run_scheduling_simulation
+from utils.asset_utils import cleanup_existing_assets, upload_data_for_first_two_weeks
+
+from flexmeasures_client import FlexMeasuresClient
 
 
 async def main():
