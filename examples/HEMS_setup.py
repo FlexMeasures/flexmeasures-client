@@ -9,6 +9,7 @@ import json
 import random
 import subprocess
 from datetime import timedelta
+from typing import Any
 
 import pandas as pd
 
@@ -25,6 +26,7 @@ pv_name = "Rooftop PV"
 battery_name = "Home Battery"
 evse1_name = "EV Connector 1"
 evse2_name = "EV Connector 2"
+heating_name = "Heat Pump"
 weather_station_name = "Local Weather Station"
 price_market_name = "Energy Market"
 
@@ -54,7 +56,7 @@ EV_CONFIG = {
 }
 
 BATTERY_CONFIG = {
-    "capacity_kwh": 10.0,
+    "capacity_kwh": 16.7,
     "power_capacity_kw": 5.0,
     "min_soc_percent": 0.15,  # 15% minimum
     "max_soc_percent": 0.90,  # 90% maximum
@@ -74,6 +76,16 @@ EV_WEEKLY_PATTERNS = [
     (False, None, None, 40),  # Saturday - Free day
     (False, None, None, 40),  # Sunday - Free day
 ]
+
+HEATING_CONFIG = {
+    "capacity_kwh": 15.0,  # energy
+    "power_capacity_kw": 5.0,  # power
+    "min_soc_percent": 0,  # 0% minimum
+    "max_soc_percent": 1,  # 100% maximum
+    "soc_at_start_percent": 0.20,  # 20% starting
+    "charging_efficiency": 3.0,  # 300% charging efficiency (heat pumps)
+    "storage_efficiency": 0.993,  # 99.3% storage efficiency (heat pumps)
+}
 
 
 def get_day_pattern(date_time: pd.Timestamp) -> tuple:
@@ -279,48 +291,22 @@ def calculate_ev_soc_targets_and_constraints(
     return constraints
 
 
-def create_device_flex_model(
-    client: FlexMeasuresClient,
-    device_type: str,
+def create_dynamic_storage_flex_model(
     current_soc: float,
-    capacity_kwh: float,
-    power_capacity_kw: float,
-    min_soc_percent: float,
-    roundtrip_efficiency: float,
-    soc_sensor_id: int,
     constraints: dict = None,
-    max_soc_percent: float = 1.0,  # Allow override for operational vs physical capacity
-) -> dict:
-    """Create a standardized flex model for storage devices."""
+) -> dict[str, Any]:
+    """
+    Create a dynamic flex model for scheduling storage devices.
 
-    if device_type == "evse":
-        # EVSEs should be unidirectional (charging only) - no V2G capability
-        # Use power-capacity for now and restrict with production-capacity
-        flex_model = client.create_storage_flex_model(
-            soc_unit="kWh",
-            soc_at_start=current_soc,
-            soc_max=capacity_kwh
-            * max_soc_percent,  # Allow operational max to be different from physical capacity
-            soc_min=capacity_kwh * min_soc_percent,
-            roundtrip_efficiency=roundtrip_efficiency,
-        )
-        # Override to make it unidirectional (charging only)
-        flex_model["power-capacity"] = f"{power_capacity_kw}kW"  # Total power capacity
-        flex_model["production-capacity"] = "0kW"  # No V2G capability
-        flex_model["state-of-charge"] = {"sensor": soc_sensor_id}
-    else:
-        # Batteries are bidirectional (can charge and discharge)
-        # For batteries, we need to handle operational max vs physical capacity properly
-        flex_model = client.create_storage_flex_model(
-            soc_unit="kWh",
-            soc_at_start=current_soc,
-            soc_max=capacity_kwh
-            * max_soc_percent,  # Use operational max (e.g., 90% of physical capacity)
-            soc_min=capacity_kwh * min_soc_percent,
-            roundtrip_efficiency=roundtrip_efficiency,
-        )
-        flex_model["power-capacity"] = f"{power_capacity_kw}kW"
-        flex_model["state-of-charge"] = {"sensor": soc_sensor_id}
+    This function builds only the *ad hoc* part of the flex model, temporary values
+    defined at scheduling time for the current context, such as current SoC, SoC minima,
+    and SoC usage. Permanent properties of the device (e.g. capacities or efficiencies)
+    are defined on the asset's flex_model field.
+    """
+
+    flex_model = {
+        "soc-at-start": current_soc,
+    }
 
     # Add dynamic constraints if provided
     if constraints:
@@ -594,27 +580,24 @@ async def create_battery_asset(
     print("Updating battery asset with flex_model settings...")
     capacity = BATTERY_CONFIG["capacity_kwh"]
     attributes_flex_model = {
-        "soc_unit": "kWh",
         "soc_at_start": capacity * BATTERY_CONFIG["soc_at_start_percent"],
-        # "soc_max": capacity * BATTERY_CONFIG["max_soc_percent"],
-        # "soc_min": capacity * BATTERY_CONFIG["min_soc_percent"],
-        # "roundtrip_efficiency": BATTERY_CONFIG["roundtrip_efficiency"],
-        "capacity_kwh": capacity,
-        "power_capacity_kw": BATTERY_CONFIG["power_capacity_kw"],
     }
 
     flex_model = {
-        #"soc-max": f"{(capacity * 0.001) * BATTERY_CONFIG['max_soc_percent']} MWh",
-        #"soc-min": f"{(capacity * 0.001) * BATTERY_CONFIG['min_soc_percent']} MWh",
+        "soc-max": f"{capacity * BATTERY_CONFIG['max_soc_percent']} kWh",  # Use operational max (e.g., 90% of physical capacity)
+        "soc-min": f"{capacity * BATTERY_CONFIG['min_soc_percent']} kWh",
         "roundtrip-efficiency": BATTERY_CONFIG["roundtrip_efficiency"],
-        # "capacity-kwh": capacity,
-        #"power-capacity": f"{0.001 * BATTERY_CONFIG['power_capacity_kw']} MW",
+        "power-capacity": f"{BATTERY_CONFIG['power_capacity_kw']}kW",
+        "state-of-charge": {"sensor": battery_soc_sensor["id"]},
     }
 
-    # Store in attributes["flex_model"] for now, will be easy to adapt to new flex_model attribute
+    # Store soc_at_start in attributes["flex_model"] for now, as it's not supported yet in asset flex_model field
     await client.update_asset(
         asset_id=battery_asset["id"],
-        updates={"flex_model": flex_model, "attributes": {"flex_model": attributes_flex_model}},
+        updates={
+            "flex_model": flex_model,
+            "attributes": {"flex_model": attributes_flex_model},
+        },
     )
 
     print(f"Created battery asset with ID: {battery_asset['id']}")
@@ -679,13 +662,16 @@ async def create_evse_asset(
     print(f"Updating {evse_name} asset with flex_model settings...")
     capacity = EV_CONFIG["default_capacity_kwh"]
     attributes_flex_model = {
-        "soc_unit": "kWh",
         "soc_at_start": capacity * EV_CONFIG["min_soc_percent"],  # Start at minimum SoC
-        "soc_max": capacity,  # 100% of capacity (max physical limit)
-        "soc_min": capacity * EV_CONFIG["min_soc_percent"],  # Minimum SoC
-        "roundtrip_efficiency": EV_CONFIG["roundtrip_efficiency"],
-        "capacity_kwh": capacity,
-        "power_capacity_kw": EV_CONFIG["default_power_capacity_kw"],
+    }
+
+    flex_model = {
+        "soc-max": f"{capacity} kWh",  # Allow operational max to be different from physical capacity
+        "soc-min": f"{capacity * EV_CONFIG['min_soc_percent']} kWh",
+        "roundtrip-efficiency": EV_CONFIG["roundtrip_efficiency"],
+        "power-capacity": f"{EV_CONFIG['default_power_capacity_kw']}kW",  # Total power capacity
+        "production-capacity": "0kW",  # Charging only, no V2G capability
+        "state-of-charge": {"sensor": evse_soc_sensor["id"]},
     }
 
     # Configure graph displays as requested
@@ -706,14 +692,15 @@ async def create_evse_asset(
         },
     ]
 
-    # Store in attributes["flex_model"]
+    # Store soc_at_start in attributes["flex_model"] for now, as it's not supported yet in asset flex_model field
     await client.update_asset(
         asset_id=evse_asset["id"],
         updates={
+            "flex_model": flex_model,
             "attributes": {
                 "flex_model": attributes_flex_model,
                 "sensors_to_show": sensors_to_show,
-            }
+            },
         },
     )
 
@@ -724,6 +711,133 @@ async def create_evse_asset(
         evse_soc_sensor,
         evse_soc_min_sensor,
         evse_soc_max_sensor,
+    )
+
+
+async def create_heating_asset(
+    client: FlexMeasuresClient,
+    account_id: int,
+    building_asset_id: int,
+    heating_name: str,
+    latitude: float,
+    longitude: float,
+):
+    """Create heating asset (child of building) with temperature, power & energy sensors + settings."""
+    print(f"Creating heating asset: {heating_name}...")
+
+    # Create heating asset (generic asset type id = 5 if heating not defined in DB)
+    heating_asset = await client.add_asset(
+        name=heating_name,
+        latitude=latitude,
+        longitude=longitude,
+        generic_asset_type_id=5,  # Using battery type as placeholder for heating asset
+        account_id=account_id,
+        parent_asset_id=building_asset_id,
+    )
+
+    # Power sensors (15min, kW)
+    heating_power_sensor = await client.add_sensor(
+        name="power",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=heating_asset["id"],
+        timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=True),
+    )
+
+    # Soc usage sensor (15min, kW)
+    heating_soc_usage_sensor = await client.add_sensor(
+        name="soc-usage",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=heating_asset["id"],
+        timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=True),
+    )
+
+    # State of Charge sensors (15min, kWh)
+    heating_soc_sensor = await client.add_sensor(
+        name="state of charge",
+        event_resolution="PT0M",
+        unit="kWh",
+        generic_asset_id=heating_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+    heating_min_soc_sensor = await client.add_sensor(
+        name="min SoC",
+        event_resolution="PT15M",
+        unit="kWh",
+        generic_asset_id=heating_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+    heating_max_soc_sensor = await client.add_sensor(
+        name="max SoC",
+        event_resolution="PT15M",
+        unit="kWh",
+        generic_asset_id=heating_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+
+    # COP (Coefficient of Performance)
+    heating_COP = await client.add_sensor(
+        name="COP",
+        event_resolution="PT15M",
+        unit="%",
+        generic_asset_id=heating_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+
+    capacity = HEATING_CONFIG["capacity_kwh"]
+
+    flex_model = {
+        "soc-max": f"{capacity} kWh",
+        "soc-min": f"{capacity * HEATING_CONFIG['min_soc_percent']} kWh",
+        "soc-usage": [{"sensor": heating_soc_usage_sensor["id"]}],
+        "charging-efficiency": f"{HEATING_CONFIG['charging_efficiency']*100} %",
+        "consumption-capacity": "5 kW",
+        "production-capacity": "0 kW",
+        "storage-efficiency": f"{HEATING_CONFIG['storage_efficiency']*100} %",
+        "power-capacity": f"{HEATING_CONFIG['power_capacity_kw']}kW",
+        "state-of-charge": {"sensor": heating_soc_sensor["id"]},
+    }
+
+    # === Configure graph displays ===
+    sensors_to_show = [
+        {
+            "title": "State of Charge",
+            "sensors": [
+                heating_soc_sensor["id"],
+                heating_min_soc_sensor["id"],
+                heating_max_soc_sensor["id"],
+            ],
+        },
+        {
+            "title": "Power and heat",
+            "sensors": [
+                heating_power_sensor["id"],
+                heating_soc_usage_sensor["id"],
+            ],
+        },
+    ]
+
+    # === Update asset with all attributes ===
+    await client.update_asset(
+        asset_id=heating_asset["id"],
+        updates={
+            "flex_model": flex_model,
+            "sensors_to_show": sensors_to_show,
+        },
+    )
+
+    print(f"Created heating asset '{heating_name}' with ID: {heating_asset['id']}")
+    return (
+        heating_asset,
+        heating_power_sensor,
+        heating_soc_usage_sensor,
+        heating_soc_sensor,
+        heating_min_soc_sensor,
+        heating_max_soc_sensor,
+        heating_COP,
     )
 
 
@@ -755,7 +869,8 @@ async def configure_building_flex_context(
         },  # Relaxed constraint for residential
         "site-power-capacity": "20 kVA",
         # Enable soft constraints for SoC minima (this makes soc-minima soft constraints instead of hard)
-        "relax-constraints": True,
+        "relax-soc-constraints": True,
+        "relax-site-capacity-constraints": True,
         "site-peak-consumption-price": "26 EUR/MW",
         "site-peak-consumption": "0 kW",
         # Configure breach prices for soft constraints
@@ -791,6 +906,8 @@ async def configure_building_dashboard(
     battery_soc_sensor,
     evse1_power_sensor,
     evse2_power_sensor,
+    heating_power_sensor,
+    heating_soc_sensor,
     aggregate_sensor,
     self_consumption_sensor,
     max_production_sensor,
@@ -812,6 +929,7 @@ async def configure_building_dashboard(
                 pv_production_sensor["id"],
                 battery_power_sensor["id"],
                 evse1_power_sensor["id"],
+                heating_power_sensor["id"],
                 # evse2_power_sensor["id"],  # Just showing one now to avoid cluttering the chart
             ],
         },
@@ -831,7 +949,10 @@ async def configure_building_dashboard(
                 total_energy_costs_sensor["id"],
             ],
         },
-        {"title": "Battery Soc", "sensors": [battery_soc_sensor["id"]]},
+        {
+            "title": "Storages SoC",
+            "sensors": [battery_soc_sensor["id"], heating_soc_sensor["id"]],
+        },
         {
             "title": "Site capacity",
             "sensors": [
@@ -933,6 +1054,32 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
     print(f"EVSE 2 power sensor ID: {evse2_power_sensor['id']}")
     print(f"EVSE 2 SoC sensor ID: {evse2_soc_sensor['id']}")
 
+    # create heating asset
+    print("Creating heating asset with temperature, power & energy sensors")
+    (
+        heating_asset,
+        heating_power_sensor,
+        heating_soc_usage_sensor,
+        heating_soc_sensor,
+        heating_min_soc_sensor,
+        heating_max_soc_sensor,
+        heating_COP,
+    ) = await create_heating_asset(
+        client,
+        account_id,
+        building_asset["id"],
+        heating_name,
+        latitude,
+        longitude,
+    )
+    print(f"Heating asset ID: {heating_asset['id']}")
+    print(f"Heating power sensor ID: {heating_power_sensor['id']}")
+    print(f"Heating SoC usage sensor ID: {heating_soc_usage_sensor['id']}")
+    print(f"Heating SoC sensor ID: {heating_soc_sensor['id']}")
+    print(f"Heating min SoC sensor ID: {heating_min_soc_sensor['id']}")
+    print(f"Heating max SoC sensor ID: {heating_max_soc_sensor['id']}")
+    print(f"Heating COP sensor ID: {heating_COP['id']}")
+
     print("Creating weather station with irradiation and cloud coverage sensors")
     weather_asset, irradiation_sensor, cloud_coverage_sensor = (
         await create_weather_station(client)
@@ -962,6 +1109,8 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         battery_soc_sensor=battery_soc_sensor,
         evse1_power_sensor=evse1_power_sensor,
         evse2_power_sensor=evse2_power_sensor,
+        heating_power_sensor=heating_power_sensor,
+        heating_soc_sensor=heating_soc_sensor,
         aggregate_sensor=aggregate_sensor,
         self_consumption_sensor=self_consumption_sensor,
         max_production_sensor=max_production_sensor,
@@ -1118,6 +1267,7 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
         ("max-production-capacity", "max-production-capacity", building_name),
         ("irradiation", "irradiation", weather_station_name),
         ("electricity-production", "electricity-production", pv_name),
+        ("soc-usage", "soc-usage", heating_name),
     ]
 
     sensors = await find_sensors_by_asset(client, sensor_mappings)
@@ -1130,6 +1280,7 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
         ("HEMS data/PV_production_data.csv", "electricity-production", True),
         ("HEMS data/max_consumption_capacity.csv", "max-consumption-capacity", False),
         ("HEMS data/max_production_capacity.csv", "max-production-capacity", False),
+        ("HEMS data/heating_soc_usage_data.csv", "soc-usage", True),
     ]
 
     for file_path, sensor_key, belief_time_measured_instantly in data_files:
@@ -1243,6 +1394,7 @@ async def run_scheduling_simulation(
     battery_asset = assets_by_name.get(battery_name)
     evse1_asset = assets_by_name.get(evse1_name)
     evse2_asset = assets_by_name.get(evse2_name)
+    heating_asset = assets_by_name.get(heating_name)
 
     if not building_asset:
         print("Could not find building asset for scheduling")
@@ -1254,6 +1406,9 @@ async def run_scheduling_simulation(
 
     if not evse1_asset or not evse2_asset:
         print("Could not find EVSE assets for scheduling")
+        return False
+    if not heating_asset:
+        print("Could not find heating asset for scheduling")
         return False
 
     # Find sensors (including EVSE sensors) - using unique keys for duplicate sensor names
@@ -1268,6 +1423,8 @@ async def run_scheduling_simulation(
         ("evse2-soc", evse2_name, "state-of-charge"),
         ("electricity-price", price_market_name, "electricity-price"),
         ("electricity-aggregate", building_name, "electricity-aggregate"),
+        ("heating-power", heating_name, "power"),
+        ("heating-soc", heating_name, "state of charge"),
     ]
 
     sensors = {}
@@ -1289,11 +1446,8 @@ async def run_scheduling_simulation(
     if not battery_flex_model:
         print("Battery asset missing flex_model settings")
         return False
-    # battery_soc_unit = battery_flex_model.get("soc_unit")
+
     battery_soc_at_start = battery_flex_model.get("soc_at_start")
-    # battery_soc_max = battery_flex_model.get("soc_max")
-    battery_soc_min = battery_flex_model.get("soc_min")
-    battery_roundtrip_efficiency = battery_flex_model.get("roundtrip_efficiency")
 
     # Get EVSE settings
     evse1_flex_model = json.loads(evse1_asset["attributes"]).get("flex_model")
@@ -1316,6 +1470,7 @@ async def run_scheduling_simulation(
     battery_next_current_soc = None
     evse1_next_current_soc = None
     evse2_next_current_soc = None
+    heating_next_current_soc = None
 
     while current_time < end_time:
         print(f"Simulation step {step_num}: {current_time}")
@@ -1326,31 +1481,15 @@ async def run_scheduling_simulation(
             schedule_duration = timedelta(hours=FORECAST_HORIZON_HOURS)
 
             # Create flex model for battery
-            battery_power_capacity = battery_flex_model.get(
-                "power_capacity_kw", BATTERY_CONFIG["power_capacity_kw"]
-            )
-            battery_capacity_kwh = battery_flex_model.get(
-                "capacity_kwh", BATTERY_CONFIG["capacity_kwh"]
-            )  # Use actual physical capacity
             if battery_next_current_soc is None:
                 battery_current_soc = (
                     battery_soc_at_start  # Use initial SoC for first step
                 )
             else:
                 battery_current_soc = battery_next_current_soc
-            battery_scheduler_flex_model = create_device_flex_model(
-                client=client,
-                device_type="battery",
+            # Create dynamic flex model for battery (Current SoC updated each step)
+            battery_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
                 current_soc=battery_current_soc,
-                capacity_kwh=battery_capacity_kwh,  # Use actual physical capacity, not the operational max
-                power_capacity_kw=battery_power_capacity,
-                min_soc_percent=battery_soc_min
-                / battery_capacity_kwh,  # Calculate percentage against physical capacity
-                roundtrip_efficiency=battery_roundtrip_efficiency,
-                soc_sensor_id=sensors["battery-soc"]["id"],
-                max_soc_percent=BATTERY_CONFIG[
-                    "max_soc_percent"
-                ],  # Use configured operational max (90%)
             )
 
             # Calculate dynamic EV constraints for current day
@@ -1381,69 +1520,43 @@ async def run_scheduling_simulation(
             if not evse1_constraints.get("unavailable"):
 
                 # Create flex models for EVSE 1
-                evse1_power_capacity = evse1_flex_model.get(
-                    "power_capacity_kw", EV_CONFIG["default_power_capacity_kw"]
-                )
-                evse1_efficiency = evse1_flex_model.get(
-                    "roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"]
-                )
                 if evse1_next_current_soc is None:
                     # Use initial SoC for first step
                     evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)
                 else:
                     evse1_current_soc = evse1_next_current_soc
-                evse1_scheduler_flex_model = create_device_flex_model(
-                    client=client,
-                    device_type="evse",
+                # Create dynamic flex model for EVSE 1 (Current SoC updated each step)
+                evse1_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
                     current_soc=evse1_current_soc,
-                    capacity_kwh=evse1_capacity,
-                    power_capacity_kw=evse1_power_capacity,
-                    min_soc_percent=EV_CONFIG["min_soc_percent"],
-                    roundtrip_efficiency=evse1_efficiency,
-                    soc_sensor_id=sensors["evse1-soc"]["id"],
                     constraints=evse1_constraints,
                 )
 
             if not evse2_constraints.get("unavailable"):
+
                 # Create flex models for EVSE 2 (similar pattern, could be different car)
-                evse2_power_capacity = evse2_flex_model.get(
-                    "power_capacity_kw", EV_CONFIG["default_power_capacity_kw"]
-                )
-                evse2_efficiency = evse2_flex_model.get(
-                    "roundtrip_efficiency", EV_CONFIG["roundtrip_efficiency"]
-                )
                 if evse2_next_current_soc is None:
                     # Use initial SoC for first step
                     evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
                 else:
                     evse2_current_soc = evse2_next_current_soc
-                evse2_scheduler_flex_model = create_device_flex_model(
-                    client=client,
-                    device_type="evse",
+                # Create dynamic flex model for EVSE 2 (Current SoC updated each step)
+                evse2_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
                     current_soc=evse2_current_soc,
-                    capacity_kwh=evse2_capacity,
-                    power_capacity_kw=evse2_power_capacity,
-                    min_soc_percent=EV_CONFIG["min_soc_percent"],
-                    roundtrip_efficiency=evse2_efficiency,
-                    soc_sensor_id=sensors["evse2-soc"]["id"],
                     constraints=evse2_constraints,
                 )
 
-            # Create flex context for all devices
-            flex_context = {
-                "consumption-price": {"sensor": sensors["electricity-price"]["id"]},
-                # Enable soft constraints for EV charging flexibility
-                "relax-constraints": True,
-                "site-peak-consumption-price": "26 EUR/MW",
-                "site-peak-consumption": "0 kW",
-                # Configure breach prices for soft constraints (EV charging optimization)
-                # "soc-minima-breach-price": "50 EUR/kWh",  # Moderate penalty - allows flexibility vs price optimization
-                # "soc-maxima-breach-price": "1000 EUR/kWh",  # High penalty for safety limits
-                "inflexible-device-sensors": [
-                    sensors["building-consumption"]["id"],
-                ],
-                "aggregate-power": {"sensor": sensors["electricity-aggregate"]["id"]},
-            }
+            if heating_next_current_soc is None:
+                # Use initial SoC for first step
+                heating_current_soc = (
+                    HEATING_CONFIG["soc_at_start_percent"]
+                    * HEATING_CONFIG["capacity_kwh"]
+                )
+            else:
+                heating_current_soc = heating_next_current_soc
+            # Create dynamic flex model for heating (Current SoC updated each step)
+            heating_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
+                current_soc=heating_current_soc,
+            )
 
             # Start with the battery and PV flex models
             curtailable_pv_flex_model = {
@@ -1454,11 +1567,15 @@ async def run_scheduling_simulation(
             final_flex_models = [
                 {
                     "sensor": sensors["battery-power"]["id"],
-                    **battery_scheduler_flex_model,
+                    **battery_scheduling_dynamic_flex_model,
                 },
                 {
                     "sensor": sensors["pv-production"]["id"],
                     **curtailable_pv_flex_model,
+                },
+                {
+                    "sensor": sensors["heating-power"]["id"],
+                    **heating_scheduling_dynamic_flex_model,
                 },
             ]
 
@@ -1467,7 +1584,7 @@ async def run_scheduling_simulation(
                 final_flex_models.append(
                     {
                         "sensor": sensors["evse1-power"]["id"],
-                        **evse1_scheduler_flex_model,
+                        **evse1_scheduling_dynamic_flex_model,
                     }
                 )
             else:
@@ -1477,7 +1594,7 @@ async def run_scheduling_simulation(
                 final_flex_models.append(
                     {
                         "sensor": sensors["evse2-power"]["id"],
-                        **evse2_scheduler_flex_model,
+                        **evse2_scheduling_dynamic_flex_model,
                     }
                 )
             else:
@@ -1485,7 +1602,7 @@ async def run_scheduling_simulation(
 
             print("[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
             for i, model in enumerate(final_flex_models):
-                device_name = ["Battery", "PV", "EVSE-1", "EVSE-2"][i]
+                device_name = ["Battery", "PV", "Heating", "EVSE-1", "EVSE-2"][i]
                 print(f"[FLEX-MODEL] {device_name}: {model}")
             print()
 
@@ -1494,7 +1611,6 @@ async def run_scheduling_simulation(
                 start=schedule_start,
                 duration=schedule_duration,
                 flex_model=final_flex_models,
-                #flex_context=flex_context,
                 asset_id=building_asset["id"],
                 prior=(
                     current_time + timedelta(hours=SIMULATION_STEP_HOURS)
@@ -1549,6 +1665,16 @@ async def run_scheduling_simulation(
                 print(f"Warning: Could not retrieve EVSE2 SoC schedule: {e}")
                 evse2_soc_schedule = {"values": [], "duration": "PT0H"}
 
+            try:
+                heating_soc_schedule = await client.get_schedule(
+                    sensor_id=sensors["heating-soc"]["id"],
+                    schedule_id=job_uuid,
+                    duration=schedule_duration,
+                )
+            except Exception as e:
+                print(f"Warning: Could not retrieve heating SoC schedule: {e}")
+                heating_soc_schedule = {"values": [], "duration": "PT0H"}
+
             print("Multi-device power and SoC schedules retrieved successfully")
 
         except Exception as e:
@@ -1572,12 +1698,18 @@ async def run_scheduling_simulation(
                     "sensor": sensors["evse2-power"]["id"],
                     "duration": f"PT{SIMULATION_STEP_HOURS}H",
                 },
+                {
+                    "values": [0.0] * SIMULATION_STEP_HOURS,
+                    "sensor": sensors["heating-soc-usage"]["id"],
+                    "duration": f"PT{SIMULATION_STEP_HOURS}H",
+                },
             ]
 
             # Set empty SoC schedules for error case
             battery_soc_schedule = {"values": [], "duration": "PT0H"}
             evse1_soc_schedule = {"values": [], "duration": "PT0H"}
             evse2_soc_schedule = {"values": [], "duration": "PT0H"}
+            heating_soc_schedule = {"values": [], "duration": "PT0H"}
 
         # Extract scheduled power for all devices for the next 4 hours
         step_end_time = current_time + timedelta(hours=SIMULATION_STEP_HOURS)
@@ -1587,6 +1719,7 @@ async def run_scheduling_simulation(
         evse1_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
         evse2_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
         pv_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
+        heating_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
 
         if isinstance(schedule_result, list) and len(schedule_result) >= 3:
             # Extract schedules for each device
@@ -1616,6 +1749,9 @@ async def run_scheduling_simulation(
                 elif sensor_id == sensors["pv-production"]["id"]:
                     pv_scheduled_power = [-v for v in power_values]
                     sensor_name = "PV"
+                elif sensor_id == sensors["heating-power"]["id"]:
+                    heating_scheduled_power = power_values
+                    sensor_name = "Heating"
 
                 print(
                     f"[SCHEDULE] {sensor_name} (sensor {sensor_id}): {power_values} kW"
@@ -1627,7 +1763,7 @@ async def run_scheduling_simulation(
 
         # Upload measurements for the simulation step
         try:
-            # Upload battery power
+            # Upload battery power measurements
             battery_power_duration = timedelta(hours=SIMULATION_STEP_HOURS)
             await client.post_sensor_data(
                 sensor_id=sensors["battery-power"]["id"],
@@ -1637,7 +1773,7 @@ async def run_scheduling_simulation(
                 values=battery_scheduled_power,
                 unit="kW",
             )
-            # Upload PV power
+            # Upload PV power measurements
             await client.post_sensor_data(
                 sensor_id=sensors["pv-production"]["id"],
                 start=current_time,
@@ -1647,7 +1783,7 @@ async def run_scheduling_simulation(
                 unit="kW",
             )
 
-            # Upload EVSE 1 power
+            # Upload EVSE 1 power measurements
             await client.post_sensor_data(
                 sensor_id=sensors["evse1-power"]["id"],
                 start=current_time,
@@ -1657,13 +1793,23 @@ async def run_scheduling_simulation(
                 unit="kW",
             )
 
-            # Upload EVSE 2 power
+            # Upload EVSE 2 power measurements
             await client.post_sensor_data(
                 sensor_id=sensors["evse2-power"]["id"],
                 start=current_time,
                 duration=battery_power_duration,
                 prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
                 values=evse2_scheduled_power,
+                unit="kW",
+            )
+
+            # Upload heating power measurements
+            await client.post_sensor_data(
+                sensor_id=sensors["heating-power"]["id"],
+                start=current_time,
+                duration=battery_power_duration,
+                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+                values=heating_scheduled_power,
                 unit="kW",
             )
 
@@ -1707,6 +1853,11 @@ async def run_scheduling_simulation(
                 // pd.Timedelta(hours=1)
                 / (len(evse2_soc_schedule["values"]) - 1)
             )
+            heating_resolution_in_hours = (
+                pd.Timedelta(heating_soc_schedule["duration"])
+                // pd.Timedelta(hours=1)
+                / (len(heating_soc_schedule["values"]) - 1)
+            )
             battery_soc_values = (
                 battery_soc_schedule["values"][
                     : int(SIMULATION_STEP_HOURS / battery_resolution_in_hours)
@@ -1737,6 +1888,16 @@ async def run_scheduling_simulation(
                 if evse2_soc_schedule.get("values")
                 else []
             )
+            heating_soc_values = (
+                heating_soc_schedule["values"][
+                    : int(SIMULATION_STEP_HOURS / heating_resolution_in_hours)
+                ]
+                if heating_soc_schedule.get("values")
+                else []
+            )
+            heating_next_current_soc = heating_soc_schedule["values"][
+                int(SIMULATION_STEP_HOURS / heating_resolution_in_hours)
+            ]
 
             # Upload battery SoC measurements (FlexMeasures computed)
             if battery_soc_values:
@@ -1779,7 +1940,19 @@ async def run_scheduling_simulation(
                 print(
                     f"[EVSE2-SOC] Uploaded {len(evse2_soc_values)} FlexMeasures-computed SoC values"
                 )
-
+            # Upload heating SoC measurements (FlexMeasures computed)
+            if heating_soc_values:
+                await client.post_sensor_data(
+                    sensor_id=sensors["heating-soc"]["id"],
+                    start=current_time,
+                    duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
+                    prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+                    values=heating_soc_values,
+                    unit="kWh",
+                )
+                print(
+                    f"[HEATING-SOC] Uploaded {len(heating_soc_values)} FlexMeasures-computed SoC values"
+                )
             # Display FlexMeasures-computed SoC and power data
             print("\n[FLEXMEASURES-RESULTS] === FLEX-MODEL COMPUTED SCHEDULES ===")
 
@@ -1799,7 +1972,11 @@ async def run_scheduling_simulation(
                 if evse2_scheduled_power
                 else 0
             )
-
+            heating_average_power = (
+                sum(heating_scheduled_power) / len(heating_scheduled_power)
+                if heating_scheduled_power
+                else 0
+            )
             # Show SoC progression if available
             if battery_soc_values:
                 battery_soc_start = battery_soc_values[0]
@@ -1843,6 +2020,17 @@ async def run_scheduling_simulation(
             else:
                 print(
                     f"[EVSE-2] Power: {evse2_average_power:.2f} kW | SoC: Not available"
+                )
+            if heating_soc_values:
+                heating_soc_start = heating_soc_values[0]
+                heating_soc_end = heating_soc_values[-1]
+                heating_soc_change = heating_soc_end - heating_soc_start
+                print(
+                    f"[HEATING] Power: {heating_average_power:.2f} kW | SoC: {heating_soc_start:.1f} → {heating_soc_end:.1f} kWh ({heating_soc_change:+.1f} kWh)"
+                )
+            else:
+                print(
+                    f"[HEATING] Power: {heating_average_power:.2f} kW | SoC: Not available"
                 )
 
         except Exception as e:
@@ -1959,6 +2147,7 @@ async def create_reports(client: FlexMeasuresClient):
             "daily-share-of-self-consumption",
             building_name,
         ),
+        ("heating-power", "power", heating_name),
     ]
     sensors = await find_sensors_by_asset(client, sensor_mappings)
 
@@ -1970,6 +2159,7 @@ async def create_reports(client: FlexMeasuresClient):
             {"battery-power": sensors["electricity-power"]["id"]},
             {"evse1-power": sensors["evse1-power"]["id"]},
             {"evse2-power": sensors["evse2-power"]["id"]},
+            {"heating-power": sensors["heating-power"]["id"]},
         ],
         output_sensors=sensors["electricity-aggregate"],
         start=SCHEDULING_START,
@@ -1985,6 +2175,7 @@ async def create_reports(client: FlexMeasuresClient):
             {"evse1-consumption": sensors["evse1-power"]["id"]},
             {"evse2-consumption": sensors["evse2-power"]["id"]},
             {"battery-power": sensors["electricity-power"]["id"]},
+            {"heating-power": sensors["heating-power"]["id"]},
         ],
         output_sensors=[
             sensors["self-consumption"],
@@ -2000,6 +2191,7 @@ async def create_reports(client: FlexMeasuresClient):
         input_sensors=[
             {"aggregate-power": sensors["electricity-aggregate"]["id"]},
             {"consumption-production-price": sensors["electricity-price"]["id"]},
+            {"heating-power": sensors["heating-power"]["id"]},
         ],
         output_sensors=[
             sensors["total-energy-costs"],
@@ -2105,6 +2297,9 @@ async def main():
         )
         await generate_forecasts(
             client, asset_name=building_name, sensor_name="electricity-consumption"
+        )
+        await generate_forecasts(
+            client, asset_name=heating_name, sensor_name="soc-usage"
         )
 
         # Part 4: Run scheduling simulation for third week
