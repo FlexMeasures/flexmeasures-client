@@ -85,7 +85,7 @@ async def run_scheduling_simulation(
 
     # Load complete datasets for simulation
     building_df = load_and_align_csv_data(
-        "HEMS data/building_data.csv", TUTORIAL_START_DATE, 15
+        "data/building_data.csv", TUTORIAL_START_DATE, 15
     )
 
     # Get battery soc settings
