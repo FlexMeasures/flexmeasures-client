@@ -1,6 +1,7 @@
+import random
+
 import pandas as pd
 from const import EV_CONFIG, EV_WEEKLY_PATTERNS
-import random
 
 
 def get_day_pattern(date_time: pd.Timestamp) -> tuple:

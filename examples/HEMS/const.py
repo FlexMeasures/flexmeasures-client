@@ -5,16 +5,15 @@ usr = "admin@admin.com"  # Admin user email
 pwd = "admin"  # Admin password
 host = "127.0.0.1:5000"  # FlexMeasures host
 
-index = 9
 # Asset and sensor names
-building_name = f"My Home {index}"
-pv_name = f"Rooftop PV {index}"
-battery_name = f"Home Battery {index}"
-evse1_name = f"EV Connector 1 {index}"
-evse2_name = f"EV Connector 2 {index}"
-heating_name = f"Heat Pump {index}"
-weather_station_name = f"Local Weather Station {index}"
-price_market_name = f"Energy Market {index}"
+building_name = "My Home"
+pv_name = "Rooftop PV"
+battery_name = "Home Battery"
+evse1_name = "EV Connector 1"
+evse2_name = "EV Connector 2"
+heating_name = "Heat Pump"
+weather_station_name = "Local Weather Station"
+price_market_name = "Energy Market"
 
 # Location coordinates (Amsterdam as example)
 latitude = 52.3676
@@ -25,7 +24,7 @@ TUTORIAL_START_DATE = "2026-01-01T00:00:00+01:00"
 FORECASTING_START = "2026-01-15T00:00:00+01:00"
 SCHEDULING_START = "2026-01-15T00:00:00+01:00"
 SCHEDULING_END = "2026-01-16T00:00:00+01:00"
-SIMULATION_STEP_HOURS = 24
+SIMULATION_STEP_HOURS = 4
 FORECAST_HORIZON_HOURS = 24
 
 random.seed(42)
