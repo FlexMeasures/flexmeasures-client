@@ -49,9 +49,9 @@ In the second terminal, run a flexmeasures worker for the scheduling jobs:
 flexmeasures jobs run-worker --queue "scheduling"
 ```
 
-In the third terminal, run the client script using the `/examples` folder as the current working directory:
+In the third terminal, run the client script using the `/examples/HEMS` folder as the current working directory:
 
 ```
-cd examples
+cd examples/HEMS
 python3 HEMS_setup.py
 ```
