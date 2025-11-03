@@ -386,7 +386,8 @@ class FillRateBasedControlTUNES(FRBC):
             self._logger.info(f"No present fill level known: assuming an empty buffer.")
         self._logger.debug(f"soc_at_start: {soc_at_start}")
 
-        duration = timedelta(hours=6)
+        planning_duration = timedelta(hours=24)
+        schedule_duration = timedelta(hours=6)
 
         flex_context = {
             "consumption-price": {"sensor": self._consumption_price_sensor_id},
@@ -411,7 +412,8 @@ class FillRateBasedControlTUNES(FRBC):
         self._logger.debug("Triggering schedule with:")
         self._logger.debug(self._rm_discharge_sensor_id)
         self._logger.debug(start)
-        self._logger.debug(duration)
+        self._logger.debug(f"planning_duration: {planning_duration}")
+        self._logger.debug(f"schedule_duration: {schedule_duration}")
         self._logger.debug(flex_context)
         self._logger.debug(flex_model)
 
@@ -419,13 +421,14 @@ class FillRateBasedControlTUNES(FRBC):
             schedule_id = await self._fm_client.trigger_schedule(
                 sensor_id=self._rm_discharge_sensor_id,
                 start=start,
-                duration=duration,
+                duration=planning_duration,
                 flex_context=flex_context,
                 flex_model=flex_model,
             )
             schedule = await self._fm_client.get_schedule(
                 sensor_id=self._rm_discharge_sensor_id,
                 schedule_id=schedule_id,
+                duration=schedule_duration,
             )
         except HTTPError as exc:
             self._logger.error(f"Failed to get a schedule: {str(exc)}")
@@ -437,18 +440,18 @@ class FillRateBasedControlTUNES(FRBC):
         try:
             idx = pd.DatetimeIndex(
                 pd.date_range(
-                    start=start, end=start + duration - timedelta(minutes=15), freq="15min"
+                    start=start, end=start + schedule_duration - timedelta(minutes=15), freq="15min"
                 )
             )
         except Exception as exc:
             self._logger.error(str(exc))
         self._logger.debug("2")
         try:
-            self._logger.debug(f"Fetching THP efficiency (ID={self._thp_efficiency_sensor_id} from {start} for duration {duration}..")
+            self._logger.debug(f"Fetching THP efficiency (ID={self._thp_efficiency_sensor_id} from {start} for duration {schedule_duration}..")
             thp_efficiency = await self._fm_client.get_sensor_data(
                 sensor_id=self._thp_efficiency_sensor_id,
                 start=start,
-                duration=duration,
+                duration=schedule_duration,
                 unit="dimensionless",
                 resolution="PT15M",
             )
@@ -466,7 +469,7 @@ class FillRateBasedControlTUNES(FRBC):
             nes_efficiency = await self._fm_client.get_sensor_data(
                 sensor_id=self._nes_efficiency_sensor_id,
                 start=start,
-                duration=duration,
+                duration=schedule_duration,
                 unit="dimensionless",
                 resolution="PT15M",
             )
@@ -481,7 +484,7 @@ class FillRateBasedControlTUNES(FRBC):
         leakage_behaviour = await self._fm_client.get_sensor_data(
             sensor_id=self._leakage_behaviour_sensor_id,
             start=start,
-            duration=duration,
+            duration=schedule_duration,
             unit="dimensionless",
             resolution="PT15M",
         )
@@ -496,7 +499,7 @@ class FillRateBasedControlTUNES(FRBC):
             usage_forecast = await self._fm_client.get_sensor_data(
                 sensor_id=self._usage_forecast_sensor_id,
                 start=start,
-                duration=duration,
+                duration=schedule_duration,
                 unit=POWER_UNIT,
                 resolution="PT15M",
             )
