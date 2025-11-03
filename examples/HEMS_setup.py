@@ -789,7 +789,6 @@ async def create_heating_asset(
 
     capacity = HEATING_CONFIG["capacity_kwh"]
 
-    # add flex_context ?
     flex_model = {
         "soc-max": f"{capacity} kWh",
         "soc-min": f"{capacity * HEATING_CONFIG['min_soc_percent']} kWh",
