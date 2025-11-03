@@ -3,7 +3,7 @@ import pandas as pd
 import json
 import asyncio
 from utils.asset_utils import find_sensor_by_name_and_asset
-from examples.HEMS.const import (
+from const import (
     EV_CONFIG,
     FORECAST_HORIZON_HOURS,
     HEATING_CONFIG,
@@ -21,11 +21,8 @@ from examples.HEMS.const import (
 )
 from flexmeasures_client.client import FlexMeasuresClient
 
-from examples.HEMS.utils.ev_utils import simulate_random_trip
-from examples.HEMS.utils.scheduling_utils import (
-    create_dynamic_storage_flex_model,
-    calculate_ev_soc_targets_and_constraints,
-)
+from utils.ev_utils import simulate_random_trip, calculate_ev_soc_targets_and_constraints
+from utils.scheduling_utils import create_dynamic_storage_flex_model
 from utils.asset_utils import load_and_align_csv_data
 
 

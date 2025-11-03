@@ -1,5 +1,5 @@
 from typing import Any
-from examples.HEMS.const import EV_CONFIG
+from const import EV_CONFIG
 
 
 def create_dynamic_storage_flex_model(
@@ -33,4 +33,3 @@ def create_dynamic_storage_flex_model(
             flex_model["consumption-capacity"] = constraints["consumption_capacity"]
 
     return flex_model
-

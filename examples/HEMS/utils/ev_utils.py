@@ -1,5 +1,5 @@
 import pandas as pd
-from examples.HEMS.const import EV_CONFIG, EV_WEEKLY_PATTERNS
+from const import EV_CONFIG, EV_WEEKLY_PATTERNS
 import random
 
 
