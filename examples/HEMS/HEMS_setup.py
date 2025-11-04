@@ -43,7 +43,7 @@ async def main():
 
     # NOTE: Account and admin user creation must be done via FlexMeasures CLI first:
     # flexmeasures add account --name "MyCompany"
-    # flexmeasures add user --username admin@mycompany.io --account-id 2 --roles admin
+    # flexmeasures add user --username admin@admin.com --account-id 2 --roles admin
 
     client = FlexMeasuresClient(email=usr, password=pwd, host=host)
 
