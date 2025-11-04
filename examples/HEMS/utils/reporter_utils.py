@@ -9,7 +9,12 @@ def fill_reporter_params(
     end: str,
     reporter_type: str,
 ):
-    """Fill reporter parameters and save to JSON file."""
+    """
+    Fill reporter parameters and save them to a JSON configuration file.
+
+    The file is saved inside the `configs/` directory, with the name
+    derived from the given `reporter_type`, e.g.: configs/{reporter_type}_config.json
+    """
 
     if reporter_type == "aggregate":
         # For the aggregate reporter, output_sensors is a single sensor ID
