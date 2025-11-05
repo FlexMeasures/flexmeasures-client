@@ -9,13 +9,9 @@ import asyncio
 from assets_setup import create_community_site_asset
 from const import (
     site_name,
-    building_name,
-    heating_name,
     host,
-    pv_name,
     pwd,
     usr,
-    weather_station_name,
 )
 from forecasting import generate_forecasts
 from reporters import create_reports
