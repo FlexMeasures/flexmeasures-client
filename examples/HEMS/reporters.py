@@ -4,7 +4,7 @@ from const import (
     SCHEDULING_END,
     SCHEDULING_START,
     battery_name,
-    building_name,
+    building_names,
     evse1_name,
     evse2_name,
     heating_name,
