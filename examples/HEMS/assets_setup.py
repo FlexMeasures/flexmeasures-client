@@ -240,7 +240,10 @@ async def create_pv_asset(
 
 
 async def create_battery_asset(
-    client: FlexMeasuresClient, account_id: int, building_asset_id: int
+    client: FlexMeasuresClient,
+    account_id: int,
+    building_asset_id: int,
+    battery_name: str,
 ):
     """Create battery asset as child of building with power and SoC sensors + settings."""
     print("Creating battery asset...")
