@@ -28,15 +28,15 @@ async def create_reports(client: FlexMeasuresClient):
     if check_result.returncode != 0:
         print("FlexMeasures CLI not found. Skipping report generation.")
         return False
-    for i, building_name in enumerate(building_names):
+    for i, building_name in enumerate(building_names, start=1):
 
         # Find all required sensors
         sensor_mappings = [
-            ("electricity-production", "electricity-production", f"{pv_name} {i+1}"),
+            ("electricity-production", "electricity-production", f"{pv_name} {i}"),
             ("electricity-consumption", "electricity-consumption", building_name),
-            ("electricity-power", "electricity-power", f"{battery_name} {i+1}"),
-            ("evse1-power", "electricity-power", f"{evse1_name} {i+1}"),
-            ("evse2-power", "electricity-power", f"{evse2_name} {i+1}"),
+            ("electricity-power", "electricity-power", f"{battery_name} {i}"),
+            ("evse1-power", "electricity-power", f"{evse1_name} {i}"),
+            ("evse2-power", "electricity-power", f"{evse2_name} {i}"),
             ("electricity-aggregate", "electricity-aggregate", building_name),
             ("self-consumption", "self-consumption", building_name),
             ("electricity-price", "electricity-price", price_market_name),
@@ -47,7 +47,7 @@ async def create_reports(client: FlexMeasuresClient):
                 "daily-share-of-self-consumption",
                 building_name,
             ),
-            ("heating-power", "power",  f"{heating_name} {i+1}"),
+            ("heating-power", "power",  f"{heating_name} {i}"),
         ]
         sensors = await find_sensors_by_asset(client, sensor_mappings)
 
