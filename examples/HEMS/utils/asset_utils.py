@@ -76,7 +76,7 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
     """Upload historical data for the first two weeks."""
     print("Uploading data for first two weeks...")
 
-    for i, building_name in enumerate(building_names):
+    for i, building_name in enumerate(building_names, start=1):
         # Find all required sensors
         sensor_mappings = [
             ("site-power-capacity", "site-power-capacity", site_name),
@@ -85,8 +85,8 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
             ("max-consumption-capacity", "max-consumption-capacity", building_name),
             ("max-production-capacity", "max-production-capacity", building_name),
             ("irradiation", "irradiation", weather_station_name),
-            ("electricity-production", "electricity-production", pv_name + f" {i+1}"),
-            ("soc-usage", "soc-usage", heating_name + f" {i+1}"),
+            ("electricity-production", "electricity-production", pv_name + f" {i}"),
+            ("soc-usage", "soc-usage", heating_name + f" {i}"),
         ]
 
         sensors = await find_sensors_by_asset(client, sensor_mappings)
@@ -102,7 +102,7 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
             ("data/max_production_capacity.csv", "max-production-capacity", False),
             ("data/heating_soc_usage_data.csv", "soc-usage", True),
         ]
-        if i > 0:
+        if i > 1:
             data_files = data_files[2:]  # Remove site power capacity and price datafiles to not fill them more than once
         for file_path, sensor_key, belief_time_measured_instantly in data_files:
             if sensor_key not in sensors:
