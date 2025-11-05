@@ -2,6 +2,7 @@ from const import (
     BATTERY_CONFIG,
     EV_CONFIG,
     HEATING_CONFIG,
+    site_name,
     battery_name,
     building_name,
     evse1_name,
