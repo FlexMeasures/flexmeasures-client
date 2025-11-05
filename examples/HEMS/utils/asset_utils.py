@@ -131,53 +131,54 @@ async def cleanup_existing_assets(client: FlexMeasuresClient, account_id: int):
     """Clean up existing HEMS assets to avoid naming conflicts."""
     print("Cleaning up existing assets...")
 
-    # Asset names to clean up
-    asset_names_to_clean = [
-        building_name,  # Deleting this asset also deletes child assets (battery, PV, EVSEs)
-        weather_station_name,
-        price_market_name,
-    ]
+    for building_name in building_names:
+        # Asset names to clean up
+        asset_names_to_clean = [
+            building_name,  # Deleting this asset also deletes child assets (battery, PV, EVSEs)
+            weather_station_name,
+            price_market_name,
+        ]
 
-    try:
-        # Get all existing assets
-        assets = await client.get_assets()
+        try:
+            # Get all existing assets
+            assets = await client.get_assets()
 
-        # Find and delete assets that match our names
-        deleted_count = 0
-        for asset in assets:
-            if asset["name"] in asset_names_to_clean:
-                print(f"Deleting existing asset: {asset['name']} (ID: {asset['id']})")
-                try:
-                    if asset.get("account_id") != account_id:
-                        print(
-                            f"Warning: Asset {asset['name']} (ID: {asset['id']}) does not belong to the current account."
-                        )
-                        raise
-                    await client.delete_asset(asset_id=asset["id"], confirm_first=False)
-                    deleted_count += 1
-                except Exception as delete_error:
-                    # Check if it's a 404 error (asset not found)
-                    if "404" in str(delete_error) or "NOT FOUND" in str(delete_error):
-                        print(
-                            f"Asset {asset['name']} (ID: {asset['id']}) no longer exists, skipping..."
-                        )
-                    else:
-                        print(
-                            f"Warning: Could not delete asset {asset['name']}: {delete_error}"
-                        )
-                    # Continue with other assets
+            # Find and delete assets that match our names
+            deleted_count = 0
+            for asset in assets:
+                if asset["name"] in asset_names_to_clean:
+                    print(f"Deleting existing asset: {asset['name']} (ID: {asset['id']})")
+                    try:
+                        if asset.get("account_id") != account_id:
+                            print(
+                                f"Warning: Asset {asset['name']} (ID: {asset['id']}) does not belong to the current account."
+                            )
+                            raise
+                        await client.delete_asset(asset_id=asset["id"], confirm_first=False)
+                        deleted_count += 1
+                    except Exception as delete_error:
+                        # Check if it's a 404 error (asset not found)
+                        if "404" in str(delete_error) or "NOT FOUND" in str(delete_error):
+                            print(
+                                f"Asset {asset['name']} (ID: {asset['id']}) no longer exists, skipping..."
+                            )
+                        else:
+                            print(
+                                f"Warning: Could not delete asset {asset['name']}: {delete_error}"
+                            )
+                        # Continue with other assets
 
-        if deleted_count > 0:
-            print(f"Cleaned up {deleted_count} existing assets")
-        else:
-            print("No existing assets to clean up")
+            if deleted_count > 0:
+                print(f"Cleaned up {deleted_count} existing assets")
+            else:
+                print("No existing assets to clean up")
 
-        # Wait a moment for deletions to complete
-        await asyncio.sleep(1)
+            # Wait a moment for deletions to complete
+            await asyncio.sleep(1)
 
-    except Exception as e:
-        print(f"Warning: Error during cleanup: {e}")
-        print("Continuing with setup...")
+        except Exception as e:
+            print(f"Warning: Error during cleanup: {e}")
+            print("Continuing with setup...")
 
 
 def load_and_align_csv_data(
