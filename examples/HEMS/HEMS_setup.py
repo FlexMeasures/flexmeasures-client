@@ -62,7 +62,7 @@ async def main():
         asset = None  # Initialize asset variable
         assets = await client.get_assets()
         for sst in assets:
-            if sst["name"] == building_name:
+            if sst["name"] in site_name:
                 asset = sst
                 break
 
