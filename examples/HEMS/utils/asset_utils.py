@@ -76,49 +76,53 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
     """Upload historical data for the first two weeks."""
     print("Uploading data for first two weeks...")
 
-    # Find all required sensors
-    sensor_mappings = [
-        ("electricity-price", "electricity-price", price_market_name),
-        ("electricity-consumption", "electricity-consumption", building_name),
-        ("max-consumption-capacity", "max-consumption-capacity", building_name),
-        ("max-production-capacity", "max-production-capacity", building_name),
-        ("irradiation", "irradiation", weather_station_name),
-        ("electricity-production", "electricity-production", pv_name),
-        ("soc-usage", "soc-usage", heating_name),
-    ]
+    for i, building_name in enumerate(building_names):
+        # Find all required sensors
+        sensor_mappings = [
+            ("site-power-capacity", "site-power-capacity", site_name),
+            ("electricity-price", "electricity-price", price_market_name),
+            ("electricity-consumption", "electricity-consumption", building_name),
+            ("max-consumption-capacity", "max-consumption-capacity", building_name),
+            ("max-production-capacity", "max-production-capacity", building_name),
+            ("irradiation", "irradiation", weather_station_name),
+            ("electricity-production", "electricity-production", pv_name + f" {i+1}"),
+            ("soc-usage", "soc-usage", heating_name + f" {i+1}"),
+        ]
 
-    sensors = await find_sensors_by_asset(client, sensor_mappings)
+        sensors = await find_sensors_by_asset(client, sensor_mappings)
 
-    # Upload data files directly
-    data_files = [
-        ("data/price_data.csv", "electricity-price", False),
-        ("data/building_data.csv", "electricity-consumption", True),
-        ("data/irradiation_data.csv", "irradiation", True),
-        ("data/PV_production_data.csv", "electricity-production", True),
-        ("data/max_consumption_capacity.csv", "max-consumption-capacity", False),
-        ("data/max_production_capacity.csv", "max-production-capacity", False),
-        ("data/heating_soc_usage_data.csv", "soc-usage", True),
-    ]
+        # Upload data files directly
+        data_files = [
+            ("data/site_power_capacity.csv", "site-power-capacity", False),
+            ("data/price_data.csv", "electricity-price", False),
+            ("data/building_data.csv", "electricity-consumption", True),
+            ("data/irradiation_data.csv", "irradiation", True),
+            ("data/PV_production_data.csv", "electricity-production", True),
+            ("data/max_consumption_capacity.csv", "max-consumption-capacity", False),
+            ("data/max_production_capacity.csv", "max-production-capacity", False),
+            ("data/heating_soc_usage_data.csv", "soc-usage", True),
+        ]
+        if i > 0:
+            data_files = data_files[2:]  # Remove site power capacity and price datafiles to not fill them more than once
+        for file_path, sensor_key, belief_time_measured_instantly in data_files:
+            if sensor_key not in sensors:
+                print(f"Skipping {file_path} - sensor not found")
+                continue
 
-    for file_path, sensor_key, belief_time_measured_instantly in data_files:
-        if sensor_key not in sensors:
-            print(f"Skipping {file_path} - sensor not found")
-            continue
+            print(f"Processing {file_path}...")
 
-        print(f"Processing {file_path}...")
+            # Upload CSV file directly
+            success = await upload_csv_file_to_sensor(
+                client=client,
+                sensor_id=sensors[sensor_key]["id"],
+                file_path=file_path,
+                belief_time_measured_instantly=belief_time_measured_instantly,
+            )
 
-        # Upload CSV file directly
-        success = await upload_csv_file_to_sensor(
-            client=client,
-            sensor_id=sensors[sensor_key]["id"],
-            file_path=file_path,
-            belief_time_measured_instantly=belief_time_measured_instantly,
-        )
-
-        if success:
-            print(f"Successfully uploaded {sensor_key} data")
-        else:
-            print(f"Failed to upload {sensor_key} data")
+            if success:
+                print(f"Successfully uploaded {sensor_key} data")
+            else:
+                print(f"Failed to upload {sensor_key} data")
 
     return True
 
