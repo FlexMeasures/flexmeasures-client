@@ -698,8 +698,7 @@ async def create_building_assets_and_sensors(
     then configure the building's flex context and dashboard.
     """
     account_id = account["id"]
-    print("Creating price market asset and associated price sensor")
-    price_sensor = await create_public_price_sensor(client)
+
     print("Creating building asset with PV and battery sensors")
     (
         building_asset,
@@ -784,13 +783,6 @@ async def create_building_assets_and_sensors(
     print(f"Heating max SoC sensor ID: {heating_max_soc_sensor['id']}")
     print(f"Heating COP sensor ID: {heating_COP['id']}")
 
-    print("Creating weather station with irradiation and cloud coverage sensors")
-    weather_asset, irradiation_sensor, cloud_coverage_sensor = (
-        await create_weather_station(client)
-    )
-    print(f"Weather station asset ID: {weather_asset['id']}")
-    print(f"Irradiation sensor ID: {irradiation_sensor['id']}")
-    print(f"Cloud coverage sensor ID: {cloud_coverage_sensor['id']}")
     print("Configuring building flex-context ...")
     await configure_building_flex_context(
         client=client,
