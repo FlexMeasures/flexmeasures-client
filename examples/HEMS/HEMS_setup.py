@@ -8,6 +8,7 @@ import asyncio
 
 from assets_setup import create_community_site_asset
 from const import (
+    site_name,
     building_name,
     heating_name,
     host,
