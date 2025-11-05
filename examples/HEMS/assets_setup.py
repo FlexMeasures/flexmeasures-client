@@ -813,3 +813,69 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         daily_total_energy_costs_sensor=daily_total_energy_costs_sensor,
         daily_share_of_self_consumption_sensor=daily_share_of_self_consumption_sensor,
     )
+
+
+async def create_community_site_asset(client: FlexMeasuresClient, account: dict):
+    """
+    Create Community site asset this  will serve as the parent asset for all buildings in the community
+    """
+    # Get account id
+    account_id = account["id"]
+    print("Creating price market asset and associated price sensor")
+    price_sensor = await create_public_price_sensor(client=client)
+
+    print("Creating weather station with irradiation and cloud coverage sensors")
+    weather_asset, irradiation_sensor, cloud_coverage_sensor = (
+        await create_weather_station(client=client)
+    )
+    print(f"Weather station asset ID: {weather_asset['id']}")
+    print(f"Irradiation sensor ID: {irradiation_sensor['id']}")
+    print(f"Cloud coverage sensor ID: {cloud_coverage_sensor['id']}")
+    print("Creating community site asset...")
+    # Create Site asset (generic_asset_type_id=6 for building)
+    site_asset = await client.add_asset(
+        name=site_name,
+        latitude=latitude,
+        longitude=longitude,
+        generic_asset_type_id=6,  # Building asset type
+        account_id=account_id,
+    )
+
+    # Create site power capacity sensor (15min resolution, kW)
+    site_power_capacity_sensor = await client.add_sensor(
+        name="site-power-capacity",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=site_asset["id"],
+        timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=True),
+    )
+
+    # Create site power sensor (15min resolution, kW)
+    site_power_sensor = await client.add_sensor(   # this is used to store aggregate assets power measurements
+        name="power",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=site_asset["id"],
+        timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=True),
+    )
+
+    # Create flex context with all required settings
+    flex_context = {
+        "site-power-capacity": {"sensor": site_power_capacity_sensor["id"]},
+    }
+    print(f"Created site asset with ID: {site_asset['id']}")
+
+    # Update site asset with flex-context
+    await client.update_asset(
+        asset_id=site_asset["id"], updates={"flex_context": flex_context}
+    )
+    for i in range(len(building_names)):
+        await create_building_assets_and_sensors(
+            client=client,
+            account=account,
+            site_asset_id=site_asset["id"],
+            building_index=i+1,
+            price_sensor=price_sensor,
+        )
