@@ -12,7 +12,7 @@ from const import (
     SIMULATION_STEP_HOURS,
     TUTORIAL_START_DATE,
     battery_name,
-    building_name,
+    building_names,
     evse1_name,
     evse2_name,
     heating_name,
