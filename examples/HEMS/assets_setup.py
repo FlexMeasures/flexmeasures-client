@@ -90,7 +90,11 @@ async def create_weather_station(client: FlexMeasuresClient):
 
 
 async def create_building_asset(
-    client: FlexMeasuresClient, account_id: int, price_sensor_id: int
+    client: FlexMeasuresClient,
+    account_id: int,
+    price_sensor_id: int,
+    building_name: str,
+    site_asset_id: int,
 ):
     """Create building asset with consumption and energy costs KPI sensors."""
     print("Creating building asset...")
