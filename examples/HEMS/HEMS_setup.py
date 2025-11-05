@@ -92,18 +92,7 @@ async def main():
         print("\n" + "=" * 50)
         print("PART 3: GENERATING PV FORECASTS")
         # todo A3: forecast data for the 2 sites as before
-        await generate_forecasts(
-            client,
-            asset_name=pv_name,
-            sensor_name="electricity-production",
-            regressors=[("irradiation", weather_station_name)],
-        )
-        await generate_forecasts(
-            client, asset_name=building_name, sensor_name="electricity-consumption"
-        )
-        await generate_forecasts(
-            client, asset_name=heating_name, sensor_name="soc-usage"
-        )
+        await generate_forecasts(client)
 
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
