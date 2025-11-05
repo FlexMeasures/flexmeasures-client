@@ -4,7 +4,7 @@ from const import (
     HEATING_CONFIG,
     site_name,
     battery_name,
-    building_name,
+    building_names,
     evse1_name,
     evse2_name,
     heating_name,
