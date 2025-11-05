@@ -104,6 +104,7 @@ async def create_building_asset(
         name=building_name,
         latitude=latitude,
         longitude=longitude,
+        parent_asset_id=site_asset_id,
         generic_asset_type_id=6,  # Building asset type
         account_id=account_id,
     )
