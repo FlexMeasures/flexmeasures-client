@@ -30,7 +30,7 @@ from flexmeasures_client.client import FlexMeasuresClient
 
 
 async def run_scheduling_simulation(
-    client: FlexMeasuresClient, simulate_live_corrections: bool = True
+    client: FlexMeasuresClient,  building_name: str, index: int, simulate_live_corrections: bool = True,
 ):
     """Run step-by-step scheduling simulation for the third week with EV charging."""
     print("Running scheduling simulation for third week with EV charging...")
