@@ -1,6 +1,10 @@
 import subprocess
 
 from const import (
+    building_names,
+    heating_name,
+    pv_name,
+    weather_station_name,
     FORECAST_HORIZON_HOURS,
     FORECASTING_START,
     SCHEDULING_END,
@@ -12,7 +16,7 @@ from utils.asset_utils import find_sensor_by_name_and_asset
 from flexmeasures_client import FlexMeasuresClient
 
 
-async def generate_forecasts(
+async def generate_sensor_forecasts(
     client: FlexMeasuresClient,
     sensor_name: str,
     asset_name: str,
@@ -85,3 +89,42 @@ async def generate_forecasts(
     else:
         print(f"{sensor_name} forecasts for {asset_name} failed: {result.stderr}")
         return False
+
+
+async def generate_forecasts(
+    client: FlexMeasuresClient,
+    sensor_name: str,
+    asset_name: str,
+    regressors: list[tuple[str, str]] | None = None,
+):
+    """Generate forecasts for sensors that need to be forecasted for tutorial."""
+
+    forecast_configs = []
+    for i, building_name in enumerate(building_names, start=1):
+        forecast_configs.extend([
+            {
+                "asset_name": f"{pv_name} {i}",
+                "sensor_name": "electricity-production",
+                "regressors": [("irradiation", weather_station_name)],
+            },
+            {
+                "asset_name": building_name,
+                "sensor_name": "electricity-consumption",
+                "regressors": None,
+
+            },
+            {
+                "asset_name": f"{heating_name} {i}",
+                "sensor_name": "soc-usage",
+                "regressors": None,
+
+            },
+        ])
+
+    for config in forecast_configs:
+        await generate_sensor_forecasts(
+            client,
+            sensor_name=config["sensor_name"],
+            asset_name=config["asset_name"],
+            regressors=config.get("regressors", None),
+        )
