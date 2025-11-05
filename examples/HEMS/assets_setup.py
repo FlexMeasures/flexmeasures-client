@@ -711,7 +711,13 @@ async def create_building_assets_and_sensors(
         total_energy_costs_sensor,
         daily_total_energy_costs_sensor,
         daily_share_of_self_consumption_sensor,
-    ) = await create_building_asset(client, account_id, price_sensor["id"])
+    ) = await create_building_asset(
+        client=client,
+        account_id=account_id,
+        price_sensor_id=price_sensor["id"],
+        site_asset_id=site_asset_id,
+        building_name=building_names[building_index-1],
+    )
     print(f"Building asset ID: {building_asset['id']}")
     print(f"Consumption sensor ID: {consumption_sensor['id']}")
     print(f"Energy costs sensor ID: {energy_costs_sensor['id']}")
@@ -721,13 +727,18 @@ async def create_building_assets_and_sensors(
     print(f"Self-consumption sensor ID: {self_consumption_sensor['id']}")
     print("Creating PV asset with production sensor")
     pv_asset, pv_production_sensor = await create_pv_asset(
-        client, account_id, building_asset["id"]
+        client, account_id, building_asset["id"], pv_name=f"{pv_name} {building_index}"
     )
     print(f"PV asset ID: {pv_asset['id']}")
     print(f"PV production sensor ID: {pv_production_sensor['id']}")
     print("Creating battery asset with power and SoC sensors")
     battery_asset, battery_power_sensor, battery_soc_sensor = (
-        await create_battery_asset(client, account_id, building_asset["id"])
+        await create_battery_asset(
+            client=client,
+            account_id=account_id,
+            building_asset_id=building_asset["id"],
+            battery_name=f"{battery_name} {building_index}",
+        )
     )
     print(f"Battery asset ID: {battery_asset['id']}")
     print(f"Battery power sensor ID: {battery_power_sensor['id']}")
@@ -741,7 +752,12 @@ async def create_building_assets_and_sensors(
         evse1_soc_sensor,
         evse1_soc_min_sensor,
         evse1_soc_max_sensor,
-    ) = await create_evse_asset(client, account_id, building_asset["id"], evse1_name)
+    ) = await create_evse_asset(
+        client=client,
+        account_id=account_id,
+        building_asset_id=building_asset["id"],
+        evse_name=f"{evse1_name} {building_index}",
+    )
     print(f"EVSE 1 asset ID: {evse1_asset['id']}")
     print(f"EVSE 1 power sensor ID: {evse1_power_sensor['id']}")
     print(f"EVSE 1 SoC sensor ID: {evse1_soc_sensor['id']}")
@@ -752,7 +768,12 @@ async def create_building_assets_and_sensors(
         evse2_soc_sensor,
         evse2_soc_min_sensor,
         evse2_soc_max_sensor,
-    ) = await create_evse_asset(client, account_id, building_asset["id"], evse2_name)
+    ) = await create_evse_asset(
+        client=client,
+        account_id=account_id,
+        building_asset_id=building_asset["id"],
+        evse_name=f"{evse2_name} {building_index}",
+    )
     print(f"EVSE 2 asset ID: {evse2_asset['id']}")
     print(f"EVSE 2 power sensor ID: {evse2_power_sensor['id']}")
     print(f"EVSE 2 SoC sensor ID: {evse2_soc_sensor['id']}")
@@ -768,12 +789,12 @@ async def create_building_assets_and_sensors(
         heating_max_soc_sensor,
         heating_COP,
     ) = await create_heating_asset(
-        client,
-        account_id,
-        building_asset["id"],
-        heating_name,
-        latitude,
-        longitude,
+        client=client,
+        account_id=account_id,
+        building_asset_id=building_asset["id"],
+        heating_name=f"{heating_name} {building_index}",
+        latitude=latitude,
+        longitude=longitude,
     )
     print(f"Heating asset ID: {heating_asset['id']}")
     print(f"Heating power sensor ID: {heating_power_sensor['id']}")
