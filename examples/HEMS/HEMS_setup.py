@@ -68,7 +68,7 @@ async def main():
 
         if not asset:
             print(
-                "Creating building asset, with PV and battery sensors, and weather station"
+                "Creating community Site asset with 2 building assets, each with PV and battery sensors, and weather station"
             )
             await create_community_site_asset(client, account)
             # todo A1: create 2 sites and register them as children of a community asset (config variables become lists?)
