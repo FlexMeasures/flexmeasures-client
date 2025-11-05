@@ -211,7 +211,7 @@ async def create_building_asset(
 
 
 async def create_pv_asset(
-    client: FlexMeasuresClient, account_id: int, building_asset_id: int
+    client: FlexMeasuresClient, account_id: int, building_asset_id: int, pv_name: str
 ):
     """Create PV asset as child of building with production sensor."""
     print("Creating PV asset...")
