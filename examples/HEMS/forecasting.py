@@ -93,9 +93,6 @@ async def generate_sensor_forecasts(
 
 async def generate_forecasts(
     client: FlexMeasuresClient,
-    sensor_name: str,
-    asset_name: str,
-    regressors: list[tuple[str, str]] | None = None,
 ):
     """Generate forecasts for sensors that need to be forecasted for tutorial."""
 
