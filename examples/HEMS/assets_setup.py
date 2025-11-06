@@ -880,7 +880,8 @@ async def create_community_site_asset(client: FlexMeasuresClient, account: dict)
     )
 
     # Create site power sensor (15min resolution, kW)
-    site_power_sensor = await client.add_sensor(  # this is used to store aggregate assets power measurements
+    # this is used to store aggregate assets power measurements
+    site_power_sensor = await client.add_sensor(  # noqa: F841
         name="power",
         event_resolution="PT15M",
         unit="kW",
