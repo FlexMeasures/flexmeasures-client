@@ -7,12 +7,7 @@ and all required sensors with proper flex-context configuration.
 import asyncio
 
 from assets_setup import create_community_site_asset
-from const import (
-    site_name,
-    host,
-    pwd,
-    usr,
-)
+from const import host, pwd, site_name, usr
 from forecasting import generate_forecasts
 from reporters import create_reports
 from scheduling import run_scheduling_simulation

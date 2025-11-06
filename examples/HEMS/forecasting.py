@@ -1,15 +1,15 @@
 import subprocess
 
 from const import (
-    building_names,
-    heating_name,
-    pv_name,
-    weather_station_name,
     FORECAST_HORIZON_HOURS,
     FORECASTING_START,
     SCHEDULING_END,
     SIMULATION_STEP_HOURS,
     TUTORIAL_START_DATE,
+    building_names,
+    heating_name,
+    pv_name,
+    weather_station_name,
 )
 from utils.asset_utils import find_sensor_by_name_and_asset
 
@@ -101,25 +101,25 @@ async def generate_forecasts(
 
     forecast_configs = []
     for i, building_name in enumerate(building_names, start=1):
-        forecast_configs.extend([
-            {
-                "asset_name": f"{pv_name} {i}",
-                "sensor_name": "electricity-production",
-                "regressors": [("irradiation", weather_station_name)],
-            },
-            {
-                "asset_name": building_name,
-                "sensor_name": "electricity-consumption",
-                "regressors": None,
-
-            },
-            {
-                "asset_name": f"{heating_name} {i}",
-                "sensor_name": "soc-usage",
-                "regressors": None,
-
-            },
-        ])
+        forecast_configs.extend(
+            [
+                {
+                    "asset_name": f"{pv_name} {i}",
+                    "sensor_name": "electricity-production",
+                    "regressors": [("irradiation", weather_station_name)],
+                },
+                {
+                    "asset_name": building_name,
+                    "sensor_name": "electricity-consumption",
+                    "regressors": None,
+                },
+                {
+                    "asset_name": f"{heating_name} {i}",
+                    "sensor_name": "soc-usage",
+                    "regressors": None,
+                },
+            ]
+        )
 
     for config in forecast_configs:
         await generate_sensor_forecasts(

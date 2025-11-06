@@ -30,7 +30,8 @@ from flexmeasures_client.client import FlexMeasuresClient
 
 
 async def run_scheduling_simulation(
-    client: FlexMeasuresClient, simulate_live_corrections: bool = True,
+    client: FlexMeasuresClient,
+    simulate_live_corrections: bool = True,
 ):
     """Run step-by-step scheduling simulation for the third week with EV charging."""
     print("Running scheduling simulation for third week with EV charging...")
@@ -80,7 +81,9 @@ async def run_scheduling_simulation(
 
         sensors = {}
         for sensor_key, asset_name, sensor_name in sensor_mappings:
-            sensor = await find_sensor_by_name_and_asset(client, sensor_name, asset_name)
+            sensor = await find_sensor_by_name_and_asset(
+                client, sensor_name, asset_name
+            )
             if sensor:
                 sensors[sensor_key] = sensor
             else:
@@ -139,8 +142,10 @@ async def run_scheduling_simulation(
                 else:
                     battery_current_soc = battery_next_current_soc
                 # Create dynamic flex model for battery (Current SoC updated each step)
-                battery_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
-                    current_soc=battery_current_soc,
+                battery_scheduling_dynamic_flex_model = (
+                    create_dynamic_storage_flex_model(
+                        current_soc=battery_current_soc,
+                    )
                 )
 
                 # Calculate dynamic EV constraints for current day
@@ -177,9 +182,11 @@ async def run_scheduling_simulation(
                     else:
                         evse1_current_soc = evse1_next_current_soc
                     # Create dynamic flex model for EVSE 1 (Current SoC updated each step)
-                    evse1_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
-                        current_soc=evse1_current_soc,
-                        constraints=evse1_constraints,
+                    evse1_scheduling_dynamic_flex_model = (
+                        create_dynamic_storage_flex_model(
+                            current_soc=evse1_current_soc,
+                            constraints=evse1_constraints,
+                        )
                     )
 
                 if not evse2_constraints.get("unavailable"):
@@ -191,9 +198,11 @@ async def run_scheduling_simulation(
                     else:
                         evse2_current_soc = evse2_next_current_soc
                     # Create dynamic flex model for EVSE 2 (Current SoC updated each step)
-                    evse2_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
-                        current_soc=evse2_current_soc,
-                        constraints=evse2_constraints,
+                    evse2_scheduling_dynamic_flex_model = (
+                        create_dynamic_storage_flex_model(
+                            current_soc=evse2_current_soc,
+                            constraints=evse2_constraints,
+                        )
                     )
 
                 if heating_next_current_soc is None:
@@ -205,8 +214,10 @@ async def run_scheduling_simulation(
                 else:
                     heating_current_soc = heating_next_current_soc
                 # Create dynamic flex model for heating (Current SoC updated each step)
-                heating_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
-                    current_soc=heating_current_soc,
+                heating_scheduling_dynamic_flex_model = (
+                    create_dynamic_storage_flex_model(
+                        current_soc=heating_current_soc,
+                    )
                 )
 
                 # Start with the battery and PV flex models

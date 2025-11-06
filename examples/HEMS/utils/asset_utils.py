@@ -2,11 +2,11 @@ import asyncio
 
 import pandas as pd
 from const import (
-    site_name,
     building_names,
     heating_name,
     price_market_name,
     pv_name,
+    site_name,
     weather_station_name,
 )
 
@@ -103,7 +103,9 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
             ("data/heating_soc_usage_data.csv", "soc-usage", True),
         ]
         if i > 1:
-            data_files = data_files[2:]  # Remove site power capacity and price datafiles to not fill them more than once
+            data_files = data_files[
+                2:
+            ]  # Remove site power capacity and price datafiles to not fill them more than once
         for file_path, sensor_key, belief_time_measured_instantly in data_files:
             if sensor_key not in sensors:
                 print(f"Skipping {file_path} - sensor not found")
@@ -147,18 +149,24 @@ async def cleanup_existing_assets(client: FlexMeasuresClient, account_id: int):
             deleted_count = 0
             for asset in assets:
                 if asset["name"] in asset_names_to_clean:
-                    print(f"Deleting existing asset: {asset['name']} (ID: {asset['id']})")
+                    print(
+                        f"Deleting existing asset: {asset['name']} (ID: {asset['id']})"
+                    )
                     try:
                         if asset.get("account_id") != account_id:
                             print(
                                 f"Warning: Asset {asset['name']} (ID: {asset['id']}) does not belong to the current account."
                             )
                             raise
-                        await client.delete_asset(asset_id=asset["id"], confirm_first=False)
+                        await client.delete_asset(
+                            asset_id=asset["id"], confirm_first=False
+                        )
                         deleted_count += 1
                     except Exception as delete_error:
                         # Check if it's a 404 error (asset not found)
-                        if "404" in str(delete_error) or "NOT FOUND" in str(delete_error):
+                        if "404" in str(delete_error) or "NOT FOUND" in str(
+                            delete_error
+                        ):
                             print(
                                 f"Asset {asset['name']} (ID: {asset['id']}) no longer exists, skipping..."
                             )

@@ -47,7 +47,7 @@ async def create_reports(client: FlexMeasuresClient):
                 "daily-share-of-self-consumption",
                 building_name,
             ),
-            ("heating-power", "power",  f"{heating_name} {i}"),
+            ("heating-power", "power", f"{heating_name} {i}"),
         ]
         sensors = await find_sensors_by_asset(client, sensor_mappings)
 

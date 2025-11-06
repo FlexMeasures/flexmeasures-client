@@ -2,7 +2,6 @@ from const import (
     BATTERY_CONFIG,
     EV_CONFIG,
     HEATING_CONFIG,
-    site_name,
     battery_name,
     building_names,
     evse1_name,
@@ -12,6 +11,7 @@ from const import (
     longitude,
     price_market_name,
     pv_name,
+    site_name,
     weather_station_name,
 )
 
@@ -691,7 +691,11 @@ async def configure_building_dashboard(
 
 
 async def create_building_assets_and_sensors(
-    client: FlexMeasuresClient, account: dict, site_asset_id: int, building_index: int, price_sensor: dict
+    client: FlexMeasuresClient,
+    account: dict,
+    site_asset_id: int,
+    building_index: int,
+    price_sensor: dict,
 ):
     """
     Create a building asset with its associated sensors and linked assets (PV, battery, EVSEs, and weather station),
@@ -716,7 +720,7 @@ async def create_building_assets_and_sensors(
         account_id=account_id,
         price_sensor_id=price_sensor["id"],
         site_asset_id=site_asset_id,
-        building_name=building_names[building_index-1],
+        building_name=building_names[building_index - 1],
     )
     print(f"Building asset ID: {building_asset['id']}")
     print(f"Consumption sensor ID: {consumption_sensor['id']}")
@@ -876,7 +880,7 @@ async def create_community_site_asset(client: FlexMeasuresClient, account: dict)
     )
 
     # Create site power sensor (15min resolution, kW)
-    site_power_sensor = await client.add_sensor(   # this is used to store aggregate assets power measurements
+    site_power_sensor = await client.add_sensor(  # this is used to store aggregate assets power measurements
         name="power",
         event_resolution="PT15M",
         unit="kW",
@@ -900,6 +904,6 @@ async def create_community_site_asset(client: FlexMeasuresClient, account: dict)
             client=client,
             account=account,
             site_asset_id=site_asset["id"],
-            building_index=i+1,
+            building_index=i + 1,
             price_sensor=price_sensor,
         )
