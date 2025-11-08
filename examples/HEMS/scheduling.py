@@ -156,17 +156,17 @@ async def run_scheduling_simulation(
                 evse2_flex_model=evse2_flex_model,
             )
 
-            # Move to next simulation step
-            current_time = step_end_time
-            step_num += 1
+        # Move to next simulation step
+        current_time = step_end_time
+        step_num += 1
 
-            print(
-                f"\n[STEP-COMPLETE] Step {step_num-1} completed. Next step starts at {current_time.strftime('%Y-%m-%d %H:%M')}"
-            )
-            print("=" * 80)
+        print(
+            f"\n[STEP-COMPLETE] Step {step_num-1} completed. Next step starts at {current_time.strftime('%Y-%m-%d %H:%M')}"
+        )
+        print("=" * 80)
 
-            # Add small delay between steps
-            await asyncio.sleep(1)
+        # Add small delay between steps
+        await asyncio.sleep(1)
 
     print("Scheduling simulation completed")
     return True
