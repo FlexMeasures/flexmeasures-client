@@ -122,10 +122,14 @@ async def run_scheduling_simulation(
                 battery_soc_at_start=battery_soc_at_start,
                 evse1_flex_model=evse1_flex_model,
                 evse2_flex_model=evse2_flex_model,
-                battery_next_current_soc=battery_next_current_soc,
-                evse1_next_current_soc=evse1_next_current_soc,
-                evse2_next_current_soc=evse2_next_current_soc,
-                heating_next_current_soc=heating_next_current_soc,
+                battery_next_current_soc=next_current_soc_dict[building_name][
+                    "battery"
+                ],
+                evse1_next_current_soc=next_current_soc_dict[building_name]["evse1"],
+                evse2_next_current_soc=next_current_soc_dict[building_name]["evse2"],
+                heating_next_current_soc=next_current_soc_dict[building_name][
+                    "heating"
+                ],
                 evse1_capacity=evse1_capacity,
                 evse2_capacity=evse2_capacity,
                 simulate_live_corrections=simulate_live_corrections,
@@ -155,6 +159,10 @@ async def run_scheduling_simulation(
                 evse1_flex_model=evse1_flex_model,
                 evse2_flex_model=evse2_flex_model,
             )
+            next_current_soc_dict[building_name]["battery"] = battery_next_current_soc
+            next_current_soc_dict[building_name]["evse1"] = evse1_next_current_soc
+            next_current_soc_dict[building_name]["evse2"] = evse2_next_current_soc
+            next_current_soc_dict[building_name]["heating"] = heating_next_current_soc
 
         # Move to next simulation step
         current_time = step_end_time
