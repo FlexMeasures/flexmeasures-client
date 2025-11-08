@@ -807,3 +807,42 @@ async def compute_site_measurements(
         evse2_next_current_soc,
         heating_next_current_soc,
     )
+
+
+async def get_building_assets(
+    client: FlexMeasuresClient,
+    building_name: str,
+    index: int,
+):
+    """Get all assets in a site's child building."""
+    assets = await client.get_assets()
+    assets_by_name = {a["name"]: a for a in assets}
+
+    building_asset = assets_by_name.get(building_name)
+    battery_asset = assets_by_name.get(f"{battery_name} {index}")
+    evse1_asset = assets_by_name.get(f"{evse1_name} {index}")
+    evse2_asset = assets_by_name.get(f"{evse2_name} {index}")
+    heating_asset = assets_by_name.get(f"{heating_name} {index}")
+
+    if not building_asset:
+        print("Could not find building asset for scheduling")
+        return False
+
+    if not battery_asset:
+        print("Could not find battery asset for scheduling")
+        return False
+
+    if not evse1_asset or not evse2_asset:
+        print("Could not find EVSE assets for scheduling")
+        return False
+    if not heating_asset:
+        print("Could not find heating asset for scheduling")
+        return False
+
+    return (
+        building_asset,
+        battery_asset,
+        evse1_asset,
+        evse2_asset,
+        heating_asset,
+    )
