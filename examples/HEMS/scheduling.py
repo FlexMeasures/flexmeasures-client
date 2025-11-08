@@ -136,7 +136,6 @@ async def run_scheduling_simulation(
             )
 
             # Extract scheduled power for all devices for the next 4 hours
-            step_end_time = current_time + timedelta(hours=SIMULATION_STEP_HOURS)
 
             # Update SoC for next step based on retrieved SoC schedules
             (
