@@ -137,6 +137,7 @@ async def run_scheduling_simulation(
             ) = await compute_site_schedules(
                 client=client,
                 building_asset=building_asset,
+                index=index,
                 sensors=sensors,
                 step_num=step_num,
                 current_time=current_time,
@@ -164,6 +165,7 @@ async def run_scheduling_simulation(
             ) = await compute_site_measurements(
                 client=client,
                 sensors=sensors,
+                index=index,
                 building_df=building_df,
                 current_time=current_time,
                 step_end_time=step_end_time,
@@ -195,6 +197,7 @@ async def run_scheduling_simulation(
 async def compute_site_schedules(
     client: FlexMeasuresClient,
     building_asset: dict,
+    index: int,
     sensors: dict,
     step_num: int,
     current_time: pd.Timestamp,
@@ -307,19 +310,19 @@ async def compute_site_schedules(
         curtailable_pv_flex_model = {
             "power-capacity": "12 kW",
             "consumption-capacity": "0 kW",
-            "production-capacity": {"sensor": sensors["pv-production"]["id"]},
+            "production-capacity": {"sensor": sensors[f"pv-production-{index}"]["id"]},
         }
         final_flex_models = [
             {
-                "sensor": sensors["battery-power"]["id"],
+                "sensor": sensors[f"battery-power-{index}"]["id"],
                 **battery_scheduling_dynamic_flex_model,
             },
             {
-                "sensor": sensors["pv-production"]["id"],
+                "sensor": sensors[f"pv-production-{index}"]["id"],
                 **curtailable_pv_flex_model,
             },
             {
-                "sensor": sensors["heating-power"]["id"],
+                "sensor": sensors[f"heating-power-{index}"]["id"],
                 **heating_scheduling_dynamic_flex_model,
             },
         ]
@@ -328,7 +331,7 @@ async def compute_site_schedules(
         if not evse1_constraints.get("unavailable"):
             final_flex_models.append(
                 {
-                    "sensor": sensors["evse1-power"]["id"],
+                    "sensor": sensors[f"evse1-power-{index}"]["id"],
                     **evse1_scheduling_dynamic_flex_model,
                 }
             )
@@ -338,7 +341,7 @@ async def compute_site_schedules(
         if not evse2_constraints.get("unavailable"):
             final_flex_models.append(
                 {
-                    "sensor": sensors["evse2-power"]["id"],
+                    "sensor": sensors[f"evse2-power-{index}"]["id"],
                     **evse2_scheduling_dynamic_flex_model,
                 }
             )
@@ -382,7 +385,7 @@ async def compute_site_schedules(
         # This retrieves the SoC values that FlexMeasures computed based on the flex-model constraints
         try:
             battery_soc_schedule = await client.get_schedule(
-                sensor_id=sensors["battery-soc"]["id"],
+                sensor_id=sensors[f"battery-soc-{index}"]["id"],
                 schedule_id=job_uuid,
                 duration=schedule_duration,
             )
@@ -392,7 +395,7 @@ async def compute_site_schedules(
 
         try:
             evse1_soc_schedule = await client.get_schedule(
-                sensor_id=sensors["evse1-soc"]["id"],
+                sensor_id=sensors[f"evse1-soc-{index}"]["id"],
                 schedule_id=job_uuid,
                 duration=schedule_duration,
             )
@@ -402,7 +405,7 @@ async def compute_site_schedules(
 
         try:
             evse2_soc_schedule = await client.get_schedule(
-                sensor_id=sensors["evse2-soc"]["id"],
+                sensor_id=sensors[f"evse2-soc-{index}"]["id"],
                 schedule_id=job_uuid,
                 duration=schedule_duration,
             )
@@ -412,7 +415,7 @@ async def compute_site_schedules(
 
         try:
             heating_soc_schedule = await client.get_schedule(
-                sensor_id=sensors["heating-soc"]["id"],
+                sensor_id=sensors[f"heating-soc-{index}"]["id"],
                 schedule_id=job_uuid,
                 duration=schedule_duration,
             )
@@ -430,22 +433,22 @@ async def compute_site_schedules(
         schedule_result = [
             {
                 "values": [0.0] * SIMULATION_STEP_HOURS,
-                "sensor": sensors["battery-power"]["id"],
+                "sensor": sensors[f"battery-power-{index}"]["id"],
                 "duration": f"PT{SIMULATION_STEP_HOURS}H",
             },
             {
                 "values": [0.0] * SIMULATION_STEP_HOURS,
-                "sensor": sensors["evse1-power"]["id"],
+                "sensor": sensors[f"evse1-power-{index}"]["id"],
                 "duration": f"PT{SIMULATION_STEP_HOURS}H",
             },
             {
                 "values": [0.0] * SIMULATION_STEP_HOURS,
-                "sensor": sensors["evse2-power"]["id"],
+                "sensor": sensors[f"evse2-power-{index}"]["id"],
                 "duration": f"PT{SIMULATION_STEP_HOURS}H",
             },
             {
                 "values": [0.0] * SIMULATION_STEP_HOURS,
-                "sensor": sensors["heating-soc"]["id"],
+                "sensor": sensors[f"heating-power-{index}"]["id"],
                 "duration": f"PT{SIMULATION_STEP_HOURS}H",
             },
         ]
@@ -478,6 +481,7 @@ async def compute_site_measurements(
     heating_soc_schedule: dict,
     evse1_flex_model: dict,
     evse2_flex_model: dict,
+    index: int,
 ):
 
     # Initialize power schedules
@@ -503,19 +507,19 @@ async def compute_site_measurements(
 
             # Find which sensor this is for logging
             sensor_name = "Unknown"
-            if sensor_id == sensors["battery-power"]["id"]:
+            if sensor_id == sensors[f"battery-power-{index}"]["id"]:
                 battery_scheduled_power = power_values
                 sensor_name = "Battery"
-            elif sensor_id == sensors["evse1-power"]["id"]:
+            elif sensor_id == sensors[f"evse1-power-{index}"]["id"]:
                 evse1_scheduled_power = power_values
                 sensor_name = "EVSE-1"
-            elif sensor_id == sensors["evse2-power"]["id"]:
+            elif sensor_id == sensors[f"evse2-power-{index}"]["id"]:
                 evse2_scheduled_power = power_values
                 sensor_name = "EVSE-2"
-            elif sensor_id == sensors["pv-production"]["id"]:
+            elif sensor_id == sensors[f"pv-production-{index}"]["id"]:
                 pv_scheduled_power = [-v for v in power_values]
                 sensor_name = "PV"
-            elif sensor_id == sensors["heating-power"]["id"]:
+            elif sensor_id == sensors[f"heating-power-{index}"]["id"]:
                 heating_scheduled_power = power_values
                 sensor_name = "Heating"
 
@@ -532,7 +536,7 @@ async def compute_site_measurements(
         # Upload battery power measurements
         battery_power_duration = timedelta(hours=SIMULATION_STEP_HOURS)
         await client.post_sensor_data(
-            sensor_id=sensors["battery-power"]["id"],
+            sensor_id=sensors[f"battery-power-{index}"]["id"],
             start=current_time,
             duration=battery_power_duration,
             prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
@@ -541,7 +545,7 @@ async def compute_site_measurements(
         )
         # Upload PV power measurements
         await client.post_sensor_data(
-            sensor_id=sensors["pv-production"]["id"],
+            sensor_id=sensors[f"pv-production-{index}"]["id"],
             start=current_time,
             duration=battery_power_duration,
             prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
@@ -551,7 +555,7 @@ async def compute_site_measurements(
 
         # Upload EVSE 1 power measurements
         await client.post_sensor_data(
-            sensor_id=sensors["evse1-power"]["id"],
+            sensor_id=sensors[f"evse1-power-{index}"]["id"],
             start=current_time,
             duration=battery_power_duration,
             prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
@@ -561,7 +565,7 @@ async def compute_site_measurements(
 
         # Upload EVSE 2 power measurements
         await client.post_sensor_data(
-            sensor_id=sensors["evse2-power"]["id"],
+            sensor_id=sensors[f"evse2-power-{index}"]["id"],
             start=current_time,
             duration=battery_power_duration,
             prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
@@ -571,7 +575,7 @@ async def compute_site_measurements(
 
         # Upload heating power measurements
         await client.post_sensor_data(
-            sensor_id=sensors["heating-power"]["id"],
+            sensor_id=sensors[f"heating-power-{index}"]["id"],
             start=current_time,
             duration=battery_power_duration,
             prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
@@ -594,7 +598,7 @@ async def compute_site_measurements(
                 + pd.Timedelta(minutes=15)
             )
             await client.post_sensor_data(
-                sensor_id=sensors["building-consumption"]["id"],
+                sensor_id=sensors[f"building-consumption-{index}"]["id"],
                 start=building_data_step["event_start"].iloc[0],
                 duration=step_duration,
                 prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
@@ -668,7 +672,7 @@ async def compute_site_measurements(
         # Upload battery SoC measurements (FlexMeasures computed)
         if battery_soc_values:
             await client.post_sensor_data(
-                sensor_id=sensors["battery-soc"]["id"],
+                sensor_id=sensors[f"battery-soc-{index}"]["id"],
                 start=current_time,
                 duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
                 prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
@@ -682,7 +686,7 @@ async def compute_site_measurements(
         # Upload EVSE 1 SoC measurements (FlexMeasures computed)
         if evse1_soc_values:
             await client.post_sensor_data(
-                sensor_id=sensors["evse1-soc"]["id"],
+                sensor_id=sensors[f"evse1-soc-{index}"]["id"],
                 start=current_time,
                 duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
                 prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
@@ -696,7 +700,7 @@ async def compute_site_measurements(
         # Upload EVSE 2 SoC measurements (FlexMeasures computed)
         if evse2_soc_values:
             await client.post_sensor_data(
-                sensor_id=sensors["evse2-soc"]["id"],
+                sensor_id=sensors[f"evse2-soc-{index}"]["id"],
                 start=current_time,
                 duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
                 prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
@@ -709,7 +713,7 @@ async def compute_site_measurements(
         # Upload heating SoC measurements (FlexMeasures computed)
         if heating_soc_values:
             await client.post_sensor_data(
-                sensor_id=sensors["heating-soc"]["id"],
+                sensor_id=sensors[f"heating-soc-{index}"]["id"],
                 start=current_time,
                 duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
                 prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
