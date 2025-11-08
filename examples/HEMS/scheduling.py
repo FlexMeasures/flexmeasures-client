@@ -846,3 +846,40 @@ async def get_building_assets(
         evse2_asset,
         heating_asset,
     )
+
+
+async def map_site_sensors(
+    client: FlexMeasuresClient,
+):
+    """Map required sensors for all buildings in the site."""
+    # Find required assets and sensors
+    sensors = {}
+    # Find building, battery, and EVSE assets
+    for index, building_name in enumerate(building_names, start=1):
+
+        # Find sensors (including EVSE sensors) - using unique keys for duplicate sensor names
+        sensor_mappings = [
+            (f"building-consumption-{index}", building_name, "electricity-consumption"),
+            (f"pv-production-{index}", f"{pv_name} {index}", "electricity-production"),
+            (f"battery-power-{index}", f"{battery_name} {index}", "electricity-power"),
+            (f"battery-soc-{index}", f"{battery_name} {index}", "state-of-charge"),
+            (f"evse1-power-{index}", f"{evse1_name} {index}", "electricity-power"),
+            (f"evse1-soc-{index}", f"{evse1_name} {index}", "state-of-charge"),
+            (f"evse2-power-{index}", f"{evse2_name} {index}", "electricity-power"),
+            (f"evse2-soc-{index}", f"{evse2_name} {index}", "state-of-charge"),
+            ("electricity-price", price_market_name, "electricity-price"),
+            (f"electricity-aggregate-{index}", building_name, "electricity-aggregate"),
+            (f"heating-power-{index}", f"{heating_name} {index}", "power"),
+            (f"heating-soc-{index}", f"{heating_name} {index}", "state of charge"),
+        ]
+
+        for sensor_key, asset_name, sensor_name in sensor_mappings:
+            sensor = await find_sensor_by_name_and_asset(
+                client, sensor_name, asset_name
+            )
+            if sensor:
+                sensors[sensor_key] = sensor
+            else:
+                print(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
+                return False
+    return sensors
