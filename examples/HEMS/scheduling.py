@@ -151,6 +151,48 @@ async def run_scheduling_simulation(
                 evse2_capacity=evse2_capacity,
                 simulate_live_corrections=simulate_live_corrections,
             )
+
+            # Extract scheduled power for all devices for the next 4 hours
+            step_end_time = current_time + timedelta(hours=SIMULATION_STEP_HOURS)
+
+            # Update SoC for next step based on retrieved SoC schedules
+            (
+                battery_next_current_soc,
+                evse1_next_current_soc,
+                evse2_next_current_soc,
+                heating_next_current_soc,
+            ) = await compute_site_measurements(
+                client=client,
+                sensors=sensors,
+                building_df=building_df,
+                current_time=current_time,
+                step_end_time=step_end_time,
+                schedule_result=schedule_result,
+                battery_soc_schedule=battery_soc_schedule,
+                evse1_soc_schedule=evse1_soc_schedule,
+                evse2_soc_schedule=evse2_soc_schedule,
+                heating_soc_schedule=heating_soc_schedule,
+                evse1_flex_model=evse1_flex_model,
+                evse2_flex_model=evse2_flex_model,
+                heating_flex_model=HEATING_CONFIG,
+            )
+
+            # Move to next simulation step
+            current_time = step_end_time
+            step_num += 1
+
+            print(
+                f"\n[STEP-COMPLETE] Step {step_num-1} completed. Next step starts at {current_time.strftime('%Y-%m-%d %H:%M')}"
+            )
+            print("=" * 80)
+
+            # Add small delay between steps
+            await asyncio.sleep(1)
+
+    print("Scheduling simulation completed")
+    return True
+
+
 async def compute_site_schedules(
     client: FlexMeasuresClient,
     building_asset: dict,
@@ -423,339 +465,346 @@ async def compute_site_schedules(
         heating_soc_schedule,
     )
 
-            # Initialize power schedules
-            battery_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
-            evse1_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
-            evse2_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
-            pv_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
-            heating_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
 
-            if isinstance(schedule_result, list) and len(schedule_result) >= 3:
-                # Extract schedules for each device
-                print("[SCHEDULE-DEBUG] === SCHEDULE RESULTS ===")
-                for i, schedule in enumerate(schedule_result):
-                    sensor_id = schedule["sensor"]
-                    resolution_in_hours = (
-                        pd.Timedelta(schedule["duration"])
-                        // pd.Timedelta(hours=1)
-                        / len(schedule["values"])
-                    )
-                    power_values = schedule["values"][
-                        : int(SIMULATION_STEP_HOURS / resolution_in_hours)
-                    ]
+async def compute_site_measurements(
+    client: FlexMeasuresClient,
+    sensors: dict,
+    building_df: pd.DataFrame,
+    current_time: pd.Timestamp,
+    step_end_time: pd.Timestamp,
+    schedule_result: list,
+    battery_soc_schedule: dict,
+    evse1_soc_schedule: dict,
+    evse2_soc_schedule: dict,
+    heating_soc_schedule: dict,
+    evse1_flex_model: dict,
+    evse2_flex_model: dict,
+):
 
-                    # Find which sensor this is for logging
-                    sensor_name = "Unknown"
-                    if sensor_id == sensors["battery-power"]["id"]:
-                        battery_scheduled_power = power_values
-                        sensor_name = "Battery"
-                    elif sensor_id == sensors["evse1-power"]["id"]:
-                        evse1_scheduled_power = power_values
-                        sensor_name = "EVSE-1"
-                    elif sensor_id == sensors["evse2-power"]["id"]:
-                        evse2_scheduled_power = power_values
-                        sensor_name = "EVSE-2"
-                    elif sensor_id == sensors["pv-production"]["id"]:
-                        pv_scheduled_power = [-v for v in power_values]
-                        sensor_name = "PV"
-                    elif sensor_id == sensors["heating-power"]["id"]:
-                        heating_scheduled_power = power_values
-                        sensor_name = "Heating"
+    # Initialize power schedules
+    battery_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
+    evse1_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
+    evse2_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
+    pv_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
+    heating_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
 
-                    print(
-                        f"[SCHEDULE] {sensor_name} (sensor {sensor_id}): {power_values} kW"
-                    )
+    if isinstance(schedule_result, list) and len(schedule_result) >= 3:
+        # Extract schedules for each device
+        print("[SCHEDULE-DEBUG] === SCHEDULE RESULTS ===")
+        for i, schedule in enumerate(schedule_result):
+            sensor_id = schedule["sensor"]
+            resolution_in_hours = (
+                pd.Timedelta(schedule["duration"])
+                // pd.Timedelta(hours=1)
+                / len(schedule["values"])
+            )
+            power_values = schedule["values"][
+                : int(SIMULATION_STEP_HOURS / resolution_in_hours)
+            ]
 
-                print(f"[SCHEDULE-DEBUG] Current time: {current_time}")
-                print(f"[SCHEDULE-DEBUG] Step duration: {SIMULATION_STEP_HOURS} hours")
-                print()
-
-            # Upload measurements for the simulation step
-            try:
-                # Upload battery power measurements
-                battery_power_duration = timedelta(hours=SIMULATION_STEP_HOURS)
-                await client.post_sensor_data(
-                    sensor_id=sensors["battery-power"]["id"],
-                    start=current_time,
-                    duration=battery_power_duration,
-                    prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-                    values=battery_scheduled_power,
-                    unit="kW",
-                )
-                # Upload PV power measurements
-                await client.post_sensor_data(
-                    sensor_id=sensors["pv-production"]["id"],
-                    start=current_time,
-                    duration=battery_power_duration,
-                    prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-                    values=pv_scheduled_power,
-                    unit="kW",
-                )
-
-                # Upload EVSE 1 power measurements
-                await client.post_sensor_data(
-                    sensor_id=sensors["evse1-power"]["id"],
-                    start=current_time,
-                    duration=battery_power_duration,
-                    prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-                    values=evse1_scheduled_power,
-                    unit="kW",
-                )
-
-                # Upload EVSE 2 power measurements
-                await client.post_sensor_data(
-                    sensor_id=sensors["evse2-power"]["id"],
-                    start=current_time,
-                    duration=battery_power_duration,
-                    prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-                    values=evse2_scheduled_power,
-                    unit="kW",
-                )
-
-                # Upload heating power measurements
-                await client.post_sensor_data(
-                    sensor_id=sensors["heating-power"]["id"],
-                    start=current_time,
-                    duration=battery_power_duration,
-                    prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-                    values=heating_scheduled_power,
-                    unit="kW",
-                )
-
-                # Upload building consumption for this period
-                building_data_step = building_df[
-                    (building_df["event_start"] >= current_time)
-                    & (building_df["event_start"] < step_end_time)
-                ]
-
-                if not building_data_step.empty:
-                    step_duration = pd.Timedelta(
-                        (
-                            building_data_step["event_start"].iloc[-1]
-                            - building_data_step["event_start"].iloc[0]
-                        )
-                        + pd.Timedelta(minutes=15)
-                    )
-                    await client.post_sensor_data(
-                        sensor_id=sensors["building-consumption"]["id"],
-                        start=building_data_step["event_start"].iloc[0],
-                        duration=step_duration,
-                        prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-                        values=building_data_step["event_value"].tolist(),
-                        unit="kW",
-                    )
-
-                # Upload FlexMeasures-computed SoC schedules to sensor data
-                # Extract SoC values for the current simulation step
-                battery_resolution_in_hours = (
-                    pd.Timedelta(battery_soc_schedule["duration"])
-                    // pd.Timedelta(hours=1)
-                    / (len(battery_soc_schedule["values"]) - 1)
-                )
-                evse1_resolution_in_hours = (
-                    pd.Timedelta(evse1_soc_schedule["duration"])
-                    // pd.Timedelta(hours=1)
-                    / (len(evse1_soc_schedule["values"]) - 1)
-                )
-                evse2_resolution_in_hours = (
-                    pd.Timedelta(evse2_soc_schedule["duration"])
-                    // pd.Timedelta(hours=1)
-                    / (len(evse2_soc_schedule["values"]) - 1)
-                )
-                heating_resolution_in_hours = (
-                    pd.Timedelta(heating_soc_schedule["duration"])
-                    // pd.Timedelta(hours=1)
-                    / (len(heating_soc_schedule["values"]) - 1)
-                )
-                battery_soc_values = (
-                    battery_soc_schedule["values"][
-                        : int(SIMULATION_STEP_HOURS / battery_resolution_in_hours)
-                    ]
-                    if battery_soc_schedule.get("values")
-                    else []
-                )
-                battery_next_current_soc = battery_soc_schedule["values"][
-                    int(SIMULATION_STEP_HOURS / battery_resolution_in_hours)
-                ]
-                evse1_next_current_soc = evse1_soc_schedule["values"][
-                    int(SIMULATION_STEP_HOURS / evse1_resolution_in_hours)
-                ]
-                evse2_next_current_soc = evse2_soc_schedule["values"][
-                    int(SIMULATION_STEP_HOURS / evse2_resolution_in_hours)
-                ]
-                evse1_soc_values = (
-                    evse1_soc_schedule["values"][
-                        : int(SIMULATION_STEP_HOURS / evse1_resolution_in_hours)
-                    ]
-                    if evse1_soc_schedule.get("values")
-                    else []
-                )
-                evse2_soc_values = (
-                    evse2_soc_schedule["values"][
-                        : int(SIMULATION_STEP_HOURS / evse2_resolution_in_hours)
-                    ]
-                    if evse2_soc_schedule.get("values")
-                    else []
-                )
-                heating_soc_values = (
-                    heating_soc_schedule["values"][
-                        : int(SIMULATION_STEP_HOURS / heating_resolution_in_hours)
-                    ]
-                    if heating_soc_schedule.get("values")
-                    else []
-                )
-                heating_next_current_soc = heating_soc_schedule["values"][
-                    int(SIMULATION_STEP_HOURS / heating_resolution_in_hours)
-                ]
-
-                # Upload battery SoC measurements (FlexMeasures computed)
-                if battery_soc_values:
-                    await client.post_sensor_data(
-                        sensor_id=sensors["battery-soc"]["id"],
-                        start=current_time,
-                        duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
-                        prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-                        values=battery_soc_values,
-                        unit="kWh",
-                    )
-                    print(
-                        f"[BATTERY-SOC] Uploaded {len(battery_soc_values)} FlexMeasures-computed SoC values"
-                    )
-
-                # Upload EVSE 1 SoC measurements (FlexMeasures computed)
-                if evse1_soc_values:
-                    await client.post_sensor_data(
-                        sensor_id=sensors["evse1-soc"]["id"],
-                        start=current_time,
-                        duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
-                        prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-                        values=evse1_soc_values,
-                        unit="kWh",
-                    )
-                    print(
-                        f"[EVSE1-SOC] Uploaded {len(evse1_soc_values)} FlexMeasures-computed SoC values"
-                    )
-
-                # Upload EVSE 2 SoC measurements (FlexMeasures computed)
-                if evse2_soc_values:
-                    await client.post_sensor_data(
-                        sensor_id=sensors["evse2-soc"]["id"],
-                        start=current_time,
-                        duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
-                        prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-                        values=evse2_soc_values,
-                        unit="kWh",
-                    )
-                    print(
-                        f"[EVSE2-SOC] Uploaded {len(evse2_soc_values)} FlexMeasures-computed SoC values"
-                    )
-                # Upload heating SoC measurements (FlexMeasures computed)
-                if heating_soc_values:
-                    await client.post_sensor_data(
-                        sensor_id=sensors["heating-soc"]["id"],
-                        start=current_time,
-                        duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
-                        prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-                        values=heating_soc_values,
-                        unit="kWh",
-                    )
-                    print(
-                        f"[HEATING-SOC] Uploaded {len(heating_soc_values)} FlexMeasures-computed SoC values"
-                    )
-                # Display FlexMeasures-computed SoC and power data
-                print("\n[FLEXMEASURES-RESULTS] === FLEX-MODEL COMPUTED SCHEDULES ===")
-
-                # Log power and SoC schedules for this step
-                battery_average_power = (
-                    sum(battery_scheduled_power) / len(battery_scheduled_power)
-                    if battery_scheduled_power
-                    else 0
-                )
-                evse1_average_power = (
-                    sum(evse1_scheduled_power) / len(evse1_scheduled_power)
-                    if evse1_scheduled_power
-                    else 0
-                )
-                evse2_average_power = (
-                    sum(evse2_scheduled_power) / len(evse2_scheduled_power)
-                    if evse2_scheduled_power
-                    else 0
-                )
-                heating_average_power = (
-                    sum(heating_scheduled_power) / len(heating_scheduled_power)
-                    if heating_scheduled_power
-                    else 0
-                )
-                # Show SoC progression if available
-                if battery_soc_values:
-                    battery_soc_start = battery_soc_values[0]
-                    battery_soc_end = battery_soc_values[-1]
-                    battery_soc_change = battery_soc_end - battery_soc_start
-                    print(
-                        f"[BATTERY] Power: {battery_average_power:.2f} kW | SoC: {battery_soc_start:.1f} → {battery_soc_end:.1f} kWh ({battery_soc_change:+.1f} kWh)"
-                    )
-                else:
-                    print(
-                        f"[BATTERY] Power: {battery_average_power:.2f} kW | SoC: Not available"
-                    )
-
-                if evse1_soc_values:
-                    evse1_soc_start = evse1_soc_values[0]
-                    evse1_soc_end = evse1_soc_values[-1]
-                    evse1_soc_change = evse1_soc_end - evse1_soc_start
-                    evse1_capacity = evse1_flex_model.get(
-                        "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
-                    )
-                    evse1_percent_end = (evse1_soc_end / evse1_capacity) * 100
-                    print(
-                        f"[EVSE-1] Power: {evse1_average_power:.2f} kW | SoC: {evse1_soc_start:.1f} → {evse1_soc_end:.1f} kWh ({evse1_soc_change:+.1f} kWh, {evse1_percent_end:.1f}%)"
-                    )
-                else:
-                    print(
-                        f"[EVSE-1] Power: {evse1_average_power:.2f} kW | SoC: Not available"
-                    )
-
-                if evse2_soc_values:
-                    evse2_soc_start = evse2_soc_values[0]
-                    evse2_soc_end = evse2_soc_values[-1]
-                    evse2_soc_change = evse2_soc_end - evse2_soc_start
-                    evse2_capacity = evse2_flex_model.get(
-                        "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
-                    )
-                    evse2_percent_end = (evse2_soc_end / evse2_capacity) * 100
-                    print(
-                        f"[EVSE-2] Power: {evse2_average_power:.2f} kW | SoC: {evse2_soc_start:.1f} → {evse2_soc_end:.1f} kWh ({evse2_soc_change:+.1f} kWh, {evse2_percent_end:.1f}%)"
-                    )
-                else:
-                    print(
-                        f"[EVSE-2] Power: {evse2_average_power:.2f} kW | SoC: Not available"
-                    )
-                if heating_soc_values:
-                    heating_soc_start = heating_soc_values[0]
-                    heating_soc_end = heating_soc_values[-1]
-                    heating_soc_change = heating_soc_end - heating_soc_start
-                    print(
-                        f"[HEATING] Power: {heating_average_power:.2f} kW | SoC: {heating_soc_start:.1f} → {heating_soc_end:.1f} kWh ({heating_soc_change:+.1f} kWh)"
-                    )
-                else:
-                    print(
-                        f"[HEATING] Power: {heating_average_power:.2f} kW | SoC: Not available"
-                    )
-
-            except Exception as e:
-                print(f"Failed to upload measurements: {e}")
-
-            # Move to next simulation step
-            current_time = step_end_time
-            step_num += 1
+            # Find which sensor this is for logging
+            sensor_name = "Unknown"
+            if sensor_id == sensors["battery-power"]["id"]:
+                battery_scheduled_power = power_values
+                sensor_name = "Battery"
+            elif sensor_id == sensors["evse1-power"]["id"]:
+                evse1_scheduled_power = power_values
+                sensor_name = "EVSE-1"
+            elif sensor_id == sensors["evse2-power"]["id"]:
+                evse2_scheduled_power = power_values
+                sensor_name = "EVSE-2"
+            elif sensor_id == sensors["pv-production"]["id"]:
+                pv_scheduled_power = [-v for v in power_values]
+                sensor_name = "PV"
+            elif sensor_id == sensors["heating-power"]["id"]:
+                heating_scheduled_power = power_values
+                sensor_name = "Heating"
 
             print(
-                f"\n[STEP-COMPLETE] Step {step_num-1} completed. Next step starts at {current_time.strftime('%Y-%m-%d %H:%M')}"
+                f"[SCHEDULE] {sensor_name} (sensor {sensor_id}): {power_values} kW"
             )
-            print("=" * 80)
 
-            # Add small delay between steps
-            await asyncio.sleep(1)
+        print(f"[SCHEDULE-DEBUG] Current time: {current_time}")
+        print(f"[SCHEDULE-DEBUG] Step duration: {SIMULATION_STEP_HOURS} hours")
+        print()
 
-    print("Scheduling simulation completed")
-    return True
+    # Upload measurements for the simulation step
+    try:
+        # Upload battery power measurements
+        battery_power_duration = timedelta(hours=SIMULATION_STEP_HOURS)
+        await client.post_sensor_data(
+            sensor_id=sensors["battery-power"]["id"],
+            start=current_time,
+            duration=battery_power_duration,
+            prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+            values=battery_scheduled_power,
+            unit="kW",
+        )
+        # Upload PV power measurements
+        await client.post_sensor_data(
+            sensor_id=sensors["pv-production"]["id"],
+            start=current_time,
+            duration=battery_power_duration,
+            prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+            values=pv_scheduled_power,
+            unit="kW",
+        )
+
+        # Upload EVSE 1 power measurements
+        await client.post_sensor_data(
+            sensor_id=sensors["evse1-power"]["id"],
+            start=current_time,
+            duration=battery_power_duration,
+            prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+            values=evse1_scheduled_power,
+            unit="kW",
+        )
+
+        # Upload EVSE 2 power measurements
+        await client.post_sensor_data(
+            sensor_id=sensors["evse2-power"]["id"],
+            start=current_time,
+            duration=battery_power_duration,
+            prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+            values=evse2_scheduled_power,
+            unit="kW",
+        )
+
+        # Upload heating power measurements
+        await client.post_sensor_data(
+            sensor_id=sensors["heating-power"]["id"],
+            start=current_time,
+            duration=battery_power_duration,
+            prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+            values=heating_scheduled_power,
+            unit="kW",
+        )
+
+        # Upload building consumption for this period
+        building_data_step = building_df[
+            (building_df["event_start"] >= current_time)
+            & (building_df["event_start"] < step_end_time)
+        ]
+
+        if not building_data_step.empty:
+            step_duration = pd.Timedelta(
+                (
+                    building_data_step["event_start"].iloc[-1]
+                    - building_data_step["event_start"].iloc[0]
+                )
+                + pd.Timedelta(minutes=15)
+            )
+            await client.post_sensor_data(
+                sensor_id=sensors["building-consumption"]["id"],
+                start=building_data_step["event_start"].iloc[0],
+                duration=step_duration,
+                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+                values=building_data_step["event_value"].tolist(),
+                unit="kW",
+            )
+
+        # Upload FlexMeasures-computed SoC schedules to sensor data
+        # Extract SoC values for the current simulation step
+        battery_resolution_in_hours = (
+            pd.Timedelta(battery_soc_schedule["duration"])
+            // pd.Timedelta(hours=1)
+            / (len(battery_soc_schedule["values"]) - 1)
+        )
+        evse1_resolution_in_hours = (
+            pd.Timedelta(evse1_soc_schedule["duration"])
+            // pd.Timedelta(hours=1)
+            / (len(evse1_soc_schedule["values"]) - 1)
+        )
+        evse2_resolution_in_hours = (
+            pd.Timedelta(evse2_soc_schedule["duration"])
+            // pd.Timedelta(hours=1)
+            / (len(evse2_soc_schedule["values"]) - 1)
+        )
+        heating_resolution_in_hours = (
+            pd.Timedelta(heating_soc_schedule["duration"])
+            // pd.Timedelta(hours=1)
+            / (len(heating_soc_schedule["values"]) - 1)
+        )
+        battery_soc_values = (
+            battery_soc_schedule["values"][
+                : int(SIMULATION_STEP_HOURS / battery_resolution_in_hours)
+            ]
+            if battery_soc_schedule.get("values")
+            else []
+        )
+        battery_next_current_soc = battery_soc_schedule["values"][
+            int(SIMULATION_STEP_HOURS / battery_resolution_in_hours)
+        ]
+        evse1_next_current_soc = evse1_soc_schedule["values"][
+            int(SIMULATION_STEP_HOURS / evse1_resolution_in_hours)
+        ]
+        evse2_next_current_soc = evse2_soc_schedule["values"][
+            int(SIMULATION_STEP_HOURS / evse2_resolution_in_hours)
+        ]
+        evse1_soc_values = (
+            evse1_soc_schedule["values"][
+                : int(SIMULATION_STEP_HOURS / evse1_resolution_in_hours)
+            ]
+            if evse1_soc_schedule.get("values")
+            else []
+        )
+        evse2_soc_values = (
+            evse2_soc_schedule["values"][
+                : int(SIMULATION_STEP_HOURS / evse2_resolution_in_hours)
+            ]
+            if evse2_soc_schedule.get("values")
+            else []
+        )
+        heating_soc_values = (
+            heating_soc_schedule["values"][
+                : int(SIMULATION_STEP_HOURS / heating_resolution_in_hours)
+            ]
+            if heating_soc_schedule.get("values")
+            else []
+        )
+        heating_next_current_soc = heating_soc_schedule["values"][
+            int(SIMULATION_STEP_HOURS / heating_resolution_in_hours)
+        ]
+
+        # Upload battery SoC measurements (FlexMeasures computed)
+        if battery_soc_values:
+            await client.post_sensor_data(
+                sensor_id=sensors["battery-soc"]["id"],
+                start=current_time,
+                duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
+                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+                values=battery_soc_values,
+                unit="kWh",
+            )
+            print(
+                f"[BATTERY-SOC] Uploaded {len(battery_soc_values)} FlexMeasures-computed SoC values"
+            )
+
+        # Upload EVSE 1 SoC measurements (FlexMeasures computed)
+        if evse1_soc_values:
+            await client.post_sensor_data(
+                sensor_id=sensors["evse1-soc"]["id"],
+                start=current_time,
+                duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
+                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+                values=evse1_soc_values,
+                unit="kWh",
+            )
+            print(
+                f"[EVSE1-SOC] Uploaded {len(evse1_soc_values)} FlexMeasures-computed SoC values"
+            )
+
+        # Upload EVSE 2 SoC measurements (FlexMeasures computed)
+        if evse2_soc_values:
+            await client.post_sensor_data(
+                sensor_id=sensors["evse2-soc"]["id"],
+                start=current_time,
+                duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
+                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+                values=evse2_soc_values,
+                unit="kWh",
+            )
+            print(
+                f"[EVSE2-SOC] Uploaded {len(evse2_soc_values)} FlexMeasures-computed SoC values"
+            )
+        # Upload heating SoC measurements (FlexMeasures computed)
+        if heating_soc_values:
+            await client.post_sensor_data(
+                sensor_id=sensors["heating-soc"]["id"],
+                start=current_time,
+                duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
+                prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
+                values=heating_soc_values,
+                unit="kWh",
+            )
+            print(
+                f"[HEATING-SOC] Uploaded {len(heating_soc_values)} FlexMeasures-computed SoC values"
+            )
+        # Display FlexMeasures-computed SoC and power data
+        print("\n[FLEXMEASURES-RESULTS] === FLEX-MODEL COMPUTED SCHEDULES ===")
+
+        # Log power and SoC schedules for this step
+        battery_average_power = (
+            sum(battery_scheduled_power) / len(battery_scheduled_power)
+            if battery_scheduled_power
+            else 0
+        )
+        evse1_average_power = (
+            sum(evse1_scheduled_power) / len(evse1_scheduled_power)
+            if evse1_scheduled_power
+            else 0
+        )
+        evse2_average_power = (
+            sum(evse2_scheduled_power) / len(evse2_scheduled_power)
+            if evse2_scheduled_power
+            else 0
+        )
+        heating_average_power = (
+            sum(heating_scheduled_power) / len(heating_scheduled_power)
+            if heating_scheduled_power
+            else 0
+        )
+        # Show SoC progression if available
+        if battery_soc_values:
+            battery_soc_start = battery_soc_values[0]
+            battery_soc_end = battery_soc_values[-1]
+            battery_soc_change = battery_soc_end - battery_soc_start
+            print(
+                f"[BATTERY] Power: {battery_average_power:.2f} kW | SoC: {battery_soc_start:.1f} → {battery_soc_end:.1f} kWh ({battery_soc_change:+.1f} kWh)"
+            )
+        else:
+            print(
+                f"[BATTERY] Power: {battery_average_power:.2f} kW | SoC: Not available"
+            )
+
+        if evse1_soc_values:
+            evse1_soc_start = evse1_soc_values[0]
+            evse1_soc_end = evse1_soc_values[-1]
+            evse1_soc_change = evse1_soc_end - evse1_soc_start
+            evse1_capacity = evse1_flex_model.get(
+                "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
+            )
+            evse1_percent_end = (evse1_soc_end / evse1_capacity) * 100
+            print(
+                f"[EVSE-1] Power: {evse1_average_power:.2f} kW | SoC: {evse1_soc_start:.1f} → {evse1_soc_end:.1f} kWh ({evse1_soc_change:+.1f} kWh, {evse1_percent_end:.1f}%)"
+            )
+        else:
+            print(
+                f"[EVSE-1] Power: {evse1_average_power:.2f} kW | SoC: Not available"
+            )
+
+        if evse2_soc_values:
+            evse2_soc_start = evse2_soc_values[0]
+            evse2_soc_end = evse2_soc_values[-1]
+            evse2_soc_change = evse2_soc_end - evse2_soc_start
+            evse2_capacity = evse2_flex_model.get(
+                "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
+            )
+            evse2_percent_end = (evse2_soc_end / evse2_capacity) * 100
+            print(
+                f"[EVSE-2] Power: {evse2_average_power:.2f} kW | SoC: {evse2_soc_start:.1f} → {evse2_soc_end:.1f} kWh ({evse2_soc_change:+.1f} kWh, {evse2_percent_end:.1f}%)"
+            )
+        else:
+            print(
+                f"[EVSE-2] Power: {evse2_average_power:.2f} kW | SoC: Not available"
+            )
+        if heating_soc_values:
+            heating_soc_start = heating_soc_values[0]
+            heating_soc_end = heating_soc_values[-1]
+            heating_soc_change = heating_soc_end - heating_soc_start
+            print(
+                f"[HEATING] Power: {heating_average_power:.2f} kW | SoC: {heating_soc_start:.1f} → {heating_soc_end:.1f} kWh ({heating_soc_change:+.1f} kWh)"
+            )
+        else:
+            print(
+                f"[HEATING] Power: {heating_average_power:.2f} kW | SoC: Not available"
+            )
+
+    except Exception as e:
+        print(f"Failed to upload measurements: {e}")
+    return (
+        battery_next_current_soc,
+        evse1_next_current_soc,
+        evse2_next_current_soc,
+        heating_next_current_soc,
+    )
