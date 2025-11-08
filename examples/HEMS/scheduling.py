@@ -174,7 +174,6 @@ async def run_scheduling_simulation(
                 heating_soc_schedule=heating_soc_schedule,
                 evse1_flex_model=evse1_flex_model,
                 evse2_flex_model=evse2_flex_model,
-                heating_flex_model=HEATING_CONFIG,
             )
 
             # Move to next simulation step
