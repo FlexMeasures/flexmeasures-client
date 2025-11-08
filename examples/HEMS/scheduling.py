@@ -127,254 +127,301 @@ async def run_scheduling_simulation(
         heating_next_current_soc = None
 
         while current_time < end_time:
-            print(f"Simulation step {step_num}: {current_time}")
 
-            # Create schedule for the building with battery and EVs
-            try:
-                schedule_start = current_time
-                schedule_duration = timedelta(hours=FORECAST_HORIZON_HOURS)
+            (
+                schedule_result,
+                battery_soc_schedule,
+                evse1_soc_schedule,
+                evse2_soc_schedule,
+                heating_soc_schedule,
+            ) = await compute_site_schedules(
+                client=client,
+                building_asset=building_asset,
+                sensors=sensors,
+                step_num=step_num,
+                current_time=current_time,
+                battery_soc_at_start=battery_soc_at_start,
+                evse1_flex_model=evse1_flex_model,
+                evse2_flex_model=evse2_flex_model,
+                battery_next_current_soc=battery_next_current_soc,
+                evse1_next_current_soc=evse1_next_current_soc,
+                evse2_next_current_soc=evse2_next_current_soc,
+                heating_next_current_soc=heating_next_current_soc,
+                evse1_capacity=evse1_capacity,
+                evse2_capacity=evse2_capacity,
+                simulate_live_corrections=simulate_live_corrections,
+            )
+async def compute_site_schedules(
+    client: FlexMeasuresClient,
+    building_asset: dict,
+    sensors: dict,
+    step_num: int,
+    current_time: pd.Timestamp,
+    battery_soc_at_start: float,
+    evse1_flex_model: dict,
+    evse2_flex_model: dict,
+    battery_next_current_soc: float = None,
+    evse1_next_current_soc: float = None,
+    evse2_next_current_soc: float = None,
+    heating_next_current_soc: float = None,
+    evse1_capacity: float = None,
+    evse2_capacity: float = None,
+    simulate_live_corrections: bool = True,
+):
 
-                # Create flex model for battery
-                if battery_next_current_soc is None:
-                    battery_current_soc = (
-                        battery_soc_at_start  # Use initial SoC for first step
-                    )
-                else:
-                    battery_current_soc = battery_next_current_soc
-                # Create dynamic flex model for battery (Current SoC updated each step)
-                battery_scheduling_dynamic_flex_model = (
-                    create_dynamic_storage_flex_model(
-                        current_soc=battery_current_soc,
-                    )
+    print(f"Simulation step {step_num}: {current_time}")
+
+    # Create schedule for the building with battery and EVs
+    try:
+        schedule_start = current_time
+        schedule_duration = timedelta(hours=FORECAST_HORIZON_HOURS)
+
+        # Create flex model for battery
+        if battery_next_current_soc is None:
+            battery_current_soc = (
+                battery_soc_at_start  # Use initial SoC for first step
+            )
+        else:
+            battery_current_soc = battery_next_current_soc
+        # Create dynamic flex model for battery (Current SoC updated each step)
+        battery_scheduling_dynamic_flex_model = (
+            create_dynamic_storage_flex_model(
+                current_soc=battery_current_soc,
+            )
+        )
+
+        # Calculate dynamic EV constraints for current day
+        current_time_ts = pd.Timestamp(current_time)
+
+        print("\n[EVSE-SCHEDULING] === EVSE SCHEDULING CALCULATIONS ===")
+        print(
+            f"Simulation step {step_num} at {current_time.strftime('%Y-%m-%d %H:%M')}"
+        )
+
+        # Simulate random trips for each EVSE
+        evse1_has_trip = simulate_random_trip()
+        evse2_has_trip = simulate_random_trip()
+
+        print("\n[RANDOM-TRIPS] Trip simulation results:")
+        print(f"  EVSE 1: {'Trip scheduled' if evse1_has_trip else 'No trip'}")
+        print(f"  EVSE 2: {'Trip scheduled' if evse2_has_trip else 'No trip'}")
+
+        print("\n[EVSE-1] Constraints Calculation:")
+        evse1_constraints = calculate_ev_soc_targets_and_constraints(
+            current_time_ts, evse1_capacity, evse1_has_trip
+        )
+
+        print("[EVSE-2] Constraints Calculation:")
+        evse2_constraints = calculate_ev_soc_targets_and_constraints(
+            current_time_ts, evse2_capacity, evse2_has_trip
+        )
+        if not evse1_constraints.get("unavailable"):
+
+            # Create flex models for EVSE 1
+            if evse1_next_current_soc is None:
+                # Use initial SoC for first step
+                evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)
+            else:
+                evse1_current_soc = evse1_next_current_soc
+            # Create dynamic flex model for EVSE 1 (Current SoC updated each step)
+            evse1_scheduling_dynamic_flex_model = (
+                create_dynamic_storage_flex_model(
+                    current_soc=evse1_current_soc,
+                    constraints=evse1_constraints,
                 )
+            )
 
-                # Calculate dynamic EV constraints for current day
-                current_time_ts = pd.Timestamp(current_time)
+        if not evse2_constraints.get("unavailable"):
 
-                print("\n[EVSE-SCHEDULING] === EVSE SCHEDULING CALCULATIONS ===")
-                print(
-                    f"Simulation step {step_num} at {current_time.strftime('%Y-%m-%d %H:%M')}"
+            # Create flex models for EVSE 2 (similar pattern, could be different car)
+            if evse2_next_current_soc is None:
+                # Use initial SoC for first step
+                evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
+            else:
+                evse2_current_soc = evse2_next_current_soc
+            # Create dynamic flex model for EVSE 2 (Current SoC updated each step)
+            evse2_scheduling_dynamic_flex_model = (
+                create_dynamic_storage_flex_model(
+                    current_soc=evse2_current_soc,
+                    constraints=evse2_constraints,
                 )
+            )
 
-                # Simulate random trips for each EVSE
-                evse1_has_trip = simulate_random_trip()
-                evse2_has_trip = simulate_random_trip()
+        if heating_next_current_soc is None:
+            # Use initial SoC for first step
+            heating_current_soc = (
+                HEATING_CONFIG["soc_at_start_percent"]
+                * HEATING_CONFIG["capacity_kwh"]
+            )
+        else:
+            heating_current_soc = heating_next_current_soc
+        # Create dynamic flex model for heating (Current SoC updated each step)
+        heating_scheduling_dynamic_flex_model = (
+            create_dynamic_storage_flex_model(
+                current_soc=heating_current_soc,
+            )
+        )
 
-                print("\n[RANDOM-TRIPS] Trip simulation results:")
-                print(f"  EVSE 1: {'Trip scheduled' if evse1_has_trip else 'No trip'}")
-                print(f"  EVSE 2: {'Trip scheduled' if evse2_has_trip else 'No trip'}")
+        # Start with the battery and PV flex models
+        curtailable_pv_flex_model = {
+            "power-capacity": "12 kW",
+            "consumption-capacity": "0 kW",
+            "production-capacity": {"sensor": sensors["pv-production"]["id"]},
+        }
+        final_flex_models = [
+            {
+                "sensor": sensors["battery-power"]["id"],
+                **battery_scheduling_dynamic_flex_model,
+            },
+            {
+                "sensor": sensors["pv-production"]["id"],
+                **curtailable_pv_flex_model,
+            },
+            {
+                "sensor": sensors["heating-power"]["id"],
+                **heating_scheduling_dynamic_flex_model,
+            },
+        ]
 
-                print("\n[EVSE-1] Constraints Calculation:")
-                evse1_constraints = calculate_ev_soc_targets_and_constraints(
-                    current_time_ts, evse1_capacity, evse1_has_trip
-                )
-
-                print("[EVSE-2] Constraints Calculation:")
-                evse2_constraints = calculate_ev_soc_targets_and_constraints(
-                    current_time_ts, evse2_capacity, evse2_has_trip
-                )
-                if not evse1_constraints.get("unavailable"):
-
-                    # Create flex models for EVSE 1
-                    if evse1_next_current_soc is None:
-                        # Use initial SoC for first step
-                        evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)
-                    else:
-                        evse1_current_soc = evse1_next_current_soc
-                    # Create dynamic flex model for EVSE 1 (Current SoC updated each step)
-                    evse1_scheduling_dynamic_flex_model = (
-                        create_dynamic_storage_flex_model(
-                            current_soc=evse1_current_soc,
-                            constraints=evse1_constraints,
-                        )
-                    )
-
-                if not evse2_constraints.get("unavailable"):
-
-                    # Create flex models for EVSE 2 (similar pattern, could be different car)
-                    if evse2_next_current_soc is None:
-                        # Use initial SoC for first step
-                        evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
-                    else:
-                        evse2_current_soc = evse2_next_current_soc
-                    # Create dynamic flex model for EVSE 2 (Current SoC updated each step)
-                    evse2_scheduling_dynamic_flex_model = (
-                        create_dynamic_storage_flex_model(
-                            current_soc=evse2_current_soc,
-                            constraints=evse2_constraints,
-                        )
-                    )
-
-                if heating_next_current_soc is None:
-                    # Use initial SoC for first step
-                    heating_current_soc = (
-                        HEATING_CONFIG["soc_at_start_percent"]
-                        * HEATING_CONFIG["capacity_kwh"]
-                    )
-                else:
-                    heating_current_soc = heating_next_current_soc
-                # Create dynamic flex model for heating (Current SoC updated each step)
-                heating_scheduling_dynamic_flex_model = (
-                    create_dynamic_storage_flex_model(
-                        current_soc=heating_current_soc,
-                    )
-                )
-
-                # Start with the battery and PV flex models
-                curtailable_pv_flex_model = {
-                    "power-capacity": "12 kW",
-                    "consumption-capacity": "0 kW",
-                    "production-capacity": {"sensor": sensors["pv-production"]["id"]},
+        # Conditionally add EVSE flex models if they are not on a trip
+        if not evse1_constraints.get("unavailable"):
+            final_flex_models.append(
+                {
+                    "sensor": sensors["evse1-power"]["id"],
+                    **evse1_scheduling_dynamic_flex_model,
                 }
-                final_flex_models = [
-                    {
-                        "sensor": sensors["battery-power"]["id"],
-                        **battery_scheduling_dynamic_flex_model,
-                    },
-                    {
-                        "sensor": sensors["pv-production"]["id"],
-                        **curtailable_pv_flex_model,
-                    },
-                    {
-                        "sensor": sensors["heating-power"]["id"],
-                        **heating_scheduling_dynamic_flex_model,
-                    },
-                ]
+            )
+        else:
+            print("EVSE 1 is on a trip, skipping scheduling.")
 
-                # Conditionally add EVSE flex models if they are not on a trip
-                if not evse1_constraints.get("unavailable"):
-                    final_flex_models.append(
-                        {
-                            "sensor": sensors["evse1-power"]["id"],
-                            **evse1_scheduling_dynamic_flex_model,
-                        }
-                    )
-                else:
-                    print("EVSE 1 is on a trip, skipping scheduling.")
+        if not evse2_constraints.get("unavailable"):
+            final_flex_models.append(
+                {
+                    "sensor": sensors["evse2-power"]["id"],
+                    **evse2_scheduling_dynamic_flex_model,
+                }
+            )
+        else:
+            print("EVSE 2 is on a trip, skipping scheduling.")
 
-                if not evse2_constraints.get("unavailable"):
-                    final_flex_models.append(
-                        {
-                            "sensor": sensors["evse2-power"]["id"],
-                            **evse2_scheduling_dynamic_flex_model,
-                        }
-                    )
-                else:
-                    print("EVSE 2 is on a trip, skipping scheduling.")
+        print("[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
+        for i, model in enumerate(final_flex_models):
+            device_name = ["Battery", "PV", "Heating", "EVSE-1", "EVSE-2"][i]
+            print(f"[FLEX-MODEL] {device_name}: {model}")
+        print()
 
-                print("[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
-                for i, model in enumerate(final_flex_models):
-                    device_name = ["Battery", "PV", "Heating", "EVSE-1", "EVSE-2"][i]
-                    print(f"[FLEX-MODEL] {device_name}: {model}")
-                print()
+        # Trigger scheduling and get job UUID to retrieve both power and SoC schedules
+        job_uuid = await client.trigger_schedule(
+            start=schedule_start,
+            duration=schedule_duration,
+            flex_model=final_flex_models,
+            asset_id=building_asset["id"],
+            prior=(
+                current_time + timedelta(hours=SIMULATION_STEP_HOURS)
+                if simulate_live_corrections
+                else current_time
+            ),
+        )
 
-                # Trigger scheduling and get job UUID to retrieve both power and SoC schedules
-                job_uuid = await client.trigger_schedule(
-                    start=schedule_start,
-                    duration=schedule_duration,
-                    flex_model=final_flex_models,
-                    asset_id=building_asset["id"],
-                    prior=(
-                        current_time + timedelta(hours=SIMULATION_STEP_HOURS)
-                        if simulate_live_corrections
-                        else current_time
-                    ),
-                )
+        print(f"Multi-device scheduling job triggered with UUID: {job_uuid}")
 
-                print(f"Multi-device scheduling job triggered with UUID: {job_uuid}")
+        # Get power schedules for each device
+        schedule_result = []
+        for flex_model in final_flex_models:
+            sensor_id = flex_model["sensor"]
+            power_schedule = await client.get_schedule(
+                sensor_id=sensor_id,
+                schedule_id=job_uuid,
+                duration=schedule_duration,
+            )
+            power_schedule["sensor"] = sensor_id
+            schedule_result.append(power_schedule)
 
-                # Get power schedules for each device
-                schedule_result = []
-                for flex_model in final_flex_models:
-                    sensor_id = flex_model["sensor"]
-                    power_schedule = await client.get_schedule(
-                        sensor_id=sensor_id,
-                        schedule_id=job_uuid,
-                        duration=schedule_duration,
-                    )
-                    power_schedule["sensor"] = sensor_id
-                    schedule_result.append(power_schedule)
+        # Get SoC schedules computed by FlexMeasures using the same job UUID
+        # This retrieves the SoC values that FlexMeasures computed based on the flex-model constraints
+        try:
+            battery_soc_schedule = await client.get_schedule(
+                sensor_id=sensors["battery-soc"]["id"],
+                schedule_id=job_uuid,
+                duration=schedule_duration,
+            )
+        except Exception as e:
+            print(f"Warning: Could not retrieve battery SoC schedule: {e}")
+            battery_soc_schedule = {"values": [], "duration": "PT0H"}
 
-                # Get SoC schedules computed by FlexMeasures using the same job UUID
-                # This retrieves the SoC values that FlexMeasures computed based on the flex-model constraints
-                try:
-                    battery_soc_schedule = await client.get_schedule(
-                        sensor_id=sensors["battery-soc"]["id"],
-                        schedule_id=job_uuid,
-                        duration=schedule_duration,
-                    )
-                except Exception as e:
-                    print(f"Warning: Could not retrieve battery SoC schedule: {e}")
-                    battery_soc_schedule = {"values": [], "duration": "PT0H"}
+        try:
+            evse1_soc_schedule = await client.get_schedule(
+                sensor_id=sensors["evse1-soc"]["id"],
+                schedule_id=job_uuid,
+                duration=schedule_duration,
+            )
+        except Exception as e:
+            print(f"Warning: Could not retrieve EVSE1 SoC schedule: {e}")
+            evse1_soc_schedule = {"values": [], "duration": "PT0H"}
 
-                try:
-                    evse1_soc_schedule = await client.get_schedule(
-                        sensor_id=sensors["evse1-soc"]["id"],
-                        schedule_id=job_uuid,
-                        duration=schedule_duration,
-                    )
-                except Exception as e:
-                    print(f"Warning: Could not retrieve EVSE1 SoC schedule: {e}")
-                    evse1_soc_schedule = {"values": [], "duration": "PT0H"}
+        try:
+            evse2_soc_schedule = await client.get_schedule(
+                sensor_id=sensors["evse2-soc"]["id"],
+                schedule_id=job_uuid,
+                duration=schedule_duration,
+            )
+        except Exception as e:
+            print(f"Warning: Could not retrieve EVSE2 SoC schedule: {e}")
+            evse2_soc_schedule = {"values": [], "duration": "PT0H"}
 
-                try:
-                    evse2_soc_schedule = await client.get_schedule(
-                        sensor_id=sensors["evse2-soc"]["id"],
-                        schedule_id=job_uuid,
-                        duration=schedule_duration,
-                    )
-                except Exception as e:
-                    print(f"Warning: Could not retrieve EVSE2 SoC schedule: {e}")
-                    evse2_soc_schedule = {"values": [], "duration": "PT0H"}
+        try:
+            heating_soc_schedule = await client.get_schedule(
+                sensor_id=sensors["heating-soc"]["id"],
+                schedule_id=job_uuid,
+                duration=schedule_duration,
+            )
+        except Exception as e:
+            print(f"Warning: Could not retrieve heating SoC schedule: {e}")
+            heating_soc_schedule = {"values": [], "duration": "PT0H"}
 
-                try:
-                    heating_soc_schedule = await client.get_schedule(
-                        sensor_id=sensors["heating-soc"]["id"],
-                        schedule_id=job_uuid,
-                        duration=schedule_duration,
-                    )
-                except Exception as e:
-                    print(f"Warning: Could not retrieve heating SoC schedule: {e}")
-                    heating_soc_schedule = {"values": [], "duration": "PT0H"}
+        print("Multi-device power and SoC schedules retrieved successfully")
 
-                print("Multi-device power and SoC schedules retrieved successfully")
+    except Exception as e:
+        error_msg = str(e)
+        print(f"Scheduling failed: {error_msg}")
 
-            except Exception as e:
-                error_msg = str(e)
-                print(f"Scheduling failed: {error_msg}")
+        # Continue simulation with zero power for all devices
+        schedule_result = [
+            {
+                "values": [0.0] * SIMULATION_STEP_HOURS,
+                "sensor": sensors["battery-power"]["id"],
+                "duration": f"PT{SIMULATION_STEP_HOURS}H",
+            },
+            {
+                "values": [0.0] * SIMULATION_STEP_HOURS,
+                "sensor": sensors["evse1-power"]["id"],
+                "duration": f"PT{SIMULATION_STEP_HOURS}H",
+            },
+            {
+                "values": [0.0] * SIMULATION_STEP_HOURS,
+                "sensor": sensors["evse2-power"]["id"],
+                "duration": f"PT{SIMULATION_STEP_HOURS}H",
+            },
+            {
+                "values": [0.0] * SIMULATION_STEP_HOURS,
+                "sensor": sensors["heating-soc"]["id"],
+                "duration": f"PT{SIMULATION_STEP_HOURS}H",
+            },
+        ]
 
-                # Continue simulation with zero power for all devices
-                schedule_result = [
-                    {
-                        "values": [0.0] * SIMULATION_STEP_HOURS,
-                        "sensor": sensors["battery-power"]["id"],
-                        "duration": f"PT{SIMULATION_STEP_HOURS}H",
-                    },
-                    {
-                        "values": [0.0] * SIMULATION_STEP_HOURS,
-                        "sensor": sensors["evse1-power"]["id"],
-                        "duration": f"PT{SIMULATION_STEP_HOURS}H",
-                    },
-                    {
-                        "values": [0.0] * SIMULATION_STEP_HOURS,
-                        "sensor": sensors["evse2-power"]["id"],
-                        "duration": f"PT{SIMULATION_STEP_HOURS}H",
-                    },
-                    {
-                        "values": [0.0] * SIMULATION_STEP_HOURS,
-                        "sensor": sensors["heating-soc"]["id"],
-                        "duration": f"PT{SIMULATION_STEP_HOURS}H",
-                    },
-                ]
+        # Set empty SoC schedules for error case
+        battery_soc_schedule = {"values": [], "duration": "PT0H"}
+        evse1_soc_schedule = {"values": [], "duration": "PT0H"}
+        evse2_soc_schedule = {"values": [], "duration": "PT0H"}
+        heating_soc_schedule = {"values": [], "duration": "PT0H"}
 
-                # Set empty SoC schedules for error case
-                battery_soc_schedule = {"values": [], "duration": "PT0H"}
-                evse1_soc_schedule = {"values": [], "duration": "PT0H"}
-                evse2_soc_schedule = {"values": [], "duration": "PT0H"}
-                heating_soc_schedule = {"values": [], "duration": "PT0H"}
-
-            # Extract scheduled power for all devices for the next 4 hours
-            step_end_time = current_time + timedelta(hours=SIMULATION_STEP_HOURS)
+    return (
+        schedule_result,
+        battery_soc_schedule,
+        evse1_soc_schedule,
+        evse2_soc_schedule,
+        heating_soc_schedule,
+    )
 
             # Initialize power schedules
             battery_scheduled_power = [0.0] * SIMULATION_STEP_HOURS
