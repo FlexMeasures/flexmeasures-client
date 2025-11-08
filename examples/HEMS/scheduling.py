@@ -39,94 +39,72 @@ async def run_scheduling_simulation(
     # Find required assets and sensors
     sensors = await map_site_sensors(client)
 
-    # Find building, battery, and EVSE assets
-    assets_by_name = {a["name"]: a for a in assets}
-    for index, building_name in enumerate(building_names, start=1):
-        building_asset = assets_by_name.get(building_name)
-        battery_asset = assets_by_name.get(f"{battery_name} {index}")
-        evse1_asset = assets_by_name.get(f"{evse1_name} {index}")
-        evse2_asset = assets_by_name.get(f"{evse2_name} {index}")
-        heating_asset = assets_by_name.get(f"{heating_name} {index}")
+    # Load complete datasets for simulation
+    building_df = load_and_align_csv_data(
+        "data/building_data.csv", TUTORIAL_START_DATE, 15
+    )
 
-        if not building_asset:
-            print("Could not find building asset for scheduling")
-            return False
+    # Initialize simulation
+    current_time = pd.to_datetime(SCHEDULING_START)
+    end_time = pd.to_datetime(SCHEDULING_END)
+    step_num = 1
+    battery_next_current_soc = None
+    evse1_next_current_soc = None
+    evse2_next_current_soc = None
+    heating_next_current_soc = None
 
-        if not battery_asset:
-            print("Could not find battery asset for scheduling")
-            return False
+    # Dictionary to hold next current SoC for each building's devices
+    next_current_soc_dict = {
+        building_names[index]: {
+            "battery": battery_next_current_soc,
+            "evse1": evse1_next_current_soc,
+            "evse2": evse2_next_current_soc,
+            "heating": heating_next_current_soc,
+        }
+        for index in range(len(building_names))
+    }
 
-        if not evse1_asset or not evse2_asset:
-            print("Could not find EVSE assets for scheduling")
-            return False
-        if not heating_asset:
-            print("Could not find heating asset for scheduling")
-            return False
+    while current_time < end_time:
 
-        # Find sensors (including EVSE sensors) - using unique keys for duplicate sensor names
-        sensor_mappings = [
-            ("building-consumption", building_name, "electricity-consumption"),
-            ("pv-production", f"{pv_name} {index}", "electricity-production"),
-            ("battery-power", f"{battery_name} {index}", "electricity-power"),
-            ("battery-soc", f"{battery_name} {index}", "state-of-charge"),
-            ("evse1-power", f"{evse1_name} {index}", "electricity-power"),
-            ("evse1-soc", f"{evse1_name} {index}", "state-of-charge"),
-            ("evse2-power", f"{evse2_name} {index}", "electricity-power"),
-            ("evse2-soc", f"{evse2_name} {index}", "state-of-charge"),
-            ("electricity-price", price_market_name, "electricity-price"),
-            ("electricity-aggregate", building_name, "electricity-aggregate"),
-            ("heating-power", f"{heating_name} {index}", "power"),
-            ("heating-soc", f"{heating_name} {index}", "state of charge"),
-        ]
+        # prepare for next step
+        step_end_time = current_time + timedelta(hours=SIMULATION_STEP_HOURS)
 
-        sensors = {}
-        for sensor_key, asset_name, sensor_name in sensor_mappings:
-            sensor = await find_sensor_by_name_and_asset(
-                client, sensor_name, asset_name
+        # For each building in the community site
+        for index, building_name in enumerate(building_names, start=1):
+
+            (
+                building_asset,
+                battery_asset,
+                evse1_asset,
+                evse2_asset,
+                heating_asset,
+            ) = await get_building_assets(
+                client=client, building_name=building_name, index=index
             )
-            if sensor:
-                sensors[sensor_key] = sensor
-            else:
-                print(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
+
+            # Get battery soc settings
+            battery_flex_model = json.loads(battery_asset["attributes"]).get(
+                "flex_model"
+            )
+            if not battery_flex_model:
+                print("Battery asset missing flex_model settings")
                 return False
 
-        # Load complete datasets for simulation
-        building_df = load_and_align_csv_data(
-            "data/building_data.csv", TUTORIAL_START_DATE, 15
-        )
+            battery_soc_at_start = battery_flex_model.get("soc_at_start")
 
-        # Get battery soc settings
-        battery_flex_model = json.loads(battery_asset["attributes"]).get("flex_model")
-        if not battery_flex_model:
-            print("Battery asset missing flex_model settings")
-            return False
+            # Get EVSE settings
+            evse1_flex_model = json.loads(evse1_asset["attributes"]).get("flex_model")
+            evse2_flex_model = json.loads(evse2_asset["attributes"]).get("flex_model")
+            if not evse1_flex_model or not evse2_flex_model:
+                print("EVSE assets missing flex_model settings")
+                return False
 
-        battery_soc_at_start = battery_flex_model.get("soc_at_start")
-
-        # Get EVSE settings
-        evse1_flex_model = json.loads(evse1_asset["attributes"]).get("flex_model")
-        evse2_flex_model = json.loads(evse2_asset["attributes"]).get("flex_model")
-        if not evse1_flex_model or not evse2_flex_model:
-            print("EVSE assets missing flex_model settings")
-            return False
-
-        evse1_capacity = evse1_flex_model.get(
-            "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
-        )
-        evse2_capacity = evse2_flex_model.get(
-            "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
-        )
-
-        # Initialize simulation
-        current_time = pd.to_datetime(SCHEDULING_START)
-        end_time = pd.to_datetime(SCHEDULING_END)
-        step_num = 1
-        battery_next_current_soc = None
-        evse1_next_current_soc = None
-        evse2_next_current_soc = None
-        heating_next_current_soc = None
-
-        while current_time < end_time:
+            evse1_capacity = evse1_flex_model.get(
+                "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
+            )
+            evse2_capacity = evse2_flex_model.get(
+                "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
+            )
 
             (
                 schedule_result,
