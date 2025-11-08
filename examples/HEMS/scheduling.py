@@ -207,16 +207,12 @@ async def compute_site_schedules(
 
         # Create flex model for battery
         if battery_next_current_soc is None:
-            battery_current_soc = (
-                battery_soc_at_start  # Use initial SoC for first step
-            )
+            battery_current_soc = battery_soc_at_start  # Use initial SoC for first step
         else:
             battery_current_soc = battery_next_current_soc
         # Create dynamic flex model for battery (Current SoC updated each step)
-        battery_scheduling_dynamic_flex_model = (
-            create_dynamic_storage_flex_model(
-                current_soc=battery_current_soc,
-            )
+        battery_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
+            current_soc=battery_current_soc,
         )
 
         # Calculate dynamic EV constraints for current day
@@ -253,11 +249,9 @@ async def compute_site_schedules(
             else:
                 evse1_current_soc = evse1_next_current_soc
             # Create dynamic flex model for EVSE 1 (Current SoC updated each step)
-            evse1_scheduling_dynamic_flex_model = (
-                create_dynamic_storage_flex_model(
-                    current_soc=evse1_current_soc,
-                    constraints=evse1_constraints,
-                )
+            evse1_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
+                current_soc=evse1_current_soc,
+                constraints=evse1_constraints,
             )
 
         if not evse2_constraints.get("unavailable"):
@@ -269,26 +263,21 @@ async def compute_site_schedules(
             else:
                 evse2_current_soc = evse2_next_current_soc
             # Create dynamic flex model for EVSE 2 (Current SoC updated each step)
-            evse2_scheduling_dynamic_flex_model = (
-                create_dynamic_storage_flex_model(
-                    current_soc=evse2_current_soc,
-                    constraints=evse2_constraints,
-                )
+            evse2_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
+                current_soc=evse2_current_soc,
+                constraints=evse2_constraints,
             )
 
         if heating_next_current_soc is None:
             # Use initial SoC for first step
             heating_current_soc = (
-                HEATING_CONFIG["soc_at_start_percent"]
-                * HEATING_CONFIG["capacity_kwh"]
+                HEATING_CONFIG["soc_at_start_percent"] * HEATING_CONFIG["capacity_kwh"]
             )
         else:
             heating_current_soc = heating_next_current_soc
         # Create dynamic flex model for heating (Current SoC updated each step)
-        heating_scheduling_dynamic_flex_model = (
-            create_dynamic_storage_flex_model(
-                current_soc=heating_current_soc,
-            )
+        heating_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
+            current_soc=heating_current_soc,
         )
 
         # Start with the battery and PV flex models
@@ -508,9 +497,7 @@ async def compute_site_measurements(
                 heating_scheduled_power = power_values
                 sensor_name = "Heating"
 
-            print(
-                f"[SCHEDULE] {sensor_name} (sensor {sensor_id}): {power_values} kW"
-            )
+            print(f"[SCHEDULE] {sensor_name} (sensor {sensor_id}): {power_values} kW")
 
         print(f"[SCHEDULE-DEBUG] Current time: {current_time}")
         print(f"[SCHEDULE-DEBUG] Step duration: {SIMULATION_STEP_HOURS} hours")
@@ -757,9 +744,7 @@ async def compute_site_measurements(
                 f"[EVSE-1] Power: {evse1_average_power:.2f} kW | SoC: {evse1_soc_start:.1f} → {evse1_soc_end:.1f} kWh ({evse1_soc_change:+.1f} kWh, {evse1_percent_end:.1f}%)"
             )
         else:
-            print(
-                f"[EVSE-1] Power: {evse1_average_power:.2f} kW | SoC: Not available"
-            )
+            print(f"[EVSE-1] Power: {evse1_average_power:.2f} kW | SoC: Not available")
 
         if evse2_soc_values:
             evse2_soc_start = evse2_soc_values[0]
@@ -773,9 +758,7 @@ async def compute_site_measurements(
                 f"[EVSE-2] Power: {evse2_average_power:.2f} kW | SoC: {evse2_soc_start:.1f} → {evse2_soc_end:.1f} kWh ({evse2_soc_change:+.1f} kWh, {evse2_percent_end:.1f}%)"
             )
         else:
-            print(
-                f"[EVSE-2] Power: {evse2_average_power:.2f} kW | SoC: Not available"
-            )
+            print(f"[EVSE-2] Power: {evse2_average_power:.2f} kW | SoC: Not available")
         if heating_soc_values:
             heating_soc_start = heating_soc_values[0]
             heating_soc_end = heating_soc_values[-1]
