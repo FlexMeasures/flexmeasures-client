@@ -37,7 +37,7 @@ async def run_scheduling_simulation(
     print("Running scheduling simulation for third week with EV charging...")
 
     # Find required assets and sensors
-    assets = await client.get_assets()
+    sensors = await map_site_sensors(client)
 
     # Find building, battery, and EVSE assets
     assets_by_name = {a["name"]: a for a in assets}
