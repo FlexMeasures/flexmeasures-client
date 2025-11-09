@@ -20,12 +20,12 @@ from const import (
     pv_name,
     site_name,
 )
-from utils.reporter_utils import fill_reporter_params, run_report_cmd
 from utils.asset_utils import find_sensor_by_name_and_asset, load_and_align_csv_data
 from utils.ev_utils import (
     calculate_ev_soc_targets_and_constraints,
     simulate_random_trip,
 )
+from utils.reporter_utils import fill_reporter_params, run_report_cmd
 from utils.scheduling_utils import create_dynamic_storage_flex_model
 
 from flexmeasures_client.client import FlexMeasuresClient
@@ -870,7 +870,6 @@ async def map_site_sensors(
     return sensors
 
 
-
 def run_site_aggregate(
     sensors: dict,
     index: int,
@@ -878,8 +877,8 @@ def run_site_aggregate(
     step_end_time: pd.Timestamp,
     site_asset: dict,
 ):
-    for x in site_asset['sensors']:
-        if x['name'] == 'power':
+    for x in site_asset["sensors"]:
+        if x["name"] == "power":
             site_power_sensor = x
             break
     fill_reporter_params(
@@ -896,7 +895,6 @@ def run_site_aggregate(
         start=current_time.isoformat(),
         end=step_end_time.isoformat(),
         reporter_type="aggregate",
-
     )
     # Run AggregatorReporter
     run_report_cmd(
