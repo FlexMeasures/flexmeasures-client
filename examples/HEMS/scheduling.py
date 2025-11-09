@@ -75,6 +75,7 @@ async def run_scheduling_simulation(
         for index, building_name in enumerate(building_names, start=1):
 
             (
+                site_asset,
                 building_asset,
                 battery_asset,
                 evse1_asset,
@@ -792,6 +793,7 @@ async def get_building_assets(
     assets = await client.get_assets()
     assets_by_name = {a["name"]: a for a in assets}
 
+    site_asset = assets_by_name.get(site_name)
     building_asset = assets_by_name.get(building_name)
     battery_asset = assets_by_name.get(f"{battery_name} {index}")
     evse1_asset = assets_by_name.get(f"{evse1_name} {index}")
@@ -814,6 +816,7 @@ async def get_building_assets(
         return False
 
     return (
+        site_asset,
         building_asset,
         battery_asset,
         evse1_asset,
