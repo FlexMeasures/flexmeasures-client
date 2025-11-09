@@ -884,6 +884,7 @@ def run_site_aggregate(
             break
     fill_reporter_params(
         input_sensors=[
+            {"site-aggregate": site_power_sensor["id"]},
             {"pv": sensors[f"pv-production-{index}"]["id"]},
             {"consumption": sensors[f"building-consumption-{index}"]["id"]},
             {"battery-power": sensors[f"battery-power-{index}"]["id"]},
