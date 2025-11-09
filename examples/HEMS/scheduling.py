@@ -138,8 +138,16 @@ async def run_scheduling_simulation(
                 simulate_live_corrections=simulate_live_corrections,
             )
 
-            # Extract scheduled power for all devices for the next 4 hours
+            # run reporters for each building
+            run_site_aggregate(
+                sensors=sensors,
+                index=index,
+                current_time=current_time,
+                step_end_time=step_end_time,
+                site_asset=site_asset,
+            )
 
+            # Extract scheduled power for all devices for the next 4 hours
             # Update SoC for next step based on retrieved SoC schedules
             (
                 battery_next_current_soc,
@@ -860,3 +868,38 @@ async def map_site_sensors(
                 print(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
                 return False
     return sensors
+
+
+
+def run_site_aggregate(
+    sensors: dict,
+    index: int,
+    current_time: pd.Timestamp,
+    step_end_time: pd.Timestamp,
+    site_asset: dict,
+):
+    for x in site_asset['sensors']:
+        if x['name'] == 'power':
+            site_power_sensor = x
+            break
+    fill_reporter_params(
+        input_sensors=[
+            {"pv": sensors[f"pv-production-{index}"]["id"]},
+            {"consumption": sensors[f"building-consumption-{index}"]["id"]},
+            {"battery-power": sensors[f"battery-power-{index}"]["id"]},
+            {"evse1-power": sensors[f"evse1-power-{index}"]["id"]},
+            {"evse2-power": sensors[f"evse2-power-{index}"]["id"]},
+            {"heating-power": sensors[f"heating-power-{index}"]["id"]},
+        ],
+        output_sensors=site_power_sensor,
+        start=current_time.isoformat(),
+        end=step_end_time.isoformat(),
+        reporter_type="aggregate",
+
+    )
+    # Run AggregatorReporter
+    run_report_cmd(
+        reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
+        start=current_time.isoformat(),
+        end=step_end_time.isoformat(),
+    )
