@@ -55,3 +55,8 @@ MANIFEST
 
 venv/*
 log
+HEMS data full
+*.pkl
+
+# Reporter parameters json files
+*reporter_param.json

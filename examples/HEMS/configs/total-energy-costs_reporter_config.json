@@ -1,0 +1,60 @@
+{
+    "required_input" :[{"name":"aggregate-power","unit": "kW"},{"name": "consumption-production-price", "unit": "EUR/kWh"}],
+    "required_output" :[{"name":"total-energy-costs","unit": "EUR"},{"name":"daily-total-energy-costs","unit": "EUR"}],
+    "droplevels": true,
+        "transformations" : [
+            {
+                "df_input": "aggregate-power",
+                "df_output": "feed_out",
+                "method": "clip",
+                "kwargs": {
+                    "lower": 0
+
+                }
+            },
+            {
+                "df_input": "aggregate-power",
+                "df_output": "feed_in",
+                "method": "clip",
+                "kwargs": {
+                    "upper": 0
+
+                }
+            },
+            {
+                "df_input": "feed_in",
+                "df_output": "feed_in",
+                "method": "multiply",
+                "args": [-1]
+
+            },
+            {
+                "df_input": "consumption-production-price",
+                "df_output": "feed_out_costs",
+                "method": "multiply",
+                "args": ["@feed_out"]
+            },
+            {
+                "df_input": "consumption-production-price",
+                "df_output": "feed_in_revenue",
+                "method": "multiply",
+                "args": ["@feed_in"]
+            },
+            {
+                "df_input": "feed_out_costs",
+                "method": "sub",
+                "args": ["@feed_in_revenue"],
+                "df_output": "total-energy-costs"
+            },
+            {
+                "df_input": "total-energy-costs",
+                "method": "resample",
+                "args": ["1D"],
+                "df_output": "daily-total-energy-costs"
+            },
+            {   "df_input": "daily-total-energy-costs",
+                "method": "sum",
+                "df_output": "daily-total-energy-costs"
+            }
+        ]
+}

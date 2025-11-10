@@ -324,6 +324,13 @@ See releases in GitHub Actions at https://github.com/FlexMeasures/flexmeasures-c
 
 
 ===================
+HEMS tutorial
+===================
+
+`See the Usage docs <docs/HEMS.rst>`_.
+
+
+===================
 S2 Protocol
 ===================
 
