@@ -3,7 +3,7 @@ from const import (
     EV_CONFIG,
     HEATING_CONFIG,
     battery_name,
-    building_name,
+    building_names,
     evse1_name,
     evse2_name,
     heating_name,
@@ -11,6 +11,7 @@ from const import (
     longitude,
     price_market_name,
     pv_name,
+    site_name,
     weather_station_name,
 )
 
@@ -90,7 +91,11 @@ async def create_weather_station(client: FlexMeasuresClient):
 
 
 async def create_building_asset(
-    client: FlexMeasuresClient, account_id: int, price_sensor_id: int
+    client: FlexMeasuresClient,
+    account_id: int,
+    price_sensor_id: int,
+    building_name: str,
+    site_asset_id: int,
 ):
     """Create building asset with consumption and energy costs KPI sensors."""
     print("Creating building asset...")
@@ -100,6 +105,7 @@ async def create_building_asset(
         name=building_name,
         latitude=latitude,
         longitude=longitude,
+        parent_asset_id=site_asset_id,
         generic_asset_type_id=6,  # Building asset type
         account_id=account_id,
     )
@@ -206,7 +212,7 @@ async def create_building_asset(
 
 
 async def create_pv_asset(
-    client: FlexMeasuresClient, account_id: int, building_asset_id: int
+    client: FlexMeasuresClient, account_id: int, building_asset_id: int, pv_name: str
 ):
     """Create PV asset as child of building with production sensor."""
     print("Creating PV asset...")
@@ -235,7 +241,10 @@ async def create_pv_asset(
 
 
 async def create_battery_asset(
-    client: FlexMeasuresClient, account_id: int, building_asset_id: int
+    client: FlexMeasuresClient,
+    account_id: int,
+    building_asset_id: int,
+    battery_name: str,
 ):
     """Create battery asset as child of building with power and SoC sensors + settings."""
     print("Creating battery asset...")
@@ -681,14 +690,19 @@ async def configure_building_dashboard(
     print("Sensors to show configured successfully")
 
 
-async def create_building_assets_and_sensors(client: FlexMeasuresClient, account: dict):
+async def create_building_assets_and_sensors(
+    client: FlexMeasuresClient,
+    account: dict,
+    site_asset_id: int,
+    building_index: int,
+    price_sensor: dict,
+):
     """
     Create a building asset with its associated sensors and linked assets (PV, battery, EVSEs, and weather station),
     then configure the building's flex context and dashboard.
     """
     account_id = account["id"]
-    print("Creating price market asset and associated price sensor")
-    price_sensor = await create_public_price_sensor(client)
+
     print("Creating building asset with PV and battery sensors")
     (
         building_asset,
@@ -701,7 +715,13 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         total_energy_costs_sensor,
         daily_total_energy_costs_sensor,
         daily_share_of_self_consumption_sensor,
-    ) = await create_building_asset(client, account_id, price_sensor["id"])
+    ) = await create_building_asset(
+        client=client,
+        account_id=account_id,
+        price_sensor_id=price_sensor["id"],
+        site_asset_id=site_asset_id,
+        building_name=building_names[building_index - 1],
+    )
     print(f"Building asset ID: {building_asset['id']}")
     print(f"Consumption sensor ID: {consumption_sensor['id']}")
     print(f"Energy costs sensor ID: {energy_costs_sensor['id']}")
@@ -711,13 +731,18 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
     print(f"Self-consumption sensor ID: {self_consumption_sensor['id']}")
     print("Creating PV asset with production sensor")
     pv_asset, pv_production_sensor = await create_pv_asset(
-        client, account_id, building_asset["id"]
+        client, account_id, building_asset["id"], pv_name=f"{pv_name} {building_index}"
     )
     print(f"PV asset ID: {pv_asset['id']}")
     print(f"PV production sensor ID: {pv_production_sensor['id']}")
     print("Creating battery asset with power and SoC sensors")
     battery_asset, battery_power_sensor, battery_soc_sensor = (
-        await create_battery_asset(client, account_id, building_asset["id"])
+        await create_battery_asset(
+            client=client,
+            account_id=account_id,
+            building_asset_id=building_asset["id"],
+            battery_name=f"{battery_name} {building_index}",
+        )
     )
     print(f"Battery asset ID: {battery_asset['id']}")
     print(f"Battery power sensor ID: {battery_power_sensor['id']}")
@@ -731,7 +756,12 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         evse1_soc_sensor,
         evse1_soc_min_sensor,
         evse1_soc_max_sensor,
-    ) = await create_evse_asset(client, account_id, building_asset["id"], evse1_name)
+    ) = await create_evse_asset(
+        client=client,
+        account_id=account_id,
+        building_asset_id=building_asset["id"],
+        evse_name=f"{evse1_name} {building_index}",
+    )
     print(f"EVSE 1 asset ID: {evse1_asset['id']}")
     print(f"EVSE 1 power sensor ID: {evse1_power_sensor['id']}")
     print(f"EVSE 1 SoC sensor ID: {evse1_soc_sensor['id']}")
@@ -742,7 +772,12 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         evse2_soc_sensor,
         evse2_soc_min_sensor,
         evse2_soc_max_sensor,
-    ) = await create_evse_asset(client, account_id, building_asset["id"], evse2_name)
+    ) = await create_evse_asset(
+        client=client,
+        account_id=account_id,
+        building_asset_id=building_asset["id"],
+        evse_name=f"{evse2_name} {building_index}",
+    )
     print(f"EVSE 2 asset ID: {evse2_asset['id']}")
     print(f"EVSE 2 power sensor ID: {evse2_power_sensor['id']}")
     print(f"EVSE 2 SoC sensor ID: {evse2_soc_sensor['id']}")
@@ -758,12 +793,12 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         heating_max_soc_sensor,
         heating_COP,
     ) = await create_heating_asset(
-        client,
-        account_id,
-        building_asset["id"],
-        heating_name,
-        latitude,
-        longitude,
+        client=client,
+        account_id=account_id,
+        building_asset_id=building_asset["id"],
+        heating_name=f"{heating_name} {building_index}",
+        latitude=latitude,
+        longitude=longitude,
     )
     print(f"Heating asset ID: {heating_asset['id']}")
     print(f"Heating power sensor ID: {heating_power_sensor['id']}")
@@ -773,13 +808,6 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
     print(f"Heating max SoC sensor ID: {heating_max_soc_sensor['id']}")
     print(f"Heating COP sensor ID: {heating_COP['id']}")
 
-    print("Creating weather station with irradiation and cloud coverage sensors")
-    weather_asset, irradiation_sensor, cloud_coverage_sensor = (
-        await create_weather_station(client)
-    )
-    print(f"Weather station asset ID: {weather_asset['id']}")
-    print(f"Irradiation sensor ID: {irradiation_sensor['id']}")
-    print(f"Cloud coverage sensor ID: {cloud_coverage_sensor['id']}")
     print("Configuring building flex-context ...")
     await configure_building_flex_context(
         client=client,
@@ -813,3 +841,70 @@ async def create_building_assets_and_sensors(client: FlexMeasuresClient, account
         daily_total_energy_costs_sensor=daily_total_energy_costs_sensor,
         daily_share_of_self_consumption_sensor=daily_share_of_self_consumption_sensor,
     )
+
+
+async def create_community_site_asset(client: FlexMeasuresClient, account: dict):
+    """
+    Create Community site asset this  will serve as the parent asset for all buildings in the community
+    """
+    # Get account id
+    account_id = account["id"]
+    print("Creating price market asset and associated price sensor")
+    price_sensor = await create_public_price_sensor(client=client)
+
+    print("Creating weather station with irradiation and cloud coverage sensors")
+    weather_asset, irradiation_sensor, cloud_coverage_sensor = (
+        await create_weather_station(client=client)
+    )
+    print(f"Weather station asset ID: {weather_asset['id']}")
+    print(f"Irradiation sensor ID: {irradiation_sensor['id']}")
+    print(f"Cloud coverage sensor ID: {cloud_coverage_sensor['id']}")
+    print("Creating community site asset...")
+    # Create Site asset (generic_asset_type_id=6 for building)
+    site_asset = await client.add_asset(
+        name=site_name,
+        latitude=latitude,
+        longitude=longitude,
+        generic_asset_type_id=6,  # Building asset type
+        account_id=account_id,
+    )
+
+    # Create site power capacity sensor (15min resolution, kW)
+    site_power_capacity_sensor = await client.add_sensor(
+        name="site-power-capacity",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=site_asset["id"],
+        timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=True),
+    )
+
+    # Create site power sensor (15min resolution, kW)
+    # this is used to store aggregate assets power measurements
+    site_power_sensor = await client.add_sensor(  # noqa: F841
+        name="power",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=site_asset["id"],
+        timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=True),
+    )
+
+    # Create flex context with all required settings
+    flex_context = {
+        "site-power-capacity": {"sensor": site_power_capacity_sensor["id"]},
+    }
+    print(f"Created site asset with ID: {site_asset['id']}")
+
+    # Update site asset with flex-context
+    await client.update_asset(
+        asset_id=site_asset["id"], updates={"flex_context": flex_context}
+    )
+    for i in range(len(building_names)):
+        await create_building_assets_and_sensors(
+            client=client,
+            account=account,
+            site_asset_id=site_asset["id"],
+            building_index=i + 1,
+            price_sensor=price_sensor,
+        )

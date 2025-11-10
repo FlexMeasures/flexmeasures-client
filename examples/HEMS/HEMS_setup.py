@@ -6,16 +6,8 @@ and all required sensors with proper flex-context configuration.
 
 import asyncio
 
-from assets_setup import create_building_assets_and_sensors
-from const import (
-    building_name,
-    heating_name,
-    host,
-    pv_name,
-    pwd,
-    usr,
-    weather_station_name,
-)
+from assets_setup import create_community_site_asset
+from const import host, pwd, site_name, usr
 from forecasting import generate_forecasts
 from reporters import create_reports
 from scheduling import run_scheduling_simulation
@@ -62,22 +54,22 @@ async def main():
         asset = None  # Initialize asset variable
         assets = await client.get_assets()
         for sst in assets:
-            if sst["name"] == building_name:
+            if sst["name"] in site_name:
                 asset = sst
                 break
 
         if not asset:
             print(
-                "Creating building asset, with PV and battery sensors, and weather station"
+                "Creating community Site asset with 2 building assets, each with PV and battery sensors, and weather station"
             )
+            await create_community_site_asset(client, account)
             # todo A1: create 2 sites and register them as children of a community asset (config variables become lists?)
             # todo B1: the community asset should get a site-power-capacity sensor, and a flex-context with the site-power-capacity field referencing that sensor, and a power sensor
-            await create_building_assets_and_sensors(client, account)
         else:
-            answer = input(f"Asset '{building_name}' already exists. Re-create?")
+            answer = input(f"Asset '{site_name}' already exists. Re-create?")
             if answer.lower() in ["y", "yes"]:
                 await client.delete_asset(asset_id=asset["id"])
-                await create_building_assets_and_sensors(client, account)
+                await create_community_site_asset(client, account)
             else:
                 print("Assets already exist, skipping to data upload")
 
@@ -92,18 +84,7 @@ async def main():
         print("\n" + "=" * 50)
         print("PART 3: GENERATING PV FORECASTS")
         # todo A3: forecast data for the 2 sites as before
-        await generate_forecasts(
-            client,
-            asset_name=pv_name,
-            sensor_name="electricity-production",
-            regressors=[("irradiation", weather_station_name)],
-        )
-        await generate_forecasts(
-            client, asset_name=building_name, sensor_name="electricity-consumption"
-        )
-        await generate_forecasts(
-            client, asset_name=heating_name, sensor_name="soc-usage"
-        )
+        await generate_forecasts(client)
 
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)

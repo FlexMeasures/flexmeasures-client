@@ -9,7 +9,10 @@ pwd = "admin"  # Admin password
 host = "127.0.0.1:5000"  # FlexMeasures host
 
 # Asset and sensor names
-building_name = "My Home"
+site_name = "Community Site"
+
+building_names = ["My Home 1", "My Home 2"]
+
 pv_name = "Rooftop PV"
 battery_name = "Home Battery"
 evse1_name = "EV Connector 1"
