@@ -9,7 +9,12 @@ def fill_reporter_params(
     end: str,
     reporter_type: str,
 ):
-    """Fill reporter parameters and save to JSON file."""
+    """
+    Fill reporter parameters and save them to a JSON configuration file.
+
+    The file is saved inside the `configs/` directory, with the name
+    derived from the given `reporter_type`, e.g.: configs/{reporter_type}_config.json
+    """
 
     if reporter_type == "aggregate":
         # For the aggregate reporter, output_sensors is a single sensor ID
@@ -40,8 +45,30 @@ def fill_reporter_params(
 
 
 def run_report_cmd(reporter_map: dict, start: str, end: str) -> bool:
-    """Run subprocess command for report and print result."""
+    """
+    Run the FlexMeasures CLI command to generate a report for a given reporter.
 
+    This function expects the reporter configuration and parameter files
+    to already exist in the `configs/` directory, following the naming pattern
+    created by `fill_reporter_params()`:
+
+        configs/{reporter_name}_reporter_config.json
+        configs/{reporter_name}_reporter_param.json
+
+    Args:
+        reporter_map (dict): A dictionary describing the reporter to run.
+            Must contain:
+                - "name": str  → name of the reporter, used in file paths
+                - "reporter": str  → FlexMeasures reporter class name
+            Example:
+                reporter_map = {
+                    "name": "aggregate",
+                    "reporter": "AggregatorReporter",
+                }
+
+        start (str): Start time of the report period (ISO 8601 format).
+        end (str): End time of the report period (ISO 8601 format).
+    """
     cmd = [
         "flexmeasures",
         "add",
