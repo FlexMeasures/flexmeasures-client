@@ -138,14 +138,6 @@ async def run_scheduling_simulation(
                 simulate_live_corrections=simulate_live_corrections,
             )
 
-            # run reporters for each building
-            run_site_aggregate(
-                sensors=sensors,
-                index=index,
-                current_time=current_time,
-                step_end_time=step_end_time,
-                site_asset=site_asset,
-            )
 
             # Extract scheduled power for all devices for the next 4 hours
             # Update SoC for next step based on retrieved SoC schedules
@@ -173,6 +165,15 @@ async def run_scheduling_simulation(
             next_current_soc_dict[building_name]["evse1"] = evse1_next_current_soc
             next_current_soc_dict[building_name]["evse2"] = evse2_next_current_soc
             next_current_soc_dict[building_name]["heating"] = heating_next_current_soc
+
+        # Run reporter to log community site aggregate power consumption each scheduling step
+        run_site_aggregate(
+            sensors=sensors,
+            index=index,
+            current_time=current_time,
+            step_end_time=step_end_time,
+            site_asset=site_asset,
+        )
 
         # Move to next simulation step
         current_time = step_end_time
@@ -881,15 +882,34 @@ def run_site_aggregate(
         if x["name"] == "power":
             site_power_sensor = x
             break
+    # Run each building's aggregate reporter
+    for index, building_name in enumerate(building_names, start=1):
+        # Fill reporter parameters for each building
+        fill_reporter_params(
+            input_sensors=[
+                {"pv": sensors[f"pv-production-{index}"]["id"]},
+                {"consumption": sensors[f"building-consumption-{index}"]["id"]},
+                {"battery-power": sensors[f"battery-power-{index}"]["id"]},
+                {"evse1-power": sensors[f"evse1-power-{index}"]["id"]},
+                {"evse2-power": sensors[f"evse2-power-{index}"]["id"]},
+                {"heating-power": sensors[f"heating-power-{index}"]["id"]},
+            ],
+            output_sensors=sensors[f'electricity-aggregate-{index}'],
+            start=current_time.isoformat(),
+            end=step_end_time.isoformat(),
+            reporter_type="aggregate",
+        )
+        # Run AggregatorReporter
+        run_report_cmd(
+            reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
+            start=current_time.isoformat(),
+            end=step_end_time.isoformat(),
+        )
+
     fill_reporter_params(
         input_sensors=[
-            {"site-aggregate": site_power_sensor["id"]},
-            {"pv": sensors[f"pv-production-{index}"]["id"]},
-            {"consumption": sensors[f"building-consumption-{index}"]["id"]},
-            {"battery-power": sensors[f"battery-power-{index}"]["id"]},
-            {"evse1-power": sensors[f"evse1-power-{index}"]["id"]},
-            {"evse2-power": sensors[f"evse2-power-{index}"]["id"]},
-            {"heating-power": sensors[f"heating-power-{index}"]["id"]},
+            {f'aggregate-{index}': sensors[f'electricity-aggregate-{index}']["id"]}
+            for index, _ in enumerate(building_names, start=1)
         ],
         output_sensors=site_power_sensor,
         start=current_time.isoformat(),
