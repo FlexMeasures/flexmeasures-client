@@ -138,7 +138,6 @@ async def run_scheduling_simulation(
                 simulate_live_corrections=simulate_live_corrections,
             )
 
-
             # Extract scheduled power for all devices for the next 4 hours
             # Update SoC for next step based on retrieved SoC schedules
             (
@@ -894,7 +893,7 @@ def run_site_aggregate(
                 {"evse2-power": sensors[f"evse2-power-{index}"]["id"]},
                 {"heating-power": sensors[f"heating-power-{index}"]["id"]},
             ],
-            output_sensors=sensors[f'electricity-aggregate-{index}'],
+            output_sensors=sensors[f"electricity-aggregate-{index}"],
             start=current_time.isoformat(),
             end=step_end_time.isoformat(),
             reporter_type="aggregate",
@@ -908,7 +907,7 @@ def run_site_aggregate(
 
     fill_reporter_params(
         input_sensors=[
-            {f'aggregate-{index}': sensors[f'electricity-aggregate-{index}']["id"]}
+            {f"aggregate-{index}": sensors[f"electricity-aggregate-{index}"]["id"]}
             for index, _ in enumerate(building_names, start=1)
         ],
         output_sensors=site_power_sensor,
