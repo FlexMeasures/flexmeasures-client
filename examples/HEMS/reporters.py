@@ -51,22 +51,6 @@ async def create_reports(client: FlexMeasuresClient):
         ]
         sensors = await find_sensors_by_asset(client, sensor_mappings)
 
-        # Prepare parameters for the aggregate reporter
-        fill_reporter_params(
-            input_sensors=[
-                {"pv": sensors["electricity-production"]["id"]},
-                {"consumption": sensors["electricity-consumption"]["id"]},
-                {"battery-power": sensors["electricity-power"]["id"]},
-                {"evse1-power": sensors["evse1-power"]["id"]},
-                {"evse2-power": sensors["evse2-power"]["id"]},
-                {"heating-power": sensors["heating-power"]["id"]},
-            ],
-            output_sensors=sensors["electricity-aggregate"],
-            start=SCHEDULING_START,
-            end=SCHEDULING_END,
-            reporter_type="aggregate",
-        )
-
         # Prepare parameters for self-consumption reporter
         fill_reporter_params(
             input_sensors=[
@@ -102,13 +86,6 @@ async def create_reports(client: FlexMeasuresClient):
             reporter_type="total-energy-costs",
         )
 
-        # Run AggregatorReporter
-        aggregate_result = run_report_cmd(
-            reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
-            start=SCHEDULING_START,
-            end=SCHEDULING_END,
-        )
-
         # Run SelfConsumptionReporter
         self_consumption_result = run_report_cmd(
             reporter_map={"name": "self-consumption", "reporter": "PandasReporter"},
@@ -123,4 +100,4 @@ async def create_reports(client: FlexMeasuresClient):
             end=SCHEDULING_END,
         )
 
-    return self_consumption_result and aggregate_result and total_energy_costs_result
+    return self_consumption_result and total_energy_costs_result
