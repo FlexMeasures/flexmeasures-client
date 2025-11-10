@@ -31,12 +31,13 @@ Next steps:
       flexmeasures add account
       flexmeasures add user --roles admin
 
-- Update the credentials in the ``HEMS_setup.py`` script accordingly.
+- Update the credentials in the ``examples/HEMS/const.py`` script accordingly.
 
 
 Run the tutorial script
 =======================
 
+Before running the tutorial, make sure to update the connection details and other relevant settings (e.g., host, port, credentials) in examples/HEMS/const.py to match your local FlexMeasures setup.
 Open three terminals. In the first terminal, run the server:
 
 ```

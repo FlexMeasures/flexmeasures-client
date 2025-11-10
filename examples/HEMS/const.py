@@ -1,5 +1,8 @@
 import random
 
+"""
+Settings for the HEMS example script.
+"""
 # Connection details - UPDATE THESE FOR YOUR SETUP
 usr = "admin@admin.com"  # Admin user email
 pwd = "admin"  # Admin password
