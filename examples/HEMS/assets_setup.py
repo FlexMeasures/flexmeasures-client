@@ -3,7 +3,6 @@ from const import (
     EV_CONFIG,
     HEATING_CONFIG,
     battery_name,
-    building_names,
     evse1_name,
     evse2_name,
     heating_name,
@@ -11,7 +10,6 @@ from const import (
     longitude,
     price_market_name,
     pv_name,
-    site_name,
     weather_station_name,
 )
 
@@ -695,6 +693,7 @@ async def create_building_assets_and_sensors(
     account: dict,
     site_asset_id: int,
     building_index: int,
+    site_names: list[str],
     price_sensor: dict,
 ):
     """
@@ -720,7 +719,7 @@ async def create_building_assets_and_sensors(
         account_id=account_id,
         price_sensor_id=price_sensor["id"],
         site_asset_id=site_asset_id,
-        building_name=building_names[building_index - 1],
+        building_name=site_names[building_index - 1],
     )
     print(f"Building asset ID: {building_asset['id']}")
     print(f"Consumption sensor ID: {consumption_sensor['id']}")
@@ -843,7 +842,7 @@ async def create_building_assets_and_sensors(
     )
 
 
-async def create_community_site_asset(client: FlexMeasuresClient, account: dict):
+async def create_community_site_asset(client: FlexMeasuresClient, account: dict, community_name: str, site_names: list[str]):
     """
     Create Community site asset this  will serve as the parent asset for all buildings in the community
     """
@@ -862,7 +861,7 @@ async def create_community_site_asset(client: FlexMeasuresClient, account: dict)
     print("Creating community site asset...")
     # Create Site asset (generic_asset_type_id=6 for building)
     site_asset = await client.add_asset(
-        name=site_name,
+        name=community_name,
         latitude=latitude,
         longitude=longitude,
         generic_asset_type_id=6,  # Building asset type
@@ -900,11 +899,12 @@ async def create_community_site_asset(client: FlexMeasuresClient, account: dict)
     await client.update_asset(
         asset_id=site_asset["id"], updates={"flex_context": flex_context}
     )
-    for i in range(len(building_names)):
+    for i in range(len(site_names)):
         await create_building_assets_and_sensors(
             client=client,
             account=account,
             site_asset_id=site_asset["id"],
             building_index=i + 1,
+            site_names=site_names,
             price_sensor=price_sensor,
         )

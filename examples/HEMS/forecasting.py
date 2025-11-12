@@ -6,7 +6,6 @@ from const import (
     SCHEDULING_END,
     SIMULATION_STEP_HOURS,
     TUTORIAL_START_DATE,
-    building_names,
     heating_name,
     pv_name,
     weather_station_name,
@@ -93,11 +92,12 @@ async def generate_sensor_forecasts(
 
 async def generate_forecasts(
     client: FlexMeasuresClient,
+    site_names: list[str,]
 ):
     """Generate forecasts for sensors that need to be forecasted for tutorial."""
 
     forecast_configs = []
-    for i, building_name in enumerate(building_names, start=1):
+    for i, building_name in enumerate(site_names, start=1):
         forecast_configs.extend(
             [
                 {

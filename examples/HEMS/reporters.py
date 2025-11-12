@@ -4,7 +4,6 @@ from const import (
     SCHEDULING_END,
     SCHEDULING_START,
     battery_name,
-    building_names,
     evse1_name,
     evse2_name,
     heating_name,
@@ -17,7 +16,7 @@ from utils.reporter_utils import fill_reporter_params, run_report_cmd
 from flexmeasures_client import FlexMeasuresClient
 
 
-async def create_reports(client: FlexMeasuresClient):
+async def create_reports(client: FlexMeasuresClient, site_names: list[str]):
     """Generate reports using FlexMeasures CLI."""
     print("Generating reports...")
 
@@ -28,7 +27,7 @@ async def create_reports(client: FlexMeasuresClient):
     if check_result.returncode != 0:
         print("FlexMeasures CLI not found. Skipping report generation.")
         return False
-    for i, building_name in enumerate(building_names, start=1):
+    for i, building_name in enumerate(site_names, start=1):
 
         # Find all required sensors
         sensor_mappings = [
@@ -50,22 +49,6 @@ async def create_reports(client: FlexMeasuresClient):
             ("heating-power", "power", f"{heating_name} {i}"),
         ]
         sensors = await find_sensors_by_asset(client, sensor_mappings)
-
-        # Prepare parameters for the aggregate reporter
-        fill_reporter_params(
-            input_sensors=[
-                {"pv": sensors["electricity-production"]["id"]},
-                {"consumption": sensors["electricity-consumption"]["id"]},
-                {"battery-power": sensors["electricity-power"]["id"]},
-                {"evse1-power": sensors["evse1-power"]["id"]},
-                {"evse2-power": sensors["evse2-power"]["id"]},
-                {"heating-power": sensors["heating-power"]["id"]},
-            ],
-            output_sensors=sensors["electricity-aggregate"],
-            start=SCHEDULING_START,
-            end=SCHEDULING_END,
-            reporter_type="aggregate",
-        )
 
         # Prepare parameters for self-consumption reporter
         fill_reporter_params(
@@ -102,13 +85,6 @@ async def create_reports(client: FlexMeasuresClient):
             reporter_type="total-energy-costs",
         )
 
-        # Run AggregatorReporter
-        aggregate_result = run_report_cmd(
-            reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
-            start=SCHEDULING_START,
-            end=SCHEDULING_END,
-        )
-
         # Run SelfConsumptionReporter
         self_consumption_result = run_report_cmd(
             reporter_map={"name": "self-consumption", "reporter": "PandasReporter"},
@@ -123,4 +99,4 @@ async def create_reports(client: FlexMeasuresClient):
             end=SCHEDULING_END,
         )
 
-    return self_consumption_result and aggregate_result and total_energy_costs_result
+    return self_consumption_result and total_energy_costs_result
