@@ -1,4 +1,6 @@
 import asyncio
+import os
+from pathlib import Path
 
 import pandas as pd
 from const import (
@@ -9,6 +11,8 @@ from const import (
 )
 
 from flexmeasures_client import FlexMeasuresClient
+
+BASE_DIR = Path(__file__).parent.parent
 
 
 async def find_sensor_by_name_and_asset(
@@ -43,9 +47,10 @@ async def upload_csv_file_to_sensor(
 ):
     """Upload CSV file directly to a sensor using file upload."""
     try:
+        full_path = os.path.join(BASE_DIR, file_path)
         await client.post_sensor_data(
             sensor_id=sensor_id,
-            file_path=file_path,
+            file_path=full_path,
             belief_time_measured_instantly=belief_time_measured_instantly,  # Set belief_time immediately after event ends
         )
         print(f"Uploaded {file_path} to sensor {sensor_id}")
