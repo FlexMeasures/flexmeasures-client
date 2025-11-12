@@ -69,7 +69,7 @@ async def main(community_name: str, site_names: list[str]):
             answer = input(f"Asset '{community_name}' already exists. Re-create?")
             if answer.lower() in ["y", "yes"]:
                 await client.delete_asset(asset_id=asset["id"])
-                await create_community_site_asset(client, account)
+                await create_community_site_asset(client, account, community_name=community_name, site_names=site_names)
             else:
                 print("Assets already exist, skipping to data upload")
 
