@@ -3,12 +3,14 @@ import json
 import os
 from datetime import timedelta
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 from const import (
     EV_CONFIG,
     FORECAST_HORIZON_HOURS,
     HEATING_CONFIG,
+    MAX_RESCHEDULING_ITERATIONS,
     SCHEDULING_END,
     SCHEDULING_START,
     SIMULATION_STEP_HOURS,
@@ -33,11 +35,16 @@ from flexmeasures_client.client import FlexMeasuresClient
 BASE_DIR = Path(__file__).parent
 
 
+def just_continue():
+    return True
+
+
 async def run_scheduling_simulation(
     client: FlexMeasuresClient,
     community_name: str,
     site_names: list[str],
     simulate_live_corrections: bool = True,
+    callback: Callable = just_continue,
 ):
     """Run step-by-step scheduling simulation for the third week with EV charging."""
     print("Running scheduling simulation for third week with EV charging...")
@@ -77,86 +84,91 @@ async def run_scheduling_simulation(
         # prepare for next step
         step_end_time = current_time + timedelta(hours=SIMULATION_STEP_HOURS)
 
-        # For each site in the community
-        schedule_results = []
-        battery_soc_schedules = []
-        evse1_soc_schedules = []
-        evse2_soc_schedules = []
-        heating_soc_schedules = []
-        evse1_flex_models = []
-        evse2_flex_models = []
-        for index, site_name in enumerate(site_names, start=1):
+        for rescheduling_iteration in range(MAX_RESCHEDULING_ITERATIONS):
+            # For each site in the community
+            schedule_results = []
+            battery_soc_schedules = []
+            evse1_soc_schedules = []
+            evse2_soc_schedules = []
+            heating_soc_schedules = []
+            evse1_flex_models = []
+            evse2_flex_models = []
+            for index, site_name in enumerate(site_names, start=1):
 
-            (
-                community_asset,
-                site_asset,
-                battery_asset,
-                evse1_asset,
-                evse2_asset,
-                heating_asset,
-            ) = await get_site_assets(
-                client=client, site_name=site_name, community_name=community_name, index=index
-            )
+                (
+                    community_asset,
+                    site_asset,
+                    battery_asset,
+                    evse1_asset,
+                    evse2_asset,
+                    heating_asset,
+                ) = await get_site_assets(
+                    client=client, site_name=site_name, community_name=community_name, index=index
+                )
 
-            # Get battery soc settings
-            battery_flex_model = json.loads(battery_asset["attributes"]).get(
-                "flex_model"
-            )
-            if not battery_flex_model:
-                print("Battery asset missing flex_model settings")
-                return False
+                # Get battery soc settings
+                battery_flex_model = json.loads(battery_asset["attributes"]).get(
+                    "flex_model"
+                )
+                if not battery_flex_model:
+                    print("Battery asset missing flex_model settings")
+                    return False
 
-            battery_soc_at_start = battery_flex_model.get("soc_at_start")
+                battery_soc_at_start = battery_flex_model.get("soc_at_start")
 
-            # Get EVSE settings
-            evse1_flex_model = json.loads(evse1_asset["attributes"]).get("flex_model")
-            evse2_flex_model = json.loads(evse2_asset["attributes"]).get("flex_model")
-            if not evse1_flex_model or not evse2_flex_model:
-                print("EVSE assets missing flex_model settings")
-                return False
+                # Get EVSE settings
+                evse1_flex_model = json.loads(evse1_asset["attributes"]).get("flex_model")
+                evse2_flex_model = json.loads(evse2_asset["attributes"]).get("flex_model")
+                if not evse1_flex_model or not evse2_flex_model:
+                    print("EVSE assets missing flex_model settings")
+                    return False
 
-            evse1_capacity = evse1_flex_model.get(
-                "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
-            )
-            evse2_capacity = evse2_flex_model.get(
-                "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
-            )
+                evse1_capacity = evse1_flex_model.get(
+                    "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
+                )
+                evse2_capacity = evse2_flex_model.get(
+                    "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
+                )
 
-            (
-                schedule_result,
-                battery_soc_schedule,
-                evse1_soc_schedule,
-                evse2_soc_schedule,
-                heating_soc_schedule,
-            ) = await compute_site_schedules(
-                client=client,
-                site_asset=site_asset,
-                index=index,
-                sensors=sensors,
-                step_num=step_num,
-                current_time=current_time,
-                battery_soc_at_start=battery_soc_at_start,
-                evse1_flex_model=evse1_flex_model,
-                evse2_flex_model=evse2_flex_model,
-                battery_next_current_soc=next_current_soc_dict[site_name][
-                    "battery"
-                ],
-                evse1_next_current_soc=next_current_soc_dict[site_name]["evse1"],
-                evse2_next_current_soc=next_current_soc_dict[site_name]["evse2"],
-                heating_next_current_soc=next_current_soc_dict[site_name][
-                    "heating"
-                ],
-                evse1_capacity=evse1_capacity,
-                evse2_capacity=evse2_capacity,
-                simulate_live_corrections=simulate_live_corrections,
-            )
-            schedule_results.append(schedule_result)
-            battery_soc_schedules.append(battery_soc_schedule)
-            evse1_soc_schedules.append(evse1_soc_schedule)
-            evse2_soc_schedules.append(evse2_soc_schedule)
-            heating_soc_schedules.append(heating_soc_schedule)
-            evse1_flex_models.append(evse1_flex_model)
-            evse2_flex_models.append(evse2_flex_model)
+                (
+                    schedule_result,
+                    battery_soc_schedule,
+                    evse1_soc_schedule,
+                    evse2_soc_schedule,
+                    heating_soc_schedule,
+                ) = await compute_site_schedules(
+                    client=client,
+                    site_asset=site_asset,
+                    index=index,
+                    sensors=sensors,
+                    step_num=step_num,
+                    current_time=current_time,
+                    battery_soc_at_start=battery_soc_at_start,
+                    evse1_flex_model=evse1_flex_model,
+                    evse2_flex_model=evse2_flex_model,
+                    battery_next_current_soc=next_current_soc_dict[site_name][
+                        "battery"
+                    ],
+                    evse1_next_current_soc=next_current_soc_dict[site_name]["evse1"],
+                    evse2_next_current_soc=next_current_soc_dict[site_name]["evse2"],
+                    heating_next_current_soc=next_current_soc_dict[site_name][
+                        "heating"
+                    ],
+                    evse1_capacity=evse1_capacity,
+                    evse2_capacity=evse2_capacity,
+                    simulate_live_corrections=simulate_live_corrections,
+                )
+                schedule_results.append(schedule_result)
+                battery_soc_schedules.append(battery_soc_schedule)
+                evse1_soc_schedules.append(evse1_soc_schedule)
+                evse2_soc_schedules.append(evse2_soc_schedule)
+                heating_soc_schedules.append(heating_soc_schedule)
+                evse1_flex_models.append(evse1_flex_model)
+                evse2_flex_models.append(evse2_flex_model)
+
+            if callback(rescheduling_iteration, community_asset):
+                # Stop rescheduling
+                break
 
         for index, site_name in enumerate(site_names, start=1):
             # Extract scheduled power for all devices for the next 4 hours

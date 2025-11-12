@@ -5,6 +5,7 @@ and all required sensors with proper flex-context configuration.
 """
 
 import asyncio
+from typing import Callable
 
 from assets_setup import create_community_asset
 from const import host, pwd, usr, COMMUNITY_NAME, SITE_NAMES
@@ -16,7 +17,7 @@ from utils.asset_utils import cleanup_existing_assets, upload_data_for_first_two
 from flexmeasures_client import FlexMeasuresClient
 
 
-async def main(community_name: str, site_names: list[str]):
+async def main(community_name: str, site_names: list[str], callback: Callable | None = None):
     """
     Complete HEMS setup using FlexMeasures client.
 
@@ -84,7 +85,7 @@ async def main(community_name: str, site_names: list[str]):
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
         print("PART 4: SCHEDULING SIMULATION")
-        await run_scheduling_simulation(client, community_name=community_name, site_names=site_names)
+        await run_scheduling_simulation(client, community_name=community_name, site_names=site_names, callback=callback)
 
         # Part 5 : Create reports
         print("\n" + "=" * 50)
