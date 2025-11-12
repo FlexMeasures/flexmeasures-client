@@ -78,6 +78,13 @@ async def run_scheduling_simulation(
         step_end_time = current_time + timedelta(hours=SIMULATION_STEP_HOURS)
 
         # For each site in the community
+        schedule_results = []
+        battery_soc_schedules = []
+        evse1_soc_schedules = []
+        evse2_soc_schedules = []
+        heating_soc_schedules = []
+        evse1_flex_models = []
+        evse2_flex_models = []
         for index, site_name in enumerate(site_names, start=1):
 
             (
@@ -143,7 +150,15 @@ async def run_scheduling_simulation(
                 evse2_capacity=evse2_capacity,
                 simulate_live_corrections=simulate_live_corrections,
             )
+            schedule_results.append(schedule_result)
+            battery_soc_schedules.append(battery_soc_schedule)
+            evse1_soc_schedules.append(evse1_soc_schedule)
+            evse2_soc_schedules.append(evse2_soc_schedule)
+            heating_soc_schedules.append(heating_soc_schedule)
+            evse1_flex_models.append(evse1_flex_model)
+            evse2_flex_models.append(evse2_flex_model)
 
+        for index, site_name in enumerate(site_names, start=1):
             # Extract scheduled power for all devices for the next 4 hours
             # Update SoC for next step based on retrieved SoC schedules
             (
@@ -158,13 +173,13 @@ async def run_scheduling_simulation(
                 building_df=building_df,
                 current_time=current_time,
                 step_end_time=step_end_time,
-                schedule_result=schedule_result,
-                battery_soc_schedule=battery_soc_schedule,
-                evse1_soc_schedule=evse1_soc_schedule,
-                evse2_soc_schedule=evse2_soc_schedule,
-                heating_soc_schedule=heating_soc_schedule,
-                evse1_flex_model=evse1_flex_model,
-                evse2_flex_model=evse2_flex_model,
+                schedule_result=schedule_results[index],
+                battery_soc_schedule=battery_soc_schedules[index],
+                evse1_soc_schedule=evse1_soc_schedules[index],
+                evse2_soc_schedule=evse2_soc_schedules[index],
+                heating_soc_schedule=heating_soc_schedules[index],
+                evse1_flex_model=evse1_flex_models[index],
+                evse2_flex_model=evse2_flex_models[index],
             )
             next_current_soc_dict[site_name]["battery"] = battery_next_current_soc
             next_current_soc_dict[site_name]["evse1"] = evse1_next_current_soc
