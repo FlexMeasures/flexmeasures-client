@@ -79,14 +79,14 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient, community_
     """Upload historical data for the first two weeks."""
     print("Uploading data for first two weeks...")
 
-    for i, building_name in enumerate(site_names, start=1):
+    for i, site_name in enumerate(site_names, start=1):
         # Find all required sensors
         sensor_mappings = [
             ("site-power-capacity", "site-power-capacity", community_name),
             ("electricity-price", "electricity-price", price_market_name),
-            ("electricity-consumption", "electricity-consumption", building_name),
-            ("max-consumption-capacity", "max-consumption-capacity", building_name),
-            ("max-production-capacity", "max-production-capacity", building_name),
+            ("electricity-consumption", "electricity-consumption", site_name),
+            ("max-consumption-capacity", "max-consumption-capacity", site_name),
+            ("max-production-capacity", "max-production-capacity", site_name),
             ("irradiation", "irradiation", weather_station_name),
             ("electricity-production", "electricity-production", pv_name + f" {i}"),
             ("soc-usage", "soc-usage", heating_name + f" {i}"),
@@ -136,10 +136,10 @@ async def cleanup_existing_assets(client: FlexMeasuresClient, account_id: int, s
     """Clean up existing HEMS assets to avoid naming conflicts."""
     print("Cleaning up existing assets...")
 
-    for building_name in site_names:
+    for site_name in site_names:
         # Asset names to clean up
         asset_names_to_clean = [
-            building_name,  # Deleting this asset also deletes child assets (battery, PV, EVSEs)
+            site_name,  # Deleting this asset also deletes child assets (battery, PV, EVSEs)
             weather_station_name,
             price_market_name,
         ]

@@ -97,7 +97,7 @@ async def generate_forecasts(
     """Generate forecasts for sensors that need to be forecasted for tutorial."""
 
     forecast_configs = []
-    for i, building_name in enumerate(site_names, start=1):
+    for i, site_name in enumerate(site_names, start=1):
         forecast_configs.extend(
             [
                 {
@@ -106,7 +106,7 @@ async def generate_forecasts(
                     "regressors": [("irradiation", weather_station_name)],
                 },
                 {
-                    "asset_name": building_name,
+                    "asset_name": site_name,
                     "sensor_name": "electricity-consumption",
                     "regressors": None,
                 },

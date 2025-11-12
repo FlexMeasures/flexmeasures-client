@@ -6,7 +6,7 @@ and all required sensors with proper flex-context configuration.
 
 import asyncio
 
-from assets_setup import create_community_site_asset
+from assets_setup import create_community_asset
 from const import host, pwd, usr, COMMUNITY_NAME, SITE_NAMES
 from forecasting import generate_forecasts
 from reporters import create_reports
@@ -62,14 +62,14 @@ async def main(community_name: str, site_names: list[str]):
             print(
                 "Creating community Site asset with 2 building assets, each with PV and battery sensors, and weather station"
             )
-            await create_community_site_asset(client, account, community_name=community_name, site_names=site_names)
+            await create_community_asset(client, account, community_name=community_name, site_names=site_names)
             # todo A1: create 2 sites and register them as children of a community asset (config variables become lists?)
             # todo B1: the community asset should get a site-power-capacity sensor, and a flex-context with the site-power-capacity field referencing that sensor, and a power sensor
         else:
             answer = input(f"Asset '{community_name}' already exists. Re-create?")
             if answer.lower() in ["y", "yes"]:
                 await client.delete_asset(asset_id=asset["id"])
-                await create_community_site_asset(client, account, community_name=community_name, site_names=site_names)
+                await create_community_asset(client, account, community_name=community_name, site_names=site_names)
             else:
                 print("Assets already exist, skipping to data upload")
 
