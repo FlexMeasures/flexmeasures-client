@@ -174,7 +174,6 @@ async def run_scheduling_simulation(
         # Run reporter to log community site aggregate power consumption each scheduling step
         run_site_aggregate(
             sensors=sensors,
-            index=index,
             current_time=current_time,
             step_end_time=step_end_time,
             site_asset=community_asset,
@@ -826,7 +825,6 @@ async def map_site_sensors(
 
 def run_site_aggregate(
     sensors: dict,
-    index: int,
     current_time: pd.Timestamp,
     step_end_time: pd.Timestamp,
     site_asset: dict,
