@@ -172,11 +172,11 @@ async def run_scheduling_simulation(
             next_current_soc_dict[site_name]["heating"] = heating_next_current_soc
 
         # Run reporter to log community site aggregate power consumption each scheduling step
-        run_site_aggregate(
+        run_community_aggregate(
             sensors=sensors,
             current_time=current_time,
             step_end_time=step_end_time,
-            site_asset=community_asset,
+            community_asset=community_asset,
             site_names=site_names,
         )
 
@@ -823,16 +823,17 @@ async def map_site_sensors(
     return sensors
 
 
-def run_site_aggregate(
+def run_community_aggregate(
     sensors: dict,
     current_time: pd.Timestamp,
     step_end_time: pd.Timestamp,
-    site_asset: dict,
+    community_asset: dict,
     site_names: list[str],
 ):
-    for x in site_asset["sensors"]:
+    community_power_sensor = None
+    for x in community_asset["sensors"]:
         if x["name"] == "power":
-            site_power_sensor = x
+            community_power_sensor = x
             break
     # Run each site's aggregate reporter
     for index, site_name in enumerate(site_names, start=1):
@@ -863,7 +864,7 @@ def run_site_aggregate(
             {f"aggregate-{index}": sensors[f"electricity-aggregate-{index}"]["id"]}
             for index, _ in enumerate(site_names, start=1)
         ],
-        output_sensors=site_power_sensor,
+        output_sensors=community_power_sensor,
         start=current_time.isoformat(),
         end=step_end_time.isoformat(),
         reporter_type="aggregate",
