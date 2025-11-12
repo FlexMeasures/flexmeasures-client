@@ -2,11 +2,9 @@ import asyncio
 
 import pandas as pd
 from const import (
-    building_names,
     heating_name,
     price_market_name,
     pv_name,
-    site_name,
     weather_station_name,
 )
 
@@ -72,14 +70,14 @@ async def find_sensors_by_asset(
     return sensors
 
 
-async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
+async def upload_data_for_first_two_weeks(client: FlexMeasuresClient, community_name: str, site_names: list[str]):
     """Upload historical data for the first two weeks."""
     print("Uploading data for first two weeks...")
 
-    for i, building_name in enumerate(building_names, start=1):
+    for i, building_name in enumerate(site_names, start=1):
         # Find all required sensors
         sensor_mappings = [
-            ("site-power-capacity", "site-power-capacity", site_name),
+            ("site-power-capacity", "site-power-capacity", community_name),
             ("electricity-price", "electricity-price", price_market_name),
             ("electricity-consumption", "electricity-consumption", building_name),
             ("max-consumption-capacity", "max-consumption-capacity", building_name),
@@ -129,11 +127,11 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
     return True
 
 
-async def cleanup_existing_assets(client: FlexMeasuresClient, account_id: int):
+async def cleanup_existing_assets(client: FlexMeasuresClient, account_id: int, site_names: list[str]):
     """Clean up existing HEMS assets to avoid naming conflicts."""
     print("Cleaning up existing assets...")
 
-    for building_name in building_names:
+    for building_name in site_names:
         # Asset names to clean up
         asset_names_to_clean = [
             building_name,  # Deleting this asset also deletes child assets (battery, PV, EVSEs)

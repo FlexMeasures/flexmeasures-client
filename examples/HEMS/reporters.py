@@ -4,7 +4,6 @@ from const import (
     SCHEDULING_END,
     SCHEDULING_START,
     battery_name,
-    building_names,
     evse1_name,
     evse2_name,
     heating_name,
@@ -17,7 +16,7 @@ from utils.reporter_utils import fill_reporter_params, run_report_cmd
 from flexmeasures_client import FlexMeasuresClient
 
 
-async def create_reports(client: FlexMeasuresClient):
+async def create_reports(client: FlexMeasuresClient, site_names: list[str]):
     """Generate reports using FlexMeasures CLI."""
     print("Generating reports...")
 
@@ -28,7 +27,7 @@ async def create_reports(client: FlexMeasuresClient):
     if check_result.returncode != 0:
         print("FlexMeasures CLI not found. Skipping report generation.")
         return False
-    for i, building_name in enumerate(building_names, start=1):
+    for i, building_name in enumerate(site_names, start=1):
 
         # Find all required sensors
         sensor_mappings = [

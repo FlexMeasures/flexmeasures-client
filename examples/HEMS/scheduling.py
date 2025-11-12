@@ -12,13 +12,11 @@ from const import (
     SIMULATION_STEP_HOURS,
     TUTORIAL_START_DATE,
     battery_name,
-    building_names,
     evse1_name,
     evse2_name,
     heating_name,
     price_market_name,
     pv_name,
-    site_name,
 )
 from utils.asset_utils import find_sensor_by_name_and_asset, load_and_align_csv_data
 from utils.ev_utils import (
@@ -33,13 +31,15 @@ from flexmeasures_client.client import FlexMeasuresClient
 
 async def run_scheduling_simulation(
     client: FlexMeasuresClient,
+    community_name: str,
+    site_names: list[str],
     simulate_live_corrections: bool = True,
 ):
     """Run step-by-step scheduling simulation for the third week with EV charging."""
     print("Running scheduling simulation for third week with EV charging...")
 
     # Find required assets and sensors
-    sensors = await map_site_sensors(client)
+    sensors = await map_site_sensors(client, site_names=site_names)
 
     # Load complete datasets for simulation
     building_df = load_and_align_csv_data(
@@ -57,13 +57,13 @@ async def run_scheduling_simulation(
 
     # Dictionary to hold next current SoC for each building's devices
     next_current_soc_dict = {
-        building_names[index]: {
+        site_names[index]: {
             "battery": battery_next_current_soc,
             "evse1": evse1_next_current_soc,
             "evse2": evse2_next_current_soc,
             "heating": heating_next_current_soc,
         }
-        for index in range(len(building_names))
+        for index in range(len(site_names))
     }
 
     while current_time < end_time:
@@ -72,7 +72,7 @@ async def run_scheduling_simulation(
         step_end_time = current_time + timedelta(hours=SIMULATION_STEP_HOURS)
 
         # For each building in the community site
-        for index, building_name in enumerate(building_names, start=1):
+        for index, building_name in enumerate(site_names, start=1):
 
             (
                 site_asset,
@@ -82,7 +82,7 @@ async def run_scheduling_simulation(
                 evse2_asset,
                 heating_asset,
             ) = await get_building_assets(
-                client=client, building_name=building_name, index=index
+                client=client, building_name=building_name, community_name=community_name, index=index
             )
 
             # Get battery soc settings
@@ -172,6 +172,7 @@ async def run_scheduling_simulation(
             current_time=current_time,
             step_end_time=step_end_time,
             site_asset=site_asset,
+            site_names=site_names,
         )
 
         # Move to next simulation step
@@ -795,13 +796,14 @@ async def compute_site_measurements(
 async def get_building_assets(
     client: FlexMeasuresClient,
     building_name: str,
+    community_name: str,
     index: int,
 ):
     """Get all assets in a site's child building."""
     assets = await client.get_assets()
     assets_by_name = {a["name"]: a for a in assets}
 
-    site_asset = assets_by_name.get(site_name)
+    site_asset = assets_by_name.get(community_name)
     building_asset = assets_by_name.get(building_name)
     battery_asset = assets_by_name.get(f"{battery_name} {index}")
     evse1_asset = assets_by_name.get(f"{evse1_name} {index}")
@@ -835,12 +837,13 @@ async def get_building_assets(
 
 async def map_site_sensors(
     client: FlexMeasuresClient,
+    site_names: list[str]
 ):
     """Map required sensors for all buildings in the site."""
     # Find required assets and sensors
     sensors = {}
     # Find building, battery, and EVSE assets
-    for index, building_name in enumerate(building_names, start=1):
+    for index, building_name in enumerate(site_names, start=1):
 
         # Find sensors (including EVSE sensors) - using unique keys for duplicate sensor names
         sensor_mappings = [
@@ -876,13 +879,14 @@ def run_site_aggregate(
     current_time: pd.Timestamp,
     step_end_time: pd.Timestamp,
     site_asset: dict,
+    site_names: list[str],
 ):
     for x in site_asset["sensors"]:
         if x["name"] == "power":
             site_power_sensor = x
             break
     # Run each building's aggregate reporter
-    for index, building_name in enumerate(building_names, start=1):
+    for index, building_name in enumerate(site_names, start=1):
         # Fill reporter parameters for each building
         fill_reporter_params(
             input_sensors=[
@@ -908,7 +912,7 @@ def run_site_aggregate(
     fill_reporter_params(
         input_sensors=[
             {f"aggregate-{index}": sensors[f"electricity-aggregate-{index}"]["id"]}
-            for index, _ in enumerate(building_names, start=1)
+            for index, _ in enumerate(site_names, start=1)
         ],
         output_sensors=site_power_sensor,
         start=current_time.isoformat(),
