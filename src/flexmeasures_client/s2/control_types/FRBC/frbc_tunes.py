@@ -95,7 +95,7 @@ class FillRateBasedControlTUNES(FRBC):
     _datastore: dict
     _timers: dict[str, datetime]
     _minimum_measurement_period: timedelta = timedelta(minutes=5)
-    _safety_margin = 20  # in ENERGY_UNIT
+    _safety_margin = 30  # in ENERGY_UNIT
 
     def __init__(
         self,
@@ -400,7 +400,7 @@ class FillRateBasedControlTUNES(FRBC):
                 "soc-at-start": f"{soc_at_start} {ENERGY_UNIT}",
                 "soc-max": f"{soc_max} {ENERGY_UNIT}",
                 "soc-min": f"{soc_min} {ENERGY_UNIT}",
-                "soc-minima": f"{soc_min + self._safety_margin} {ENERGY_UNIT}",
+                "soc-minima": f"{max(soc_min, self._safety_margin)} {ENERGY_UNIT}",
                 "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
                 "storage-efficiency": {"sensor": self._leakage_behaviour_sensor_id},
                 "charging-efficiency": {"sensor": efficiency_sensor_id},
