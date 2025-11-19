@@ -16,11 +16,12 @@ To run the HEMS example (``HEMS_setup.py``), you'll need a virtual environment i
 
 Or, alternatively, for developers:
 
-```
-python3.12 -m venv venv
-pip install flexmeasures-client
-pip install flexmeasures
-```
+.. code-block:: bash
+
+    python3.12 -m venv venv
+    pip install flexmeasures-client
+    pip install flexmeasures
+
 
 Next steps:
 
@@ -41,19 +42,19 @@ Run the tutorial script
 Before running the tutorial, make sure to update the connection details and other relevant settings (e.g., host, port, credentials) in examples/HEMS/const.py to match your local FlexMeasures setup.
 Open three terminals. In the first terminal, run the server:
 
-```
-flexmeasures run
-```
+.. code-block:: bash
+
+    flexmeasures run
 
 In the second terminal, run a flexmeasures worker for the scheduling jobs:
 
-```
-flexmeasures jobs run-worker --queue "scheduling"
-```
+.. code-block:: bash
+
+    flexmeasures jobs run-worker --queue "scheduling"
 
 In the third terminal, run the client script using the `/examples/HEMS` folder as the current working directory:
 
-```
-cd examples/HEMS
-python3 HEMS_setup.py
-```
+.. code-block:: bash
+
+    cd examples/HEMS
+    python3 HEMS_setup.py
