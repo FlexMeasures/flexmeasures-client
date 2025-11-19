@@ -15,7 +15,7 @@ This is the resulting dashboard:
     :align: center
 |
 
-.. note:: * The tutorial still uses the CLI for two things: forecasting and reporting. We are working on those...
+.. note:: The tutorial still uses the CLI for two things: forecasting and reporting. We are working on those...
 
 
 Set up your environment
