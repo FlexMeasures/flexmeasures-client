@@ -95,7 +95,7 @@ class FillRateBasedControlTUNES(FRBC):
     _datastore: dict
     _timers: dict[str, datetime]
     _minimum_measurement_period: timedelta = timedelta(minutes=5)
-    _safety_margin = 30  # in ENERGY_UNIT
+    _safety_margin = 60  # in ENERGY_UNIT
 
     def __init__(
         self,
