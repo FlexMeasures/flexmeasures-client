@@ -3,6 +3,18 @@
 HEMS tutorial
 -------------
 
+We wrote a complete tutorial with the client*, which sets up a HEMS from scratch (from nothing but a FlexMeasures account).
+
+- It creates the whole structure - with PV, battery and a heat pump.
+- It loads two weeks of historical data and creates forecasts based on it
+- It goes through one week in 4h steps, forecasting and scheduling all flexible assets.
+
+This is the resulting dashboard:
+
+.. image:: https://github.com/FlexMeasures/flexmeasures-client/blob/main/docs/_static/HEMS-tutorial-dashboard.png
+    :align: center
+|
+
 Set up your environment
 ========================
 
