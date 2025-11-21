@@ -300,7 +300,7 @@ class FlexMeasuresClient:
     async def get_asset_types(self) -> list:
         """
         Get the asset types currently supported by FlexMeasures server.
-        
+
         Returns:
             list[dict]: List of asset type objects, e.g.,
                 [{"id": 1, "name": "solar", "description": "solar panel(s)"}]
@@ -309,11 +309,11 @@ class FlexMeasuresClient:
             uri="assets/types",
             method="GET",
         )
+        check_for_status(status, 200)
         if not isinstance(response, list):
             raise ContentTypeError(
                 f"Expected a list of asset types, but got {type(response)}",
             )
-        check_for_status(status, 200)
 
         return response
 
