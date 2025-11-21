@@ -298,7 +298,13 @@ class FlexMeasuresClient:
         return version_info
 
     async def get_asset_types(self) -> list:
-        """Get the asset types currently supported by FlexMeasures server."""
+        """
+        Get the asset types currently supported by FlexMeasures server.
+        
+        Returns:
+            list[dict]: List of asset type objects, e.g.,
+                [{"id": 1, "name": "solar", "description": "solar panel(s)"}]
+        """
         response, status = await self.request(
             uri="assets/types",
             method="GET",
