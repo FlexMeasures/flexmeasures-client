@@ -171,24 +171,22 @@ class FlexMeasuresClient:
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
                         logging.debug(exception)
-                        raise ConnectionError(
-                            f"Error occurred while communicating with the API: {exception}"
-                        ) from exception
-                    except Exception as exc:
                         # if endpoint wasn't found, we might know why and can tell the user
-                        found_reason = False
-                        if "404" in str(exc) and minimum_server_version is not None:
+                        if (
+                            "404" in str(exception)
+                            and minimum_server_version is not None
+                        ):
                             version_info = await self.get_versions()
                             server_version = version_info["server_version"]
                             if Version(server_version) < Version(
                                 minimum_server_version
                             ):
-                                found_reason = True
                                 raise InsufficientServerVersionError(
                                     f"This functionality requires FlexMeasures server of {minimum_server_version} or above. Current server has version {server_version}."
                                 )
-                        if not found_reason:
-                            raise exc
+                        raise ConnectionError(
+                            f"Error occurred while communicating with the API: {exception}"
+                        ) from exception
 
         except asyncio.TimeoutError as exception:
             raise ConnectionError(
