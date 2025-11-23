@@ -119,6 +119,7 @@ class FlexMeasuresClient:
         params: dict[str, Any] | None = None,
         include_auth: bool = True,
         minimum_server_version: str | None = None,
+        minimum_server_version_msg: str | None = None,
     ) -> tuple[dict | list, int]:
         """Send a request to FlexMeasures.
 
@@ -177,9 +178,10 @@ class FlexMeasuresClient:
                             if Version(server_version) < Version(
                                 minimum_server_version
                             ):
-                                raise InsufficientServerVersionError(
-                                    f"This functionality requires FlexMeasures server of {minimum_server_version} or above. Current server has version {server_version}."
-                                )
+                                msg = f"This functionality requires FlexMeasures server of {minimum_server_version} or above. Current server has version {server_version}."
+                                if minimum_server_version_msg:
+                                    msg += f"\n{minimum_server_version_msg}"
+                                raise InsufficientServerVersionError(msg)
                         raise ConnectionError(
                             f"Error occurred while communicating with the API: {exception}"
                         ) from exception
@@ -430,6 +432,8 @@ class FlexMeasuresClient:
         _response, status = await self.request(
             uri=f"sensors/{sensor_id}/data",
             json_payload=json_payload,
+            minimum_server_version="0.28.0",
+            minimum_server_version_msg="Upgrade FlexMeasures or alternatively install client v0.7.0, where the deprecated endpoint is supported.",
         )
         check_for_status(status, 200)
         logging.info("Sensor data sent successfully via JSON.")
@@ -768,7 +772,11 @@ class FlexMeasuresClient:
         )
 
         response, status = await self.request(
-            uri=f"sensors/{sensor_id}/data", method="GET", params=params
+            uri=f"sensors/{sensor_id}/data",
+            method="GET",
+            params=params,
+            minimum_server_version="0.28.0",
+            minimum_server_version_msg="Upgrade FlexMeasures or alternatively install client v0.7.0, where the deprecated endpoint is supported.",
         )
         check_for_status(status, 200)
         if not isinstance(response, dict):
