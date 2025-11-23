@@ -25,6 +25,7 @@ from flexmeasures_client.exceptions import (
     ContentTypeError,
     EmailValidationError,
     EmptyPasswordError,
+    InsufficientServerVersionError,
     WrongAPIVersionError,
     WrongHostError,
 )
@@ -121,6 +122,7 @@ class FlexMeasuresClient:
         path: str = path,
         params: dict[str, Any] | None = None,
         include_auth: bool = True,
+        minimum_server_version: str | None = None,
     ) -> tuple[dict | list, int]:
         """Send a request to FlexMeasures.
 
@@ -169,9 +171,23 @@ class FlexMeasuresClient:
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
                         logging.debug(exception)
+                        # if endpoint wasn't found, we might know why and can tell the user
+                        if (
+                            "404" in str(exception)
+                            and minimum_server_version is not None
+                        ):
+                            version_info = await self.get_versions()
+                            server_version = version_info["server_version"]
+                            if Version(server_version) < Version(
+                                minimum_server_version
+                            ):
+                                raise InsufficientServerVersionError(
+                                    f"This functionality requires FlexMeasures server of {minimum_server_version} or above. Current server has version {server_version}."
+                                )
                         raise ConnectionError(
                             f"Error occurred while communicating with the API: {exception}"
                         ) from exception
+
         except asyncio.TimeoutError as exception:
             raise ConnectionError(
                 "Client polling timeout while connection to the API."
@@ -306,8 +322,7 @@ class FlexMeasuresClient:
                 [{"id": 1, "name": "solar", "description": "solar panel(s)"}]
         """
         response, status = await self.request(
-            uri="assets/types",
-            method="GET",
+            uri="assets/types", method="GET", minimum_server_version="v0.28.0"
         )
         check_for_status(status, 200)
         if not isinstance(response, list):
@@ -614,7 +629,6 @@ class FlexMeasuresClient:
         for user in users:
             if user["email"] == self.email:
                 break
-        check_for_status(status, 200)
         return user
 
     async def get_assets(
@@ -1039,22 +1053,11 @@ class FlexMeasuresClient:
                 json_payload=message,
             )
         else:
-            try:
-                response, status = await self.request(
-                    uri=f"assets/{asset_id}/schedules/trigger",
-                    json_payload=message,
-                )
-            except Exception as exc:
-                if "404" in str(exc):
-                    version_info = await self.get_versions()
-                    server_version = version_info["server_version"]
-                    minimum_server_version = "v0.27.0"
-                    if Version(server_version) < Version(minimum_server_version):
-                        raise ConnectionError(
-                            f"This API endpoint doesn't exist yet. The server runs v{server_version}, but at least {minimum_server_version} is required. {exc}"
-                        )
-                else:
-                    raise exc
+            response, status = await self.request(
+                uri=f"assets/{asset_id}/schedules/trigger",
+                json_payload=message,
+                minimum_server_version="v0.27.0",
+            )
         check_for_status(status, 200)
 
         logging.info("Schedule triggered successfully.")

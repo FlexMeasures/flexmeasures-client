@@ -9,6 +9,7 @@ from flexmeasures_client.client import (
     EmailValidationError,
     EmptyPasswordError,
     FlexMeasuresClient,
+    InsufficientServerVersionError,
     WrongAPIVersionError,
     WrongHostError,
 )
@@ -823,8 +824,8 @@ async def test_get_versions() -> None:
         version_info = await flexmeasures_client.get_versions()
         assert version_info["server_version"] == "0.25.0.dev0"
         with pytest.raises(
-            ConnectionError,
-            match="The server runs v0.25.0.dev0, but at least v0.27.0 is required.",
+            InsufficientServerVersionError,
+            match="This functionality requires FlexMeasures server of v0.27.0 or above. Current server has version 0.25.0.dev0.",
         ):
             await flexmeasures_client.trigger_and_get_schedule(
                 asset_id=1,
