@@ -36,3 +36,11 @@ class WrongAPIVersionError(Exception):
     def __init__(self, message):
         self.message = message
         super().__init__(self.message)
+
+
+class InsufficientServerVersionError(Exception):
+    """Raised when the Server version is too low for a given feature"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)

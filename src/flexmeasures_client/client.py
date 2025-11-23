@@ -21,6 +21,7 @@ from flexmeasures_client.exceptions import (
     ContentTypeError,
     EmailValidationError,
     EmptyPasswordError,
+    InsufficientServerVersionError,
     WrongAPIVersionError,
     WrongHostError,
 )
@@ -117,6 +118,7 @@ class FlexMeasuresClient:
         path: str = path,
         params: dict[str, Any] | None = None,
         include_auth: bool = True,
+        minimum_server_version: str | None = None,
     ) -> tuple[dict | list, int]:
         """Send a request to FlexMeasures.
 
@@ -165,9 +167,23 @@ class FlexMeasuresClient:
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
                         logging.debug(exception)
+                        # if endpoint wasn't found, we might know why and can tell the user
+                        if (
+                            "404" in str(exception)
+                            and minimum_server_version is not None
+                        ):
+                            version_info = await self.get_versions()
+                            server_version = version_info["server_version"]
+                            if Version(server_version) < Version(
+                                minimum_server_version
+                            ):
+                                raise InsufficientServerVersionError(
+                                    f"This functionality requires FlexMeasures server of {minimum_server_version} or above. Current server has version {server_version}."
+                                )
                         raise ConnectionError(
                             f"Error occurred while communicating with the API: {exception}"
                         ) from exception
+
         except asyncio.TimeoutError as exception:
             raise ConnectionError(
                 "Client polling timeout while connection to the API."
@@ -293,6 +309,25 @@ class FlexMeasuresClient:
 
         return version_info
 
+    async def get_asset_types(self) -> list:
+        """
+        Get the asset types currently supported by FlexMeasures server.
+
+        Returns:
+            list[dict]: List of asset type objects, e.g.,
+                [{"id": 1, "name": "solar", "description": "solar panel(s)"}]
+        """
+        response, status = await self.request(
+            uri="assets/types", method="GET", minimum_server_version="v0.28.0"
+        )
+        check_for_status(status, 200)
+        if not isinstance(response, list):
+            raise ContentTypeError(
+                f"Expected a list of asset types, but got {type(response)}",
+            )
+
+        return response
+
     async def post_sensor_data(
         self,
         sensor_id: int,
@@ -302,9 +337,10 @@ class FlexMeasuresClient:
         duration: str | timedelta | None = None,
         values: list[float] | None = None,
         unit: str | None = None,
-        prior: str | None = None,
+        prior: str | datetime | None = None,
         # Parameters for file upload
         file_path: str | None = None,
+        belief_time_measured_instantly: bool = False,
     ):
         """
         Post sensor data for the given time range.
@@ -365,6 +401,7 @@ class FlexMeasuresClient:
             return await self._post_sensor_data_file(
                 sensor_id=sensor_id,
                 file_path=file_path,
+                belief_time_measured_instantly=belief_time_measured_instantly,
             )
 
     async def _post_sensor_data_json(
@@ -374,7 +411,7 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         values: list[float],
         unit: str,
-        prior: str | None = None,
+        prior: str | datetime | None = None,
     ):
         """
         Post sensor data using JSON payload.
@@ -388,7 +425,7 @@ class FlexMeasuresClient:
             unit=unit,
         )
         if prior:
-            json_payload["prior"] = prior
+            json_payload["prior"] = pd.Timestamp(prior).isoformat()
 
         _response, status = await self.request(
             uri=f"sensors/{sensor_id}/data",
@@ -401,6 +438,7 @@ class FlexMeasuresClient:
         self,
         sensor_id: int,
         file_path: str,
+        belief_time_measured_instantly: bool = False,
     ):
         """
         Post sensor data using file upload.
@@ -431,7 +469,10 @@ class FlexMeasuresClient:
             filename=os.path.basename(file_path),
             content_type=content_type,
         )
-
+        form_data.add_field(
+            "belief-time-measured-instantly",
+            str(belief_time_measured_instantly),
+        )
         # Build URL for file upload endpoint
         url = self.build_url(f"sensors/{sensor_id}/data/upload")
 
@@ -484,7 +525,7 @@ class FlexMeasuresClient:
         duration: str | timedelta,
         values: list[float],
         unit: str,
-        prior: str | None = None,
+        prior: str | datetime | None = None,
     ):
         """
         Post sensor data for the given time range.
@@ -583,7 +624,6 @@ class FlexMeasuresClient:
         for user in users:
             if user["email"] == self.email:
                 break
-        check_for_status(status, 200)
         return user
 
     async def get_assets(
@@ -640,10 +680,11 @@ class FlexMeasuresClient:
         self,
         start: str | datetime,
         duration: str | timedelta,
-        flex_model: dict | list[dict],
-        flex_context: dict,
+        flex_model: dict | list[dict] | None = None,
+        flex_context: dict | None = None,
         sensor_id: int | None = None,
         asset_id: int | None = None,
+        prior: datetime | None = None,
     ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
 
@@ -672,6 +713,7 @@ class FlexMeasuresClient:
             duration=duration,
             flex_model=flex_model,
             flex_context=flex_context,
+            prior=prior,
         )
 
         if sensor_id is not None:
@@ -679,6 +721,9 @@ class FlexMeasuresClient:
             return await self.get_schedule(
                 sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
             )
+        elif flex_model is None:
+            # If there is no flex-model referencing power sensors, no power schedules are retrieved
+            return []
         else:
             # Get the schedule for a collection of devices (one by one)
             schedule: list[dict] = []
@@ -890,6 +935,10 @@ class FlexMeasuresClient:
             updates["flex_model"] = json.dumps(updates["flex_model"])
         if "sensors_to_show" in updates:
             updates["sensors_to_show"] = json.dumps(updates["sensors_to_show"])
+        if "sensors_to_show_as_kpis" in updates:
+            updates["sensors_to_show_as_kpis"] = json.dumps(
+                updates["sensors_to_show_as_kpis"]
+            )
         for key, val in updates.items():
             if type(val) not in (str, bytes, bytearray):
                 raise ContentTypeError(
@@ -970,10 +1019,11 @@ class FlexMeasuresClient:
         self,
         start: str | datetime,
         duration: str | timedelta,
-        flex_model: dict | list[dict],
-        flex_context: dict,
+        flex_model: dict | list[dict] | None = None,
+        flex_context: dict | None = None,
         sensor_id: int | None = None,
         asset_id: int | None = None,
+        prior: datetime | None = None,
     ) -> str:
         if (sensor_id is None) == (asset_id is None):
             raise ValueError("Pass either a sensor_id or an asset_id.")
@@ -982,31 +1032,26 @@ class FlexMeasuresClient:
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
             "duration": pd.Timedelta(duration).isoformat(),
-            "flex-model": flex_model,
-            "flex-context": flex_context,
         }
+        if flex_model is not None:
+            message["flex-model"] = flex_model
+        if flex_context is not None:
+            message["flex-context"] = flex_context
+
+        if prior is not None:
+            message["prior"] = pd.Timestamp(prior).isoformat()
+
         if sensor_id is not None:
             response, status = await self.request(
                 uri=f"sensors/{sensor_id}/schedules/trigger",
                 json_payload=message,
             )
         else:
-            try:
-                response, status = await self.request(
-                    uri=f"assets/{asset_id}/schedules/trigger",
-                    json_payload=message,
-                )
-            except Exception as exc:
-                if "404" in str(exc):
-                    version_info = await self.get_versions()
-                    server_version = version_info["server_version"]
-                    minimum_server_version = "v0.27.0"
-                    if Version(server_version) < Version(minimum_server_version):
-                        raise ConnectionError(
-                            f"This API endpoint doesn't exist yet. The server runs v{server_version}, but at least {minimum_server_version} is required. {exc}"
-                        )
-                else:
-                    raise exc
+            response, status = await self.request(
+                uri=f"assets/{asset_id}/schedules/trigger",
+                json_payload=message,
+                minimum_server_version="v0.27.0",
+            )
         check_for_status(status, 200)
 
         logging.info("Schedule triggered successfully.")

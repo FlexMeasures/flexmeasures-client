@@ -1,0 +1,81 @@
+{
+    "required_input" :[{"name":"production","unit": "kW"}, {"name":"heating-power","unit": "kW"},{"name":"evse1-consumption","unit": "kW"},{"name":"evse2-consumption","unit": "kW"},{"name":"building-consumption","unit": "kW"}, {"name":"battery-power","unit": "kW"}],
+    "required_output" :[{"name":"self-consumption","unit": "kW"}, {"name":"daily-share-of-self-consumption", "unit": "%"}],
+    "droplevels": true,
+    "transformations" : [
+        {
+            "df_input": "evse1-consumption",
+            "df_output": "total-evse-consumption",
+            "method": "add",
+            "args": ["@evse2-consumption"]
+        },
+        {
+            "df_input": "battery-power",
+            "df_output": "battery-consumption",
+            "method": "clip",
+            "kwargs": {
+                "lower": 0
+            }
+        },
+        {
+            "df_input": "battery-consumption",
+            "df_output": "total-load",
+            "method": "add",
+            "args": ["@building-consumption"]
+        },
+        {
+            "method": "add",
+            "args": ["@total-evse-consumption"]
+        },
+        {
+            "method": "add",
+            "args": ["@heating-power"]
+        },
+        {
+            "df_input": "production",
+            "df_output": "excess-pv",
+            "method": "sub",
+            "args": ["@total-load"]
+        },
+        {
+            "df_input": "excess-pv",
+            "df_output": "excess-pv",
+            "method": "clip",
+            "kwargs": {"lower": 0}
+        },
+        {
+            "df_input": "production",
+            "df_output": "self-consumption",
+            "method": "sub",
+            "args": ["@excess-pv"]
+        },
+        {
+            "df_input": "self-consumption",
+            "df_output": "daily self-consumption",
+            "method": "resample",
+            "args": ["1D"]
+        },
+        {
+            "method": "sum"
+        },
+        {
+            "df_input": "production",
+            "df_output": "daily solar production",
+            "method": "resample",
+            "args": ["1D"]
+        },
+        {
+            "method": "sum"
+        },
+        {
+            "df_input": "daily self-consumption",
+            "df_output": "daily-share-of-self-consumption",
+            "method": "divide",
+            "args": ["@daily solar production"]
+        },
+        {
+            "method": "multiply",
+            "args": [100]
+        }
+    ]
+}
