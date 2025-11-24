@@ -16,11 +16,7 @@ from aiohttp.client import ClientError, ClientResponse, ClientSession
 from packaging.version import Version
 from yarl import URL
 
-from flexmeasures_client.constants import (
-    API_VERSION,
-    CONTENT_TYPE_HEADERS,
-    ENTITY_ADDRESS_PLACEHOLDER,
-)
+from flexmeasures_client.constants import API_VERSION, CONTENT_TYPE_HEADERS
 from flexmeasures_client.exceptions import (
     ContentTypeError,
     EmailValidationError,
@@ -123,6 +119,7 @@ class FlexMeasuresClient:
         params: dict[str, Any] | None = None,
         include_auth: bool = True,
         minimum_server_version: str | None = None,
+        minimum_server_version_msg: str | None = None,
     ) -> tuple[dict | list, int]:
         """Send a request to FlexMeasures.
 
@@ -181,9 +178,10 @@ class FlexMeasuresClient:
                             if Version(server_version) < Version(
                                 minimum_server_version
                             ):
-                                raise InsufficientServerVersionError(
-                                    f"This functionality requires FlexMeasures server of {minimum_server_version} or above. Current server has version {server_version}."
-                                )
+                                msg = f"This functionality requires FlexMeasures server of {minimum_server_version} or above. Current server has version {server_version}."
+                                if minimum_server_version_msg:
+                                    msg += f"\n{minimum_server_version_msg}"
+                                raise InsufficientServerVersionError(msg)
                         raise ConnectionError(
                             f"Error occurred while communicating with the API: {exception}"
                         ) from exception
@@ -418,10 +416,9 @@ class FlexMeasuresClient:
         prior: str | datetime | None = None,
     ):
         """
-        Post sensor data using JSON payload (original post_measurements functionality).
+        Post sensor data using JSON payload.
         """
         json_payload = dict(
-            sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
             start=pd.Timestamp(
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
@@ -433,8 +430,10 @@ class FlexMeasuresClient:
             json_payload["prior"] = pd.Timestamp(prior).isoformat()
 
         _response, status = await self.request(
-            uri="sensors/data",
+            uri=f"sensors/{sensor_id}/data",
             json_payload=json_payload,
+            minimum_server_version="0.28.0",
+            minimum_server_version_msg="Upgrade FlexMeasures or alternatively install client v0.7.0, where the deprecated endpoint is supported.",
         )
         check_for_status(status, 200)
         logging.info("Sensor data sent successfully via JSON.")
@@ -763,18 +762,21 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned.
         """
         params = dict(
-            sensor=f"{ENTITY_ADDRESS_PLACEHOLDER}.{sensor_id}",
             start=pd.Timestamp(
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
             duration=pd.Timedelta(duration).isoformat(),  # for example: PT1H
             unit=unit,
-            resolution=resolution,
+            resolution=pd.Timedelta(resolution).isoformat(),  # for example: PT1H
             **kwargs,
         )
 
         response, status = await self.request(
-            uri="sensors/data", method="GET", params=params
+            uri=f"sensors/{sensor_id}/data",
+            method="GET",
+            params=params,
+            minimum_server_version="0.28.0",
+            minimum_server_version_msg="Upgrade FlexMeasures or alternatively install client v0.7.0, where the deprecated endpoint is supported.",
         )
         check_for_status(status, 200)
         if not isinstance(response, dict):
