@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import numpy as np
 import pytest
+import pytest_asyncio
 from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
 
 import flexmeasures_client.s2.control_types.FRBC.frbc_tunes as frbc_tunes
@@ -17,7 +18,7 @@ from flexmeasures_client.s2.control_types.FRBC.frbc_tunes import (
 from flexmeasures_client.s2.utils import get_unique_id
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def setup_cem(resource_manager_details, rm_handshake, monkeypatch):
     monkeypatch.setattr(frbc_tunes, "FILL_LEVEL_SCALE", 1)
 
@@ -102,9 +103,9 @@ async def setup_cem(resource_manager_details, rm_handshake, monkeypatch):
     return cem, fm_client
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def cem_in_frbc_control_type(setup_cem, frbc_system_description):
-    cem, fm_client = await setup_cem
+    cem, fm_client = setup_cem
 
     ########
     # FRBC #
@@ -122,7 +123,7 @@ async def test_system_description(
 ):
     monkeypatch.setattr(frbc_tunes, "FILL_LEVEL_SCALE", 1)
 
-    cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
+    cem, fm_client, frbc_system_description = cem_in_frbc_control_type
 
     ########
     # FRBC #
@@ -177,7 +178,7 @@ def get_pending_tasks():
 async def test_fill_level_target_profile(cem_in_frbc_control_type, monkeypatch):
     monkeypatch.setattr(frbc_tunes, "FILL_LEVEL_SCALE", 1)
 
-    cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
+    cem, fm_client, frbc_system_description = cem_in_frbc_control_type
 
     fill_level_target_profile = {
         "start_time": "2024-01-01T00:00:00+01:00",
@@ -236,7 +237,7 @@ async def test_fill_rate_relay(cem_in_frbc_control_type, monkeypatch):
 
     monkeypatch.setattr(frbc_tunes, "FILL_LEVEL_SCALE", 1)
 
-    cem, fm_client, frbc_system_description = await cem_in_frbc_control_type
+    cem, fm_client, frbc_system_description = cem_in_frbc_control_type
     frbc = cem._control_types_handlers[cem.control_type]
 
     actuator_status = {
