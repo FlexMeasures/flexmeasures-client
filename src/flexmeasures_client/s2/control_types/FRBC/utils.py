@@ -1,3 +1,4 @@
+import logging
 import math
 from datetime import timedelta
 from math import isclose
@@ -21,9 +22,10 @@ except ImportError:
 
 from flexmeasures_client.s2.utils import get_unique_id
 
+LOGGER = logging.getLogger(__name__)
 
 def op_mode_compute_factor(
-    op_mode_elem: FRBCOperationModeElement, fill_rate: float, logger
+    op_mode_elem: FRBCOperationModeElement, fill_rate: float, logger: logging.Logger = LOGGER
 ) -> float:
     """Compute the operation mode factor for a given fill rate."""
 
@@ -110,7 +112,7 @@ def fm_schedule_to_instructions(
     schedule: pd.DataFrame,
     system_description: FRBCSystemDescription,
     initial_fill_level: float,
-    logger,
+    logger: logging.Logger = LOGGER,
 ) -> List[FRBCInstruction]:
     logger.debug(schedule.to_json())
     logger.debug(system_description.to_json())
