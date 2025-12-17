@@ -731,13 +731,24 @@ class FillRateBasedControlTUNES(FRBC):
         duration = str(pd.Timedelta(RESOLUTION) * len(soc_maxima))
 
         # POST SOC Minima measurements to FlexMeasures
-        await self._fm_client.post_sensor_data(
-            sensor_id=self._soc_minima_sensor_id,
-            start=fill_level_target_profile.start_time,
-            values=soc_minima.values,
-            unit=POWER_UNIT,
-            duration=duration,
-        )
+        try:
+            await self._fm_client.post_sensor_data(
+                sensor_id=self._soc_minima_sensor_id,
+                start=fill_level_target_profile.start_time,
+                values=soc_minima.values,
+                unit=POWER_UNIT,
+                duration=duration,
+            )
+        except Exception as exc:
+            kwargs = dict(
+                sensor_id=self._soc_minima_sensor_id,
+                start=fill_level_target_profile.start_time,
+                values=soc_minima.values,
+                unit=POWER_UNIT,
+                duration=duration,
+            )
+            self._logger.error(f"Posting: {kwargs}")
+            raise
 
         # POST SOC Maxima measurements to FlexMeasures
         await self._fm_client.post_sensor_data(
