@@ -735,7 +735,7 @@ class FillRateBasedControlTUNES(FRBC):
             await self._fm_client.post_sensor_data(
                 sensor_id=self._soc_minima_sensor_id,
                 start=fill_level_target_profile.start_time,
-                values=soc_minima.values,
+                values=soc_minima.tolist(),
                 unit=POWER_UNIT,
                 duration=duration,
             )
@@ -754,7 +754,7 @@ class FillRateBasedControlTUNES(FRBC):
         await self._fm_client.post_sensor_data(
             sensor_id=self._soc_maxima_sensor_id,
             start=fill_level_target_profile.start_time,
-            values=soc_maxima.values,
+            values=soc_maxima.tolist(),
             unit=POWER_UNIT,
             duration=duration,
         )
