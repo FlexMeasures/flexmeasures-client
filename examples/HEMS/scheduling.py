@@ -185,13 +185,13 @@ async def run_scheduling_simulation(
                 building_df=building_df,
                 current_time=current_time,
                 step_end_time=step_end_time,
-                schedule_result=schedule_results[index],
-                battery_soc_schedule=battery_soc_schedules[index],
-                evse1_soc_schedule=evse1_soc_schedules[index],
-                evse2_soc_schedule=evse2_soc_schedules[index],
-                heating_soc_schedule=heating_soc_schedules[index],
-                evse1_flex_model=evse1_flex_models[index],
-                evse2_flex_model=evse2_flex_models[index],
+                schedule_result=schedule_results[index-1],
+                battery_soc_schedule=battery_soc_schedules[index-1],
+                evse1_soc_schedule=evse1_soc_schedules[index-1],
+                evse2_soc_schedule=evse2_soc_schedules[index-1],
+                heating_soc_schedule=heating_soc_schedules[index-1],
+                evse1_flex_model=evse1_flex_models[index-1],
+                evse2_flex_model=evse2_flex_models[index-1],
             )
             next_current_soc_dict[site_name]["battery"] = battery_next_current_soc
             next_current_soc_dict[site_name]["evse1"] = evse1_next_current_soc
