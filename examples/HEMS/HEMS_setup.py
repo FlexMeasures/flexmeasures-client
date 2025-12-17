@@ -11,13 +11,13 @@ from assets_setup import create_community_asset
 from const import host, pwd, usr, COMMUNITY_NAME, SITE_NAMES
 from forecasting import generate_forecasts
 from reporters import create_reports
-from scheduling import run_scheduling_simulation
+from scheduling import just_continue, run_scheduling_simulation
 from utils.asset_utils import cleanup_existing_assets, upload_data_for_first_two_weeks
 
 from flexmeasures_client import FlexMeasuresClient
 
 
-async def main(community_name: str, site_names: list[str], callback: Callable | None = None):
+async def main(community_name: str, site_names: list[str], callback: Callable = just_continue):
     """
     Complete HEMS setup using FlexMeasures client.
 

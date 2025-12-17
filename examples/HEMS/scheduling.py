@@ -35,7 +35,7 @@ from flexmeasures_client.client import FlexMeasuresClient
 BASE_DIR = Path(__file__).parent
 
 
-def just_continue():
+def just_continue(*args, **kwargs):
     return True
 
 
