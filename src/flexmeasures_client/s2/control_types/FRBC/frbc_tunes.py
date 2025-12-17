@@ -736,7 +736,7 @@ class FillRateBasedControlTUNES(FRBC):
                 sensor_id=self._soc_minima_sensor_id,
                 start=fill_level_target_profile.start_time,
                 values=soc_minima.tolist(),
-                unit=POWER_UNIT,
+                unit=ENERGY_UNIT,
                 duration=duration,
             )
         except Exception as exc:
@@ -755,6 +755,6 @@ class FillRateBasedControlTUNES(FRBC):
             sensor_id=self._soc_maxima_sensor_id,
             start=fill_level_target_profile.start_time,
             values=soc_maxima.tolist(),
-            unit=POWER_UNIT,
+            unit=ENERGY_UNIT,
             duration=duration,
         )
