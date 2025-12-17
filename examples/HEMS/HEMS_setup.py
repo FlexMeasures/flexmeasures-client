@@ -49,9 +49,6 @@ async def main(community_name: str, site_names: list[str], callback: Callable | 
         account_id = account["id"]
         print(f" Connected to account: {account['name']} (ID: {account_id})")
 
-        # Clean up existing assets first
-        await cleanup_existing_assets(client=client, account_id=account_id, site_names=site_names)
-
         asset = None  # Initialize asset variable
         assets = await client.get_assets()
         for sst in assets:
