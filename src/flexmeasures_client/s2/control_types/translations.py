@@ -180,7 +180,7 @@ def translate_fill_level_target_profile(
     start = pd.Timestamp(fill_level_target_profile.start_time)
 
     durations = [
-        element.duration.to_timedelta()
+        pd.Timedelta(element.duration.to_timedelta())
         for element in fill_level_target_profile.elements
     ]
 
