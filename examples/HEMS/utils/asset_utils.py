@@ -27,16 +27,14 @@ async def find_sensor_by_name_and_asset(
             break
 
     if not target_asset:
-        print(f"Asset '{asset_name}' not found")
-        return None
+        raise LookupError(f"Asset '{asset_name}' not found")
 
     sensors = await client.get_sensors(asset_id=target_asset["id"])
     for sensor in sensors:
         if sensor["name"] == sensor_name:
             return sensor
 
-    print(f"Sensor '{sensor_name}' not found in asset '{asset_name}'")
-    return None
+    raise LookupError(f"Sensor '{sensor_name}' not found in asset '{asset_name}'")
 
 
 async def upload_csv_file_to_sensor(
@@ -70,8 +68,7 @@ async def find_sensors_by_asset(
         if sensor:
             sensors[key] = sensor
         else:
-            print(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
-            return False
+            raise LookupError(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
     return sensors
 
 

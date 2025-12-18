@@ -815,7 +815,7 @@ async def get_site_assets(
 async def map_site_sensors(
     client: FlexMeasuresClient,
     site_names: list[str]
-):
+) -> dict:
     """Map required sensors for all buildings in the site."""
     # Find required assets and sensors
     sensors = {}
@@ -845,8 +845,7 @@ async def map_site_sensors(
             if sensor:
                 sensors[sensor_key] = sensor
             else:
-                print(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
-                return False
+                raise LookupError(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
     return sensors
 
 
