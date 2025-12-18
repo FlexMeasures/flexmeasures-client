@@ -16,10 +16,16 @@ BASE_DIR = Path(__file__).parent.parent
 
 
 async def find_sensor_by_name_and_asset(
-    client: FlexMeasuresClient, sensor_name: str, asset_name: str
+    client: FlexMeasuresClient,
+    sensor_name: str,
+    asset_name: str,
+    top_level_asset_id: int | None = None,
 ):
     """Find a sensor by name within a specific asset."""
-    assets = await client.get_assets()
+    assets = await client.get_assets(
+        root_asset_id=top_level_asset_id
+    )  # first list those that are part of the community
+    assets += await client.get_assets()  # then list all accessible assets
     target_asset = None
     for asset in assets:
         if asset["name"] == asset_name:
@@ -58,21 +64,43 @@ async def upload_csv_file_to_sensor(
         return False
 
 
+async def find_top_level_asset_id(
+    client: FlexMeasuresClient,
+    name: str,
+) -> int:
+    top_level_assets = await client.get_assets(depth=0)
+    for asset in top_level_assets:
+        if asset["name"] == name:
+            return asset["id"]
+
+
 async def find_sensors_by_asset(
-    client: FlexMeasuresClient, sensor_mappings: list[tuple[str, str, str]]
+    client: FlexMeasuresClient,
+    sensor_mappings: list[tuple[str, str, str]],
+    top_level_asset_name: str | None = None,
 ):
-    """Find multiple sensors by name and asset name."""
+    """Find multiple sensors by name and asset name, optionally under a given top level asset."""
+    top_level_asset_id = None
+    if top_level_asset_name is not None:
+        top_level_asset_id = await find_top_level_asset_id(client, top_level_asset_name)
+
     sensors = {}
     for key, sensor_name, asset_name in sensor_mappings:
-        sensor = await find_sensor_by_name_and_asset(client, sensor_name, asset_name)
+        sensor = await find_sensor_by_name_and_asset(
+            client, sensor_name, asset_name, top_level_asset_id
+        )
         if sensor:
             sensors[key] = sensor
         else:
-            raise LookupError(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
+            raise LookupError(
+                f"Could not find sensor '{sensor_name}' in asset '{asset_name}'"
+            )
     return sensors
 
 
-async def upload_data_for_first_two_weeks(client: FlexMeasuresClient, community_name: str, site_names: list[str]):
+async def upload_data_for_first_two_weeks(
+    client: FlexMeasuresClient, community_name: str, site_names: list[str]
+):
     """Upload historical data for the first two weeks."""
     print("Uploading data for first two weeks...")
 
@@ -89,7 +117,7 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient, community_
             ("soc-usage", "soc-usage", heating_name + f" {i}"),
         ]
 
-        sensors = await find_sensors_by_asset(client, sensor_mappings)
+        sensors = await find_sensors_by_asset(client, sensor_mappings, community_name)
 
         # Upload data files directly
         data_files = [
@@ -129,7 +157,9 @@ async def upload_data_for_first_two_weeks(client: FlexMeasuresClient, community_
     return True
 
 
-async def cleanup_existing_assets(client: FlexMeasuresClient, account_id: int, site_names: list[str]):
+async def cleanup_existing_assets(
+    client: FlexMeasuresClient, account_id: int, site_names: list[str]
+):
     """Clean up existing HEMS assets to avoid naming conflicts."""
     print("Cleaning up existing assets...")
 

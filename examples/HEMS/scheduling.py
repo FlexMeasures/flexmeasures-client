@@ -22,7 +22,11 @@ from const import (
     price_market_name,
     pv_name,
 )
-from utils.asset_utils import find_sensor_by_name_and_asset, load_and_align_csv_data
+from utils.asset_utils import (
+    find_sensor_by_name_and_asset,
+    find_top_level_asset_id,
+    load_and_align_csv_data,
+)
 from utils.ev_utils import (
     calculate_ev_soc_targets_and_constraints,
     simulate_random_trip,
@@ -50,14 +54,14 @@ async def run_scheduling_simulation(
     print("Running scheduling simulation for third week with EV charging...")
 
     # Find required assets and sensors
-    sensors = await map_site_sensors(client, site_names=site_names)
+    sensors = await map_site_sensors(
+        client, site_names=site_names, community_name=community_name
+    )
 
     # Load complete datasets for simulation
     file_path = "data/building_data.csv"
     full_path = os.path.join(BASE_DIR, file_path)
-    building_df = load_and_align_csv_data(
-        full_path, TUTORIAL_START_DATE, 15
-    )
+    building_df = load_and_align_csv_data(full_path, TUTORIAL_START_DATE, 15)
 
     # Initialize simulation
     current_time = pd.to_datetime(SCHEDULING_START)
@@ -103,7 +107,10 @@ async def run_scheduling_simulation(
                     evse2_asset,
                     heating_asset,
                 ) = await get_site_assets(
-                    client=client, site_name=site_name, community_name=community_name, index=index
+                    client=client,
+                    site_name=site_name,
+                    community_name=community_name,
+                    index=index,
                 )
 
                 # Get battery soc settings
@@ -117,8 +124,12 @@ async def run_scheduling_simulation(
                 battery_soc_at_start = battery_flex_model.get("soc_at_start")
 
                 # Get EVSE settings
-                evse1_flex_model = json.loads(evse1_asset["attributes"]).get("flex_model")
-                evse2_flex_model = json.loads(evse2_asset["attributes"]).get("flex_model")
+                evse1_flex_model = json.loads(evse1_asset["attributes"]).get(
+                    "flex_model"
+                )
+                evse2_flex_model = json.loads(evse2_asset["attributes"]).get(
+                    "flex_model"
+                )
                 if not evse1_flex_model or not evse2_flex_model:
                     print("EVSE assets missing flex_model settings")
                     return False
@@ -185,13 +196,13 @@ async def run_scheduling_simulation(
                 building_df=building_df,
                 current_time=current_time,
                 step_end_time=step_end_time,
-                schedule_result=schedule_results[index-1],
-                battery_soc_schedule=battery_soc_schedules[index-1],
-                evse1_soc_schedule=evse1_soc_schedules[index-1],
-                evse2_soc_schedule=evse2_soc_schedules[index-1],
-                heating_soc_schedule=heating_soc_schedules[index-1],
-                evse1_flex_model=evse1_flex_models[index-1],
-                evse2_flex_model=evse2_flex_models[index-1],
+                schedule_result=schedule_results[index - 1],
+                battery_soc_schedule=battery_soc_schedules[index - 1],
+                evse1_soc_schedule=evse1_soc_schedules[index - 1],
+                evse2_soc_schedule=evse2_soc_schedules[index - 1],
+                heating_soc_schedule=heating_soc_schedules[index - 1],
+                evse1_flex_model=evse1_flex_models[index - 1],
+                evse2_flex_model=evse2_flex_models[index - 1],
             )
             next_current_soc_dict[site_name]["battery"] = battery_next_current_soc
             next_current_soc_dict[site_name]["evse1"] = evse1_next_current_soc
@@ -719,9 +730,7 @@ async def compute_site_measurements(
             f"[BATTERY] Power: {battery_average_power:.2f} kW | SoC: {battery_soc_start:.1f} → {battery_soc_end:.1f} kWh ({battery_soc_change:+.1f} kWh)"
         )
     else:
-        print(
-            f"[BATTERY] Power: {battery_average_power:.2f} kW | SoC: Not available"
-        )
+        print(f"[BATTERY] Power: {battery_average_power:.2f} kW | SoC: Not available")
 
     if evse1_soc_values:
         evse1_soc_start = evse1_soc_values[0]
@@ -758,9 +767,7 @@ async def compute_site_measurements(
             f"[HEATING] Power: {heating_average_power:.2f} kW | SoC: {heating_soc_start:.1f} → {heating_soc_end:.1f} kWh ({heating_soc_change:+.1f} kWh)"
         )
     else:
-        print(
-            f"[HEATING] Power: {heating_average_power:.2f} kW | SoC: Not available"
-        )
+        print(f"[HEATING] Power: {heating_average_power:.2f} kW | SoC: Not available")
 
     return (
         battery_next_current_soc,
@@ -814,11 +821,13 @@ async def get_site_assets(
 
 async def map_site_sensors(
     client: FlexMeasuresClient,
-    site_names: list[str]
+    site_names: list[str],
+    community_name: str,
 ) -> dict:
     """Map required sensors for all buildings in the site."""
     # Find required assets and sensors
     sensors = {}
+    top_level_asset_id = await find_top_level_asset_id(client, community_name)
     # Find building, battery, and EVSE assets
     for index, site_name in enumerate(site_names, start=1):
 
@@ -840,12 +849,14 @@ async def map_site_sensors(
 
         for sensor_key, asset_name, sensor_name in sensor_mappings:
             sensor = await find_sensor_by_name_and_asset(
-                client, sensor_name, asset_name
+                client, sensor_name, asset_name, top_level_asset_id=top_level_asset_id
             )
             if sensor:
                 sensors[sensor_key] = sensor
             else:
-                raise LookupError(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
+                raise LookupError(
+                    f"Could not find sensor '{sensor_name}' in asset '{asset_name}'"
+                )
     return sensors
 
 
