@@ -71,6 +71,7 @@ CONVERSION_EFFICIENCY_DURATION = f"PT99H"
 
 
 class FillRateBasedControlTUNES(FRBC):
+    _asset_id: int
     _fill_level_sensor_id: int
 
     _fill_rate_sensor_id: int
@@ -99,6 +100,7 @@ class FillRateBasedControlTUNES(FRBC):
 
     def __init__(
         self,
+        asset_id: int,
         soc_minima_sensor_id: int,
         soc_maxima_sensor_id: int,
         fill_level_sensor_id: int,
@@ -124,6 +126,7 @@ class FillRateBasedControlTUNES(FRBC):
     ) -> None:
         super().__init__(max_size)
 
+        self._asset_id = asset_id
         self._fill_level_sensor_id = fill_level_sensor_id
 
         self._fill_rate_sensor_id = fill_rate_sensor_id
@@ -587,6 +590,13 @@ class FillRateBasedControlTUNES(FRBC):
         # store system_description message for later
         self._system_description_history[system_description_id] = message
 
+        # update the asset's flex-model
+        task = asyncio.create_task(self.update_flex_model(message))
+        self.background_tasks.add(
+            task
+        )  # important to avoid a task disappearing mid-execution.
+        task.add_done_callback(self.background_tasks.discard)
+
         # send conversion efficiencies
         task = asyncio.create_task(self.send_conversion_efficiencies(message))
         self.background_tasks.add(
@@ -652,23 +662,32 @@ class FillRateBasedControlTUNES(FRBC):
                 duration=CONVERSION_EFFICIENCY_DURATION,
             )
 
-        # Send SOC Maxima and SOC Minima
-        await self._fm_client.post_sensor_data(
-            sensor_id=self._soc_minima_sensor_id,
-            start=start_time,
-            values=system_description.storage.fill_level_range.start_of_range
-            * FILL_LEVEL_SCALE,
-            unit=ENERGY_UNIT,
-            duration=CONVERSION_EFFICIENCY_DURATION,
-        )
+    async def update_flex_model(
+        self, system_description: FRBCSystemDescription
+    ):
+        """
+        Update the asset's flex-model in FlexMeasures
 
-        await self._fm_client.post_sensor_data(
-            sensor_id=self._soc_maxima_sensor_id,
-            start=start_time,
-            values=system_description.storage.fill_level_range.end_of_range
-            * FILL_LEVEL_SCALE,
-            unit=ENERGY_UNIT,
-            duration=CONVERSION_EFFICIENCY_DURATION,
+        Args:
+            system_description (FRBCSystemDescription): The system description containing actuator details.
+        """
+
+        if not self._is_timer_due("update_flex_model"):
+            return
+
+        soc_min = f"{system_description.storage.fill_level_range.start_of_range * FILL_LEVEL_SCALE} {ENERGY_UNIT}"
+        soc_max = f"{system_description.storage.fill_level_range.end_of_range * FILL_LEVEL_SCALE} {ENERGY_UNIT}"
+
+        await self._fm_client.update_asset(
+            asset_id=self._asset_id,
+            updates=dict(
+                flex_model={
+                    "soc-min": soc_min,
+                    "soc-max": soc_max,
+                    "prefer-charging-sooner": True,
+                    "prefer-curtailing-later": True,
+                },
+            )
         )
 
     async def close(self):
