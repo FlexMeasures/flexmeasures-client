@@ -666,7 +666,7 @@ class FillRateBasedControlTUNES(FRBC):
         self, system_description: FRBCSystemDescription
     ):
         """
-        Update the asset's flex-model in FlexMeasures
+        Update the asset's attributes and flex-model in FlexMeasures.
 
         Args:
             system_description (FRBCSystemDescription): The system description containing actuator details.
@@ -681,6 +681,7 @@ class FillRateBasedControlTUNES(FRBC):
         await self._fm_client.update_asset(
             asset_id=self._asset_id,
             updates=dict(
+                attributes=system_description.to_dict(),
                 flex_model={
                     "soc-min": soc_min,
                     "soc-max": soc_max,
