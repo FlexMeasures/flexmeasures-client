@@ -5,6 +5,7 @@ Used it at your own risk :)
 """
 
 import asyncio
+import json
 import math
 from datetime import datetime, timedelta
 from requests.exceptions import HTTPError
@@ -681,7 +682,7 @@ class FillRateBasedControlTUNES(FRBC):
         await self._fm_client.update_asset(
             asset_id=self._asset_id,
             updates=dict(
-                attributes=system_description.to_dict(),
+                attributes=json.loads(system_description.to_json()),
                 flex_model={
                     "soc-min": soc_min,
                     "soc-max": soc_max,
