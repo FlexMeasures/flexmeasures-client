@@ -48,6 +48,7 @@ async def setup_cem(resource_manager_details, rm_handshake, monkeypatch):
     cem = CEM(fm_client=fm_client)
 
     frbc = FillRateBasedControlTUNES(
+        asset_id=1,
         soc_minima_sensor_id=2,
         soc_maxima_sensor_id=3,
         rm_discharge_sensor_id=4,
@@ -217,12 +218,12 @@ async def test_fill_level_target_profile(cem_in_frbc_control_type, monkeypatch):
     assert first_call["sensor_id"] == 2
     assert first_call["start"] == start
 
-    assert np.isclose(first_call["values"].values, [0] * 4 + [1] * 8 + [2] * 12).all()
+    assert np.isclose(first_call["values"], [0] * 4 + [1] * 8 + [2] * 12).all()
 
     second_call = fm_client.post_sensor_data.call_args_list[1][1]
     assert second_call["sensor_id"] == 3
     assert second_call["start"] == start
-    assert np.isclose(second_call["values"].values, [10] * 4 + [9] * 8 + [8] * 12).all()
+    assert np.isclose(second_call["values"], [10] * 4 + [9] * 8 + [8] * 12).all()
 
     await cem.close()
     get_pending_tasks()
