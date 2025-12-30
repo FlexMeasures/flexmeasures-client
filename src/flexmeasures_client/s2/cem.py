@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from logging import Logger
 from typing import Dict, Optional
+
 import pandas as pd
 import pydantic
 

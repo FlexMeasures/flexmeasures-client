@@ -8,9 +8,9 @@ import asyncio
 import json
 import math
 from datetime import datetime, timedelta
-from requests.exceptions import HTTPError
 
 import pandas as pd
+from requests.exceptions import HTTPError
 
 """
 Import optional dependency needed for timezone aware datetimes to avoid
