@@ -339,13 +339,7 @@ class FillRateBasedControlTUNES(FRBC):
         start = self.now()
         start = start.replace(minute=(start.minute // 15) * 15, second=0, microsecond=0)
 
-        most_recent_system_description = next(
-            reversed(self._system_description_history.values())
-        )
-        soc_at_start = (
-            most_recent_system_description.storage.fill_level_range.start_of_range
-            * FILL_LEVEL_SCALE
-        )
+        # Find soc-at-start
         if len(self._storage_status_history) > 0:
             last_storage_status: FRBCStorageStatus = next(
                 reversed(self._storage_status_history.values())
@@ -353,6 +347,13 @@ class FillRateBasedControlTUNES(FRBC):
             soc_at_start = last_storage_status.present_fill_level * FILL_LEVEL_SCALE
         else:
             self._logger.info(f"No present fill level known: assuming an empty buffer.")
+            most_recent_system_description = next(
+                reversed(self._system_description_history.values())
+            )
+            soc_at_start = (
+                most_recent_system_description.storage.fill_level_range.start_of_range
+                * FILL_LEVEL_SCALE
+            )
 
         planning_duration = timedelta(hours=24)
         schedule_duration = timedelta(hours=6)
