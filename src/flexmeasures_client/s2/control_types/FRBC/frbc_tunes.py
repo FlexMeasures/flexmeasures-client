@@ -529,7 +529,6 @@ class FillRateBasedControlTUNES(FRBC):
         Process:
             1) Store system_description message for later.
             2) Send conversion efficiencies (COP) to FlexMeasures.
-            # 3) Start a recurring tasks to trigger the scheduler.
         """
 
         message_dict = message.to_dict()
