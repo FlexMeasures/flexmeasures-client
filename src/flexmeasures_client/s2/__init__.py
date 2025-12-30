@@ -5,7 +5,7 @@ import inspect
 import json
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Callable, Coroutine, Dict, Type
 
 import pydantic
