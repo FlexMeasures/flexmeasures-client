@@ -390,7 +390,6 @@ class FillRateBasedControlTUNES(FRBC):
             soc_at_start = last_storage_status.present_fill_level * FILL_LEVEL_SCALE
         else:
             self._logger.info(f"No present fill level known: assuming an empty buffer.")
-        self._logger.debug(f"soc_at_start: {soc_at_start}")
 
         planning_duration = timedelta(hours=24)
         schedule_duration = timedelta(hours=6)
@@ -442,7 +441,6 @@ class FillRateBasedControlTUNES(FRBC):
 
         self._logger.debug("Schedule returned:")
         self._logger.debug(schedule)
-        self._logger.debug("1")
         try:
             idx = pd.DatetimeIndex(
                 pd.date_range(
@@ -453,11 +451,7 @@ class FillRateBasedControlTUNES(FRBC):
             )
         except Exception as exc:
             self._logger.error(str(exc))
-        self._logger.debug("2")
         try:
-            self._logger.debug(
-                f"Fetching THP efficiency (ID={self._thp_efficiency_sensor_id} from {start} for duration {schedule_duration}.."
-            )
             thp_efficiency = await self._fm_client.get_sensor_data(
                 sensor_id=self._thp_efficiency_sensor_id,
                 start=start,
@@ -467,14 +461,12 @@ class FillRateBasedControlTUNES(FRBC):
             )
         except Exception as exc:
             self._logger.error(str(exc))
-        self._logger.debug("3")
         try:
             thp_efficiency = pd.Series(
                 thp_efficiency["values"], index=idx, name="thp_efficiency"
             )
         except Exception as exc:
             self._logger.error(str(exc))
-        self._logger.debug("4")
         try:
             nes_efficiency = await self._fm_client.get_sensor_data(
                 sensor_id=self._nes_efficiency_sensor_id,
@@ -485,11 +477,9 @@ class FillRateBasedControlTUNES(FRBC):
             )
         except Exception as exc:
             self._logger.error(str(exc))
-        self._logger.debug("5")
         nes_efficiency = pd.Series(
             nes_efficiency["values"], index=idx, name="nes_efficiency"
         )
-        self._logger.debug("6")
 
         leakage_behaviour = await self._fm_client.get_sensor_data(
             sensor_id=self._leakage_behaviour_sensor_id,
@@ -498,12 +488,10 @@ class FillRateBasedControlTUNES(FRBC):
             unit="dimensionless",
             resolution="PT15M",
         )
-        self._logger.debug("7")
 
         leakage_behaviour = pd.Series(
             leakage_behaviour["values"], index=idx, name="leakage_behaviour"
         )
-        self._logger.debug("8")
 
         try:
             usage_forecast = await self._fm_client.get_sensor_data(
@@ -515,15 +503,12 @@ class FillRateBasedControlTUNES(FRBC):
             )
         except Exception as exc:
             self._logger.error(str(exc))
-        self._logger.debug("9")
 
         usage_forecast = pd.Series(
             usage_forecast["values"], index=idx, name="usage_forecast"
         )
-        self._logger.debug("10")
 
         schedule_series = pd.Series(schedule["values"], index=idx, name="schedule")
-        self._logger.debug("11")
 
         try:
             schedule = pd.concat(
@@ -538,7 +523,6 @@ class FillRateBasedControlTUNES(FRBC):
             )
         except Exception as exc:
             self._logger.error(str(exc))
-        self._logger.debug("12")
 
         instructions = fm_schedule_to_instructions(
             schedule, system_description, soc_at_start, logger=self._logger
