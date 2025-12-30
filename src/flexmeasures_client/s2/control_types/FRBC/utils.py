@@ -114,9 +114,6 @@ def fm_schedule_to_instructions(
     initial_fill_level: float,
     logger: logging.Logger = LOGGER,
 ) -> List[FRBCInstruction]:
-    logger.debug(schedule.to_json())
-    logger.debug(system_description.to_json())
-    logger.debug(initial_fill_level)
 
     if len(schedule) == 0 or len(system_description.actuators) == 0:
         return []
@@ -128,11 +125,8 @@ def fm_schedule_to_instructions(
     fill_level_range: NumberRange = system_description.storage.fill_level_range
 
     # get SOC Max and Min to be sent on the Flex Model
-    logger.debug("setting soc constraints")
     soc_min = fill_level_range.start_of_range * FILL_LEVEL_SCALE
     soc_max = fill_level_range.end_of_range * FILL_LEVEL_SCALE
-    logger.debug(f"soc_min: {soc_min}")
-    logger.debug(f"soc_max: {soc_max}")
 
     if len(system_description.actuators) != 1:
         raise NotImplementedError(
@@ -141,16 +135,12 @@ def fm_schedule_to_instructions(
         )
 
     operation_modes: list[FRBCOperationMode] = actuator.operation_modes
-    logger.debug(
-        f"operation_modes: {[mode.diagnostic_label.lower() for mode in operation_modes]}"
-    )
 
     # Find idle operation mode
     idle_operation_mode = next(
         (mode for mode in operation_modes if "idle" in mode.diagnostic_label.lower()),
         None,
     )
-    logger.debug(f"idle_operation_mode: {idle_operation_mode}")
     active_operation_mode = next(
         (
             mode
@@ -159,7 +149,6 @@ def fm_schedule_to_instructions(
         ),
         None,
     )
-    logger.debug(f"active_operation_mode: {active_operation_mode}")
 
     if idle_operation_mode is None:
         print("No valid idle operation mode found.")
@@ -178,7 +167,6 @@ def fm_schedule_to_instructions(
             if "idle" not in op_mode.diagnostic_label.lower()
         ]
     )
-    logger.debug(f"max_eff: {max_eff}")
 
     for timestamp, row in schedule.iterrows():
         value = row["schedule"]
@@ -261,28 +249,16 @@ def fm_schedule_to_instructions(
             )
             instructions.append(instruction)
 
-        logger.debug(f"computing storage_eff from {storage_efficiency}")
         if pd.isnull(storage_efficiency):
-            logger.debug("leakage behaviour is unknown")
             storage_eff = 1
         else:
-            logger.debug("leakage behaviour is known")
             storage_eff = (storage_efficiency - 1) / math.log(storage_efficiency)
-        logger.debug(f"storage_eff: {storage_eff}")
         if pd.isnull(storage_eff):
             storage_eff = 1
         if pd.isnull(charging_efficiency):
             charging_efficiency = 1
 
         # Update fill level
-        logger.debug(f"Updating fill level for {timestamp}..")
-        logger.debug(f"storage_efficiency: {storage_efficiency}")
-        logger.debug(f"storage_eff: {storage_eff}")
-        logger.debug(f"fill_level: {fill_level}")
-        logger.debug(f"schedule: {row['schedule']}")
-        logger.debug(f"deltaT: {deltaT}")
-        logger.debug(f"usage: {usage}")
-        logger.debug(f"charging_efficiency: {charging_efficiency}")
         fill_level = compute_next_fill_level(
             fill_level=fill_level,
             storage_eff=storage_eff,
@@ -292,10 +268,8 @@ def fm_schedule_to_instructions(
             usage=usage,
         )
 
-        logger.debug(f"fill_level: {fill_level}")
         fill_level = min(fill_level, soc_max)
         fill_level = max(fill_level, soc_min)
-        logger.debug(f"clipped fill_level: {fill_level}")
 
         previous_value = value
 
