@@ -323,16 +323,6 @@ class CEM(Handler):
         for power_measurement in message.values:
             commodity_quantity = power_measurement.commodity_quantity.value
 
-            # if commodity_quantity in self._power_sensors:
-            #     sensor_id = self._power_sensors[commodity_quantity]
-            # else:
-            #     sensor_id = 357  # TODO: create a new sensor or return ReceptionStatus
-            self._logger.debug(f"self.power_sensor_id: {self.power_sensor_id}")
-            self._logger.debug(f"commodity_quantity: {commodity_quantity}")
-            self._logger.debug(f"type(commodity_quantity): {type(commodity_quantity)}")
-            self._logger.debug(
-                f"self.power_sensor_id.get(commodity_quantity): {self.power_sensor_id.get(commodity_quantity)}"
-            )
             if (
                 self.power_sensor_id is None
                 and commodity_quantity == "ELECTRIC.POWER.L1"
@@ -341,11 +331,11 @@ class CEM(Handler):
             else:
                 sensor_id = self.power_sensor_id.get(commodity_quantity)
                 if sensor_id is None:
+                    # TODO: create a new sensor or return ReceptionStatus
                     self._logger.debug(
                         f"No power sensor set up for {commodity_quantity}. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
                     )
                     continue
-            self._logger.debug(f"sensor_id: {sensor_id}")
 
             # Store the value in the buffer
             self._power_buffer[commodity_quantity].append(
