@@ -184,13 +184,15 @@ def fm_schedule_to_instructions(
         elif "NES" in active_operation_mode.diagnostic_label:
             charging_efficiency = row["nes_efficiency"]
         else:
-            logger.warning(f"The diagnostic label of the active operation mode ('{active_operation_mode.diagnostic_label}') could not be used to find out which charging efficiency to use.")
+            logger.warning(
+                f"The diagnostic label of the active operation mode ('{active_operation_mode.diagnostic_label}') could not be used to find out which charging efficiency to use."
+            )
             charging_efficiency = 1
 
         if previous_value is None or not isclose(previous_value, value):
             if np.isclose(value, 0):
                 operation_mode = idle_operation_mode
-                operation_mode_factor = 0.
+                operation_mode_factor = 0.0
                 charging_efficiency = 1
             else:
                 valid_operation_modes = [

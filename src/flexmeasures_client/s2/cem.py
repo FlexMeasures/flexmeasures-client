@@ -65,7 +65,9 @@ class CEM(Handler):
     _datastore: dict
     _minimum_measurement_period: pd.Timedelta = pd.Timedelta(minutes=5)
 
-    _power_buffer: defaultdict = defaultdict(list)  # {commodity_quantity: [(timestamp, value), ...]}
+    _power_buffer: defaultdict = defaultdict(
+        list
+    )  # {commodity_quantity: [(timestamp, value), ...]}
 
     def __init__(
         self,
