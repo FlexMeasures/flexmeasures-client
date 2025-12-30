@@ -121,7 +121,7 @@ class FillRateBasedControlTUNES(FRBC):
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
         valid_from_shift: timedelta = timedelta(days=1),
-        timers: dict[str: datetime] | None = None,
+        timers: dict[str, datetime] | None = None,
         datastore: dict | None = None,
         **kwargs,
     ) -> None:
@@ -185,7 +185,9 @@ class FillRateBasedControlTUNES(FRBC):
             self._timers[name] = next_due
             return True
         else:
-            self._logger.debug(f"Timer for {name} is not due until {self._timers[name]}")
+            self._logger.debug(
+                f"Timer for {name} is not due until {self._timers[name]}"
+            )
             return False
 
     def now(self):
@@ -400,18 +402,18 @@ class FillRateBasedControlTUNES(FRBC):
             "relax-constraints": True,
         }
         flex_model = {
-                "state-of-charge": {"sensor": self._state_of_charge_sensor_id},
-                "soc-at-start": f"{soc_at_start} {ENERGY_UNIT}",
-                "soc-max": f"{soc_max} {ENERGY_UNIT}",
-                "soc-min": f"{soc_min} {ENERGY_UNIT}",
-                "soc-minima": f"{max(soc_min, self._safety_margin)} {ENERGY_UNIT}",
-                "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
-                "storage-efficiency": {"sensor": self._leakage_behaviour_sensor_id},
-                "charging-efficiency": {"sensor": efficiency_sensor_id},
-                "power-capacity": f"{charging_capacity} {POWER_UNIT}",
-                "consumption-capacity": f"{charging_capacity} {POWER_UNIT}",
-                "production-capacity": f"0 {POWER_UNIT}",
-            }
+            "state-of-charge": {"sensor": self._state_of_charge_sensor_id},
+            "soc-at-start": f"{soc_at_start} {ENERGY_UNIT}",
+            "soc-max": f"{soc_max} {ENERGY_UNIT}",
+            "soc-min": f"{soc_min} {ENERGY_UNIT}",
+            "soc-minima": f"{max(soc_min, self._safety_margin)} {ENERGY_UNIT}",
+            "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
+            "storage-efficiency": {"sensor": self._leakage_behaviour_sensor_id},
+            "charging-efficiency": {"sensor": efficiency_sensor_id},
+            "power-capacity": f"{charging_capacity} {POWER_UNIT}",
+            "consumption-capacity": f"{charging_capacity} {POWER_UNIT}",
+            "production-capacity": f"0 {POWER_UNIT}",
+        }
 
         self._logger.debug("Triggering schedule with:")
         self._logger.debug(self._rm_discharge_sensor_id)
@@ -444,14 +446,18 @@ class FillRateBasedControlTUNES(FRBC):
         try:
             idx = pd.DatetimeIndex(
                 pd.date_range(
-                    start=start, end=start + schedule_duration - timedelta(minutes=15), freq="15min"
+                    start=start,
+                    end=start + schedule_duration - timedelta(minutes=15),
+                    freq="15min",
                 )
             )
         except Exception as exc:
             self._logger.error(str(exc))
         self._logger.debug("2")
         try:
-            self._logger.debug(f"Fetching THP efficiency (ID={self._thp_efficiency_sensor_id} from {start} for duration {schedule_duration}..")
+            self._logger.debug(
+                f"Fetching THP efficiency (ID={self._thp_efficiency_sensor_id} from {start} for duration {schedule_duration}.."
+            )
             thp_efficiency = await self._fm_client.get_sensor_data(
                 sensor_id=self._thp_efficiency_sensor_id,
                 start=start,
@@ -540,7 +546,9 @@ class FillRateBasedControlTUNES(FRBC):
 
         # Revoke all previous instructions
         if (n_previous_instruction := len(self._datastore.get("instructions", {}))) > 0:
-            self._logger.debug(f"Revoking all {n_previous_instruction} previous instructions..")
+            self._logger.debug(
+                f"Revoking all {n_previous_instruction} previous instructions.."
+            )
         else:
             self._logger.debug("No previous instructions to revoke..")
         for message_id, instruction in self._datastore.get("instructions", {}).items():
@@ -559,7 +567,9 @@ class FillRateBasedControlTUNES(FRBC):
 
         # Store instructions
         for instruction in instructions:
-            self._datastore["instructions"][instruction.message_id] = instruction.to_json()
+            self._datastore["instructions"][
+                instruction.message_id
+            ] = instruction.to_json()
 
     @register(FRBCSystemDescription)
     def handle_system_description(
@@ -663,9 +673,7 @@ class FillRateBasedControlTUNES(FRBC):
                 duration=CONVERSION_EFFICIENCY_DURATION,
             )
 
-    async def update_flex_model(
-        self, system_description: FRBCSystemDescription
-    ):
+    async def update_flex_model(self, system_description: FRBCSystemDescription):
         """
         Update the asset's attributes and flex-model in FlexMeasures.
 
@@ -689,7 +697,7 @@ class FillRateBasedControlTUNES(FRBC):
                     "prefer-charging-sooner": True,
                     "prefer-curtailing-later": True,
                 },
-            )
+            ),
         )
 
     async def close(self):
@@ -727,7 +735,8 @@ class FillRateBasedControlTUNES(FRBC):
         await self._fm_client.post_sensor_data(
             sensor_id=self._usage_forecast_sensor_id,
             start=start_time,
-            values=(usage_forecast * scale).tolist(),  # e.g. [0, 100] %/s ->  [0, 100] %/(15 min)
+            # e.g. [0, 100] %/s ->  [0, 100] %/(15 min)
+            values=(usage_forecast * scale).tolist(),
             unit=POWER_UNIT,  # e.g. [0, 100] MW/(15 min)
             duration=str(pd.Timedelta(RESOLUTION) * len(usage_forecast)),
         )

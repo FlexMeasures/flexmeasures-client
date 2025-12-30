@@ -71,9 +71,9 @@ class CEM(Handler):
         fm_client: FlexMeasuresClient,
         logger: Logger | None = None,
         default_control_type: ControlType | None = None,
-        timers: dict[str: datetime] | None = None,
+        timers: dict[str, datetime] | None = None,
         datastore: dict | None = None,
-        power_sensor_id: dict[str: int] | None = None,
+        power_sensor_id: dict[str, int] | None = None,
         **kwargs,
     ) -> None:
         """
@@ -119,7 +119,9 @@ class CEM(Handler):
             self._timers[name] = next_due
             return True
         else:
-            self._logger.debug(f"Timer for {name} is not due until {self._timers[name]}")
+            self._logger.debug(
+                f"Timer for {name} is not due until {self._timers[name]}"
+            )
             return False
 
     def supports_control_type(self, control_type: ControlType):
@@ -282,8 +284,6 @@ class CEM(Handler):
             )
         return None
 
-
-
     @register(Handshake)
     def handle_handshake(self, message: Handshake):
         # TODO: check the version that the RM is using and send a
@@ -330,8 +330,13 @@ class CEM(Handler):
             self._logger.debug(f"self.power_sensor_id: {self.power_sensor_id}")
             self._logger.debug(f"commodity_quantity: {commodity_quantity}")
             self._logger.debug(f"type(commodity_quantity): {type(commodity_quantity)}")
-            self._logger.debug(f"self.power_sensor_id.get(commodity_quantity): {self.power_sensor_id.get(commodity_quantity)}")
-            if self.power_sensor_id is None and commodity_quantity == "ELECTRIC.POWER.L1":
+            self._logger.debug(
+                f"self.power_sensor_id.get(commodity_quantity): {self.power_sensor_id.get(commodity_quantity)}"
+            )
+            if (
+                self.power_sensor_id is None
+                and commodity_quantity == "ELECTRIC.POWER.L1"
+            ):
                 sensor_id = 357
             else:
                 sensor_id = self.power_sensor_id.get(commodity_quantity)
@@ -350,7 +355,9 @@ class CEM(Handler):
             # Compute bin
             now = datetime.now(self._timezone)
             m = self._minimum_measurement_period // pd.Timedelta(minutes=1)
-            bin_end = now.replace(second=0, microsecond=0, minute=(now.minute // m) * m)  # e.g. 10:15:00
+            bin_end = now.replace(
+                second=0, microsecond=0, minute=(now.minute // m) * m
+            )  # e.g. 10:15:00
             bin_start = bin_end - self._minimum_measurement_period
 
             # If timer not due, just collect values
@@ -365,7 +372,9 @@ class CEM(Handler):
             period_values = [v for (t, v) in buffer if bin_start <= t < bin_end]
 
             if not period_values:
-                self._logger.debug(f"No samples found for {commodity_quantity} in {bin_start}–{bin_end}, skipping.")
+                self._logger.debug(
+                    f"No samples found for {commodity_quantity} in {bin_start}–{bin_end}, skipping."
+                )
                 continue
 
             avg_value = sum(period_values) / len(period_values)

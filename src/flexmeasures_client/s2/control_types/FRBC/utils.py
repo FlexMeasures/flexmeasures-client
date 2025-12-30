@@ -24,8 +24,11 @@ from flexmeasures_client.s2.utils import get_unique_id
 
 LOGGER = logging.getLogger(__name__)
 
+
 def op_mode_compute_factor(
-    op_mode_elem: FRBCOperationModeElement, fill_rate: float, logger: logging.Logger = LOGGER
+    op_mode_elem: FRBCOperationModeElement,
+    fill_rate: float,
+    logger: logging.Logger = LOGGER,
 ) -> float:
     """Compute the operation mode factor for a given fill rate."""
 
