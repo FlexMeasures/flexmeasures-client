@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import TYPE_CHECKING
 
 from aiohttp import ContentTypeError
@@ -33,15 +32,16 @@ async def check_response(
         pass
     elif response.status == 303:
         message = f"Redirect to fallback schedule: {response.headers['location']}"  # noqa: E501
-        logging.debug(message)
+        self.logger.debug(message)
         url = response.headers["location"]
     elif status == 400 and (
         "Scheduling job waiting" in payload.get("message", "")
         or "Scheduling job in progress" in payload.get("message", "")
+        or "Scheduling job has an unknown status" in payload.get("message", "")
     ):
         # can be removed in a later version GH issue #645 of the FlexMeasures repo
         message = f"Server indicated to try again later. Retrying in {self.polling_interval} seconds..."  # noqa: E501
-        logging.debug(message)
+        self.logger.debug(message)
         polling_step += 1
         await asyncio.sleep(self.polling_interval)
     elif status == 401 and reauth_once:
@@ -50,7 +50,7 @@ async def check_response(
         headers: {headers}
         payload: {payload}.
         Re-authenticating!"""
-        logging.debug(message)
+        self.logger.debug(message)
         await self.get_access_token()
         reauth_once = False
     elif status == 503 and "Retry-After" in headers:
@@ -65,7 +65,7 @@ async def check_response(
         headers: {headers}
         payload: {payload}.
         """
-        logging.error(message)
+        self.logger.error(message)
         # otherwise, raise if the status does not indicate okay
         response.raise_for_status()
     return polling_step, reauth_once, URL(url)

@@ -85,11 +85,12 @@ async def test__init__(
         "path": "/api/v3_0/",
         "max_polling_steps": 10,
         "polling_timeout": 200.0,
-        "request_timeout": 20.0,
+        "request_timeout": 40.0,
         "polling_interval": 10.0,
     }
     init_dict = flexmeasures_client.__dict__
     init_dict.pop("session")
+    init_dict.pop("logger")
     assert init_dict == assert_dict
 
 

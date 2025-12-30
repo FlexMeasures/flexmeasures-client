@@ -8,6 +8,7 @@ import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from logging import Logger
 from typing import Any, cast
 
 import async_timeout
@@ -31,9 +32,11 @@ from flexmeasures_client.response_handling import (
     check_response,
 )
 
+LOGGER = logging.getLogger(__name__)
+
 MAX_POLLING_STEPS: int = 10  # seconds
 POLLING_TIMEOUT = 200.0  # seconds
-REQUEST_TIMEOUT = 20.0  # seconds
+REQUEST_TIMEOUT = 40.0  # seconds
 POLLING_INTERVAL = 10.0  # seconds
 API_VERSIONS_LIST = ["v3_0"]
 
@@ -56,6 +59,7 @@ class FlexMeasuresClient:
     request_timeout: float = REQUEST_TIMEOUT  # seconds
     polling_interval: float = POLLING_INTERVAL  # seconds
     session: ClientSession | None = None
+    logger: Logger = LOGGER
 
     def __post_init__(self):
         if self.session is None:
@@ -163,11 +167,11 @@ class FlexMeasuresClient:
                                 break
                     except asyncio.TimeoutError:
                         message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {self.polling_interval} seconds..."  # noqa: E501
-                        logging.debug(message)
+                        self.logger.debug(message)
                         polling_step += 1
                         await asyncio.sleep(self.polling_interval)
                     except (ClientError, socket.gaierror) as exception:
-                        logging.debug(exception)
+                        self.logger.debug(exception)
                         # if endpoint wasn't found, we might know why and can tell the user
                         if (
                             "404" in str(exception)
@@ -210,13 +214,13 @@ class FlexMeasuresClient:
         params_msg = f"params: {params}"
         method_msg = f"method: {method}"
         headers_msg = f"headers: {headers}"
-        logging.debug("===== Request =====")
-        logging.debug(url_msg)
-        logging.debug(json_msg)
-        logging.debug(params_msg)
-        logging.debug(method_msg)
-        logging.debug(headers_msg)
-        logging.debug("=" * 14)
+        self.logger.debug("===== Request =====")
+        self.logger.debug(url_msg)
+        self.logger.debug(json_msg)
+        self.logger.debug(params_msg)
+        self.logger.debug(method_msg)
+        self.logger.debug(headers_msg)
+        self.logger.debug("=" * 14)
 
         """Sends a single request to FlexMeasures and checks the response."""
         self.ensure_session()
@@ -234,11 +238,11 @@ class FlexMeasuresClient:
         response_payload_msg = f"payload: {payload}"
         headers_msg = f"headers: {response.headers}"
 
-        logging.debug("===== Response =====")
-        logging.debug(status_msg)
-        logging.debug(response_payload_msg)
-        logging.debug(headers_msg)
-        logging.debug("=" * 14)
+        self.logger.debug("===== Response =====")
+        self.logger.debug(status_msg)
+        self.logger.debug(response_payload_msg)
+        self.logger.debug(headers_msg)
+        self.logger.debug("=" * 14)
 
         polling_step, reauth_once, url = await check_response(
             self, response, polling_step, reauth_once, url
@@ -436,7 +440,7 @@ class FlexMeasuresClient:
             minimum_server_version_msg="Upgrade FlexMeasures or alternatively install client v0.7.0, where the deprecated endpoint is supported.",
         )
         check_for_status(status, 200)
-        logging.info("Sensor data sent successfully via JSON.")
+        self.logger.info("Sensor data sent successfully via JSON.")
 
     async def _post_sensor_data_file(
         self,
@@ -504,7 +508,7 @@ class FlexMeasuresClient:
                         error_data = await response.json()
                         error_message = f"Request failed with status code {response.status}: {error_data}"
                     except Exception as e:
-                        logging.error(f"Error parsing response: {e}")
+                        self.logger.error(f"Error parsing response: {e}")
                         error_message = (
                             f"Request failed with status code {response.status}"
                         )
@@ -512,13 +516,13 @@ class FlexMeasuresClient:
 
                 # Parse response
                 response_data = await response.json()
-                logging.info(
+                self.logger.info(
                     f"File uploaded successfully: {os.path.basename(file_path)}"
                 )
                 return response_data, response.status
 
         except Exception as e:
-            logging.error(f"Error uploading file {file_path}: {e}")
+            self.logger.error(f"Error uploading file {file_path}: {e}")
             raise
 
     # Keep the old method name for backward compatibility
@@ -557,7 +561,7 @@ class FlexMeasuresClient:
         self,
         sensor_id: int,
         schedule_id: str,
-        duration: str | timedelta,
+        duration: str | timedelta | None = None,
     ) -> dict:
         """Get schedule with given ID.
 
@@ -569,12 +573,16 @@ class FlexMeasuresClient:
                       'unit': 'MW'
                   }
         """
+        if duration is not None:
+            params = {
+                "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
+            }
+        else:
+            params = {}
         schedule, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
             method="GET",
-            params={
-                "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
-            },
+            params=params,
         )
         check_for_status(status, 200)
         if not isinstance(schedule, dict):
@@ -1062,7 +1070,7 @@ class FlexMeasuresClient:
             )
         check_for_status(status, 200)
 
-        logging.info("Schedule triggered successfully.")
+        self.logger.info("Schedule triggered successfully.")
         if not isinstance(response, dict):
             raise ContentTypeError(
                 f"Expected a dictionary, but got {type(response)}",

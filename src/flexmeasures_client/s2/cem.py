@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import math
 from asyncio import Queue
+from collections import defaultdict
+from datetime import datetime, timedelta
 from logging import Logger
 from typing import Dict, Optional
 
+import pandas as pd
 import pydantic
 
 try:
@@ -36,6 +41,8 @@ from flexmeasures_client.s2.utils import (
     get_unique_id,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class CEM(Handler):
     __version__ = "0.0.2-beta"
@@ -54,11 +61,23 @@ class CEM(Handler):
     _fm_client: FlexMeasuresClient
     _sending_queue: Queue[pydantic.BaseModel]
 
+    _timers: dict[str, datetime]
+    _datastore: dict
+    _minimum_measurement_period: pd.Timedelta = pd.Timedelta(minutes=5)
+
+    _power_buffer: defaultdict = defaultdict(
+        list
+    )  # {commodity_quantity: [(timestamp, value), ...]}
+
     def __init__(
         self,
         fm_client: FlexMeasuresClient,
         logger: Logger | None = None,
         default_control_type: ControlType | None = None,
+        timers: dict[str, datetime] | None = None,
+        datastore: dict | None = None,
+        power_sensor_id: dict[str, int] | None = None,
+        **kwargs,
     ) -> None:
         """
         Customer Energy Manager (CEM)
@@ -68,14 +87,45 @@ class CEM(Handler):
         self._fm_client = fm_client
         self._sending_queue = Queue()
         self._power_sensors = dict()
+        self.power_sensor_id = power_sensor_id
         self._control_types_handlers = dict()
         self._default_control_type = default_control_type
 
         if not logger:
-            logger = Logger(__name__)
+            logger = _LOGGER
 
         self._logger = logger
         self._is_closed = False
+
+        self._timers = timers if timers is not None else {}
+        self._datastore = datastore if datastore is not None else {}
+
+    def _is_timer_due(self, name: str) -> bool:
+        now = datetime.now()
+        due_time = self._timers.get(name, now - self._minimum_measurement_period)
+        if due_time <= now:
+            # Get total seconds of the period
+            period_seconds = self._minimum_measurement_period.total_seconds()
+
+            # Seconds since start of the hour
+            seconds_since_hour = now.minute * 60 + now.second + now.microsecond / 1e6
+
+            # Ceil to next multiple of period_seconds
+            next_tick_seconds = (
+                math.ceil(seconds_since_hour / period_seconds) * period_seconds
+            )
+
+            # Compute next due datetime
+            next_due = now.replace(minute=0, second=0, microsecond=0) + timedelta(
+                seconds=next_tick_seconds
+            )
+            self._timers[name] = next_due
+            return True
+        else:
+            self._logger.debug(
+                f"Timer for {name} is not due until {self._timers[name]}"
+            )
+            return False
 
     def supports_control_type(self, control_type: ControlType):
         return control_type in self._resource_manager_details.available_control_types
@@ -84,7 +134,7 @@ class CEM(Handler):
         self._is_closed = True
 
         for control_type, handler in self._control_types_handlers.items():
-            print(control_type, handler)
+            self._logger.debug(f"Closing handler for {control_type}")
             await handler.close()
 
     def is_closed(self):
@@ -112,6 +162,9 @@ class CEM(Handler):
         # add sending queue
         control_type_handler._sending_queue = self._sending_queue
 
+        # Add logger
+        control_type_handler._logger = self._logger
+
         # store control_type_handler
         self._control_types_handlers[control_type_handler._control_type] = (
             control_type_handler
@@ -133,6 +186,8 @@ class CEM(Handler):
 
         if isinstance(message, str):
             message = json.loads(message)
+
+        self._logger.debug(f"Received: {message}")
 
         # try to handle the message with the control_type handle
         if (
@@ -176,7 +231,7 @@ class CEM(Handler):
         """Call this function to get the messages to be sent to the RM
 
         Returns:
-            str: message in JSON forrmat
+            str: message in JSON format
         """
 
         message = await self._sending_queue.get()
@@ -202,10 +257,10 @@ class CEM(Handler):
 
         # check if the RM supports the control type
         if control_type not in self._resource_manager_details.available_control_types:
-            self._logger.warning(f"RM doesn not support `{control_type}` control type.")
+            self._logger.warning(f"RM does not support `{control_type}` control type.")
             return None
 
-        # RM initialization succeded
+        # RM initialization succeeded
         if self._control_type is not None:
             message_id = get_unique_id()
 
@@ -267,27 +322,84 @@ class CEM(Handler):
 
     @register(PowerMeasurement)
     async def handle_power_measurement(self, message: PowerMeasurement):
+
         for power_measurement in message.values:
             commodity_quantity = power_measurement.commodity_quantity.value
 
-            if commodity_quantity in self._power_sensors:
-                sensor_id = self._power_sensors[commodity_quantity]
+            if (
+                self.power_sensor_id is None
+                and commodity_quantity == "ELECTRIC.POWER.L1"
+            ):
+                sensor_id = 357
+            elif self.power_sensor_id:
+                s_id = self.power_sensor_id.get(commodity_quantity)
+                if s_id is None:
+                    # TODO: create a new sensor or return ReceptionStatus
+                    self._logger.debug(
+                        f"No power sensor set up for {commodity_quantity}. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
+                    )
+                    continue
+                sensor_id = s_id
             else:
-                sensor_id = 357  # TODO: create a new sensor or return ReceptionStatus
+                self._logger.warning(
+                    f"No power sensor IDs set up. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
+                )
+                continue
 
-            # send measurement
+            # Store the value in the buffer
+            self._power_buffer[commodity_quantity].append(
+                (message.measurement_timestamp, power_measurement.value)
+            )
+
+            # Compute bin
+            now = datetime.now(self._timezone)
+            m = self._minimum_measurement_period // pd.Timedelta(minutes=1)
+            bin_end = now.replace(
+                second=0, microsecond=0, minute=(now.minute // m) * m
+            )  # e.g. 10:15:00
+            bin_start = bin_end - self._minimum_measurement_period
+
+            # If timer not due, just collect values
+            if not self._is_timer_due(f"power_measurement_{commodity_quantity}"):
+                self._logger.debug(
+                    f"Collecting 5-minute average for {commodity_quantity} ({bin_start.isoformat()} – {bin_end.isoformat()})"
+                )
+                continue
+
+            # Compute average of all buffered values in last 5 minutes
+            buffer = self._power_buffer[commodity_quantity]
+            period_values = [v for (t, v) in buffer if bin_start <= t < bin_end]
+
+            if not period_values:
+                self._logger.debug(
+                    f"No samples found for {commodity_quantity} in {bin_start}–{bin_end}, skipping."
+                )
+                continue
+
+            avg_value = sum(period_values) / len(period_values)
+            self._logger.debug(
+                f"Posting 5-minute average for {commodity_quantity}: "
+                f"{avg_value} ({bin_start.isoformat()} – {bin_end.isoformat()})"
+            )
+
+            # Send measurement
             try:
-                await self._fm_client.post_measurements(
+                await self._fm_client.post_sensor_data(
                     sensor_id,
-                    start=message.measurement_timestamp,
-                    duration="PT1H",  # TODO: not specified in S2 Protocol
-                    values=[power_measurement.value],
+                    start=bin_start.isoformat(),
+                    duration=self._minimum_measurement_period.isoformat(),  # TODO: not specified in S2 Protocol
+                    values=[avg_value],
                     unit=get_commodity_unit(commodity_quantity),
                 )
             except Exception as e:
                 self._logger.warning(
                     f"POSTing power measurement failed with error: {e}"
                 )
+
+            # Keep only samples newer than this bin (for next period)
+            self._power_buffer[commodity_quantity] = [
+                (t, v) for (t, v) in buffer if t >= bin_end
+            ]
 
         return get_reception_status(message)
 
@@ -314,6 +426,7 @@ class CEM(Handler):
         return get_reception_status(message, ReceptionStatusValues.OK)
 
     async def send_message(self, message):
+        self._logger.debug(f"Sent: {message}")
         await self._sending_queue.put(message)
 
 

@@ -48,6 +48,7 @@ async def setup_cem(resource_manager_details, rm_handshake, monkeypatch):
     cem = CEM(fm_client=fm_client)
 
     frbc = FillRateBasedControlTUNES(
+        asset_id=1,
         soc_minima_sensor_id=2,
         soc_maxima_sensor_id=3,
         rm_discharge_sensor_id=4,
@@ -59,7 +60,7 @@ async def setup_cem(resource_manager_details, rm_handshake, monkeypatch):
         usage_forecast_sensor_id=12,
         fill_rate_sensor_id=13,
         active_actuator_id_sensor_id=14,
-        leakage_beaviour_sensor_id=15,
+        leakage_behaviour_sensor_id=15,
         production_price_sensor=16,
         consumption_price_sensor=17,
         state_of_charge_sensor_id=18,
@@ -70,7 +71,7 @@ async def setup_cem(resource_manager_details, rm_handshake, monkeypatch):
     )
 
     # disable rate limiting for testing
-    frbc.MIN_MEASUREMENT_PERIOD = 0
+    frbc._is_timer_due = lambda x: True
 
     cem.register_control_type(frbc)
 
@@ -132,27 +133,27 @@ async def test_system_description(
     await cem.handle_message(frbc_system_description)
     frbc = cem._control_types_handlers[cem.control_type]
 
-    # first call of post_measurements which corresponds to the THP efficiency
-    first_call = fm_client.post_measurements.call_args_list[0][1]
+    # first call of post_sensor_data which corresponds to the THP efficiency
+    first_call = fm_client.post_sensor_data.call_args_list[0][1]
     first_call_expected = {
         "sensor_id": frbc._thp_efficiency_sensor_id,
         "start": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "values": [7.2],
         "unit": "dimensionless",
-        "duration": "PT24H",
+        "duration": "PT99H",
     }
     for key in first_call.keys():
         assert first_call[key] == first_call_expected[key]
 
-    # second call of post_measurements which corresponds to the NES efficiency
-    second_call = fm_client.post_measurements.call_args_list[1][1]
+    # second call of post_sensor_data which corresponds to the NES efficiency
+    second_call = fm_client.post_sensor_data.call_args_list[1][1]
 
     second_call_expected = {
         "sensor_id": frbc._nes_efficiency_sensor_id,
         "start": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "values": [3.6],
         "unit": "dimensionless",
-        "duration": "PT24H",
+        "duration": "PT99H",
     }
     for key in second_call.keys():
         assert second_call[key] == second_call_expected[key]
@@ -213,16 +214,16 @@ async def test_fill_level_target_profile(cem_in_frbc_control_type, monkeypatch):
 
     start = datetime(2024, 1, 1, 0, 0, tzinfo=timezone(timedelta(seconds=3600)))
 
-    first_call = fm_client.post_measurements.call_args_list[0][1]
+    first_call = fm_client.post_sensor_data.call_args_list[0][1]
     assert first_call["sensor_id"] == 2
     assert first_call["start"] == start
 
-    assert np.isclose(first_call["values"].values, [0] * 4 + [1] * 8 + [2] * 12).all()
+    assert np.isclose(first_call["values"], [0] * 4 + [1] * 8 + [2] * 12).all()
 
-    second_call = fm_client.post_measurements.call_args_list[1][1]
+    second_call = fm_client.post_sensor_data.call_args_list[1][1]
     assert second_call["sensor_id"] == 3
     assert second_call["start"] == start
-    assert np.isclose(second_call["values"].values, [10] * 4 + [9] * 8 + [8] * 12).all()
+    assert np.isclose(second_call["values"], [10] * 4 + [9] * 8 + [8] * 12).all()
 
     await cem.close()
     get_pending_tasks()
@@ -261,13 +262,13 @@ async def test_fill_rate_relay(cem_in_frbc_control_type, monkeypatch):
     # wait for the task send_actuator_status to finish
     await tasks["send_actuator_status"]
 
-    first_call = fm_client.post_measurements.call_args_list[0][1]
+    first_call = fm_client.post_sensor_data.call_args_list[0][1]
     assert first_call["sensor_id"] == frbc._thp_fill_rate_sensor_id
 
-    second_call = fm_client.post_measurements.call_args_list[1][1]
+    second_call = fm_client.post_sensor_data.call_args_list[1][1]
     assert second_call["sensor_id"] == frbc._fill_rate_sensor_id
 
-    third_call = fm_client.post_measurements.call_args_list[2][1]
+    third_call = fm_client.post_sensor_data.call_args_list[2][1]
     assert third_call["sensor_id"] == frbc._active_actuator_id_sensor_id
     assert third_call["values"][0] == frbc._thp_fill_rate_sensor_id
 
@@ -286,13 +287,13 @@ async def test_fill_rate_relay(cem_in_frbc_control_type, monkeypatch):
     # wait for the task send_actuator_status to finish
     await tasks["send_actuator_status"]
 
-    first_call = fm_client.post_measurements.call_args_list[0][1]
+    first_call = fm_client.post_sensor_data.call_args_list[0][1]
     assert first_call["sensor_id"] == frbc._nes_fill_rate_sensor_id
 
-    second_call = fm_client.post_measurements.call_args_list[1][1]
+    second_call = fm_client.post_sensor_data.call_args_list[1][1]
     assert second_call["sensor_id"] == frbc._fill_rate_sensor_id
 
-    third_call = fm_client.post_measurements.call_args_list[2][1]
+    third_call = fm_client.post_sensor_data.call_args_list[2][1]
     assert third_call["sensor_id"] == frbc._active_actuator_id_sensor_id
     assert third_call["values"][0] == frbc._nes_fill_rate_sensor_id
 
