@@ -330,15 +330,16 @@ class CEM(Handler):
                 self.power_sensor_id is None
                 and commodity_quantity == "ELECTRIC.POWER.L1"
             ):
-                sensor_id: int | None = 357
+                sensor_id = 357
             elif self.power_sensor_id:
-                sensor_id = self.power_sensor_id.get(commodity_quantity)
-                if sensor_id is None:
+                s_id = self.power_sensor_id.get(commodity_quantity)
+                if s_id is None:
                     # TODO: create a new sensor or return ReceptionStatus
                     self._logger.debug(
                         f"No power sensor set up for {commodity_quantity}. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
                     )
                     continue
+                sensor_id = s_id
             else:
                 self._logger.warning(
                     f"No power sensor IDs set up. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
