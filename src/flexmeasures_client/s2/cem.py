@@ -65,7 +65,7 @@ class CEM(Handler):
     _datastore: dict
     _minimum_measurement_period: pd.Timedelta = pd.Timedelta(minutes=5)
 
-    _power_buffer = defaultdict(list)  # {commodity_quantity: [(timestamp, value), ...]}
+    _power_buffer: defaultdict = defaultdict(list)  # {commodity_quantity: [(timestamp, value), ...]}
 
     def __init__(
         self,
@@ -328,8 +328,8 @@ class CEM(Handler):
                 self.power_sensor_id is None
                 and commodity_quantity == "ELECTRIC.POWER.L1"
             ):
-                sensor_id = 357
-            else:
+                sensor_id: int | None = 357
+            elif self.power_sensor_id:
                 sensor_id = self.power_sensor_id.get(commodity_quantity)
                 if sensor_id is None:
                     # TODO: create a new sensor or return ReceptionStatus
@@ -337,6 +337,11 @@ class CEM(Handler):
                         f"No power sensor set up for {commodity_quantity}. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
                     )
                     continue
+            else:
+                self._logger.warning(
+                    f"No power sensor IDs set up. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
+                )
+                continue
 
             # Store the value in the buffer
             self._power_buffer[commodity_quantity].append(
