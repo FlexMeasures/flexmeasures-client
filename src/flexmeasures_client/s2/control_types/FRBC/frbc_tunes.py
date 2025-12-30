@@ -668,13 +668,14 @@ class FillRateBasedControlTUNES(FRBC):
             usage_forecast, RESOLUTION, strategy="mean"
         )
 
+        # Scale usage forecast e.g. [0, 100] %/s ->  [0, 100] %/(15 min)
         scale = timedelta(minutes=15) / timedelta(seconds=1)
+        scaled_usage_forecast = usage_forecast * scale
 
         await self._fm_client.post_sensor_data(
             sensor_id=self._usage_forecast_sensor_id,
             start=start_time,
-            # e.g. [0, 100] %/s ->  [0, 100] %/(15 min)
-            values=(usage_forecast * scale).tolist(),
+            values=scaled_usage_forecast.tolist(),
             unit=POWER_UNIT,  # e.g. [0, 100] MW/(15 min)
             duration=str(pd.Timedelta(RESOLUTION) * len(usage_forecast)),
         )
