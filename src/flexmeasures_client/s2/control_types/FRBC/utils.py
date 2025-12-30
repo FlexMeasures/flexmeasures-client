@@ -177,11 +177,14 @@ def fm_schedule_to_instructions(
         if pd.isnull(usage):
             usage = 0
         storage_efficiency = row["leakage_behaviour"]
-        if "THP" in active_operation_mode.diagnostic_label:
+        if active_operation_mode is None:
+            charging_efficiency = 1
+        elif "THP" in active_operation_mode.diagnostic_label:
             charging_efficiency = row["thp_efficiency"]
         elif "NES" in active_operation_mode.diagnostic_label:
             charging_efficiency = row["nes_efficiency"]
         else:
+            logger.warning(f"The diagnostic label of the active operation mode ('{active_operation_mode.diagnostic_label}') could not be used to find out which charging efficiency to use.")
             charging_efficiency = 1
 
         if previous_value is None or not isclose(previous_value, value):
