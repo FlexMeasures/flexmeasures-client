@@ -336,6 +336,9 @@ class CEM(Handler):
             else:
                 sensor_id = self.power_sensor_id.get(commodity_quantity)
                 if sensor_id is None:
+                    self._logger.debug(
+                        f"No power sensor set up for {commodity_quantity}. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
+                    )
                     continue
             self._logger.debug(f"sensor_id: {sensor_id}")
 
