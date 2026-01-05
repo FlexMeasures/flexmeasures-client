@@ -9,6 +9,7 @@ from flexmeasures_client.client import (
     EmailValidationError,
     EmptyPasswordError,
     FlexMeasuresClient,
+    InsufficientServerVersionError,
     WrongAPIVersionError,
     WrongHostError,
 )
@@ -84,11 +85,12 @@ async def test__init__(
         "path": "/api/v3_0/",
         "max_polling_steps": 10,
         "polling_timeout": 200.0,
-        "request_timeout": 20.0,
+        "request_timeout": 40.0,
         "polling_interval": 10.0,
     }
     init_dict = flexmeasures_client.__dict__
     init_dict.pop("session")
+    init_dict.pop("logger")
     assert init_dict == assert_dict
 
 
@@ -177,25 +179,26 @@ async def test_get_access_token() -> None:
 
 
 @pytest.mark.asyncio
-async def test_post_measurements() -> None:
+async def test_post_sensor_data() -> None:
     with aioresponses() as m:
         flexmeasures_client = FlexMeasuresClient(
             email="test@test.test", password="test"
         )
         flexmeasures_client.access_token = "test-token"
+
+        sensor_id = 5
         m.post(
-            "http://localhost:5000/api/v3_0/sensors/data",
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
             status=200,
             payload={"test": "test"},
         )
 
-        sensor_id = "test"
         start = "2023-03-26T10:00+02:00"
         duration = "PT6H"
         values = "test"
         unit = "test"
 
-        await flexmeasures_client.post_measurements(
+        await flexmeasures_client.post_sensor_data(
             sensor_id=sensor_id,
             start=start,
             duration=duration,
@@ -203,11 +206,10 @@ async def test_post_measurements() -> None:
             unit=unit,
         )
         m.assert_called_once_with(
-            "http://localhost:5000/api/v3_0/sensors/data",
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
             method="POST",
             headers={"Content-Type": "application/json", "Authorization": "test-token"},
             json={
-                "sensor": "ea1.1000-01.required-but-unused-field:fm1.test",
                 "start": "2023-03-26T10:00:00+02:00",
                 "duration": "P0DT6H0M0S",
                 "values": "test",
@@ -568,8 +570,10 @@ async def test_get_sensor_data() -> None:
             email="test@test.test", password="test"
         )
         flexmeasures_client.access_token = "test-token"
+
+        sensor_id = 2
         m.get(
-            "http://localhost:5000/api/v3_0/sensors/data?duration=P0DT0H45M0S&resolution=PT15M&sensor=ea1.1000-01.required-but-unused-field%253Afm1.2&start=2023-06-01T10%253A00%253A00%252B02%253A00&unit=MW",  # noqa: E501
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data?duration=P0DT0H45M0S&resolution=P0DT0H15M0S&start=2023-06-01T10%253A00%253A00%252B02%253A00&unit=MW",  # noqa: E501
             status=200,
             payload={
                 "duration": "PT45M",
@@ -582,7 +586,6 @@ async def test_get_sensor_data() -> None:
             },
         )
 
-        sensor_id = 2
         start = "2023-06-01T10:00:00+02:00"
         duration = "PT45M"
         unit = "MW"
@@ -823,8 +826,8 @@ async def test_get_versions() -> None:
         version_info = await flexmeasures_client.get_versions()
         assert version_info["server_version"] == "0.25.0.dev0"
         with pytest.raises(
-            ConnectionError,
-            match="The server runs v0.25.0.dev0, but at least v0.27.0 is required.",
+            InsufficientServerVersionError,
+            match="This functionality requires FlexMeasures server of v0.27.0 or above. Current server has version 0.25.0.dev0.",
         ):
             await flexmeasures_client.trigger_and_get_schedule(
                 asset_id=1,

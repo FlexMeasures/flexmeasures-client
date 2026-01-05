@@ -1,3 +1,4 @@
+import logging
 import math
 from datetime import timedelta
 from math import isclose
@@ -21,21 +22,33 @@ except ImportError:
 
 from flexmeasures_client.s2.utils import get_unique_id
 
+LOGGER = logging.getLogger(__name__)
 
-def op_mode_compute_factor(op_mode_elem: FRBCOperationModeElement, fill_rate):
-    """
-    Compute the operation mode factor for a fill_rate
-    """
+
+def op_mode_compute_factor(
+    op_mode_elem: FRBCOperationModeElement,
+    fill_rate: float,
+    logger: logging.Logger = LOGGER,
+) -> float:
+    """Compute the operation mode factor for a given fill rate."""
 
     start_fill_rate = op_mode_elem.fill_rate.start_of_range * FILL_LEVEL_SCALE
     end_fill_rate = op_mode_elem.fill_rate.end_of_range * FILL_LEVEL_SCALE
     delta_fill_rate = end_fill_rate - start_fill_rate
 
+    fill_rate = max(fill_rate, start_fill_rate)
+    fill_rate = min(fill_rate, end_fill_rate)
+
     # Case that start_fill_rate == end_fill_rate
     if np.isclose(delta_fill_rate, 0):
         return 1
 
-    return (fill_rate - start_fill_rate) / delta_fill_rate
+    omf = (fill_rate - start_fill_rate) / delta_fill_rate
+    if omf < 0 or omf > 1:
+        logger.error(
+            f"Invalid operation mode factor {omf} computed from fill_rate {fill_rate}"
+        )
+    return omf
 
 
 def op_mode_range(op_mode: FRBCOperationMode):
@@ -83,10 +96,26 @@ def op_mode_elem_efficiency(op_mode_elem: FRBCOperationModeElement):
     )
 
 
+def compute_next_fill_level(
+    fill_level: float,
+    storage_eff: float,
+    power: float,
+    charging_efficiency: float,
+    deltaT: float,
+    usage: float,
+) -> float:
+    fill_rate = power * charging_efficiency * deltaT
+    next_fill_level = (
+        fill_level * storage_eff + fill_rate * storage_eff - usage * deltaT
+    )
+    return next_fill_level
+
+
 def fm_schedule_to_instructions(
     schedule: pd.DataFrame,
     system_description: FRBCSystemDescription,
     initial_fill_level: float,
+    logger: logging.Logger = LOGGER,
 ) -> List[FRBCInstruction]:
 
     if len(schedule) == 0 or len(system_description.actuators) == 0:
@@ -115,6 +144,14 @@ def fm_schedule_to_instructions(
         (mode for mode in operation_modes if "idle" in mode.diagnostic_label.lower()),
         None,
     )
+    active_operation_mode = next(
+        (
+            mode
+            for mode in operation_modes
+            if "idle" not in mode.diagnostic_label.lower()
+        ),
+        None,
+    )
 
     if idle_operation_mode is None:
         print("No valid idle operation mode found.")
@@ -137,13 +174,25 @@ def fm_schedule_to_instructions(
     for timestamp, row in schedule.iterrows():
         value = row["schedule"]
         usage = row["usage_forecast"]
+        if pd.isnull(usage):
+            usage = 0
         storage_efficiency = row["leakage_behaviour"]
-        charging_efficiency = row["thp_efficiency"]
+        if active_operation_mode is None:
+            charging_efficiency = 1
+        elif "THP" in active_operation_mode.diagnostic_label:
+            charging_efficiency = row["thp_efficiency"]
+        elif "NES" in active_operation_mode.diagnostic_label:
+            charging_efficiency = row["nes_efficiency"]
+        else:
+            logger.warning(
+                f"The diagnostic label of the active operation mode ('{active_operation_mode.diagnostic_label}') could not be used to find out which charging efficiency to use."
+            )
+            charging_efficiency = 1
 
         if previous_value is None or not isclose(previous_value, value):
             if np.isclose(value, 0):
                 operation_mode = idle_operation_mode
-                operation_mode_factor = 0
+                operation_mode_factor = 0.0
                 charging_efficiency = 1
             else:
                 valid_operation_modes = [
@@ -155,6 +204,9 @@ def fm_schedule_to_instructions(
                 ]
 
                 if not valid_operation_modes:
+                    logger.warning(
+                        f"Schedule does not map to a valid operation mode for {timestamp}."
+                    )
                     continue
 
                 max_fill_rate = max(
@@ -187,7 +239,9 @@ def fm_schedule_to_instructions(
                     op_mode_elements, key=lambda x: x[0]
                 )[0]
 
-                operation_mode_factor = op_mode_compute_factor(op_mode_elem, value)
+                operation_mode_factor = op_mode_compute_factor(
+                    op_mode_elem, fill_rate=value, logger=logger
+                )
 
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
@@ -198,18 +252,28 @@ def fm_schedule_to_instructions(
                 execution_time=timestamp,
                 abnormal_condition=False,
             )
+            logger.info(
+                f"Instruction created: at {timestamp} set {actuator.diagnostic_label} to {operation_mode.diagnostic_label} with factor {operation_mode_factor}"
+            )
             instructions.append(instruction)
 
-        storage_eff = (storage_efficiency - 1) / math.log(storage_efficiency)
-
-        if np.isnan(storage_eff):
+        if pd.isnull(storage_efficiency):
             storage_eff = 1
+        else:
+            storage_eff = (storage_efficiency - 1) / math.log(storage_efficiency)
+        if pd.isnull(storage_eff):
+            storage_eff = 1
+        if pd.isnull(charging_efficiency):
+            charging_efficiency = 1
 
         # Update fill level
-        fill_level = (
-            fill_level * (storage_efficiency)
-            + (row["schedule"] * charging_efficiency * deltaT) * storage_eff
-            - usage * deltaT
+        fill_level = compute_next_fill_level(
+            fill_level=fill_level,
+            storage_eff=storage_eff,
+            power=row["schedule"],
+            charging_efficiency=charging_efficiency,
+            deltaT=deltaT,
+            usage=usage,
         )
 
         fill_level = min(fill_level, soc_max)

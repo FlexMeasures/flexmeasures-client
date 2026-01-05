@@ -20,11 +20,11 @@ except ImportError:
     )
 
 
-def leakage_behaviour_to_storage_efficieny(
+def leakage_behaviour_to_storage_efficiency(
     message: FRBCLeakageBehaviour, resolution=timedelta(minutes=15)
 ) -> float:
     """
-    Convert a FRBC.LeakeageBehaviour message into a FlexMeasures compatible storage efficiency.
+    Convert a FRBC.LeakageBehaviour message into a FlexMeasures compatible storage efficiency.
 
     Definitions:
 
@@ -152,7 +152,7 @@ def translate_usage_forecast_to_fm(
     values = [
         element.usage_rate_expected * FILL_LEVEL_SCALE
         for element in usage_forecast.elements
-    ]
+    ]  # e.g. [0, 1000] fill_level/s -> [0, 100] %/s
 
     return unevenly_ts_to_evenly(
         start=start,
@@ -180,7 +180,7 @@ def translate_fill_level_target_profile(
     start = pd.Timestamp(fill_level_target_profile.start_time)
 
     durations = [
-        element.duration.to_timedelta()
+        pd.Timedelta(element.duration.to_timedelta())
         for element in fill_level_target_profile.elements
     ]
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from asyncio import Queue
+from logging import Logger
 from typing import cast
 
 from pydantic import BaseModel
@@ -22,6 +23,7 @@ class ControlTypeHandler(Handler):
     _instruction_status_history: SizeLimitOrderedDict[str, InstructionStatus]
     _fm_client: FlexMeasuresClient
     _sending_queue: Queue
+    _logger: Logger
 
     def __init__(self, max_size: int = 100) -> None:
         super().__init__(max_size)
