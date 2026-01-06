@@ -8,7 +8,7 @@ import asyncio
 from typing import Callable
 
 from assets_setup import create_community_asset
-from const import host, pwd, usr, COMMUNITY_NAME, SITE_NAMES
+from const import COMMUNITY_NAME, SITE_NAMES, host, pwd, usr
 from forecasting import generate_forecasts
 from reporters import create_reports
 from scheduling import just_continue, run_scheduling_simulation

@@ -3,12 +3,7 @@ import os
 from pathlib import Path
 
 import pandas as pd
-from const import (
-    heating_name,
-    price_market_name,
-    pv_name,
-    weather_station_name,
-)
+from const import heating_name, price_market_name, pv_name, weather_station_name
 
 from flexmeasures_client import FlexMeasuresClient
 
