@@ -1,22 +1,26 @@
 import asyncio
+import os
+from pathlib import Path
 
 import pandas as pd
-from const import (
-    building_name,
-    heating_name,
-    price_market_name,
-    pv_name,
-    weather_station_name,
-)
+from const import heating_name, price_market_name, pv_name, weather_station_name
 
 from flexmeasures_client import FlexMeasuresClient
 
+BASE_DIR = Path(__file__).parent.parent
+
 
 async def find_sensor_by_name_and_asset(
-    client: FlexMeasuresClient, sensor_name: str, asset_name: str
+    client: FlexMeasuresClient,
+    sensor_name: str,
+    asset_name: str,
+    top_level_asset_id: int | None = None,
 ):
     """Find a sensor by name within a specific asset."""
-    assets = await client.get_assets()
+    assets = await client.get_assets(
+        root_asset_id=top_level_asset_id
+    )  # first list those that are part of the community
+    assets += await client.get_assets()  # then list all accessible assets
     target_asset = None
     for asset in assets:
         if asset["name"] == asset_name:
@@ -24,16 +28,14 @@ async def find_sensor_by_name_and_asset(
             break
 
     if not target_asset:
-        print(f"Asset '{asset_name}' not found")
-        return None
+        raise LookupError(f"Asset '{asset_name}' not found")
 
     sensors = await client.get_sensors(asset_id=target_asset["id"])
     for sensor in sensors:
         if sensor["name"] == sensor_name:
             return sensor
 
-    print(f"Sensor '{sensor_name}' not found in asset '{asset_name}'")
-    return None
+    raise LookupError(f"Sensor '{sensor_name}' not found in asset '{asset_name}'")
 
 
 async def upload_csv_file_to_sensor(
@@ -44,9 +46,10 @@ async def upload_csv_file_to_sensor(
 ):
     """Upload CSV file directly to a sensor using file upload."""
     try:
+        full_path = os.path.join(BASE_DIR, file_path)
         await client.post_sensor_data(
             sensor_id=sensor_id,
-            file_path=file_path,
+            file_path=full_path,
             belief_time_measured_instantly=belief_time_measured_instantly,  # Set belief_time immediately after event ends
         )
         print(f"Uploaded {file_path} to sensor {sensor_id}")
@@ -56,123 +59,159 @@ async def upload_csv_file_to_sensor(
         return False
 
 
+async def find_top_level_asset_id(
+    client: FlexMeasuresClient,
+    name: str,
+) -> int:
+    top_level_assets = await client.get_assets(depth=0)
+    for asset in top_level_assets:
+        if asset["name"] == name:
+            return asset["id"]
+
+
 async def find_sensors_by_asset(
-    client: FlexMeasuresClient, sensor_mappings: list[tuple[str, str, str]]
+    client: FlexMeasuresClient,
+    sensor_mappings: list[tuple[str, str, str]],
+    top_level_asset_name: str | None = None,
 ):
-    """Find multiple sensors by name and asset name."""
+    """Find multiple sensors by name and asset name, optionally under a given top level asset."""
+    top_level_asset_id = None
+    if top_level_asset_name is not None:
+        top_level_asset_id = await find_top_level_asset_id(client, top_level_asset_name)
+
     sensors = {}
     for key, sensor_name, asset_name in sensor_mappings:
-        sensor = await find_sensor_by_name_and_asset(client, sensor_name, asset_name)
+        sensor = await find_sensor_by_name_and_asset(
+            client, sensor_name, asset_name, top_level_asset_id
+        )
         if sensor:
             sensors[key] = sensor
         else:
-            print(f"Could not find sensor '{sensor_name}' in asset '{asset_name}'")
-            return False
+            raise LookupError(
+                f"Could not find sensor '{sensor_name}' in asset '{asset_name}'"
+            )
     return sensors
 
 
-async def upload_data_for_first_two_weeks(client: FlexMeasuresClient):
+async def upload_data_for_first_two_weeks(
+    client: FlexMeasuresClient, community_name: str, site_names: list[str]
+):
     """Upload historical data for the first two weeks."""
     print("Uploading data for first two weeks...")
 
-    # Find all required sensors
-    sensor_mappings = [
-        ("electricity-price", "electricity-price", price_market_name),
-        ("electricity-consumption", "electricity-consumption", building_name),
-        ("max-consumption-capacity", "max-consumption-capacity", building_name),
-        ("max-production-capacity", "max-production-capacity", building_name),
-        ("irradiation", "irradiation", weather_station_name),
-        ("electricity-production", "electricity-production", pv_name),
-        ("soc-usage", "soc-usage", heating_name),
-    ]
+    for i, site_name in enumerate(site_names, start=1):
+        # Find all required sensors
+        sensor_mappings = [
+            ("site-power-capacity", "site-power-capacity", community_name),
+            ("electricity-price", "electricity-price", price_market_name),
+            ("electricity-consumption", "electricity-consumption", site_name),
+            ("max-consumption-capacity", "max-consumption-capacity", site_name),
+            ("max-production-capacity", "max-production-capacity", site_name),
+            ("irradiation", "irradiation", weather_station_name),
+            ("electricity-production", "electricity-production", pv_name + f" {i}"),
+            ("soc-usage", "soc-usage", heating_name + f" {i}"),
+        ]
 
-    sensors = await find_sensors_by_asset(client, sensor_mappings)
+        sensors = await find_sensors_by_asset(client, sensor_mappings, community_name)
 
-    # Upload data files directly
-    data_files = [
-        ("data/price_data.csv", "electricity-price", False),
-        ("data/building_data.csv", "electricity-consumption", True),
-        ("data/irradiation_data.csv", "irradiation", True),
-        ("data/PV_production_data.csv", "electricity-production", True),
-        ("data/max_consumption_capacity.csv", "max-consumption-capacity", False),
-        ("data/max_production_capacity.csv", "max-production-capacity", False),
-        ("data/heating_soc_usage_data.csv", "soc-usage", True),
-    ]
+        # Upload data files directly
+        data_files = [
+            ("data/site_power_capacity.csv", "site-power-capacity", False),
+            ("data/price_data.csv", "electricity-price", False),
+            ("data/building_data.csv", "electricity-consumption", True),
+            ("data/irradiation_data.csv", "irradiation", True),
+            ("data/PV_production_data.csv", "electricity-production", True),
+            ("data/max_consumption_capacity.csv", "max-consumption-capacity", False),
+            ("data/max_production_capacity.csv", "max-production-capacity", False),
+            ("data/heating_soc_usage_data.csv", "soc-usage", True),
+        ]
+        if i > 1:
+            data_files = data_files[
+                2:
+            ]  # Remove site power capacity and price datafiles to not fill them more than once
+        for file_path, sensor_key, belief_time_measured_instantly in data_files:
+            if sensor_key not in sensors:
+                print(f"Skipping {file_path} - sensor not found")
+                continue
 
-    for file_path, sensor_key, belief_time_measured_instantly in data_files:
-        if sensor_key not in sensors:
-            print(f"Skipping {file_path} - sensor not found")
-            continue
+            print(f"Processing {file_path}...")
 
-        print(f"Processing {file_path}...")
+            # Upload CSV file directly
+            success = await upload_csv_file_to_sensor(
+                client=client,
+                sensor_id=sensors[sensor_key]["id"],
+                file_path=file_path,
+                belief_time_measured_instantly=belief_time_measured_instantly,
+            )
 
-        # Upload CSV file directly
-        success = await upload_csv_file_to_sensor(
-            client=client,
-            sensor_id=sensors[sensor_key]["id"],
-            file_path=file_path,
-            belief_time_measured_instantly=belief_time_measured_instantly,
-        )
-
-        if success:
-            print(f"Successfully uploaded {sensor_key} data")
-        else:
-            print(f"Failed to upload {sensor_key} data")
+            if success:
+                print(f"Successfully uploaded {sensor_key} data")
+            else:
+                print(f"Failed to upload {sensor_key} data")
 
     return True
 
 
-async def cleanup_existing_assets(client: FlexMeasuresClient, account_id: int):
+async def cleanup_existing_assets(
+    client: FlexMeasuresClient, account_id: int, site_names: list[str]
+):
     """Clean up existing HEMS assets to avoid naming conflicts."""
     print("Cleaning up existing assets...")
 
-    # Asset names to clean up
-    asset_names_to_clean = [
-        building_name,  # Deleting this asset also deletes child assets (battery, PV, EVSEs)
-        weather_station_name,
-        price_market_name,
-    ]
+    for site_name in site_names:
+        # Asset names to clean up
+        asset_names_to_clean = [
+            site_name,  # Deleting this asset also deletes child assets (battery, PV, EVSEs)
+            weather_station_name,
+            price_market_name,
+        ]
 
-    try:
-        # Get all existing assets
-        assets = await client.get_assets()
+        try:
+            # Get all existing assets
+            assets = await client.get_assets()
 
-        # Find and delete assets that match our names
-        deleted_count = 0
-        for asset in assets:
-            if asset["name"] in asset_names_to_clean:
-                print(f"Deleting existing asset: {asset['name']} (ID: {asset['id']})")
-                try:
-                    if asset.get("account_id") != account_id:
-                        print(
-                            f"Warning: Asset {asset['name']} (ID: {asset['id']}) does not belong to the current account."
+            # Find and delete assets that match our names
+            deleted_count = 0
+            for asset in assets:
+                if asset["name"] in asset_names_to_clean:
+                    print(
+                        f"Deleting existing asset: {asset['name']} (ID: {asset['id']})"
+                    )
+                    try:
+                        if asset.get("account_id") != account_id:
+                            print(
+                                f"Warning: Asset {asset['name']} (ID: {asset['id']}) does not belong to the current account."
+                            )
+                            raise
+                        await client.delete_asset(
+                            asset_id=asset["id"], confirm_first=False
                         )
-                        raise
-                    await client.delete_asset(asset_id=asset["id"], confirm_first=False)
-                    deleted_count += 1
-                except Exception as delete_error:
-                    # Check if it's a 404 error (asset not found)
-                    if "404" in str(delete_error) or "NOT FOUND" in str(delete_error):
-                        print(
-                            f"Asset {asset['name']} (ID: {asset['id']}) no longer exists, skipping..."
-                        )
-                    else:
-                        print(
-                            f"Warning: Could not delete asset {asset['name']}: {delete_error}"
-                        )
-                    # Continue with other assets
+                        deleted_count += 1
+                    except Exception as delete_error:
+                        # Check if it's a 404 error (asset not found)
+                        if "404" in str(delete_error) or "NOT FOUND" in str(
+                            delete_error
+                        ):
+                            print(
+                                f"Asset {asset['name']} (ID: {asset['id']}) no longer exists, skipping..."
+                            )
+                        else:
+                            print(
+                                f"Warning: Could not delete asset {asset['name']}: {delete_error}"
+                            )
+                        # Continue with other assets
 
-        if deleted_count > 0:
-            print(f"Cleaned up {deleted_count} existing assets")
-        else:
-            print("No existing assets to clean up")
+            if deleted_count > 0:
+                print(f"Cleaned up {deleted_count} existing assets")
+            else:
+                print("No existing assets to clean up")
 
-        # Wait a moment for deletions to complete
-        await asyncio.sleep(1)
+            # Wait a moment for deletions to complete
+            await asyncio.sleep(1)
 
-    except Exception as e:
-        print(f"Warning: Error during cleanup: {e}")
-        print("Continuing with setup...")
+        except Exception as e:
+            print(f"Warning: Error during cleanup: {e}")
+            print("Continuing with setup...")
 
 
 def load_and_align_csv_data(
