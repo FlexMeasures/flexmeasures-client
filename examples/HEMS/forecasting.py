@@ -90,10 +90,7 @@ async def generate_sensor_forecasts(
         return False
 
 
-async def generate_forecasts(
-    client: FlexMeasuresClient,
-    site_names: list[str,]
-):
+async def generate_forecasts(client: FlexMeasuresClient, site_names: list[str,]):
     """Generate forecasts for sensors that need to be forecasted for tutorial."""
 
     forecast_configs = []

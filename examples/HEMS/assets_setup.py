@@ -842,7 +842,12 @@ async def create_sites_assets_and_sensors(
     )
 
 
-async def create_community_asset(client: FlexMeasuresClient, account: dict, community_name: str, site_names: list[str]):
+async def create_community_asset(
+    client: FlexMeasuresClient,
+    account: dict,
+    community_name: str,
+    site_names: list[str],
+):
     """Create an asset representing a community, which will serve as the parent asset for all sites in the community."""
     # Get account id
     account_id = account["id"]

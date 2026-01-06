@@ -17,7 +17,9 @@ from utils.asset_utils import cleanup_existing_assets, upload_data_for_first_two
 from flexmeasures_client import FlexMeasuresClient
 
 
-async def main(community_name: str, site_names: list[str], callback: Callable = just_continue):
+async def main(
+    community_name: str, site_names: list[str], callback: Callable = just_continue
+):
     """
     Complete HEMS setup using FlexMeasures client.
 
@@ -60,19 +62,28 @@ async def main(community_name: str, site_names: list[str], callback: Callable = 
             print(
                 "Creating community Site asset with 2 building assets, each with PV and battery sensors, and weather station"
             )
-            await create_community_asset(client, account, community_name=community_name, site_names=site_names)
+            await create_community_asset(
+                client, account, community_name=community_name, site_names=site_names
+            )
         else:
             answer = input(f"Asset '{community_name}' already exists. Re-create?")
             if answer.lower() in ["y", "yes"]:
                 await client.delete_asset(asset_id=asset["id"])
-                await create_community_asset(client, account, community_name=community_name, site_names=site_names)
+                await create_community_asset(
+                    client,
+                    account,
+                    community_name=community_name,
+                    site_names=site_names,
+                )
             else:
                 print("Assets already exist, skipping to data upload")
 
         # Part 2: Upload data for first two weeks
         print("\n" + "=" * 50)
         print("PART 2: UPLOADING DATA")
-        await upload_data_for_first_two_weeks(client, community_name=community_name, site_names=site_names)
+        await upload_data_for_first_two_weeks(
+            client, community_name=community_name, site_names=site_names
+        )
 
         # Part 3: Generate PV forecasts for second week
         print("\n" + "=" * 50)
@@ -82,7 +93,12 @@ async def main(community_name: str, site_names: list[str], callback: Callable = 
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
         print("PART 4: SCHEDULING SIMULATION")
-        await run_scheduling_simulation(client, community_name=community_name, site_names=site_names, callback=callback)
+        await run_scheduling_simulation(
+            client,
+            community_name=community_name,
+            site_names=site_names,
+            callback=callback,
+        )
 
         # Part 5 : Create reports
         print("\n" + "=" * 50)
