@@ -9,7 +9,7 @@ pwd = "admin"  # Admin password
 host = "127.0.0.1:5000"  # FlexMeasures host
 
 # Asset and sensor names
-building_name = "My Home"
+building_name = "My Building"
 pv_name = "Rooftop PV"
 battery_name = "Home Battery"
 evse1_name = "EV Connector 1"
@@ -26,7 +26,7 @@ longitude = 4.9041
 TUTORIAL_START_DATE = "2026-01-01T00:00:00+01:00"
 FORECASTING_START = "2026-01-15T00:00:00+01:00"
 SCHEDULING_START = "2026-01-15T00:00:00+01:00"
-SCHEDULING_END = "2026-01-16T00:00:00+01:00"
+SCHEDULING_END = "2026-01-21T00:00:00+01:00"
 SIMULATION_STEP_HOURS = 4
 FORECAST_HORIZON_HOURS = 24
 
