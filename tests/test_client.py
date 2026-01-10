@@ -365,7 +365,7 @@ async def test_get_assets() -> None:
                 "flexmeasures_version": "0.31.0",
                 "message": "For these API versions a public endpoint is available, listing its service. For example: /api/v3_0. An authentication token can be requested at: /api/requestAuthToken",
                 "status": 200,
-                "versions": ["v3_0"]
+                "versions": ["v3_0"],
             },
         )
         m.get(
