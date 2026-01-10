@@ -651,7 +651,7 @@ class FlexMeasuresClient:
         sort_by: str = "id",
         include_public: bool = False,
         account_id: int | None = None,
-        root_asset: int | None = None,
+        root: int | None = None,
         depth: int | None = None,
         fields: list[str] | None = None,
     ) -> list[dict]:
@@ -673,14 +673,14 @@ class FlexMeasuresClient:
             uri += f"&account_id={account_id}"
 
         await self.ensure_server_version()
-        print(f"Using FlexMeasures server version {self.server_version}")
-        if root_asset or depth or fields:
+        if root or depth or fields:
             if Version(self.server_version) < Version("0.31.0"):
                 print(
-                    "The 'root_asset', 'depth', and 'fields' parameters require FlexMeasures server version 0.31.0 or above."
+                    "get_assets(): The 'root', 'depth', and 'fields' parameters require FlexMeasures server version 0.31.0 or above."
+                    "These parameters will be ignored."
                 )
-            if root_asset and isinstance(root_asset, int):
-                uri += f"&root={root_asset}"
+            if root and isinstance(root, int):
+                uri += f"&root={root}"
             if depth and isinstance(depth, int):
                 uri += f"&depth={depth}"
             if fields and isinstance(fields, list):
