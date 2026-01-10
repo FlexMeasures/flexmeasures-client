@@ -184,7 +184,7 @@ class FlexMeasuresClient:
                             "404" in str(exception)
                             and minimum_server_version is not None
                         ):
-                            self.ensure_server_version()
+                            await self.ensure_server_version()
                             if Version(self.server_version) < Version(
                                 minimum_server_version
                             ):
