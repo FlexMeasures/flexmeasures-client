@@ -85,6 +85,7 @@ async def test__init__(
         "path": "/api/v3_0/",
         "max_polling_steps": 10,
         "polling_timeout": 200.0,
+        "server_version": None,
         "request_timeout": 40.0,
         "polling_interval": 10.0,
     }
@@ -357,6 +358,16 @@ async def test_get_assets() -> None:
             email="test@test.test", password="test"
         )
         flexmeasures_client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/",
+            status=200,
+            payload={
+                "flexmeasures_version": "0.31.0",
+                "message": "For these API versions a public endpoint is available, listing its service. For example: /api/v3_0. An authentication token can be requested at: /api/requestAuthToken",
+                "status": 200,
+                "versions": ["v3_0"]
+            },
+        )
         m.get(
             "http://localhost:5000/api/v3_0/assets?all_accessible=False&include_public=False&sort_by=id&sort_dir=asc",
             status=200,
