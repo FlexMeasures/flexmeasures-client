@@ -107,14 +107,14 @@ class FRBCSimple(FRBC):
             start=system_description.valid_from
             + self._valid_from_shift,  # TODO: localize datetime
             sensor_id=self._power_sensor_id,
-            flex_context=dict(
-                production_price_sensor=self._price_sensor_id,
-                consumption_price_sensor=self._price_sensor_id,
-            ),
-            flex_model=dict(
-                soc_unit="MWh",
-                soc_at_start=soc_at_start,  # TODO: use forecast of the SOC instead
-            ),
+            flex_context={
+                "production-price": {"sensor": self._price_sensor_id},
+                "consumption-price": {"sensor": self._price_sensor_id},
+            },
+            flex_model={
+                "soc-unit": "MWh",
+                "soc-at-start": soc_at_start,  # TODO: use forecast of the SOC instead
+            },
             duration=self._schedule_duration,  # next 12 hours
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
             # this needs changes on the client
