@@ -902,6 +902,7 @@ class FlexMeasuresClient:
         parent_asset_id: int | None = None,
         sensors_to_show: list | None = None,
         flex_context: dict | None = None,
+        flex_model: dict | None = None,
         attributes: dict | None = None,
     ) -> dict:
         """Post an asset.
@@ -912,6 +913,7 @@ class FlexMeasuresClient:
                     'attributes': '{}',
                     'sensors_to_show': [],
                     'flex_context': {},
+                    'flex_model': {},
                     'generic_asset_type_id': 5,
                     'id': 25,
                     'latitude': 51.999,
@@ -935,6 +937,8 @@ class FlexMeasuresClient:
             asset["sensors_to_show"] = json.dumps(sensors_to_show)
         if flex_context:
             asset["flex_context"] = json.dumps(flex_context)
+        if flex_model:
+            asset["flex_model"] = json.dumps(flex_model)
         if attributes:
             asset["attributes"] = json.dumps(attributes)
 
