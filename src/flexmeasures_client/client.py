@@ -960,9 +960,9 @@ class FlexMeasuresClient:
                 updates["sensors_to_show_as_kpis"]
             )
         for key, val in updates.items():
-            if type(val) not in (str, bytes, bytearray):
+            if type(val) not in (int, float, str, bytes, bytearray):
                 raise ContentTypeError(
-                    f"Value for {key} is not allowed (needs to be str, byte or bytearray to be sent to API)"
+                    f"Value for {key} is not allowed (needs to be int, float, str, byte or bytearray to be sent to API)"
                 )
         updated_asset, status = await self.request(
             uri=uri, json_payload=updates, method="PATCH"
