@@ -53,7 +53,7 @@ Install using ``pip``:
 
     pip install flexmeasures-client
 
-To enable S2 features, you need to install extra requirements:
+The FlexMeasures Client can also run as an `S2 CEM <https://docs.s2standard.org/docs/concepts/common-concepts/>`_. To enable S2 features, you need to install extra requirements:
 
 .. code-block:: bash
 
