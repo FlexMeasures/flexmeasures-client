@@ -4,13 +4,13 @@ from datetime import datetime
 import aiohttp
 import pytz
 
-from flexmeasures_client.s2.python_s2_protocol.common.messages import (
+from s2python.common import (
     Handshake,
     ReceptionStatus,
     ReceptionStatusValues,
     ResourceManagerDetails,
 )
-from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
+from s2python.common import (
     Commodity,
     CommodityQuantity,
     ControlType,
@@ -21,15 +21,13 @@ from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
     Role,
     RoleType,
 )
-from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
-    FRBCStorageStatus,
-    FRBCSystemDescription,
-)
-from flexmeasures_client.s2.python_s2_protocol.FRBC.schemas import (
+from s2python.frbc import (
     FRBCActuatorDescription,
     FRBCOperationMode,
     FRBCOperationModeElement,
     FRBCStorageDescription,
+    FRBCStorageStatus,
+    FRBCSystemDescription,
 )
 from flexmeasures_client.s2.utils import get_unique_id
 
