@@ -21,7 +21,7 @@ except ImportError:
 
 
 from flexmeasures_client.s2.control_types.FRBC import FRBC
-from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
+from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions, get_soc_min_max
 
 
 class FRBCSimple(FRBC):
@@ -102,6 +102,8 @@ class FRBCSimple(FRBC):
             print("Can't trigger schedule without knowing the status of the storage...")
             return
 
+        soc_min, soc_max = get_soc_min_max(system_description)
+
         # call schedule
         schedule = await self._fm_client.trigger_and_get_schedule(
             start=system_description.valid_from
@@ -114,6 +116,8 @@ class FRBCSimple(FRBC):
             flex_model={
                 "soc-unit": "MWh",
                 "soc-at-start": soc_at_start,  # TODO: use forecast of the SOC instead
+                "soc-min": soc_min,
+                "soc-max": soc_max,
             },
             duration=self._schedule_duration,  # next 12 hours
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
