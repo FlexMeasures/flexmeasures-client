@@ -30,20 +30,17 @@ from flexmeasures_client.client import FlexMeasuresClient
 
 
 async def run_scheduling_simulation(
-    client: FlexMeasuresClient,
-    building_asset: dict,
-    simulate_live_corrections: bool = True,
+    client: FlexMeasuresClient, simulate_live_corrections: bool = True
 ):
     """Run step-by-step scheduling simulation for the third week with EV charging."""
     print("Running scheduling simulation for third week with EV charging...")
 
     # Find required assets and sensors
-    assets = await client.get_assets(
-        root=building_asset["id"], fields=["id", "name", "attributes"]
-    )
+    assets = await client.get_assets(fields=["id", "name", "attributes"])
 
     # Find building, battery, and EVSE assets
     assets_by_name = {a["name"]: a for a in assets}
+    building_asset = assets_by_name.get(building_name)
     battery_asset = assets_by_name.get(battery_name)
     evse1_asset = assets_by_name.get(evse1_name)
     evse2_asset = assets_by_name.get(evse2_name)

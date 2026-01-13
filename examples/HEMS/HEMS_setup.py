@@ -59,7 +59,7 @@ async def main():
         # Clean up existing assets first
         await cleanup_existing_assets(client=client, account_id=account_id)
 
-        asset: dict | None = None  # Initialize asset variable
+        asset = None  # Initialize asset variable
         assets = await client.get_assets()
         for sst in assets:
             if sst["name"] == building_name:
@@ -70,12 +70,12 @@ async def main():
             print(
                 "Creating building asset, with PV and battery sensors, and weather station"
             )
-            asset = await create_building_assets_and_sensors(client, account)
+            await create_building_assets_and_sensors(client, account)
         else:
             answer = input(f"Asset '{building_name}' already exists. Re-create?")
             if answer.lower() in ["y", "yes"]:
                 await client.delete_asset(asset_id=asset["id"])
-                asset = await create_building_assets_and_sensors(client, account)
+                await create_building_assets_and_sensors(client, account)
             else:
                 print("Assets already exist, skipping to data upload")
 
@@ -103,7 +103,7 @@ async def main():
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
         print("PART 4: SCHEDULING SIMULATION")
-        await run_scheduling_simulation(client, asset)
+        await run_scheduling_simulation(client)
 
         # Part 5 : Create reports
         print("\n" + "=" * 50)

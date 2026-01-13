@@ -681,9 +681,7 @@ async def configure_building_dashboard(
     print("Sensors to show configured successfully")
 
 
-async def create_building_assets_and_sensors(
-    client: FlexMeasuresClient, account: dict
-) -> dict:
+async def create_building_assets_and_sensors(client: FlexMeasuresClient, account: dict):
     """
     Create a building asset with its associated sensors and linked assets (PV, battery, EVSEs, and weather station),
     then configure the building's flex context and dashboard.
@@ -815,5 +813,3 @@ async def create_building_assets_and_sensors(
         daily_total_energy_costs_sensor=daily_total_energy_costs_sensor,
         daily_share_of_self_consumption_sensor=daily_share_of_self_consumption_sensor,
     )
-
-    return building_asset
