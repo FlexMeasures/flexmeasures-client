@@ -112,6 +112,7 @@ class FRBCSimple(FRBC):
             flex_context={
                 "production-price": {"sensor": self._price_sensor_id},
                 "consumption-price": {"sensor": self._price_sensor_id},
+                "site-power-capacity": f"{3 * 25 * 230} VA",
             },
             flex_model={
                 "soc-unit": "MWh",
