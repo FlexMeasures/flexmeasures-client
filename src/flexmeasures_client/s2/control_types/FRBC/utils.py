@@ -125,11 +125,7 @@ def fm_schedule_to_instructions(
     instructions = []
 
     actuator = system_description.actuators[0]
-    fill_level_range: NumberRange = system_description.storage.fill_level_range
-
-    # get SOC Max and Min to be sent on the Flex Model
-    soc_min = fill_level_range.start_of_range * FILL_LEVEL_SCALE
-    soc_max = fill_level_range.end_of_range * FILL_LEVEL_SCALE
+    soc_min, soc_max = get_soc_min_max(system_description)
 
     if len(system_description.actuators) != 1:
         raise NotImplementedError(
@@ -282,3 +278,15 @@ def fm_schedule_to_instructions(
         previous_value = value
 
     return instructions
+
+
+def get_soc_min_max(system_description: FRBCSystemDescription) -> tuple[float, float]:
+    """From the system description, get the minimum and maximum State of Charge for the flex-model."""
+
+    fill_level_range: NumberRange = system_description.storage.fill_level_range
+
+    # get SOC Max and Min to be sent on the Flex Model
+    soc_min = fill_level_range.start_of_range * FILL_LEVEL_SCALE
+    soc_max = fill_level_range.end_of_range * FILL_LEVEL_SCALE
+
+    return soc_min, soc_max
