@@ -59,6 +59,7 @@ class FlexMeasuresClient:
     request_timeout: float = REQUEST_TIMEOUT  # seconds
     polling_interval: float = POLLING_INTERVAL  # seconds
     session: ClientSession | None = None
+    server_version: str | None = None
     logger: Logger = LOGGER
 
     def __post_init__(self):
@@ -112,6 +113,12 @@ class FlexMeasuresClient:
     async def close(self):
         """Function to close FlexMeasuresClient session when all requests are done."""
         await cast(ClientSession, self.session).close()
+
+    async def ensure_server_version(self):
+        """Ensure that the server version is known."""
+        if self.server_version is None:
+            version_info = await self.get_versions()
+            self.server_version = version_info["server_version"]
 
     async def request(
         self,
@@ -177,12 +184,11 @@ class FlexMeasuresClient:
                             "404" in str(exception)
                             and minimum_server_version is not None
                         ):
-                            version_info = await self.get_versions()
-                            server_version = version_info["server_version"]
-                            if Version(server_version) < Version(
+                            await self.ensure_server_version()
+                            if Version(self.server_version) < Version(
                                 minimum_server_version
                             ):
-                                msg = f"This functionality requires FlexMeasures server of {minimum_server_version} or above. Current server has version {server_version}."
+                                msg = f"This functionality requires FlexMeasures server of {minimum_server_version} or above. Current server has version {self.server_version}."
                                 if minimum_server_version_msg:
                                     msg += f"\n{minimum_server_version_msg}"
                                 raise InsufficientServerVersionError(msg)
@@ -645,10 +651,14 @@ class FlexMeasuresClient:
         sort_by: str = "id",
         include_public: bool = False,
         account_id: int | None = None,
+        root: int | None = None,
+        depth: int | None = None,
+        fields: list[str] | None = None,
     ) -> list[dict]:
         """Get all the assets available to the current user.
 
-        For parameter documentation, consult the FlexMeasures server docs.
+        For parameter documentation, consult the FlexMeasures server docs
+        (see the GET /api/v3_0/assets endpoint).
 
         :returns: list of assets as dictionaries
 
@@ -661,6 +671,21 @@ class FlexMeasuresClient:
         uri = f"assets?all_accessible={all_accessible}&sort_by={sort_by}&sort_dir={sort_dir}&include_public={include_public}"
         if account_id and isinstance(account_id, int):
             uri += f"&account_id={account_id}"
+
+        await self.ensure_server_version()
+        if root or depth or fields:
+            if Version(self.server_version) < Version("0.31.0"):
+                print(
+                    "get_assets(): The 'root', 'depth', and 'fields' parameters require FlexMeasures server version 0.31.0 or above."
+                    "These parameters will be ignored."
+                )
+            if root and isinstance(root, int):
+                uri += f"&root={root}"
+            if depth and isinstance(depth, int):
+                uri += f"&depth={depth}"
+            if fields and isinstance(fields, list):
+                fields_str = "|".join(fields)
+                uri += f"&fields={fields_str}"
 
         assets, status = await self.request(uri=uri, method="GET")
         check_for_status(status, 200)
