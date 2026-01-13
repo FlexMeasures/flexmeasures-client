@@ -57,7 +57,7 @@ async def main_s2():
                 roles=[
                     Role(role=RoleType.ENERGY_STORAGE, commodity=Commodity.ELECTRICITY)
                 ],
-                instruction_processing_delay=Duration(__root__=1.0),
+                instruction_processing_delay=Duration(1),
                 available_control_types=[
                     ControlType.FILL_RATE_BASED_CONTROL,
                     ControlType.NO_SELECTION,
