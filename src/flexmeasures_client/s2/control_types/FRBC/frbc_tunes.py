@@ -54,7 +54,7 @@ except ImportError:
 
 from flexmeasures_client.s2 import register
 from flexmeasures_client.s2.control_types.FRBC import FRBC
-from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
+from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions, get_soc_min_max
 from flexmeasures_client.s2.control_types.translations import (
     leakage_behaviour_to_storage_efficiency,
     translate_fill_level_target_profile,
@@ -312,11 +312,7 @@ class FillRateBasedControlTUNES(FRBC):
         )[-1]
 
         actuator = system_description.actuators[0]
-        fill_level_range: NumberRange = system_description.storage.fill_level_range
-
-        # get SOC Max and Min to be sent on the Flex Model
-        soc_min = fill_level_range.start_of_range * FILL_LEVEL_SCALE
-        soc_max = fill_level_range.end_of_range * FILL_LEVEL_SCALE
+        soc_min, soc_max = get_soc_min_max(system_description, FILL_LEVEL_SCALE)
 
         operation_mode = None
         efficiency_sensor_id = None
