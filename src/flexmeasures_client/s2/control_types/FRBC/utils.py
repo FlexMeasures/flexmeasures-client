@@ -11,8 +11,6 @@ try:
     from s2python.common import NumberRange
     from s2python.frbc import FRBCInstruction, FRBCOperationMode, FRBCSystemDescription
     from s2python.frbc.frbc_operation_mode_element import FRBCOperationModeElement
-
-    from flexmeasures_client.s2.const import FILL_LEVEL_SCALE
 except ImportError:
     raise ImportError(
         "The 's2-python' package is required for this functionality. "
@@ -28,12 +26,12 @@ LOGGER = logging.getLogger(__name__)
 def op_mode_compute_factor(
     op_mode_elem: FRBCOperationModeElement,
     fill_rate: float,
+    fill_level_scale: float = 1,
     logger: logging.Logger = LOGGER,
 ) -> float:
     """Compute the operation mode factor for a given fill rate."""
-
-    start_fill_rate = op_mode_elem.fill_rate.start_of_range * FILL_LEVEL_SCALE
-    end_fill_rate = op_mode_elem.fill_rate.end_of_range * FILL_LEVEL_SCALE
+    start_fill_rate = op_mode_elem.fill_rate.start_of_range * fill_level_scale
+    end_fill_rate = op_mode_elem.fill_rate.end_of_range * fill_level_scale
     delta_fill_rate = end_fill_rate - start_fill_rate
 
     fill_rate = max(fill_rate, start_fill_rate)
@@ -51,47 +49,47 @@ def op_mode_compute_factor(
     return omf
 
 
-def op_mode_range(op_mode: FRBCOperationMode):
+def op_mode_range(op_mode: FRBCOperationMode, fill_level_scale: float = 1):
     start_of_range = (
-        op_mode.elements[0].fill_level_range.start_of_range * FILL_LEVEL_SCALE
+        op_mode.elements[0].fill_level_range.start_of_range * fill_level_scale
     )
-    end_of_range = op_mode.elements[0].fill_level_range.end_of_range * FILL_LEVEL_SCALE
+    end_of_range = op_mode.elements[0].fill_level_range.end_of_range * fill_level_scale
 
     for op_elem in op_mode.elements:
         start_of_range = min(
-            start_of_range, op_elem.fill_level_range.start_of_range * FILL_LEVEL_SCALE
+            start_of_range, op_elem.fill_level_range.start_of_range * fill_level_scale
         )
         end_of_range = max(
-            end_of_range, op_elem.fill_level_range.end_of_range * FILL_LEVEL_SCALE
+            end_of_range, op_elem.fill_level_range.end_of_range * fill_level_scale
         )
 
     return start_of_range, end_of_range
 
 
-def op_mode_max_fill_rate(op_mode: FRBCOperationMode):
+def op_mode_max_fill_rate(op_mode: FRBCOperationMode, fill_level_scale: float = 1):
     return max(
-        op_elem.fill_rate.end_of_range * FILL_LEVEL_SCALE
+        op_elem.fill_rate.end_of_range * fill_level_scale
         for op_elem in op_mode.elements
     )
 
 
 def op_mode_elem_is_fill_level_in_range(
-    op_mode_elem: FRBCOperationModeElement, fill_level: float
+    op_mode_elem: FRBCOperationModeElement, fill_level: float, fill_level_scale: float = 1
 ) -> bool:
     return (
-        fill_level >= op_mode_elem.fill_level_range.start_of_range * FILL_LEVEL_SCALE
-        and fill_level <= op_mode_elem.fill_level_range.end_of_range * FILL_LEVEL_SCALE
+        fill_level >= op_mode_elem.fill_level_range.start_of_range * fill_level_scale
+        and fill_level <= op_mode_elem.fill_level_range.end_of_range * fill_level_scale
     )
 
 
-def op_mode_elem_efficiency(op_mode_elem: FRBCOperationModeElement):
+def op_mode_elem_efficiency(op_mode_elem: FRBCOperationModeElement, fill_level_scale: float = 1):
     # TODO: take into account both start and end of range. This is a bit tricky
     if op_mode_elem.power_ranges[0].end_of_range == 0:
         return 1
 
     return (
         op_mode_elem.fill_rate.end_of_range
-        * FILL_LEVEL_SCALE
+        * fill_level_scale
         / op_mode_elem.power_ranges[0].end_of_range
     )
 
@@ -115,6 +113,7 @@ def fm_schedule_to_instructions(
     schedule: pd.DataFrame,
     system_description: FRBCSystemDescription,
     initial_fill_level: float,
+    fill_level_scale: float = 1,
     logger: logging.Logger = LOGGER,
 ) -> List[FRBCInstruction]:
 
@@ -125,7 +124,7 @@ def fm_schedule_to_instructions(
     instructions = []
 
     actuator = system_description.actuators[0]
-    soc_min, soc_max = get_soc_min_max(system_description)
+    soc_min, soc_max = get_soc_min_max(system_description, fill_level_scale)
 
     if len(system_description.actuators) != 1:
         raise NotImplementedError(
@@ -160,7 +159,7 @@ def fm_schedule_to_instructions(
 
     max_eff = max(
         [
-            op_mode_elem_efficiency(elem)
+            op_mode_elem_efficiency(elem, fill_level_scale=fill_level_scale)
             for op_mode in operation_modes
             for elem in op_mode.elements
             if "idle" not in op_mode.diagnostic_label.lower()
@@ -194,9 +193,9 @@ def fm_schedule_to_instructions(
                 valid_operation_modes = [
                     op_mode
                     for op_mode in operation_modes
-                    if op_mode_range(op_mode)[0]
+                    if op_mode_range(op_mode, fill_level_scale=fill_level_scale)[0]
                     <= fill_level
-                    <= op_mode_range(op_mode)[1]
+                    <= op_mode_range(op_mode, fill_level_scale=fill_level_scale)[1]
                 ]
 
                 if not valid_operation_modes:
@@ -206,7 +205,7 @@ def fm_schedule_to_instructions(
                     continue
 
                 max_fill_rate = max(
-                    op_mode_max_fill_rate(op_mode) for op_mode in valid_operation_modes
+                    op_mode_max_fill_rate(op_mode, fill_level_scale=fill_level_scale) for op_mode in valid_operation_modes
                 )
 
                 value = min(value * max_eff, max_fill_rate)
@@ -214,18 +213,18 @@ def fm_schedule_to_instructions(
                 valid_operation_modes = [
                     op_mode
                     for op_mode in valid_operation_modes
-                    if op_mode_max_fill_rate(op_mode) >= value
+                    if op_mode_max_fill_rate(op_mode, fill_level_scale=fill_level_scale) >= value
                 ]
 
                 op_mode_elements = [
                     (
-                        op_mode_elem_efficiency(elem),
+                        op_mode_elem_efficiency(elem, fill_level_scale=fill_level_scale),
                         op_mode,
                         elem,
                     )
                     for op_mode in valid_operation_modes
                     for elem in op_mode.elements
-                    if op_mode_elem_is_fill_level_in_range(elem, fill_level)
+                    if op_mode_elem_is_fill_level_in_range(elem, fill_level, fill_level_scale=fill_level_scale)
                 ]
 
                 if not op_mode_elements:
@@ -236,7 +235,7 @@ def fm_schedule_to_instructions(
                 )[0]
 
                 operation_mode_factor = op_mode_compute_factor(
-                    op_mode_elem, fill_rate=value, logger=logger
+                    op_mode_elem, fill_rate=value, fill_level_scale=fill_level_scale, logger=logger
                 )
 
             instruction = FRBCInstruction(
@@ -280,13 +279,13 @@ def fm_schedule_to_instructions(
     return instructions
 
 
-def get_soc_min_max(system_description: FRBCSystemDescription) -> tuple[float, float]:
+def get_soc_min_max(system_description: FRBCSystemDescription, fill_level_scale: float = 1) -> tuple[float, float]:
     """From the system description, get the minimum and maximum State of Charge for the flex-model."""
 
     fill_level_range: NumberRange = system_description.storage.fill_level_range
 
     # get SOC Max and Min to be sent on the Flex Model
-    soc_min = fill_level_range.start_of_range * FILL_LEVEL_SCALE
-    soc_max = fill_level_range.end_of_range * FILL_LEVEL_SCALE
+    soc_min = fill_level_range.start_of_range * fill_level_scale
+    soc_max = fill_level_range.end_of_range * fill_level_scale
 
     return soc_min, soc_max

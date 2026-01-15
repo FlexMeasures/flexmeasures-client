@@ -19,9 +19,7 @@ from flexmeasures_client.s2.utils import get_unique_id
 
 
 @pytest_asyncio.fixture(scope="function")
-async def setup_cem(resource_manager_details, rm_handshake, monkeypatch):
-    monkeypatch.setattr(frbc_tunes, "FILL_LEVEL_SCALE", 1)
-
+async def setup_cem(resource_manager_details, rm_handshake):
     fm_client = AsyncMock(FlexMeasuresClient)
 
     # Mock trigger_and_get_schedule response
@@ -68,6 +66,7 @@ async def setup_cem(resource_manager_details, rm_handshake, monkeypatch):
         schedule_duration=timedelta(hours=12),
         max_size=100,
         valid_from_shift=timedelta(days=1),
+        fill_level_scale=1,
     )
 
     # disable rate limiting for testing
@@ -120,10 +119,8 @@ async def cem_in_frbc_control_type(setup_cem, frbc_system_description):
 
 @pytest.mark.asyncio
 async def test_system_description(
-    cem_in_frbc_control_type, frbc_system_description, monkeypatch
+    cem_in_frbc_control_type, frbc_system_description
 ):
-    monkeypatch.setattr(frbc_tunes, "FILL_LEVEL_SCALE", 1)
-
     cem, fm_client, frbc_system_description = cem_in_frbc_control_type
 
     ########
@@ -176,9 +173,7 @@ def get_pending_tasks():
 
 
 @pytest.mark.asyncio
-async def test_fill_level_target_profile(cem_in_frbc_control_type, monkeypatch):
-    monkeypatch.setattr(frbc_tunes, "FILL_LEVEL_SCALE", 1)
-
+async def test_fill_level_target_profile(cem_in_frbc_control_type):
     cem, fm_client, frbc_system_description = cem_in_frbc_control_type
 
     fill_level_target_profile = {
@@ -230,14 +225,11 @@ async def test_fill_level_target_profile(cem_in_frbc_control_type, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fill_rate_relay(cem_in_frbc_control_type, monkeypatch):
+async def test_fill_rate_relay(cem_in_frbc_control_type):
     """Check whether the fill rate from the Tarnoc or Nestor is relayed
     to the overall heating system's fill rate sensor, and the fill rate sensor ID
     corresponds correctly to the Tarnoc fill rate sensor or the Nestor fill rate sensor.
     """
-
-    monkeypatch.setattr(frbc_tunes, "FILL_LEVEL_SCALE", 1)
-
     cem, fm_client, frbc_system_description = cem_in_frbc_control_type
     frbc = cem._control_types_handlers[cem.control_type]
 

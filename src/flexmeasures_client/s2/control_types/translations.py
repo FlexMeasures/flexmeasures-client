@@ -11,8 +11,6 @@ try:
         FRBCLeakageBehaviour,
         FRBCUsageForecast,
     )
-
-    from flexmeasures_client.s2.const import FILL_LEVEL_SCALE
 except ImportError:
     raise ImportError(
         "The 's2-python' package is required for this functionality. "
@@ -21,7 +19,7 @@ except ImportError:
 
 
 def leakage_behaviour_to_storage_efficiency(
-    message: FRBCLeakageBehaviour, resolution=timedelta(minutes=15)
+    message: FRBCLeakageBehaviour, resolution=timedelta(minutes=15), fill_level_scale: float = 1
 ) -> float:
     """
     Convert a FRBC.LeakageBehaviour message into a FlexMeasures compatible storage efficiency.
@@ -58,9 +56,9 @@ def leakage_behaviour_to_storage_efficiency(
 
     last_element = message.elements[-1]
     max_fill_level = max(
-        e.fill_level_range.end_of_range * FILL_LEVEL_SCALE for e in message.elements
+        e.fill_level_range.end_of_range * fill_level_scale for e in message.elements
     )
-    leakage = last_element.leakage_rate * FILL_LEVEL_SCALE
+    leakage = last_element.leakage_rate * fill_level_scale
     base_resolution = timedelta(hours=1)  # TODO: use timedelta(seconds=1)
 
     # Discuss conversions
@@ -134,6 +132,7 @@ def translate_usage_forecast_to_fm(
     usage_forecast: FRBCUsageForecast,
     resolution: str = "1h",
     strategy: str = "mean",
+    fill_level_scale: float = 1,
 ) -> pd.Series:
     """
     Translate a FRBC.UsageForecast into a FlexMeasures compatible format with evenly spaced data.
@@ -150,7 +149,7 @@ def translate_usage_forecast_to_fm(
 
     durations = [element.duration.to_timedelta() for element in usage_forecast.elements]
     values = [
-        element.usage_rate_expected * FILL_LEVEL_SCALE
+        element.usage_rate_expected * fill_level_scale
         for element in usage_forecast.elements
     ]  # e.g. [0, 1000] fill_level/s -> [0, 100] %/s
 
@@ -164,7 +163,7 @@ def translate_usage_forecast_to_fm(
 
 
 def translate_fill_level_target_profile(
-    fill_level_target_profile: FRBCFillLevelTargetProfile, resolution: str = "1h"
+    fill_level_target_profile: FRBCFillLevelTargetProfile, resolution: str = "1h", fill_level_scale: float = 1
 ) -> tuple[pd.Series, pd.Series]:
     """
     Translate a FRBC.FillLevelTargetProfile into SOC minima and maxima compatible with FlexMeasures.
@@ -185,11 +184,11 @@ def translate_fill_level_target_profile(
     ]
 
     soc_minima_values = [
-        element.fill_level_range.start_of_range * FILL_LEVEL_SCALE
+        element.fill_level_range.start_of_range * fill_level_scale
         for element in fill_level_target_profile.elements
     ]
     soc_maxima_values = [
-        element.fill_level_range.end_of_range * FILL_LEVEL_SCALE
+        element.fill_level_range.end_of_range * fill_level_scale
         for element in fill_level_target_profile.elements
     ]
 

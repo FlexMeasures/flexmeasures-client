@@ -52,9 +52,8 @@ def example_op_mode_elem(default_power_range):
     ],
 )
 def test_op_mode_compute_factor(
-    fill_rate_range, input_fill_rate, expected_factor, default_power_range, monkeypatch
+    fill_rate_range, input_fill_rate, expected_factor, default_power_range
 ):
-    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
     op_mode_elem = FRBCOperationModeElement(
         fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
         fill_rate=NumberRange(
@@ -75,9 +74,7 @@ def test_op_mode_compute_factor(
         ([(0.0, 0.1), (0.1, 0.2), (0.2, 0.3)], (0.0, 0.3)),
     ],
 )
-def test_op_mode_range(ranges, expected, default_power_range, monkeypatch):
-    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
-
+def test_op_mode_range(ranges, expected, default_power_range):
     elements = [
         FRBCOperationModeElement(
             fill_level_range=NumberRange(start_of_range=start, end_of_range=end),
@@ -104,11 +101,7 @@ def test_op_mode_range(ranges, expected, default_power_range, monkeypatch):
         ([(0.0, 0.5), (0.0, 0.9)], 0.9),
     ],
 )
-def test_op_mode_max_fill_rate(
-    fill_rates, expected_max, default_power_range, monkeypatch
-):
-    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
-
+def test_op_mode_max_fill_rate(fill_rates, expected_max, default_power_range):
     elements = [
         FRBCOperationModeElement(
             fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
@@ -137,26 +130,18 @@ def test_op_mode_max_fill_rate(
         (-0.1, False),
     ],
 )
-def test_op_mode_elem_is_fill_level_in_range(
-    example_op_mode_elem, fill_level, expected, monkeypatch
-):
-    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
-
+def test_op_mode_elem_is_fill_level_in_range(example_op_mode_elem, fill_level, expected):
     assert (
         op_mode_elem_is_fill_level_in_range(example_op_mode_elem, fill_level)
         is expected
     )
 
 
-def test_op_mode_elem_efficiency(example_op_mode_elem, monkeypatch):
-    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
-
+def test_op_mode_elem_efficiency(example_op_mode_elem):
     assert np.isclose(op_mode_elem_efficiency(example_op_mode_elem), 0.005)
 
 
-def test_compounded_fill_level_and_mode_selection(system_with_transitions, monkeypatch):
-    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
-
+def test_compounded_fill_level_and_mode_selection(system_with_transitions):
     start = datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
     index = pd.date_range(start=start, periods=4, freq="15min")
 
