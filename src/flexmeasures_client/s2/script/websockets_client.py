@@ -3,34 +3,30 @@ from datetime import datetime
 
 import aiohttp
 import pytz
-
-from flexmeasures_client.s2.python_s2_protocol.common.messages import (
-    Handshake,
-    ReceptionStatus,
-    ReceptionStatusValues,
-    ResourceManagerDetails,
-)
-from flexmeasures_client.s2.python_s2_protocol.common.schemas import (
+from s2python.common import (
     Commodity,
     CommodityQuantity,
     ControlType,
     Duration,
     EnergyManagementRole,
+    Handshake,
     NumberRange,
     PowerRange,
+    ReceptionStatus,
+    ReceptionStatusValues,
+    ResourceManagerDetails,
     Role,
     RoleType,
 )
-from flexmeasures_client.s2.python_s2_protocol.FRBC.messages import (
-    FRBCStorageStatus,
-    FRBCSystemDescription,
-)
-from flexmeasures_client.s2.python_s2_protocol.FRBC.schemas import (
+from s2python.frbc import (
     FRBCActuatorDescription,
     FRBCOperationMode,
     FRBCOperationModeElement,
     FRBCStorageDescription,
+    FRBCStorageStatus,
+    FRBCSystemDescription,
 )
+
 from flexmeasures_client.s2.utils import get_unique_id
 
 
@@ -59,7 +55,7 @@ async def main_s2():
                 roles=[
                     Role(role=RoleType.ENERGY_STORAGE, commodity=Commodity.ELECTRICITY)
                 ],
-                instruction_processing_delay=Duration(__root__=1.0),
+                instruction_processing_delay=Duration(1),
                 available_control_types=[
                     ControlType.FILL_RATE_BASED_CONTROL,
                     ControlType.NO_SELECTION,
@@ -125,6 +121,7 @@ async def main_s2():
                 id=get_unique_id(),
                 elements=[operation_mode_element],
                 abnormal_condition_only=False,
+                diagnostic_label="full operating range of a perfectly efficiency battery",
             )
 
             actuator = FRBCActuatorDescription(
@@ -143,7 +140,7 @@ async def main_s2():
             )
 
             valid_from = pytz.timezone("Europe/Amsterdam").localize(
-                datetime(2023, 5, 14)
+                datetime(2026, 1, 15, 20)
             )
 
             system_description_message = FRBCSystemDescription(

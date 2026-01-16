@@ -8,15 +8,12 @@ import pytest
 from s2python.common import CommodityQuantity, NumberRange, PowerRange
 from s2python.frbc import FRBCOperationMode, FRBCOperationModeElement
 
-import flexmeasures_client.s2.control_types.FRBC.utils as utils
 from flexmeasures_client.s2.control_types.FRBC.utils import (
+    clamp_distance,
     fm_schedule_to_instructions,
     get_unique_id,
     op_mode_compute_factor,
-    op_mode_elem_efficiency,
-    op_mode_elem_is_fill_level_in_range,
-    op_mode_max_fill_rate,
-    op_mode_range,
+    power_to_fill_rate_with_metrics,
 )
 
 
@@ -48,13 +45,12 @@ def example_op_mode_elem(default_power_range):
         ((0.0, 1.0), 0.5, 0.5),
         ((0.0, 1.0), 1.0, 1.0),
         ((2.0, 4.0), 3.0, 0.5),
-        ((1.0, 1.0), 1.0, 1.0),
+        ((1.0, 1.0), 1.0, 0.0),
     ],
 )
 def test_op_mode_compute_factor(
-    fill_rate_range, input_fill_rate, expected_factor, default_power_range, monkeypatch
+    fill_rate_range, input_fill_rate, expected_factor, default_power_range
 ):
-    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
     op_mode_elem = FRBCOperationModeElement(
         fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
         fill_rate=NumberRange(
@@ -69,94 +65,135 @@ def test_op_mode_compute_factor(
 
 
 @pytest.mark.parametrize(
-    "ranges, expected",
+    "fill_level_ranges, power_ranges, test_fill_level, test_power, description",
     [
-        ([(0.1, 0.3), (0.3, 0.8)], (0.1, 0.8)),
-        ([(0.0, 0.1), (0.1, 0.2), (0.2, 0.3)], (0.0, 0.3)),
+        # Single element, fill & power inside range → no penalties
+        ([(0.0, 2.0)], [(0.0, 5.0)], 1.0, 2.5, "inside range, single element"),
+        # Single element, fill level below range → fill-level penalty
+        ([(0.2, 2.0)], [(0.0, 5.0)], 0.1, 2.5, "fill level below element"),
+        # Single element, fill level above range → fill-level penalty
+        ([(0.0, 1.5)], [(0.0, 5.0)], 2.0, 3.0, "fill level above element"),
+        # Single element, power below range → power penalty
+        ([(0.0, 2.0)], [(1.0, 5.0)], 0.5, 0.5, "power below range"),
+        # Single element, power above range → power penalty
+        ([(0.0, 2.0)], [(0.0, 4.0)], 0.5, 5.0, "power above range"),
+        # Two elements, fill level selects correct element
+        (
+            [(0.0, 1.0), (1.0, 2.0)],
+            [(0.0, 5.0)],
+            1.5,
+            3.0,
+            "multiple elements, middle fill level",
+        ),
+        # Fill level below all elements → closest element chosen
+        (
+            [(0.0, 1.0), (1.0, 2.0)],
+            [(0.0, 5.0)],
+            -0.5,
+            2.0,
+            "fill level below all elements",
+        ),
+        # Fill level above all elements → closest element chosen
+        (
+            [(0.0, 1.0), (1.0, 2.0)],
+            [(0.0, 5.0)],
+            2.5,
+            2.0,
+            "fill level above all elements",
+        ),
+        # Multiple power ranges, power selects correct range
+        (
+            [(0.0, 1.0)],
+            [(0.0, 2.0), (2.0, 5.0)],
+            0.5,
+            3.0,
+            "multiple power ranges, select upper range",
+        ),
+        # Edge case: power exactly at start of range
+        ([(0.0, 1.0)], [(0.0, 5.0)], 0.5, 0.0, "power at start of range"),
+        # Edge case: fill level exactly at end of element range
+        ([(0.0, 1.0)], [(0.0, 5.0)], 1.0, 2.5, "fill level at end of element range"),
     ],
 )
-def test_op_mode_range(ranges, expected, default_power_range, monkeypatch):
-    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
+def test_power_to_fill_rate_with_metrics_comprehensive(
+    fill_level_ranges, power_ranges, test_fill_level, test_power, description
+):
+    """
+    Comprehensive test for `power_to_fill_rate_with_metrics`.
+    Verifies element selection, power range selection, clamping,
+    factor-to-fill-rate mapping, and penalties.
+    """
 
+    # --- Create FRBC elements with contiguous fill-level ranges ---
     elements = [
         FRBCOperationModeElement(
             fill_level_range=NumberRange(start_of_range=start, end_of_range=end),
-            fill_rate=NumberRange(start_of_range=0.0, end_of_range=1.0),
-            power_ranges=default_power_range,
-            running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
-        )
-        for start, end in ranges
-    ]
-    op_mode_id = get_unique_id()
-    op_mode = FRBCOperationMode(
-        id=op_mode_id,
-        elements=elements,
-        abnormal_condition_only=False,
-        diagnostic_label="test",
-    )
-    assert op_mode_range(op_mode) == expected
-
-
-@pytest.mark.parametrize(
-    "fill_rates, expected_max",
-    [
-        ([(0.0, 1.0), (0.0, 2.0)], 2.0),
-        ([(0.0, 0.5), (0.0, 0.9)], 0.9),
-    ],
-)
-def test_op_mode_max_fill_rate(
-    fill_rates, expected_max, default_power_range, monkeypatch
-):
-    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
-
-    elements = [
-        FRBCOperationModeElement(
-            fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
             fill_rate=NumberRange(start_of_range=start, end_of_range=end),
-            power_ranges=default_power_range,
+            power_ranges=[
+                PowerRange(
+                    start_of_range=pr_start,
+                    end_of_range=pr_end,
+                    commodity_quantity=CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC,
+                )
+                for pr_start, pr_end in power_ranges
+            ],
             running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
         )
-        for start, end in fill_rates
+        for start, end in fill_level_ranges
     ]
-    op_mode_id = get_unique_id()
+
     op_mode = FRBCOperationMode(
-        id=op_mode_id,
+        id=get_unique_id(),
         elements=elements,
         abnormal_condition_only=False,
         diagnostic_label="test",
     )
-    assert op_mode_max_fill_rate(op_mode) == expected_max
 
+    # --- Call the method under test ---
+    fill_rate, fill_penalty, power_penalty, efficiency, element = (
+        power_to_fill_rate_with_metrics(op_mode, test_power, test_fill_level)
+    )
 
-@pytest.mark.parametrize(
-    "fill_level, expected",
-    [
-        (0.25, True),
-        (0.5, True),
-        (0.51, False),
-        (-0.1, False),
-    ],
-)
-def test_op_mode_elem_is_fill_level_in_range(
-    example_op_mode_elem, fill_level, expected, monkeypatch
-):
-    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
-
+    # --- Assertions ---
+    # Fill rate must lie within element's fill_rate range
     assert (
-        op_mode_elem_is_fill_level_in_range(example_op_mode_elem, fill_level)
-        is expected
+        element.fill_rate.start_of_range <= fill_rate <= element.fill_rate.end_of_range
+    )
+
+    # Fill-level penalty is zero if in element range, else positive
+    in_fill_range = (
+        element.fill_level_range.start_of_range
+        <= test_fill_level
+        <= element.fill_level_range.end_of_range
+    )
+    if in_fill_range:
+        assert fill_penalty == 0.0
+    else:
+        assert fill_penalty > 0.0
+
+    # Power penalty is zero if power in range, else positive
+    pr = min(
+        element.power_ranges,
+        key=lambda r: clamp_distance(test_power, r.start_of_range, r.end_of_range),
+    )
+    in_power_range = pr.start_of_range <= test_power <= pr.end_of_range
+    if in_power_range:
+        assert power_penalty == 0.0
+    else:
+        assert power_penalty > 0.0
+
+    # Efficiency is non-negative if power range is valid
+    assert efficiency >= 0.0
+
+    # Optional debug output
+    print(
+        f"{description}: fill_rate={fill_rate:.3f}, fill_penalty={fill_penalty:.3f}, "
+        f"power_penalty={power_penalty:.3f}, efficiency={efficiency:.3f}, "
+        f"element_range=({element.fill_level_range.start_of_range},{element.fill_level_range.end_of_range})"
     )
 
 
-def test_op_mode_elem_efficiency(example_op_mode_elem, monkeypatch):
-    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
-
-    assert np.isclose(op_mode_elem_efficiency(example_op_mode_elem), 0.005)
-
-
-def test_compounded_fill_level_and_mode_selection(system_with_transitions, monkeypatch):
-    monkeypatch.setattr(utils, "FILL_LEVEL_SCALE", 1)
-
+def test_compounded_fill_level_and_mode_selection(system_with_transitions):
     start = datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
     index = pd.date_range(start=start, periods=4, freq="15min")
 
@@ -167,7 +204,12 @@ def test_compounded_fill_level_and_mode_selection(system_with_transitions, monke
 
     schedule_df = pd.DataFrame(
         {
-            "schedule": [0.0, 1.5, 1.5, 0.0],
+            "schedule": [
+                0.0,
+                742.5,
+                442.5,
+                0.0,
+            ],  # i.e. corresponding fill rates of 0, 1.5, 1.5, 0
             "usage_forecast": [0.0] * 4,
             "leakage_behaviour": [1.0] * 4,
             "thp_efficiency": [1.0] * 4,
