@@ -327,49 +327,11 @@ See releases in GitHub Actions at https://github.com/FlexMeasures/flexmeasures-c
 HEMS tutorial
 ===================
 
-`See the Usage docs <docs/HEMS.rst>`_.
+The FlexMeasures Client comes with a tutorial for creating a Home Energy Management System (HEMS) `See the Usage docs <docs/HEMS.rst>`_.
 
 
 ===================
-S2 Protocol
+S2 CEM
 ===================
 
-Disclaimer
-==========
-
-The `S2 Protocol <https://s2standard.org/>`_ integration is still under active development. Please, beware that the logic and interfaces can change.
-
-
-Run Demo
-=========
-
-Run the following commands in the flexmeasures folder to create a toy-account and an admin user:
-
-.. code-block:: bash
-
-    flexmeasures add toy-account
-    flexmeasures add user --username admin --account-id 1 --email admin@mycompany.io --roles admin
-
-Launch server:
-
-.. code-block:: bash
-
-    flexmeasures run
-
-To load the data, run the following command in the flexmeasures-client repository:
-
-.. code-block:: bash
-
-    python src/flexmeasures_client/s2/script/demo_setup.py
-
-Start the S2 server:
-
-.. code-block:: bash
-
-    python src/flexmeasures_client/s2/script/websockets_server.py
-
-In a separate window, start the S2 Client:
-
-.. code-block:: bash
-
-    python src/flexmeasures_client/s2/script/websockets_client.py
+The FlexMeasures Client can also be run as a local S2 Customer Energy Manager (CEM) using WebSocket communication. `See here for the docs <docs/CEM.rst>`_, which includes a docker-compose stack.
