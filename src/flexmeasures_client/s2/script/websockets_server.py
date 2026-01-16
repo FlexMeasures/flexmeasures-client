@@ -69,10 +69,18 @@ async def websocket_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
 
-    fm_client = FlexMeasuresClient("toy-password", "toy-user@flexmeasures.io")
+    site_name = "My CEM"
+    fm_client = FlexMeasuresClient("toy-password", "toy-user@flexmeasures.io", host="server:5000")
 
-    cem = CEM(sensor_id=1, fm_client=fm_client)
-    frbc = FRBCSimple(power_sensor_id=1, price_sensor_id=2)
+    price_sensor, power_sensor, soc_sensor, rm_discharge_sensor = await configure_site(site_name, fm_client)
+
+    cem = CEM(sensor_id=power_sensor["id"], fm_client=fm_client)
+    frbc = FRBCSimple(
+        power_sensor_id=power_sensor["id"],
+        price_sensor_id=price_sensor["id"],
+        soc_sensor_id=soc_sensor["id"],
+        rm_discharge_sensor_id=rm_discharge_sensor["id"],
+    )
     cem.register_control_type(frbc)
 
     # create "parallel" tasks for the message producer and consumer
@@ -83,6 +91,91 @@ async def websocket_handler(request):
     )
 
     return ws
+
+
+async def configure_site(site_name: str, fm_client: FlexMeasuresClient) -> tuple[dict, dict, dict, dict]:
+    account = await fm_client.get_account()
+    assets = await fm_client.get_assets()
+
+    site_asset = None
+    for asset in assets:
+        if asset["name"] == site_name:
+            site_asset = asset
+            break
+
+    site_asset_specs = dict(
+        latitude=0,
+        longitude=0,
+        generic_asset_type_id=6,  # Building asset type
+        flex_model={
+            "power-capacity": f"{3 * 25 * 230} VA",
+        },
+    )
+
+    if not site_asset:
+        site_asset = await fm_client.add_asset(
+            name=site_name,
+            account_id=account["id"],
+            **site_asset_specs
+        )
+    # Update site asset with the latest specs
+    await fm_client.update_asset(site_asset["id"], site_asset_specs)
+
+    sensors = site_asset.get("sensors", [])
+    price_sensor = None
+    power_sensor = None
+    soc_sensor = None
+    rm_discharge_sensor = None
+    for sensor in sensors:
+        if sensor["name"] == "price":
+            price_sensor = sensor
+        elif sensor["name"] == "power":
+            power_sensor = sensor
+        elif sensor["name"] == "state of charge":
+            soc_sensor = sensor
+        elif sensor["name"] == "RM discharge":
+            rm_discharge_sensor = sensor
+
+    if price_sensor is None:
+        price_sensor = await fm_client.add_sensor(
+            name="price",
+            event_resolution="PT15M",
+            unit="EUR/kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    await fm_client.post_sensor_data(
+        sensor_id=price_sensor["id"],
+        start="2026-01-15T00:00+01",  # 2026-01-01T00:00+01
+        duration="P3D",  # P1M
+        values=[0.3],
+        unit="EUR/kWh",
+    )
+    if power_sensor is None:
+        power_sensor = await fm_client.add_sensor(
+            name="power",
+            event_resolution="PT15M",
+            unit="kW",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if soc_sensor is None:
+        soc_sensor = await fm_client.add_sensor(
+            name="state of charge",
+            event_resolution="PT0M",
+            unit="kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if rm_discharge_sensor is None:
+        rm_discharge_sensor = await fm_client.add_sensor(
+            name="RM discharge",
+            event_resolution="PT15M",
+            unit="dimensionless",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    return price_sensor, power_sensor, soc_sensor, rm_discharge_sensor
 
 
 app = web.Application()
