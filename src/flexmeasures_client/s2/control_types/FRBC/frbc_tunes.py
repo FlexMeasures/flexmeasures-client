@@ -52,7 +52,10 @@ except ImportError:
 
 from flexmeasures_client.s2 import register
 from flexmeasures_client.s2.control_types.FRBC import FRBC
-from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions, get_soc_min_max
+from flexmeasures_client.s2.control_types.FRBC.utils import (
+    fm_schedule_to_instructions,
+    get_soc_min_max,
+)
 from flexmeasures_client.s2.control_types.translations import (
     leakage_behaviour_to_storage_efficiency,
     translate_fill_level_target_profile,
@@ -230,7 +233,9 @@ class FillRateBasedControlTUNES(FRBC):
                 start=start,
                 values=[
                     leakage_behaviour_to_storage_efficiency(
-                        message=leakage, resolution=timedelta(minutes=15), fill_level_scale=self._fill_level_scalefill_level_scale
+                        message=leakage,
+                        resolution=timedelta(minutes=15),
+                        fill_level_scale=self._fill_level_scalefill_level_scale,
                     )
                 ],
                 unit=PERCENTAGE,
@@ -342,7 +347,9 @@ class FillRateBasedControlTUNES(FRBC):
             last_storage_status: FRBCStorageStatus = next(
                 reversed(self._storage_status_history.values())
             )
-            soc_at_start = last_storage_status.present_fill_level * self._fill_level_scale
+            soc_at_start = (
+                last_storage_status.present_fill_level * self._fill_level_scale
+            )
         else:
             self._logger.info(f"No present fill level known: assuming an empty buffer.")
             most_recent_system_description = next(
@@ -487,7 +494,10 @@ class FillRateBasedControlTUNES(FRBC):
             self._logger.error(str(exc))
 
         instructions = fm_schedule_to_instructions(
-            schedule, system_description, initial_fill_level=soc_at_start / self._fill_level_scale, logger=self._logger
+            schedule,
+            system_description,
+            initial_fill_level=soc_at_start / self._fill_level_scale,
+            logger=self._logger,
         )
 
         # Revoke all previous instructions
@@ -662,7 +672,10 @@ class FillRateBasedControlTUNES(FRBC):
         )
 
         usage_forecast = translate_usage_forecast_to_fm(
-            usage_forecast, RESOLUTION, strategy="mean", fill_level_scale=self._fill_level_scale
+            usage_forecast,
+            RESOLUTION,
+            strategy="mean",
+            fill_level_scale=self._fill_level_scale,
         )
 
         # Scale usage forecast e.g. [0, 100] %/s ->  [0, 100] %/(15 min)

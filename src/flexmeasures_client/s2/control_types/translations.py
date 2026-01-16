@@ -19,7 +19,9 @@ except ImportError:
 
 
 def leakage_behaviour_to_storage_efficiency(
-    message: FRBCLeakageBehaviour, resolution=timedelta(minutes=15), fill_level_scale: float = 1
+    message: FRBCLeakageBehaviour,
+    resolution=timedelta(minutes=15),
+    fill_level_scale: float = 1,
 ) -> float:
     """
     Convert a FRBC.LeakageBehaviour message into a FlexMeasures compatible storage efficiency.
@@ -163,7 +165,9 @@ def translate_usage_forecast_to_fm(
 
 
 def translate_fill_level_target_profile(
-    fill_level_target_profile: FRBCFillLevelTargetProfile, resolution: str = "1h", fill_level_scale: float = 1
+    fill_level_target_profile: FRBCFillLevelTargetProfile,
+    resolution: str = "1h",
+    fill_level_scale: float = 1,
 ) -> tuple[pd.Series, pd.Series]:
     """
     Translate a FRBC.FillLevelTargetProfile into SOC minima and maxima compatible with FlexMeasures.

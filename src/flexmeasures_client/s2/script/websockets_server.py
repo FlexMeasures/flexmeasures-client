@@ -70,9 +70,13 @@ async def websocket_handler(request):
     await ws.prepare(request)
 
     site_name = "My CEM"
-    fm_client = FlexMeasuresClient("toy-password", "toy-user@flexmeasures.io", host="server:5000")
+    fm_client = FlexMeasuresClient(
+        "toy-password", "toy-user@flexmeasures.io", host="server:5000"
+    )
 
-    price_sensor, power_sensor, soc_sensor, rm_discharge_sensor = await configure_site(site_name, fm_client)
+    price_sensor, power_sensor, soc_sensor, rm_discharge_sensor = await configure_site(
+        site_name, fm_client
+    )
 
     cem = CEM(sensor_id=power_sensor["id"], fm_client=fm_client)
     frbc = FRBCSimple(
@@ -93,7 +97,9 @@ async def websocket_handler(request):
     return ws
 
 
-async def configure_site(site_name: str, fm_client: FlexMeasuresClient) -> tuple[dict, dict, dict, dict]:
+async def configure_site(
+    site_name: str, fm_client: FlexMeasuresClient
+) -> tuple[dict, dict, dict, dict]:
     account = await fm_client.get_account()
     assets = await fm_client.get_assets()
 
@@ -114,9 +120,7 @@ async def configure_site(site_name: str, fm_client: FlexMeasuresClient) -> tuple
 
     if not site_asset:
         site_asset = await fm_client.add_asset(
-            name=site_name,
-            account_id=account["id"],
-            **site_asset_specs
+            name=site_name, account_id=account["id"], **site_asset_specs
         )
     # Update site asset with the latest specs
     await fm_client.update_asset(site_asset["id"], site_asset_specs)

@@ -21,7 +21,10 @@ except ImportError:
 
 
 from flexmeasures_client.s2.control_types.FRBC import FRBC
-from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions, get_soc_min_max
+from flexmeasures_client.s2.control_types.FRBC.utils import (
+    fm_schedule_to_instructions,
+    get_soc_min_max,
+)
 
 
 class FRBCSimple(FRBC):

@@ -1,5 +1,4 @@
 import logging
-import math
 from datetime import timedelta
 from math import isclose
 from typing import List
@@ -9,7 +8,12 @@ import pandas as pd
 
 try:
     from s2python.common import NumberRange
-    from s2python.frbc import FRBCInstruction, FRBCOperationMode, FRBCSystemDescription, FRBCLeakageBehaviour
+    from s2python.frbc import (
+        FRBCInstruction,
+        FRBCOperationMode,
+        FRBCSystemDescription,
+        FRBCLeakageBehaviour,
+    )
     from s2python.frbc.frbc_operation_mode_element import FRBCOperationModeElement
 except ImportError:
     raise ImportError(
@@ -85,9 +89,14 @@ def compute_next_fill_level(
     if leakage_behaviour and leakage_behaviour.elements:
         # Sum contributions from all relevant elements (or pick one based on fill level)
         element = next(
-            (e for e in leakage_behaviour.elements
-             if e.fill_level_range.start_of_range <= fill_level <= e.fill_level_range.end_of_range),
-            None
+            (
+                e
+                for e in leakage_behaviour.elements
+                if e.fill_level_range.start_of_range
+                <= fill_level
+                <= e.fill_level_range.end_of_range
+            ),
+            None,
         )
         if element is None:
             # Take closest element
@@ -96,12 +105,14 @@ def compute_next_fill_level(
                 key=lambda e: max(
                     0.0,
                     e.fill_level_range.start_of_range - fill_level,
-                    fill_level - e.fill_level_range.end_of_range
-                )
+                    fill_level - e.fill_level_range.end_of_range,
+                ),
             )
 
         # leakage_rate_per_second is in system units lost per second
-        total_leakage = getattr(element, "leakage_rate_per_second", 0.0) * deltaT * 3600  # convert hours → seconds
+        total_leakage = (
+            getattr(element, "leakage_rate_per_second", 0.0) * deltaT * 3600
+        )  # convert hours → seconds
 
     # --- Apply usage ---
     total_usage = usage * deltaT
@@ -167,12 +178,21 @@ def fm_schedule_to_instructions(
 
             # Step 2: among those, minimize power penalty (secondary)
             min_power_penalty = min(r[3] for r in fill_level_candidates)
-            power_candidates = [r for r in fill_level_candidates if r[3] == min_power_penalty]
+            power_candidates = [
+                r for r in fill_level_candidates if r[3] == min_power_penalty
+            ]
 
             # Step 3: among those, pick the highest efficiency
             best = max(power_candidates, key=lambda r: r[4])
 
-            best_operation_mode, best_fill_rate, best_fill_penalty, best_power_penalty, best_efficiency, best_element = best
+            (
+                best_operation_mode,
+                best_fill_rate,
+                best_fill_penalty,
+                best_power_penalty,
+                best_efficiency,
+                best_element,
+            ) = best
 
             logger.debug(
                 "Selected FRBC operation mode '%s' (element='%s') for power=%.3f, fill_level=%.3f: "
@@ -226,7 +246,9 @@ def fm_schedule_to_instructions(
     return instructions
 
 
-def get_soc_min_max(system_description: FRBCSystemDescription, fill_level_scale: float = 1) -> tuple[float, float]:
+def get_soc_min_max(
+    system_description: FRBCSystemDescription, fill_level_scale: float = 1
+) -> tuple[float, float]:
     """From the system description, get the minimum and maximum State of Charge for the flex-model."""
 
     fill_level_range: NumberRange = system_description.storage.fill_level_range
@@ -258,10 +280,17 @@ def power_to_fill_rate_with_metrics(
     # --- 1. Select element with minimal fill-level penalty ---
     best_element, fill_penalty = min(
         (
-            (e, clamp_distance(fill_level, e.fill_level_range.start_of_range, e.fill_level_range.end_of_range))
+            (
+                e,
+                clamp_distance(
+                    fill_level,
+                    e.fill_level_range.start_of_range,
+                    e.fill_level_range.end_of_range,
+                ),
+            )
             for e in elements
         ),
-        key=lambda x: x[1]
+        key=lambda x: x[1],
     )
 
     # --- 2. Select power range with minimal power penalty ---
@@ -270,7 +299,7 @@ def power_to_fill_rate_with_metrics(
             (pr, clamp_distance(power, pr.start_of_range, pr.end_of_range))
             for pr in best_element.power_ranges
         ),
-        key=lambda x: x[1]
+        key=lambda x: x[1],
     )
 
     # --- 3. Compute factor (clamped to [0,1]) ---
@@ -283,9 +312,9 @@ def power_to_fill_rate_with_metrics(
     else:
         factor = (power - pr_start) / (pr_end - pr_start)
         factor = max(0.0, min(1.0, factor))
-        efficiency = (best_element.fill_rate.end_of_range - best_element.fill_rate.start_of_range) / (
-            pr_end - pr_start
-        )
+        efficiency = (
+            best_element.fill_rate.end_of_range - best_element.fill_rate.start_of_range
+        ) / (pr_end - pr_start)
 
     # --- 4. Interpolate fill rate ---
     fr_start = best_element.fill_rate.start_of_range
@@ -309,13 +338,24 @@ def om_label(operation_mode: FRBCOperationMode) -> str:
 
 
 def explain_choice(
-    results: list[tuple[FRBCOperationMode, float, float, float, float, FRBCOperationModeElement]],
-    best: tuple[FRBCOperationMode, float, float, float, float, FRBCOperationModeElement],
+    results: list[
+        tuple[FRBCOperationMode, float, float, float, float, FRBCOperationModeElement]
+    ],
+    best: tuple[
+        FRBCOperationMode, float, float, float, float, FRBCOperationModeElement
+    ],
 ) -> str:
     """
     Generate a human-readable explanation for why a mode was selected or rejected.
     """
-    best_om, best_fill_rate, best_fill_penalty, best_power_penalty, best_efficiency, best_element = best
+    (
+        best_om,
+        best_fill_rate,
+        best_fill_penalty,
+        best_power_penalty,
+        best_efficiency,
+        best_element,
+    ) = best
 
     lines: list[str] = []
 
@@ -332,12 +372,12 @@ def explain_choice(
             if fill_pen > best_fill_penalty:
                 reason = f"higher fill-level penalty ({fill_pen:.6g} > {best_fill_penalty:.6g})"
             elif power_pen > best_power_penalty:
-                reason = f"higher power penalty ({power_pen:.6g} > {best_power_penalty:.6g})"
+                reason = (
+                    f"higher power penalty ({power_pen:.6g} > {best_power_penalty:.6g})"
+                )
             else:
                 reason = f"lower efficiency ({eff:.6g} < {best_efficiency:.6g})"
 
-            lines.append(
-                f"{label} (element={element_label}): rejected due to {reason}"
-            )
+            lines.append(f"{label} (element={element_label}): rejected due to {reason}")
 
     return "; ".join(lines)
