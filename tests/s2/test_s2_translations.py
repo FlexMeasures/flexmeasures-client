@@ -1,7 +1,6 @@
 import pytest
 from s2python.frbc import FRBCUsageForecast
 
-import flexmeasures_client.s2.control_types.translations as translations
 from flexmeasures_client.s2.control_types.translations import (
     translate_usage_forecast_to_fm,
 )

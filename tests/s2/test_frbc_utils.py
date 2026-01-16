@@ -9,11 +9,11 @@ from s2python.common import CommodityQuantity, NumberRange, PowerRange
 from s2python.frbc import FRBCOperationMode, FRBCOperationModeElement
 
 from flexmeasures_client.s2.control_types.FRBC.utils import (
+    clamp_distance,
     fm_schedule_to_instructions,
     get_unique_id,
     op_mode_compute_factor,
     power_to_fill_rate_with_metrics,
-    clamp_distance,
 )
 
 
@@ -78,13 +78,37 @@ def test_op_mode_compute_factor(
         # Single element, power above range → power penalty
         ([(0.0, 2.0)], [(0.0, 4.0)], 0.5, 5.0, "power above range"),
         # Two elements, fill level selects correct element
-        ([(0.0, 1.0), (1.0, 2.0)], [(0.0, 5.0)], 1.5, 3.0, "multiple elements, middle fill level"),
+        (
+            [(0.0, 1.0), (1.0, 2.0)],
+            [(0.0, 5.0)],
+            1.5,
+            3.0,
+            "multiple elements, middle fill level",
+        ),
         # Fill level below all elements → closest element chosen
-        ([(0.0, 1.0), (1.0, 2.0)], [(0.0, 5.0)], -0.5, 2.0, "fill level below all elements"),
+        (
+            [(0.0, 1.0), (1.0, 2.0)],
+            [(0.0, 5.0)],
+            -0.5,
+            2.0,
+            "fill level below all elements",
+        ),
         # Fill level above all elements → closest element chosen
-        ([(0.0, 1.0), (1.0, 2.0)], [(0.0, 5.0)], 2.5, 2.0, "fill level above all elements"),
+        (
+            [(0.0, 1.0), (1.0, 2.0)],
+            [(0.0, 5.0)],
+            2.5,
+            2.0,
+            "fill level above all elements",
+        ),
         # Multiple power ranges, power selects correct range
-        ([(0.0, 1.0)], [(0.0, 2.0), (2.0, 5.0)], 0.5, 3.0, "multiple power ranges, select upper range"),
+        (
+            [(0.0, 1.0)],
+            [(0.0, 2.0), (2.0, 5.0)],
+            0.5,
+            3.0,
+            "multiple power ranges, select upper range",
+        ),
         # Edge case: power exactly at start of range
         ([(0.0, 1.0)], [(0.0, 5.0)], 0.5, 0.0, "power at start of range"),
         # Edge case: fill level exactly at end of element range
@@ -109,7 +133,7 @@ def test_power_to_fill_rate_with_metrics_comprehensive(
                 PowerRange(
                     start_of_range=pr_start,
                     end_of_range=pr_end,
-                    commodity_quantity=CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC
+                    commodity_quantity=CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC,
                 )
                 for pr_start, pr_end in power_ranges
             ],
@@ -126,16 +150,22 @@ def test_power_to_fill_rate_with_metrics_comprehensive(
     )
 
     # --- Call the method under test ---
-    fill_rate, fill_penalty, power_penalty, efficiency, element = power_to_fill_rate_with_metrics(
-        op_mode, test_power, test_fill_level
+    fill_rate, fill_penalty, power_penalty, efficiency, element = (
+        power_to_fill_rate_with_metrics(op_mode, test_power, test_fill_level)
     )
 
     # --- Assertions ---
     # Fill rate must lie within element's fill_rate range
-    assert element.fill_rate.start_of_range <= fill_rate <= element.fill_rate.end_of_range
+    assert (
+        element.fill_rate.start_of_range <= fill_rate <= element.fill_rate.end_of_range
+    )
 
     # Fill-level penalty is zero if in element range, else positive
-    in_fill_range = element.fill_level_range.start_of_range <= test_fill_level <= element.fill_level_range.end_of_range
+    in_fill_range = (
+        element.fill_level_range.start_of_range
+        <= test_fill_level
+        <= element.fill_level_range.end_of_range
+    )
     if in_fill_range:
         assert fill_penalty == 0.0
     else:
@@ -144,7 +174,7 @@ def test_power_to_fill_rate_with_metrics_comprehensive(
     # Power penalty is zero if power in range, else positive
     pr = min(
         element.power_ranges,
-        key=lambda r: clamp_distance(test_power, r.start_of_range, r.end_of_range)
+        key=lambda r: clamp_distance(test_power, r.start_of_range, r.end_of_range),
     )
     in_power_range = pr.start_of_range <= test_power <= pr.end_of_range
     if in_power_range:
@@ -156,9 +186,11 @@ def test_power_to_fill_rate_with_metrics_comprehensive(
     assert efficiency >= 0.0
 
     # Optional debug output
-    print(f"{description}: fill_rate={fill_rate:.3f}, fill_penalty={fill_penalty:.3f}, "
-          f"power_penalty={power_penalty:.3f}, efficiency={efficiency:.3f}, "
-          f"element_range=({element.fill_level_range.start_of_range},{element.fill_level_range.end_of_range})")
+    print(
+        f"{description}: fill_rate={fill_rate:.3f}, fill_penalty={fill_penalty:.3f}, "
+        f"power_penalty={power_penalty:.3f}, efficiency={efficiency:.3f}, "
+        f"element_range=({element.fill_level_range.start_of_range},{element.fill_level_range.end_of_range})"
+    )
 
 
 def test_compounded_fill_level_and_mode_selection(system_with_transitions):
@@ -172,7 +204,12 @@ def test_compounded_fill_level_and_mode_selection(system_with_transitions):
 
     schedule_df = pd.DataFrame(
         {
-            "schedule": [0.0, 742.5, 442.5, 0.0],  # i.e. corresponding fill rates of 0, 1.5, 1.5, 0
+            "schedule": [
+                0.0,
+                742.5,
+                442.5,
+                0.0,
+            ],  # i.e. corresponding fill rates of 0, 1.5, 1.5, 0
             "usage_forecast": [0.0] * 4,
             "leakage_behaviour": [1.0] * 4,
             "thp_efficiency": [1.0] * 4,

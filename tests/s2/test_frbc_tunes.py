@@ -9,7 +9,6 @@ import pytest
 import pytest_asyncio
 from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
 
-import flexmeasures_client.s2.control_types.FRBC.frbc_tunes as frbc_tunes
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC.frbc_tunes import (
@@ -118,9 +117,7 @@ async def cem_in_frbc_control_type(setup_cem, frbc_system_description):
 
 
 @pytest.mark.asyncio
-async def test_system_description(
-    cem_in_frbc_control_type, frbc_system_description
-):
+async def test_system_description(cem_in_frbc_control_type, frbc_system_description):
     cem, fm_client, frbc_system_description = cem_in_frbc_control_type
 
     ########
