@@ -10,9 +10,9 @@ try:
     from s2python.common import NumberRange
     from s2python.frbc import (
         FRBCInstruction,
+        FRBCLeakageBehaviour,
         FRBCOperationMode,
         FRBCSystemDescription,
-        FRBCLeakageBehaviour,
     )
     from s2python.frbc.frbc_operation_mode_element import FRBCOperationModeElement
 except ImportError:

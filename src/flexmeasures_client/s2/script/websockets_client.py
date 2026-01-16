@@ -3,21 +3,18 @@ from datetime import datetime
 
 import aiohttp
 import pytz
-
-from s2python.common import (
-    Handshake,
-    ReceptionStatus,
-    ReceptionStatusValues,
-    ResourceManagerDetails,
-)
 from s2python.common import (
     Commodity,
     CommodityQuantity,
     ControlType,
     Duration,
     EnergyManagementRole,
+    Handshake,
     NumberRange,
     PowerRange,
+    ReceptionStatus,
+    ReceptionStatusValues,
+    ResourceManagerDetails,
     Role,
     RoleType,
 )
@@ -29,6 +26,7 @@ from s2python.frbc import (
     FRBCStorageStatus,
     FRBCSystemDescription,
 )
+
 from flexmeasures_client.s2.utils import get_unique_id
 
 

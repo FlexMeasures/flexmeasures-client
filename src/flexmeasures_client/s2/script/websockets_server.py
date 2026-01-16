@@ -3,11 +3,11 @@ import json
 
 import aiohttp
 from aiohttp import web
+from s2python.common import ControlType
 
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
-from s2python.common import ControlType
 
 
 async def rm_details_watchdog(ws, cem: CEM):
