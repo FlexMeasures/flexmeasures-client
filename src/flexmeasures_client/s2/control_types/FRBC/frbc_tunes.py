@@ -487,7 +487,7 @@ class FillRateBasedControlTUNES(FRBC):
             self._logger.error(str(exc))
 
         instructions = fm_schedule_to_instructions(
-            schedule, system_description, soc_at_start, fill_level_scale=self._fill_level_scale, logger=self._logger
+            schedule, system_description, initial_fill_level=soc_at_start / self._fill_level_scale, logger=self._logger
         )
 
         # Revoke all previous instructions

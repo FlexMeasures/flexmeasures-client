@@ -8,15 +8,12 @@ import pytest
 from s2python.common import CommodityQuantity, NumberRange, PowerRange
 from s2python.frbc import FRBCOperationMode, FRBCOperationModeElement
 
-import flexmeasures_client.s2.control_types.FRBC.utils as utils
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     fm_schedule_to_instructions,
     get_unique_id,
     op_mode_compute_factor,
-    op_mode_elem_efficiency,
     power_to_fill_rate_with_metrics,
     clamp_distance,
-    op_mode_range,
 )
 
 
@@ -65,33 +62,6 @@ def test_op_mode_compute_factor(
 
     factor = op_mode_compute_factor(op_mode_elem, fill_rate=input_fill_rate)
     assert np.isclose(factor, expected_factor)
-
-
-@pytest.mark.parametrize(
-    "ranges, expected",
-    [
-        ([(0.1, 0.3), (0.3, 0.8)], (0.1, 0.8)),
-        ([(0.0, 0.1), (0.1, 0.2), (0.2, 0.3)], (0.0, 0.3)),
-    ],
-)
-def test_op_mode_range(ranges, expected, default_power_range):
-    elements = [
-        FRBCOperationModeElement(
-            fill_level_range=NumberRange(start_of_range=start, end_of_range=end),
-            fill_rate=NumberRange(start_of_range=0.0, end_of_range=1.0),
-            power_ranges=default_power_range,
-            running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
-        )
-        for start, end in ranges
-    ]
-    op_mode_id = get_unique_id()
-    op_mode = FRBCOperationMode(
-        id=op_mode_id,
-        elements=elements,
-        abnormal_condition_only=False,
-        diagnostic_label="test",
-    )
-    assert op_mode_range(op_mode) == expected
 
 
 @pytest.mark.parametrize(
@@ -189,10 +159,6 @@ def test_power_to_fill_rate_with_metrics_comprehensive(
     print(f"{description}: fill_rate={fill_rate:.3f}, fill_penalty={fill_penalty:.3f}, "
           f"power_penalty={power_penalty:.3f}, efficiency={efficiency:.3f}, "
           f"element_range=({element.fill_level_range.start_of_range},{element.fill_level_range.end_of_range})")
-
-
-def test_op_mode_elem_efficiency(example_op_mode_elem):
-    assert np.isclose(op_mode_elem_efficiency(example_op_mode_elem), 0.005)
 
 
 def test_compounded_fill_level_and_mode_selection(system_with_transitions):

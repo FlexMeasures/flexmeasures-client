@@ -9,7 +9,7 @@ import pandas as pd
 
 try:
     from s2python.common import NumberRange
-    from s2python.frbc import FRBCInstruction, FRBCOperationMode, FRBCSystemDescription
+    from s2python.frbc import FRBCInstruction, FRBCOperationMode, FRBCSystemDescription, FRBCLeakageBehaviour
     from s2python.frbc.frbc_operation_mode_element import FRBCOperationModeElement
 except ImportError:
     raise ImportError(
@@ -26,12 +26,11 @@ LOGGER = logging.getLogger(__name__)
 def op_mode_compute_factor(
     op_mode_elem: FRBCOperationModeElement,
     fill_rate: float,
-    fill_level_scale: float = 1,
     logger: logging.Logger = LOGGER,
 ) -> float:
     """Compute the operation mode factor for a given fill rate."""
-    start_fill_rate = op_mode_elem.fill_rate.start_of_range * fill_level_scale
-    end_fill_rate = op_mode_elem.fill_rate.end_of_range * fill_level_scale
+    start_fill_rate = op_mode_elem.fill_rate.start_of_range
+    end_fill_rate = op_mode_elem.fill_rate.end_of_range
     delta_fill_rate = end_fill_rate - start_fill_rate
 
     fill_rate = max(fill_rate, start_fill_rate)
@@ -49,47 +48,66 @@ def op_mode_compute_factor(
     return omf
 
 
-def op_mode_range(op_mode: FRBCOperationMode, fill_level_scale: float = 1):
-    start_of_range = (
-        op_mode.elements[0].fill_level_range.start_of_range * fill_level_scale
-    )
-    end_of_range = op_mode.elements[0].fill_level_range.end_of_range * fill_level_scale
-
-    for op_elem in op_mode.elements:
-        start_of_range = min(
-            start_of_range, op_elem.fill_level_range.start_of_range * fill_level_scale
-        )
-        end_of_range = max(
-            end_of_range, op_elem.fill_level_range.end_of_range * fill_level_scale
-        )
-
-    return start_of_range, end_of_range
-
-
-def op_mode_elem_efficiency(op_mode_elem: FRBCOperationModeElement, fill_level_scale: float = 1):
-    # TODO: take into account both start and end of range. This is a bit tricky
-    if op_mode_elem.power_ranges[0].end_of_range == 0:
-        return 1
-
-    return (
-        op_mode_elem.fill_rate.end_of_range
-        * fill_level_scale
-        / op_mode_elem.power_ranges[0].end_of_range
-    )
-
-
 def compute_next_fill_level(
     fill_level: float,
-    storage_eff: float,
-    power: float,
-    charging_efficiency: float,
+    fill_rate: float,
+    leakage_behaviour: FRBCLeakageBehaviour | None,
     deltaT: float,
-    usage: float,
+    usage: float = 0.0,
 ) -> float:
-    fill_rate = power * charging_efficiency * deltaT
-    next_fill_level = (
-        fill_level * storage_eff + fill_rate * storage_eff - usage * deltaT
-    )
+    """
+    Compute the next fill level of a storage system over a time step.
+
+    Parameters
+    ----------
+    fill_level
+        Current fill level in system units (e.g., kWh, °C, height)
+    fill_rate
+        Fill rate chosen from the operation mode (units per hour)
+    leakage_behaviour
+        FRBC LeakageBehaviour; may be None
+    deltaT
+        Time step in hours
+    usage
+        Consumption/usage over the time step (in system units per hour)
+
+    Returns
+    -------
+    next_fill_level : float
+        Fill level after applying fill rate, leakage, and usage
+    """
+
+    # --- Apply fill rate over deltaT ---
+    delta_fill = fill_rate * deltaT
+
+    # --- Apply leakage over deltaT ---
+    total_leakage = 0.0
+    if leakage_behaviour and leakage_behaviour.elements:
+        # Sum contributions from all relevant elements (or pick one based on fill level)
+        element = next(
+            (e for e in leakage_behaviour.elements
+             if e.fill_level_range.start_of_range <= fill_level <= e.fill_level_range.end_of_range),
+            None
+        )
+        if element is None:
+            # Take closest element
+            element = min(
+                leakage_behaviour.elements,
+                key=lambda e: max(
+                    0.0,
+                    e.fill_level_range.start_of_range - fill_level,
+                    fill_level - e.fill_level_range.end_of_range
+                )
+            )
+
+        # leakage_rate_per_second is in system units lost per second
+        total_leakage = getattr(element, "leakage_rate_per_second", 0.0) * deltaT * 3600  # convert hours → seconds
+
+    # --- Apply usage ---
+    total_usage = usage * deltaT
+
+    # --- Next fill level ---
+    next_fill_level = fill_level + delta_fill - total_leakage - total_usage
     return next_fill_level
 
 
@@ -97,7 +115,6 @@ def fm_schedule_to_instructions(
     schedule: pd.DataFrame | dict,
     system_description: FRBCSystemDescription,
     initial_fill_level: float,
-    fill_level_scale: float = 1,
     logger: logging.Logger = LOGGER,
 ) -> List[FRBCInstruction]:
 
@@ -120,7 +137,6 @@ def fm_schedule_to_instructions(
     instructions = []
 
     actuator = system_description.actuators[0]
-    soc_min, soc_max = get_soc_min_max(system_description, fill_level_scale)
 
     if len(system_description.actuators) != 1:
         raise NotImplementedError(
@@ -130,37 +146,13 @@ def fm_schedule_to_instructions(
 
     operation_modes: list[FRBCOperationMode] = actuator.operation_modes
 
-    # Find active operation mode
-    active_operation_mode = next(
-        (
-            mode
-            for mode in operation_modes
-            if isinstance(mode.diagnostic_label, str) and "idle" not in mode.diagnostic_label.lower()
-        ),
-        None,
-    )
-
     fill_level = initial_fill_level
 
     deltaT = timedelta(minutes=15) / timedelta(hours=1)
 
     for timestamp, row in schedule.iterrows():
         power = row["schedule"]
-        usage = row["usage_forecast"] if "usage_forecast" in row else None
-        if pd.isnull(usage):
-            usage = 0
-        storage_efficiency = row["leakage_behaviour"] if "leakage_behaviour" in row else None
-        if active_operation_mode is None:
-            charging_efficiency = 1
-        elif isinstance(active_operation_mode.diagnostic_label, str) and "THP" in active_operation_mode.diagnostic_label:
-            charging_efficiency = row["thp_efficiency"] if "thp_efficiency" in row else 1
-        elif isinstance(active_operation_mode.diagnostic_label, str) and "NES" in active_operation_mode.diagnostic_label:
-            charging_efficiency = row["nes_efficiency"] if "nes_efficiency" in row else 1
-        else:
-            logger.warning(
-                f"The diagnostic label of the active operation mode ('{active_operation_mode.diagnostic_label if isinstance(active_operation_mode.diagnostic_label, str) else active_operation_mode}') could not be used to find out which charging efficiency to use. Assuming 100% charging efficiency."
-            )
-            charging_efficiency = 1
+        usage = row.get("usage_forecast", 0)
 
         if previous_power is None or not isclose(previous_power, power):
             # Convert from power to fill rate
@@ -197,7 +189,7 @@ def fm_schedule_to_instructions(
             )
 
             operation_mode_factor = op_mode_compute_factor(
-                best_element, fill_rate=best_fill_rate, fill_level_scale=fill_level_scale, logger=logger
+                best_element, fill_rate=best_fill_rate, logger=logger
             )
 
             instruction = FRBCInstruction(
@@ -214,27 +206,20 @@ def fm_schedule_to_instructions(
             )
             instructions.append(instruction)
 
-        if pd.isnull(storage_efficiency):
-            storage_eff = 1
-        else:
-            storage_eff = (storage_efficiency - 1) / math.log(storage_efficiency)
-        if pd.isnull(storage_eff):
-            storage_eff = 1
-        if pd.isnull(charging_efficiency):
-            charging_efficiency = 1
-
         # Update fill level
         fill_level = compute_next_fill_level(
             fill_level=fill_level,
-            storage_eff=storage_eff,
-            power=row["schedule"],
-            charging_efficiency=charging_efficiency,
+            fill_rate=best_fill_rate,  # S2-derived fill rate
+            leakage_behaviour=getattr(actuator, "leakage_behaviour", None),
             deltaT=deltaT,
             usage=usage,
         )
 
-        fill_level = min(fill_level, soc_max)
-        fill_level = max(fill_level, soc_min)
+        # Clamp to fill level limits
+        fill_level_range: NumberRange = system_description.storage.fill_level_range
+        fill_level_min = fill_level_range.start_of_range
+        fill_level_max = fill_level_range.end_of_range
+        fill_level = max(fill_level_min, min(fill_level_max, fill_level))
 
         previous_power = power
 

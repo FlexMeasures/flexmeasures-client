@@ -127,7 +127,7 @@ class FRBCSimple(FRBC):
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
         instructions = fm_schedule_to_instructions(
-            schedule, system_description, soc_at_start
+            schedule, system_description, initial_fill_level=soc_at_start
         )
 
         # put instructions to sending queue
