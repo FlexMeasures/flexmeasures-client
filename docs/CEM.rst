@@ -19,11 +19,15 @@ We also included a ``docker-compose.yaml`` that sets up the CEM including the Fl
 
 .. code-block:: bash
 
-    docker compose up
+    docker compose \
+      -f docker-compose.yml \
+      -f ../flexmeasures-client/docker-compose.yml \
+      up
+
 
 This creates the following containers for the CEM:
 
-- a WebSocket server (FlexMeasures Client
+- a WebSocket server (FlexMeasures Client)
 - web and worker servers (FlexMeasures)
 - a database server (Postgres)
 - a queue server (Redis)

@@ -1,0 +1,35 @@
+# ------------------------------------------------------------------
+# This allow to run the S2 CEM from your local FlexMeasures Client code in a docker compose stack.
+# Assuming you have flexmeasures the repo next to your flexmeasures-client repo,
+# run this from the flexmeasures folder (which contains the Dockerfile):
+# docker compose \
+#  -f docker-compose.yml \
+#  -f ../flexmeasures-client/docker-compose.yml \
+#  up
+# ------------------------------------------------------------------
+
+services:
+  cem:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - server
+    restart: always
+    ports:
+      - "8080:8080"   # aiohttp default; adjust if you change it
+    environment:
+      # Optional, but useful if you later make this configurable
+      FLEXMEASURES_BASE_URL: http://server:5000
+      FLEXMEASURES_USER: toy-user@flexmeasures.io
+      FLEXMEASURES_PASSWORD: toy-password
+      LOGGING_LEVEL: INFO
+    volumes:
+      # If flexmeasures_client lives in your repo and you want live edits
+      - ../flexmeasures-client:/app/flexmeasures-client:rw
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+    - |
+      # pip install --break-system-packages --no-cache-dir "git+https://github.com/FlexMeasures/flexmeasures-client.git@main#egg=flexmeasures-client[s2]"
+      pip install --break-system-packages -e /app/flexmeasures-client[s2]
+      python3 /app/flexmeasures-client/src/flexmeasures_client/s2/script/websockets_server.py
