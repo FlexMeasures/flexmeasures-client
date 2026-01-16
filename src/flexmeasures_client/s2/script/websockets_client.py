@@ -123,6 +123,7 @@ async def main_s2():
                 id=get_unique_id(),
                 elements=[operation_mode_element],
                 abnormal_condition_only=False,
+                diagnostic_label="full operating range of a perfectly efficiency battery",
             )
 
             actuator = FRBCActuatorDescription(
@@ -141,7 +142,7 @@ async def main_s2():
             )
 
             valid_from = pytz.timezone("Europe/Amsterdam").localize(
-                datetime(2023, 5, 14)
+                datetime(2026, 1, 15, 20)
             )
 
             system_description_message = FRBCSystemDescription(
