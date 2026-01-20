@@ -39,7 +39,7 @@ from flexmeasures_client.client import FlexMeasuresClient
 BASE_DIR = Path(__file__).parent
 
 
-def just_continue(*args, **kwargs):
+async def just_continue(*args, **kwargs):
     return True
 
 
@@ -177,7 +177,12 @@ async def run_scheduling_simulation(
                 evse1_flex_models.append(evse1_flex_model)
                 evse2_flex_models.append(evse2_flex_model)
 
-            if callback(rescheduling_iteration, community_asset):
+            step_info = dict(
+                iteration=rescheduling_iteration,
+                start=current_time,
+                end=step_end_time,
+            )
+            if await callback(step_info, client, community_asset):
                 # Stop rescheduling
                 break
 
