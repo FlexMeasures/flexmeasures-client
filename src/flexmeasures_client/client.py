@@ -1089,7 +1089,16 @@ class FlexMeasuresClient:
         if prior is not None:
             message["prior"] = pd.Timestamp(prior).isoformat()
         if scheduler is not None:
-            message["scheduler"] = scheduler
+            # The scheduler can currently not be set in the trigger message itself
+            # message["scheduler"] = scheduler
+            # Instead, we patch the custom-scheduler attribute of the asset
+            asset = await self.get_asset(asset_id=asset_id)
+            asset_attributes = asset["attributes"]
+            asset_attributes["custom-scheduler"] = scheduler
+            await self.update_asset(
+                asset_id=asset_id,
+                updates=dict(attributes=asset_attributes)
+            )
 
         if sensor_id is not None:
             response, status = await self.request(
