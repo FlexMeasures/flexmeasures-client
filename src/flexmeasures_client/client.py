@@ -706,6 +706,13 @@ class FlexMeasuresClient:
             raise ContentTypeError(
                 f"Expected a list of assets, but got {type(assets)}",
             )
+        for asset in assets:
+            if "attributes" in asset:
+                asset["attributes"] = json.loads(asset["attributes"])
+            if "flex_context" in asset:
+                asset["flex_context"] = json.loads(asset["flex_context"])
+            if "flex_model" in asset:
+                asset["flex_model"] = json.loads(asset["flex_model"])
         return assets
 
     async def get_sensors(self, asset_id: int | None = None) -> list[dict]:

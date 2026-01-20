@@ -114,9 +114,7 @@ async def run_scheduling_simulation(
                 )
 
                 # Get battery soc settings
-                battery_flex_model = json.loads(battery_asset["attributes"]).get(
-                    "flex_model"
-                )
+                battery_flex_model = battery_asset["attributes"].get("flex_model")
                 if not battery_flex_model:
                     print("Battery asset missing flex_model settings")
                     return False
@@ -124,12 +122,8 @@ async def run_scheduling_simulation(
                 battery_soc_at_start = battery_flex_model.get("soc_at_start")
 
                 # Get EVSE settings
-                evse1_flex_model = json.loads(evse1_asset["attributes"]).get(
-                    "flex_model"
-                )
-                evse2_flex_model = json.loads(evse2_asset["attributes"]).get(
-                    "flex_model"
-                )
+                evse1_flex_model = evse1_asset["attributes"].get("flex_model")
+                evse2_flex_model = evse2_asset["attributes"].get("flex_model")
                 if not evse1_flex_model or not evse2_flex_model:
                     print("EVSE assets missing flex_model settings")
                     return False
