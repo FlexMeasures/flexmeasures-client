@@ -722,6 +722,7 @@ class FlexMeasuresClient:
         sensor_id: int | None = None,
         asset_id: int | None = None,
         prior: datetime | None = None,
+        scheduler: str | None = None,
     ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
 
@@ -751,6 +752,7 @@ class FlexMeasuresClient:
             flex_model=flex_model,
             flex_context=flex_context,
             prior=prior,
+            scheduler=scheduler,
         )
 
         if sensor_id is not None:
@@ -1069,6 +1071,7 @@ class FlexMeasuresClient:
         sensor_id: int | None = None,
         asset_id: int | None = None,
         prior: datetime | None = None,
+        scheduler: str | None = None,
     ) -> str:
         if (sensor_id is None) == (asset_id is None):
             raise ValueError("Pass either a sensor_id or an asset_id.")
@@ -1085,6 +1088,8 @@ class FlexMeasuresClient:
 
         if prior is not None:
             message["prior"] = pd.Timestamp(prior).isoformat()
+        if scheduler is not None:
+            message["scheduler"] = scheduler
 
         if sensor_id is not None:
             response, status = await self.request(
