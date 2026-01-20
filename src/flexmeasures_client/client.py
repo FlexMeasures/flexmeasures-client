@@ -644,6 +644,11 @@ class FlexMeasuresClient:
                 break
         return user
 
+    async def get_asset(self, asset_id: int) -> dict:
+        """Fetch a single asset."""
+        assets = await self.get_assets(root_asset_id=asset_id, depth=0)
+        return assets[0]
+
     async def get_assets(
         self,
         all_accessible: bool = False,
