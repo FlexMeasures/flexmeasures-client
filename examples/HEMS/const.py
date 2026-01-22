@@ -9,7 +9,9 @@ pwd = "admin"  # Admin password
 host = "127.0.0.1:5000"  # FlexMeasures host
 
 # Asset and sensor names
-building_name = "My Home"
+COMMUNITY_NAME = "Community Site"
+SITE_NAMES = ["My Home 1", "My Home 2"]
+
 pv_name = "Rooftop PV"
 battery_name = "Home Battery"
 evse1_name = "EV Connector 1"
@@ -29,6 +31,7 @@ SCHEDULING_START = "2026-01-15T00:00:00+01:00"
 SCHEDULING_END = "2026-01-16T00:00:00+01:00"
 SIMULATION_STEP_HOURS = 4
 FORECAST_HORIZON_HOURS = 24
+MAX_RESCHEDULING_ITERATIONS = 2
 
 random.seed(42)
 

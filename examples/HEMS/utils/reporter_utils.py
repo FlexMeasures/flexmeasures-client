@@ -1,5 +1,9 @@
 import json
+import os
 import subprocess
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent.parent
 
 
 def fill_reporter_params(
@@ -40,7 +44,9 @@ def fill_reporter_params(
     }
 
     # overwrite the file (creates it if not exists)
-    with open(f"configs/{reporter_type}_reporter_param.json", "w") as f:
+    file_path = f"configs/{reporter_type}_reporter_param.json"
+    full_path = os.path.join(BASE_DIR, file_path)
+    with open(full_path, "w") as f:
         json.dump(params, f, indent=4)
 
 
@@ -76,9 +82,9 @@ def run_report_cmd(reporter_map: dict, start: str, end: str) -> bool:
         "--reporter",
         reporter_map["reporter"],
         "--config",
-        f"configs/{reporter_map['name']}_reporter_config.json",
+        os.path.join(BASE_DIR, f"configs/{reporter_map['name']}_reporter_config.json"),
         "--parameters",
-        f"configs/{reporter_map['name']}_reporter_param.json",
+        os.path.join(BASE_DIR, f"configs/{reporter_map['name']}_reporter_param.json"),
         "--start",
         start,
         "--end",

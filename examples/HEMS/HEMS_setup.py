@@ -5,26 +5,21 @@ and all required sensors with proper flex-context configuration.
 """
 
 import asyncio
+from typing import Callable
 
-from assets_setup import create_building_assets_and_sensors
-from const import (
-    building_name,
-    heating_name,
-    host,
-    pv_name,
-    pwd,
-    usr,
-    weather_station_name,
-)
+from assets_setup import create_community_asset
+from const import COMMUNITY_NAME, SITE_NAMES, host, pwd, usr
 from forecasting import generate_forecasts
 from reporters import create_reports
-from scheduling import run_scheduling_simulation
-from utils.asset_utils import cleanup_existing_assets, upload_data_for_first_two_weeks
+from scheduling import just_continue, run_scheduling_simulation
+from utils.asset_utils import upload_data_for_first_two_weeks
 
 from flexmeasures_client import FlexMeasuresClient
 
 
-async def main():
+async def main(
+    community_name: str, site_names: list[str], callback: Callable = just_continue
+):
     """
     Complete HEMS setup using FlexMeasures client.
 
@@ -56,59 +51,60 @@ async def main():
         account_id = account["id"]
         print(f" Connected to account: {account['name']} (ID: {account_id})")
 
-        # Clean up existing assets first
-        await cleanup_existing_assets(client=client, account_id=account_id)
-
         asset = None  # Initialize asset variable
         assets = await client.get_assets()
         for sst in assets:
-            if sst["name"] == building_name:
+            if sst["name"] in community_name:
                 asset = sst
                 break
 
         if not asset:
             print(
-                "Creating building asset, with PV and battery sensors, and weather station"
+                "Creating community Site asset with 2 building assets, each with PV and battery sensors, and weather station"
             )
-            await create_building_assets_and_sensors(client, account)
+            await create_community_asset(
+                client, account, community_name=community_name, site_names=site_names
+            )
         else:
-            answer = input(f"Asset '{building_name}' already exists. Re-create?")
+            answer = input(f"Asset '{community_name}' already exists. Re-create?")
             if answer.lower() in ["y", "yes"]:
                 await client.delete_asset(asset_id=asset["id"])
-                await create_building_assets_and_sensors(client, account)
+                await create_community_asset(
+                    client,
+                    account,
+                    community_name=community_name,
+                    site_names=site_names,
+                )
             else:
                 print("Assets already exist, skipping to data upload")
 
         # Part 2: Upload data for first two weeks
         print("\n" + "=" * 50)
         print("PART 2: UPLOADING DATA")
-        await upload_data_for_first_two_weeks(client)
+        await upload_data_for_first_two_weeks(
+            client, community_name=community_name, site_names=site_names
+        )
 
         # Part 3: Generate PV forecasts for second week
         print("\n" + "=" * 50)
         print("PART 3: GENERATING PV FORECASTS")
-        await generate_forecasts(
-            client,
-            asset_name=pv_name,
-            sensor_name="electricity-production",
-            regressors=[("irradiation", weather_station_name)],
-        )
-        await generate_forecasts(
-            client, asset_name=building_name, sensor_name="electricity-consumption"
-        )
-        await generate_forecasts(
-            client, asset_name=heating_name, sensor_name="soc-usage"
-        )
+        await generate_forecasts(client, site_names=site_names)
 
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
         print("PART 4: SCHEDULING SIMULATION")
-        await run_scheduling_simulation(client)
+        await run_scheduling_simulation(
+            client,
+            community_name=community_name,
+            site_names=site_names,
+            callback=callback,
+        )
 
         # Part 5 : Create reports
         print("\n" + "=" * 50)
         print("PART 5: CREATING REPORTS")
-        await create_reports(client)
+        # todo B2: compute aggregate power flow for the community asset's power sensor
+        await create_reports(client, site_names=site_names)
         print("\n" + "=" * 50)
         print("HEMS Tutorial completed successfully!")
 
@@ -120,4 +116,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    community_name = COMMUNITY_NAME
+    site_names = SITE_NAMES
+
+    asyncio.run(main(community_name=community_name, site_names=site_names))
