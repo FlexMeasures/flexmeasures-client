@@ -671,10 +671,6 @@ class FlexMeasuresClient:
         uri = f"assets?all_accessible={all_accessible}&sort_by={sort_by}&sort_dir={sort_dir}&include_public={include_public}"
         if account_id and isinstance(account_id, int):
             uri += f"&account_id={account_id}"
-        if root and isinstance(root, int):
-            uri += f"&asset={root}"
-        if depth and isinstance(depth, int):
-            uri += f"&depth={depth}"
 
         await self.ensure_server_version()
         if root or depth or fields:
