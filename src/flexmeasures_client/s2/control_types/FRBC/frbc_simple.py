@@ -21,7 +21,10 @@ except ImportError:
 
 
 from flexmeasures_client.s2.control_types.FRBC import FRBC
-from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
+from flexmeasures_client.s2.control_types.FRBC.utils import (
+    fm_schedule_to_instructions,
+    get_soc_min_max,
+)
 
 
 class FRBCSimple(FRBC):
@@ -102,19 +105,24 @@ class FRBCSimple(FRBC):
             print("Can't trigger schedule without knowing the status of the storage...")
             return
 
+        soc_min, soc_max = get_soc_min_max(system_description)
+
         # call schedule
         schedule = await self._fm_client.trigger_and_get_schedule(
             start=system_description.valid_from
             + self._valid_from_shift,  # TODO: localize datetime
             sensor_id=self._power_sensor_id,
-            flex_context=dict(
-                production_price_sensor=self._price_sensor_id,
-                consumption_price_sensor=self._price_sensor_id,
-            ),
-            flex_model=dict(
-                soc_unit="MWh",
-                soc_at_start=soc_at_start,  # TODO: use forecast of the SOC instead
-            ),
+            flex_context={
+                "production-price": {"sensor": self._price_sensor_id},
+                "consumption-price": {"sensor": self._price_sensor_id},
+                "site-power-capacity": f"{3 * 25 * 230} VA",
+            },
+            flex_model={
+                "soc-unit": "MWh",
+                "soc-at-start": soc_at_start,  # TODO: use forecast of the SOC instead
+                "soc-min": soc_min,
+                "soc-max": soc_max,
+            },
             duration=self._schedule_duration,  # next 12 hours
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
             # this needs changes on the client
@@ -122,7 +130,7 @@ class FRBCSimple(FRBC):
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
         instructions = fm_schedule_to_instructions(
-            schedule, system_description, soc_at_start
+            schedule, system_description, initial_fill_level=soc_at_start
         )
 
         # put instructions to sending queue

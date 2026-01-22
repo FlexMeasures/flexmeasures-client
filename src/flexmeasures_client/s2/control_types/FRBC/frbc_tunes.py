@@ -43,8 +43,6 @@ try:
         FRBCSystemDescription,
         FRBCUsageForecast,
     )
-
-    from flexmeasures_client.s2.const import FILL_LEVEL_SCALE
 except ImportError:
     raise ImportError(
         "The 's2-python' package is required for this functionality. "
@@ -54,7 +52,10 @@ except ImportError:
 
 from flexmeasures_client.s2 import register
 from flexmeasures_client.s2.control_types.FRBC import FRBC
-from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
+from flexmeasures_client.s2.control_types.FRBC.utils import (
+    fm_schedule_to_instructions,
+    get_soc_min_max,
+)
 from flexmeasures_client.s2.control_types.translations import (
     leakage_behaviour_to_storage_efficiency,
     translate_fill_level_target_profile,
@@ -98,6 +99,7 @@ class FillRateBasedControlTUNES(FRBC):
     _timers: dict[str, datetime]
     _minimum_measurement_period: timedelta = timedelta(minutes=5)
     _safety_margin = 60  # in ENERGY_UNIT
+    _fill_level_scale: float
 
     def __init__(
         self,
@@ -120,6 +122,7 @@ class FillRateBasedControlTUNES(FRBC):
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
+        fill_level_scale: float = 0.1,
         valid_from_shift: timedelta = timedelta(days=1),
         timers: dict[str, datetime] | None = None,
         datastore: dict | None = None,
@@ -154,6 +157,8 @@ class FillRateBasedControlTUNES(FRBC):
 
         # delay the start of the schedule from the time `valid_from` of the FRBC.SystemDescription
         self._valid_from_shift = valid_from_shift
+
+        self._fill_level_scale = fill_level_scale
 
         self._active_recurring_schedule = False
         self._timers = dict()
@@ -201,7 +206,7 @@ class FillRateBasedControlTUNES(FRBC):
             await self._fm_client.post_sensor_data(
                 self._fill_level_sensor_id,
                 start=self.now(),
-                values=[status.present_fill_level * FILL_LEVEL_SCALE],
+                values=[status.present_fill_level * self._fill_level_scale],
                 unit=ENERGY_UNIT,
                 duration=timedelta(minutes=0),  # INSTANTANEOUS
             )
@@ -228,7 +233,9 @@ class FillRateBasedControlTUNES(FRBC):
                 start=start,
                 values=[
                     leakage_behaviour_to_storage_efficiency(
-                        message=leakage, resolution=timedelta(minutes=15)
+                        message=leakage,
+                        resolution=timedelta(minutes=15),
+                        fill_level_scale=self._fill_level_scalefill_level_scale,
                     )
                 ],
                 unit=PERCENTAGE,
@@ -271,7 +278,7 @@ class FillRateBasedControlTUNES(FRBC):
         fill_rate = (
             fill_rate.start_of_range
             + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
-        ) * FILL_LEVEL_SCALE
+        ) * self._fill_level_scale
 
         # Send data to the sensor of the fill rate corresponding to the active operation mode
         await self._fm_client.post_sensor_data(
@@ -312,11 +319,7 @@ class FillRateBasedControlTUNES(FRBC):
         )[-1]
 
         actuator = system_description.actuators[0]
-        fill_level_range: NumberRange = system_description.storage.fill_level_range
-
-        # get SOC Max and Min to be sent on the Flex Model
-        soc_min = fill_level_range.start_of_range * FILL_LEVEL_SCALE
-        soc_max = fill_level_range.end_of_range * FILL_LEVEL_SCALE
+        soc_min, soc_max = get_soc_min_max(system_description, self._fill_level_scale)
 
         operation_mode = None
         efficiency_sensor_id = None
@@ -344,7 +347,9 @@ class FillRateBasedControlTUNES(FRBC):
             last_storage_status: FRBCStorageStatus = next(
                 reversed(self._storage_status_history.values())
             )
-            soc_at_start = last_storage_status.present_fill_level * FILL_LEVEL_SCALE
+            soc_at_start = (
+                last_storage_status.present_fill_level * self._fill_level_scale
+            )
         else:
             self._logger.info(f"No present fill level known: assuming an empty buffer.")
             most_recent_system_description = next(
@@ -352,7 +357,7 @@ class FillRateBasedControlTUNES(FRBC):
             )
             soc_at_start = (
                 most_recent_system_description.storage.fill_level_range.start_of_range
-                * FILL_LEVEL_SCALE
+                * self._fill_level_scale
             )
 
         planning_duration = timedelta(hours=24)
@@ -489,7 +494,10 @@ class FillRateBasedControlTUNES(FRBC):
             self._logger.error(str(exc))
 
         instructions = fm_schedule_to_instructions(
-            schedule, system_description, soc_at_start, logger=self._logger
+            schedule,
+            system_description,
+            initial_fill_level=soc_at_start / self._fill_level_scale,
+            logger=self._logger,
         )
 
         # Revoke all previous instructions
@@ -605,7 +613,7 @@ class FillRateBasedControlTUNES(FRBC):
                 values=[
                     3600
                     * operation_mode.elements[-1].fill_rate.end_of_range
-                    * FILL_LEVEL_SCALE
+                    * self._fill_level_scale
                     / (operation_mode.elements[-1].power_ranges[0].end_of_range)
                 ]
                 * N_SAMPLES,
@@ -624,8 +632,8 @@ class FillRateBasedControlTUNES(FRBC):
         if not self._is_timer_due("update_flex_model"):
             return
 
-        soc_min = f"{system_description.storage.fill_level_range.start_of_range * FILL_LEVEL_SCALE} {ENERGY_UNIT}"
-        soc_max = f"{system_description.storage.fill_level_range.end_of_range * FILL_LEVEL_SCALE} {ENERGY_UNIT}"
+        soc_min = f"{system_description.storage.fill_level_range.start_of_range * self._fill_level_scale} {ENERGY_UNIT}"
+        soc_max = f"{system_description.storage.fill_level_range.end_of_range * self._fill_level_scale} {ENERGY_UNIT}"
 
         await self._fm_client.update_asset(
             asset_id=self._asset_id,
@@ -664,7 +672,10 @@ class FillRateBasedControlTUNES(FRBC):
         )
 
         usage_forecast = translate_usage_forecast_to_fm(
-            usage_forecast, RESOLUTION, strategy="mean"
+            usage_forecast,
+            RESOLUTION,
+            strategy="mean",
+            fill_level_scale=self._fill_level_scale,
         )
 
         # Scale usage forecast e.g. [0, 100] %/s ->  [0, 100] %/(15 min)
@@ -694,6 +705,7 @@ class FillRateBasedControlTUNES(FRBC):
         soc_minima, soc_maxima = translate_fill_level_target_profile(
             fill_level_target_profile,
             resolution=RESOLUTION,
+            fill_level_scale=self._fill_level_scale,
         )
 
         duration = str(pd.Timedelta(RESOLUTION) * len(soc_maxima))
