@@ -734,6 +734,7 @@ class FlexMeasuresClient:
         sensor_id: int | None = None,
         asset_id: int | None = None,
         prior: datetime | None = None,
+        scheduler: str | None = None,
     ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
 
@@ -763,6 +764,7 @@ class FlexMeasuresClient:
             flex_model=flex_model,
             flex_context=flex_context,
             prior=prior,
+            scheduler=scheduler,
         )
 
         if sensor_id is not None:
@@ -1081,6 +1083,7 @@ class FlexMeasuresClient:
         sensor_id: int | None = None,
         asset_id: int | None = None,
         prior: datetime | None = None,
+        scheduler: str | None = None,
     ) -> str:
         if (sensor_id is None) == (asset_id is None):
             raise ValueError("Pass either a sensor_id or an asset_id.")
@@ -1097,6 +1100,20 @@ class FlexMeasuresClient:
 
         if prior is not None:
             message["prior"] = pd.Timestamp(prior).isoformat()
+        if scheduler is not None:
+            if asset_id is None:
+                raise ValueError(
+                    "Pass an asset_id instead of a sensor_id if selecting a custom scheduler."
+                )
+            # The scheduler can currently not be set in the trigger message itself
+            # message["scheduler"] = scheduler
+            # Instead, we patch the custom-scheduler attribute of the asset
+            asset = await self.get_asset(asset_id=asset_id)
+            asset_attributes = asset["attributes"]
+            asset_attributes["custom-scheduler"] = scheduler
+            await self.update_asset(
+                asset_id=asset_id, updates=dict(attributes=asset_attributes)
+            )
 
         if sensor_id is not None:
             response, status = await self.request(
