@@ -18,7 +18,7 @@ async def find_sensor_by_name_and_asset(
 ):
     """Find a sensor by name within a specific asset."""
     assets = await client.get_assets(
-        root_asset_id=top_level_asset_id
+        root=top_level_asset_id
     )  # first list those that are part of the community
     assets += await client.get_assets()  # then list all accessible assets
     target_asset = None
