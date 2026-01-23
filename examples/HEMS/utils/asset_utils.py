@@ -63,7 +63,7 @@ async def find_top_level_asset_id(
     client: FlexMeasuresClient,
     name: str,
 ) -> int:
-    top_level_assets = await client.get_assets(depth=0)
+    top_level_assets = await client.get_assets(depth=0, fields=["id", "name"])
     for asset in top_level_assets:
         if asset["name"] == name:
             return asset["id"]
