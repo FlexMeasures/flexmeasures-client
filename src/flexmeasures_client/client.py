@@ -50,7 +50,9 @@ def _parse_json_field(data: dict, field_name: str) -> None:
         except json.JSONDecodeError as e:
             # If JSON parsing fails, leave the field as-is
             LOGGER.debug(
-                f"Failed to parse JSON field '{field_name}': {e}. Leaving as string."
+                "Failed to parse JSON field %r: %s. Leaving as string.",
+                field_name,
+                e,
             )
 
 
@@ -1223,9 +1225,7 @@ class FlexMeasuresClient:
             # The scheduler can currently not be set in the trigger message itself
             # message["scheduler"] = scheduler
             # Instead, we patch the custom-scheduler attribute of the asset
-            asset = await self.get_asset(asset_id=asset_id, parse_json_fields=False)
-            # Parse attributes using the helper function
-            _parse_json_field(asset, "attributes")
+            asset = await self.get_asset(asset_id=asset_id, parse_json_fields=True)
             asset_attributes = asset["attributes"]
             asset_attributes["custom-scheduler"] = scheduler
             await self.update_asset(
