@@ -676,7 +676,7 @@ class FlexMeasuresClient:
         if root or depth or fields:
             if Version(self.server_version) < Version("0.31.0"):
                 print(
-                    "get_assets(): The 'root', 'depth', and 'fields' parameters require FlexMeasures server version 0.31.0 or above."
+                    "get_assets(): The 'root', 'depth' and 'fields' parameters require FlexMeasures server version 0.31.0 or above. "
                     "These parameters will be ignored."
                 )
             if root and isinstance(root, int):
