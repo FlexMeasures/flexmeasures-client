@@ -708,24 +708,6 @@ class FlexMeasuresClient:
             )
         return assets
 
-    async def get_asset(self, asset_id: int) -> dict:
-        """Get a single asset by its ID.
-
-        :param asset_id: The ID of the asset to retrieve
-        :returns: asset as a dictionary
-
-        This function raises a ValueError when an unhandled status code is returned.
-        """
-        uri = f"assets/{asset_id}"
-        asset, status = await self.request(uri=uri, method="GET")
-        check_for_status(status, 200)
-
-        if not isinstance(asset, dict):
-            raise ContentTypeError(
-                f"Expected an asset dictionary, but got {type(asset)}",
-            )
-        return asset
-
     async def get_sensors(self, asset_id: int | None = None) -> list[dict]:
         """Get all the sensors available to the current user.
         Can be filtered by asset.
