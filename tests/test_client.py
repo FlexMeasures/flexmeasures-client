@@ -384,9 +384,60 @@ async def test_get_assets() -> None:
             ],
         )
 
-        assets = await flexmeasures_client.get_assets()
+        assets = await flexmeasures_client.get_assets(parse_json_fields=False)
         assert len(assets) == 1
         assert assets[0]["account_id"] == 2
+        # Verify that attributes is still a JSON string
+        assert isinstance(assets[0]["attributes"], str)
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_assets_with_json_parsing() -> None:
+    """Test get_assets with parse_json_fields=True."""
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        flexmeasures_client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/",
+            status=200,
+            payload={
+                "flexmeasures_version": "0.31.0",
+                "message": "For these API versions a public endpoint is available, listing its service. For example: /api/v3_0. An authentication token can be requested at: /api/requestAuthToken",
+                "status": 200,
+                "versions": ["v3_0"],
+            },
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/assets?all_accessible=False&include_public=False&sort_by=id&sort_dir=asc",
+            status=200,
+            payload=[
+                {
+                    "account_id": 2,
+                    "attributes": '{"capacity_in_mw": 0.5, "min_soc_in_mwh": 0.05, "max_soc_in_mwh": 0.45, "sensors_to_show": [3, 2]}',  # noqa: E501
+                    "flex_context": '{"site-power-capacity": "1.5 MW"}',
+                    "flex_model": '{"soc-at-start": "0.25 MWh"}',
+                    "generic_asset_type_id": 5,
+                    "id": 3,
+                    "latitude": 52.374,
+                    "longitude": 4.88969,
+                    "name": "toy-battery",
+                }
+            ],
+        )
+
+        assets = await flexmeasures_client.get_assets(parse_json_fields=True)
+        assert len(assets) == 1
+        assert assets[0]["account_id"] == 2
+        # Verify that JSON fields are parsed into dicts
+        assert isinstance(assets[0]["attributes"], dict)
+        assert assets[0]["attributes"]["capacity_in_mw"] == 0.5
+        assert isinstance(assets[0]["flex_context"], dict)
+        assert assets[0]["flex_context"]["site-power-capacity"] == "1.5 MW"
+        assert isinstance(assets[0]["flex_model"], dict)
+        assert assets[0]["flex_model"]["soc-at-start"] == "0.25 MWh"
         await flexmeasures_client.close()
 
 
@@ -411,10 +462,12 @@ async def test_get_asset() -> None:
             },
         )
 
-        asset = await flexmeasures_client.get_asset(asset_id=3)
+        asset = await flexmeasures_client.get_asset(asset_id=3, parse_json_fields=False)
         assert asset["id"] == 3
         assert asset["account_id"] == 2
         assert asset["name"] == "toy-battery"
+        # Verify that attributes is still a JSON string
+        assert isinstance(asset["attributes"], str)
         await flexmeasures_client.close()
 
 
@@ -440,7 +493,7 @@ async def test_get_sensors() -> None:
             ],
         )
 
-        sensors = await flexmeasures_client.get_sensors()
+        sensors = await flexmeasures_client.get_sensors(parse_json_fields=False)
         assert len(sensors) == 1
         assert (
             sensors[0]["entity_address"]
@@ -465,7 +518,7 @@ async def test_get_sensors2() -> None:
         with pytest.raises(
             ConnectionError, match="Error occurred while communicating with the API."
         ):
-            await flexmeasures_client.get_sensors()
+            await flexmeasures_client.get_sensors(parse_json_fields=False)
         await flexmeasures_client.close()
 
 
@@ -663,7 +716,7 @@ async def test_reauth_with_access_token() -> None:
             email="test@test.test", password="password", access_token="wrong-token"
         )
 
-        await flexmeasures_client.get_sensors()
+        await flexmeasures_client.get_sensors(parse_json_fields=False)
         m.assert_called_with(
             "http://localhost:5000/api/v3_0/sensors",
             method="GET",
@@ -708,7 +761,7 @@ async def test_reauth_wrong_cred(email, password, payload, error) -> None:
         flexmeasures_client = FlexMeasuresClient(email=email, password=password)
 
         with pytest.raises(ValueError, match=error):
-            await flexmeasures_client.get_sensors()
+            await flexmeasures_client.get_sensors(parse_json_fields=False)
         await flexmeasures_client.close()
 
 

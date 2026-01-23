@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import socket
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from logging import Logger
@@ -39,6 +40,28 @@ POLLING_TIMEOUT = 200.0  # seconds
 REQUEST_TIMEOUT = 40.0  # seconds
 POLLING_INTERVAL = 10.0  # seconds
 API_VERSIONS_LIST = ["v3_0"]
+
+
+def _parse_json_field(data: dict, field_name: str) -> None:
+    """Parse a JSON string field in-place if it exists and is a string."""
+    if field_name in data and isinstance(data[field_name], str):
+        try:
+            data[field_name] = json.loads(data[field_name])
+        except json.JSONDecodeError:
+            # If JSON parsing fails, leave the field as-is
+            pass
+
+
+def _parse_asset_json_fields(asset: dict) -> None:
+    """Parse JSON fields in an asset dictionary in-place."""
+    _parse_json_field(asset, "attributes")
+    _parse_json_field(asset, "flex_context")
+    _parse_json_field(asset, "flex_model")
+
+
+def _parse_sensor_json_fields(sensor: dict) -> None:
+    """Parse JSON fields in a sensor dictionary in-place."""
+    _parse_json_field(sensor, "attributes")
 
 
 @dataclass
@@ -644,8 +667,17 @@ class FlexMeasuresClient:
                 break
         return user
 
-    async def get_asset(self, asset_id: int) -> dict:
-        """Fetch a single asset."""
+    async def get_asset(
+        self, asset_id: int, parse_json_fields: bool | None = None
+    ) -> dict:
+        """Fetch a single asset.
+
+        :param asset_id: ID of the asset to fetch
+        :param parse_json_fields: If True, parse JSON string fields (attributes, flex_context, flex_model) into Python dicts.
+                                  If False, leave them as JSON strings for backward compatibility.
+                                  If None (default), uses old behavior (no parsing) with a deprecation warning.
+                                  Default will change to True in a future version.
+        """
         uri = f"assets/{asset_id}"
         asset, status = await self.request(uri=uri, method="GET")
         check_for_status(status, 200)
@@ -654,6 +686,21 @@ class FlexMeasuresClient:
             raise ContentTypeError(
                 f"Expected a dict for asset {asset_id}, but got {type(asset)}"
             )
+
+        if parse_json_fields is None:
+            warnings.warn(
+                "The default behavior of get_asset() will change in a future version. "
+                "JSON fields (attributes, flex_context, flex_model) will be automatically parsed into Python dicts. "
+                "To opt into the new behavior now, pass parse_json_fields=True. "
+                "To silence this warning and keep the old behavior, pass parse_json_fields=False explicitly.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            parse_json_fields = False
+
+        if parse_json_fields:
+            _parse_asset_json_fields(asset)
+
         return asset
 
     async def get_assets(
@@ -666,12 +713,17 @@ class FlexMeasuresClient:
         root: int | None = None,
         depth: int | None = None,
         fields: list[str] | None = None,
+        parse_json_fields: bool | None = None,
     ) -> list[dict]:
         """Get all the assets available to the current user.
 
         For parameter documentation, consult the FlexMeasures server docs
         (see the GET /api/v3_0/assets endpoint).
 
+        :param parse_json_fields: If True, parse JSON string fields (attributes, flex_context, flex_model) into Python dicts.
+                                  If False, leave them as JSON strings for backward compatibility.
+                                  If None (default), uses old behavior (no parsing) with a deprecation warning.
+                                  Default will change to True in a future version.
         :returns: list of assets as dictionaries
 
         This function raises a ValueError when an unhandled status code is returned.
@@ -706,19 +758,35 @@ class FlexMeasuresClient:
             raise ContentTypeError(
                 f"Expected a list of assets, but got {type(assets)}",
             )
-        for asset in assets:
-            if "attributes" in asset:
-                asset["attributes"] = json.loads(asset["attributes"])
-            if "flex_context" in asset:
-                asset["flex_context"] = json.loads(asset["flex_context"])
-            if "flex_model" in asset:
-                asset["flex_model"] = json.loads(asset["flex_model"])
+
+        if parse_json_fields is None:
+            warnings.warn(
+                "The default behavior of get_assets() will change in a future version. "
+                "JSON fields (attributes, flex_context, flex_model) will be automatically parsed into Python dicts. "
+                "To opt into the new behavior now, pass parse_json_fields=True. "
+                "To silence this warning and keep the old behavior, pass parse_json_fields=False explicitly.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            parse_json_fields = False
+
+        if parse_json_fields:
+            for asset in assets:
+                _parse_asset_json_fields(asset)
+
         return assets
 
-    async def get_sensors(self, asset_id: int | None = None) -> list[dict]:
+    async def get_sensors(
+        self, asset_id: int | None = None, parse_json_fields: bool | None = None
+    ) -> list[dict]:
         """Get all the sensors available to the current user.
         Can be filtered by asset.
 
+        :param asset_id: Optional asset ID to filter sensors by
+        :param parse_json_fields: If True, parse JSON string fields (attributes) into Python dicts.
+                                  If False, leave them as JSON strings for backward compatibility.
+                                  If None (default), uses old behavior (no parsing) with a deprecation warning.
+                                  Default will change to True in a future version.
         :returns: list of sensors as dictionaries
         """
         uri = "sensors"
@@ -730,6 +798,22 @@ class FlexMeasuresClient:
             raise ContentTypeError(
                 f"Expected a list of sensors, but got {type(sensors)}",
             )
+
+        if parse_json_fields is None:
+            warnings.warn(
+                "The default behavior of get_sensors() will change in a future version. "
+                "JSON fields (attributes) will be automatically parsed into Python dicts. "
+                "To opt into the new behavior now, pass parse_json_fields=True. "
+                "To silence this warning and keep the old behavior, pass parse_json_fields=False explicitly.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            parse_json_fields = False
+
+        if parse_json_fields:
+            for sensor in sensors:
+                _parse_sensor_json_fields(sensor)
+
         return sensors
 
     async def trigger_and_get_schedule(
@@ -841,9 +925,16 @@ class FlexMeasuresClient:
         sensor_data = {k: v for k, v in response.items() if k in data_fields}
         return sensor_data
 
-    async def get_sensor(self, sensor_id: int) -> dict:
+    async def get_sensor(
+        self, sensor_id: int, parse_json_fields: bool | None = None
+    ) -> dict:
         """Get a single sensor.
 
+        :param sensor_id: ID of the sensor to fetch
+        :param parse_json_fields: If True, parse JSON string fields (attributes) into Python dicts.
+                                  If False, leave them as JSON strings for backward compatibility.
+                                  If None (default), uses old behavior (no parsing) with a deprecation warning.
+                                  Default will change to True in a future version.
         :returns: sensor as dictionary, for example:
                 {
                     'attributes': '{}',
@@ -865,6 +956,21 @@ class FlexMeasuresClient:
             raise ContentTypeError(
                 f"Expected a sensor dictionary, but got {type(sensor)}",
             )
+
+        if parse_json_fields is None:
+            warnings.warn(
+                "The default behavior of get_sensor() will change in a future version. "
+                "JSON fields (attributes) will be automatically parsed into Python dicts. "
+                "To opt into the new behavior now, pass parse_json_fields=True. "
+                "To silence this warning and keep the old behavior, pass parse_json_fields=False explicitly.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            parse_json_fields = False
+
+        if parse_json_fields:
+            _parse_sensor_json_fields(sensor)
+
         return sensor
 
     async def add_sensor(
@@ -1115,8 +1221,12 @@ class FlexMeasuresClient:
             # The scheduler can currently not be set in the trigger message itself
             # message["scheduler"] = scheduler
             # Instead, we patch the custom-scheduler attribute of the asset
-            asset = await self.get_asset(asset_id=asset_id)
-            asset_attributes = asset["attributes"]
+            asset = await self.get_asset(asset_id=asset_id, parse_json_fields=False)
+            # Parse attributes if it's a string
+            if isinstance(asset["attributes"], str):
+                asset_attributes = json.loads(asset["attributes"])
+            else:
+                asset_attributes = asset["attributes"]
             asset_attributes["custom-scheduler"] = scheduler
             await self.update_asset(
                 asset_id=asset_id, updates=dict(attributes=asset_attributes)
