@@ -848,3 +848,83 @@ async def test_get_versions() -> None:
                 flex_model=[{}],
             )
         await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_with_custom_scheduler() -> None:
+    """Test that trigger_schedule correctly patches the asset's custom-scheduler attribute."""
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        flexmeasures_client.access_token = "test-token"
+        
+        asset_id = 1
+        scheduler_name = "my-custom-scheduler"
+        
+        # Mock get_asset call
+        m.get(
+            f"http://localhost:5000/api/v3_0/assets/{asset_id}",
+            status=200,
+            payload={
+                "id": asset_id,
+                "name": "test-asset",
+                "attributes": {"existing-key": "existing-value"},
+            },
+        )
+        
+        # Mock update_asset call
+        m.patch(
+            f"http://localhost:5000/api/v3_0/assets/{asset_id}",
+            status=200,
+            payload={"message": "Asset updated"},
+        )
+        
+        # Mock trigger_schedule call
+        m.post(
+            f"http://localhost:5000/api/v3_0/assets/{asset_id}/schedules/trigger",
+            status=200,
+            payload={"schedule": "test_schedule_id"},
+        )
+        
+        flex_model = flexmeasures_client.create_storage_flex_model(
+            soc_unit="kWh",
+            soc_at_start=50,
+            soc_max=400,
+            soc_min=20,
+        )
+        
+        flex_context = flexmeasures_client.create_storage_flex_context(
+            consumption_price_sensor=3,
+        )
+        
+        # Trigger schedule with custom scheduler
+        schedule_id = await flexmeasures_client.trigger_schedule(
+            asset_id=asset_id,
+            start="2023-03-26T10:00+02:00",
+            duration="PT12H",
+            flex_model=flex_model,
+            flex_context=flex_context,
+            scheduler=scheduler_name,
+        )
+        
+        assert schedule_id == "test_schedule_id"
+        
+        # Verify that update_asset was called with the correct custom-scheduler attribute
+        # Check the second-to-last call should be the PATCH to update the asset
+        # (the last call is the POST to trigger the schedule)
+        patch_calls = [call for call in m.requests if call[0] == "PATCH"]
+        assert len(patch_calls) == 1, f"Expected exactly 1 PATCH call, got {len(patch_calls)}"
+        
+        # Verify the PATCH request was made to the correct endpoint with correct data
+        m.assert_any_call(
+            f"http://localhost:5000/api/v3_0/assets/{asset_id}",
+            method="PATCH",
+            json={"attributes": '{"existing-key": "existing-value", "custom-scheduler": "my-custom-scheduler"}'},
+            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
+        
+        await flexmeasures_client.close()
