@@ -644,6 +644,18 @@ class FlexMeasuresClient:
                 break
         return user
 
+    async def get_asset(self, asset_id: int) -> dict:
+        """Fetch a single asset."""
+        uri = f"assets/{asset_id}"
+        asset, status = await self.request(uri=uri, method="GET")
+        check_for_status(status, 200)
+
+        if not isinstance(asset, dict):
+            raise ContentTypeError(
+                f"Expected a dict for asset {asset_id}, but got {type(asset)}"
+            )
+        return asset
+
     async def get_assets(
         self,
         all_accessible: bool = False,
