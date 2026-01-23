@@ -20,7 +20,7 @@ async def find_sensor_by_name_and_asset(
     assets = await client.get_assets(
         root=top_level_asset_id
     )  # first list those that are part of the community
-    assets += await client.get_assets()  # then list all accessible assets
+    assets += await client.get_assets(parse_json_fields=True)  # then list all accessible assets
     target_asset = None
     for asset in assets:
         if asset["name"] == asset_name:
@@ -63,7 +63,7 @@ async def find_top_level_asset_id(
     client: FlexMeasuresClient,
     name: str,
 ) -> int:
-    top_level_assets = await client.get_assets(depth=0, fields=["id", "name"])
+    top_level_assets = await client.get_assets(depth=0, fields=["id", "name"], parse_json_fields=True)
     for asset in top_level_assets:
         if asset["name"] == name:
             return asset["id"]
@@ -168,7 +168,7 @@ async def cleanup_existing_assets(
 
         try:
             # Get all existing assets
-            assets = await client.get_assets()
+            assets = await client.get_assets(parse_json_fields=True)
 
             # Find and delete assets that match our names
             deleted_count = 0

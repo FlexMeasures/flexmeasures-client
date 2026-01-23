@@ -101,7 +101,7 @@ async def configure_site(
     site_name: str, fm_client: FlexMeasuresClient
 ) -> tuple[dict, dict, dict, dict]:
     account = await fm_client.get_account()
-    assets = await fm_client.get_assets()
+    assets = await fm_client.get_assets(parse_json_fields=True)
 
     site_asset = None
     for asset in assets:
