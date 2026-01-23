@@ -1096,8 +1096,7 @@ class FlexMeasuresClient:
             asset_attributes = asset["attributes"]
             asset_attributes["custom-scheduler"] = scheduler
             await self.update_asset(
-                asset_id=asset_id,
-                updates=dict(attributes=asset_attributes)
+                asset_id=asset_id, updates=dict(attributes=asset_attributes)
             )
 
         if sensor_id is not None:
