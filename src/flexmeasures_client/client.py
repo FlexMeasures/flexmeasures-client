@@ -1119,6 +1119,8 @@ class FlexMeasuresClient:
         if prior is not None:
             message["prior"] = pd.Timestamp(prior).isoformat()
         if scheduler is not None:
+            if asset_id is None:
+                raise ValueError("Pass an asset_id instead of a sensor_id if selecting a custom scheduler.")
             # The scheduler can currently not be set in the trigger message itself
             # message["scheduler"] = scheduler
             # Instead, we patch the custom-scheduler attribute of the asset
