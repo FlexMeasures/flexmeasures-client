@@ -391,6 +391,34 @@ async def test_get_assets() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_asset() -> None:
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        flexmeasures_client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/assets/3",
+            status=200,
+            payload={
+                "account_id": 2,
+                "attributes": '{"capacity_in_mw": 0.5, "min_soc_in_mwh": 0.05, "max_soc_in_mwh": 0.45, "sensors_to_show": [3, 2]}',  # noqa: E501
+                "generic_asset_type_id": 5,
+                "id": 3,
+                "latitude": 52.374,
+                "longitude": 4.88969,
+                "name": "toy-battery",
+            },
+        )
+
+        asset = await flexmeasures_client.get_asset(asset_id=3)
+        assert asset["id"] == 3
+        assert asset["account_id"] == 2
+        assert asset["name"] == "toy-battery"
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
 async def test_get_sensors() -> None:
     with aioresponses() as m:
         flexmeasures_client = FlexMeasuresClient(
