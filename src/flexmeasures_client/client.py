@@ -1226,10 +1226,14 @@ class FlexMeasuresClient:
             # message["scheduler"] = scheduler
             # Instead, we patch the custom-scheduler attribute of the asset
             asset = await self.get_asset(asset_id=asset_id, parse_json_fields=True)
-            asset_attributes = asset.get("attributes", {})
-            # Ensure attributes is a dict (in case JSON parsing failed)
+            asset_attributes = asset.get("attributes", "{}")
+            # Ensure attributes is a dict (in case JSON parsing failed or field is missing)
             if isinstance(asset_attributes, str):
-                asset_attributes = json.loads(asset_attributes)
+                try:
+                    asset_attributes = json.loads(asset_attributes)
+                except json.JSONDecodeError:
+                    # If parsing fails, start with empty dict
+                    asset_attributes = {}
             asset_attributes["custom-scheduler"] = scheduler
             await self.update_asset(
                 asset_id=asset_id, updates=dict(attributes=asset_attributes)
