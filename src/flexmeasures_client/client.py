@@ -47,9 +47,11 @@ def _parse_json_field(data: dict, field_name: str) -> None:
     if field_name in data and isinstance(data[field_name], str):
         try:
             data[field_name] = json.loads(data[field_name])
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             # If JSON parsing fails, leave the field as-is
-            pass
+            LOGGER.debug(
+                f"Failed to parse JSON field '{field_name}': {e}. Leaving as string."
+            )
 
 
 def _parse_asset_json_fields(asset: dict) -> None:
@@ -1222,11 +1224,9 @@ class FlexMeasuresClient:
             # message["scheduler"] = scheduler
             # Instead, we patch the custom-scheduler attribute of the asset
             asset = await self.get_asset(asset_id=asset_id, parse_json_fields=False)
-            # Parse attributes if it's a string
-            if isinstance(asset["attributes"], str):
-                asset_attributes = json.loads(asset["attributes"])
-            else:
-                asset_attributes = asset["attributes"]
+            # Parse attributes using the helper function
+            _parse_json_field(asset, "attributes")
+            asset_attributes = asset["attributes"]
             asset_attributes["custom-scheduler"] = scheduler
             await self.update_asset(
                 asset_id=asset_id, updates=dict(attributes=asset_attributes)
