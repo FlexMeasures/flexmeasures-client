@@ -782,7 +782,9 @@ async def get_site_assets(
     index: int,
 ):
     """Get all assets in a site's child building."""
-    assets = await client.get_assets(fields=["id", "name", "attributes", "sensors"], parse_json_fields=True)
+    assets = await client.get_assets(
+        fields=["id", "name", "attributes", "sensors"], parse_json_fields=True
+    )
     assets_by_name = {a["name"]: a for a in assets}
 
     community_asset = assets_by_name.get(community_name)
