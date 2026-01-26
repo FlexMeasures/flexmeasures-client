@@ -54,7 +54,7 @@ async def main():
     asset = None
     sensor = None
 
-    assets = await client.get_assets()
+    assets = await client.get_assets(parse_json_fields=True)
     for sst in assets:
         if sst["name"] == asset_name:
             asset = sst
