@@ -593,8 +593,12 @@ async def configure_site_flex_context(
         # Enable soft constraints for SoC minima (this makes soc-minima soft constraints instead of hard)
         "relax-soc-constraints": True,
         "relax-site-capacity-constraints": True,
-        "site-peak-consumption-price": {"sensor": site_peak_consumption_price_sensor["id"]},
-        "site-peak-production-price": {"sensor": site_peak_production_price_sensor["id"]},
+        "site-peak-consumption-price": {
+            "sensor": site_peak_consumption_price_sensor["id"]
+        },
+        "site-peak-production-price": {
+            "sensor": site_peak_production_price_sensor["id"]
+        },
         "site-peak-consumption": "0 kW",
         # Configure breach prices for soft constraints
         # Energy price units (match electricity-price sensor): EUR/kWh
