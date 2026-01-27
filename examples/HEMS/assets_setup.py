@@ -157,6 +157,24 @@ async def create_site_asset(
         attributes=dict(consumption_is_positive=True),
     )
 
+    # Create site-peak-consumption-price sensor (15min resolution, EUR/kW)
+    site_peak_consumption_price_sensor = await client.add_sensor(  # noqa: F841
+        name="site-peak-consumption-price",
+        event_resolution="PT15M",
+        unit="EUR/kW",
+        generic_asset_id=site_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+
+    # Create site-peak-production-price sensor (15min resolution, EUR/kW)
+    site_peak_production_price_sensor = await client.add_sensor(  # noqa: F841
+        name="site-peak-production-price",
+        event_resolution="PT15M",
+        unit="EUR/kW",
+        generic_asset_id=site_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+
     # Create self-consumption sensor for the site
     self_consumption_sensor = await client.add_sensor(
         name="self-consumption",
@@ -203,6 +221,8 @@ async def create_site_asset(
         self_consumption_sensor,
         max_production_sensor,
         max_consumption_sensor,
+        site_peak_consumption_price_sensor,
+        site_peak_production_price_sensor,
         total_energy_costs_sensor,
         daily_total_energy_costs_sensor,
         daily_share_of_self_consumption_sensor,
@@ -550,6 +570,8 @@ async def configure_site_flex_context(
     battery_power_sensor,
     max_consumption_sensor,
     max_production_sensor,
+    site_peak_consumption_price_sensor,
+    site_peak_production_price_sensor,
     aggregate_sensor,
 ):
     """Configure the site asset with comprehensive flex-context."""
@@ -571,7 +593,12 @@ async def configure_site_flex_context(
         # Enable soft constraints for SoC minima (this makes soc-minima soft constraints instead of hard)
         "relax-soc-constraints": True,
         "relax-site-capacity-constraints": True,
-        "site-peak-consumption-price": "26 EUR/MW",
+        "site-peak-consumption-price": {
+            "sensor": site_peak_consumption_price_sensor["id"]
+        },
+        "site-peak-production-price": {
+            "sensor": site_peak_production_price_sensor["id"]
+        },
         "site-peak-consumption": "0 kW",
         # Configure breach prices for soft constraints
         # Energy price units (match electricity-price sensor): EUR/kWh
@@ -711,6 +738,8 @@ async def create_sites_assets_and_sensors(
         self_consumption_sensor,
         max_production_sensor,
         max_consumption_sensor,
+        site_peak_consumption_price_sensor,
+        site_peak_production_price_sensor,
         total_energy_costs_sensor,
         daily_total_energy_costs_sensor,
         daily_share_of_self_consumption_sensor,
@@ -817,6 +846,8 @@ async def create_sites_assets_and_sensors(
         battery_power_sensor=battery_power_sensor,
         max_consumption_sensor=max_consumption_sensor,
         max_production_sensor=max_production_sensor,
+        site_peak_consumption_price_sensor=site_peak_consumption_price_sensor,
+        site_peak_production_price_sensor=site_peak_production_price_sensor,
         aggregate_sensor=aggregate_sensor,
     )
     print("Configuring site dashboard ...")

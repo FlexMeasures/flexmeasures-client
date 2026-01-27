@@ -12,7 +12,7 @@ from const import COMMUNITY_NAME, SITE_NAMES, host, pwd, usr
 from forecasting import generate_forecasts
 from reporters import create_reports
 from scheduling import just_continue, run_scheduling_simulation
-from utils.asset_utils import upload_data_for_first_two_weeks
+from utils.asset_utils import cleanup_existing_assets, upload_data_for_first_two_weeks
 
 from flexmeasures_client import FlexMeasuresClient
 
@@ -68,7 +68,11 @@ async def main(
         else:
             answer = input(f"Asset '{community_name}' already exists. Re-create?")
             if answer.lower() in ["y", "yes"]:
-                await client.delete_asset(asset_id=asset["id"])
+                await cleanup_existing_assets(
+                    client=client,
+                    account_id=account["id"],
+                    site_names=[community_name],
+                )
                 await create_community_asset(
                     client,
                     account,
