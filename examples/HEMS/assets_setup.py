@@ -614,6 +614,7 @@ async def configure_site_flex_context(
         "inflexible-device-sensors": [
             consumption_sensor["id"],  # General consumption
         ],
+        "aggregate-power": {"sensor": aggregate_sensor["id"]},
     }
 
     # Update site asset with flex-context
