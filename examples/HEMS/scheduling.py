@@ -518,6 +518,20 @@ async def compute_site_measurements(
         unit="kW",
     )
     # Upload PV power measurements
+    pv_raw_data = await client.get_sensor_data(
+        sensor_id=sensors[f"pv-production-{index}"]["id"],
+        start=current_time,
+        duration=timedelta(hours=SIMULATION_STEP_HOURS),
+        unit="kW",
+        resolution=timedelta(minutes=15),
+    )
+    pv_raw_power = pv_raw_data.get("values", [0.0] * SIMULATION_STEP_HOURS)
+
+    pv_realized_power = [
+        -min(abs(raw), abs(scheduled))
+        for raw, scheduled in zip(pv_raw_power, pv_scheduled_power)
+    ]
+
     await client.post_sensor_data(
         sensor_id=sensors[f"pv-power-{index}"][
             "id"
@@ -525,7 +539,7 @@ async def compute_site_measurements(
         start=current_time,
         duration=battery_power_duration,
         prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-        values=pv_scheduled_power,  # todo: instead, upload the minimum of the pv_scheduled_power and the pv_raw_power
+        values=pv_realized_power,
         unit="kW",
     )
 
