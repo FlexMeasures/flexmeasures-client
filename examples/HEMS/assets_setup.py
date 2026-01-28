@@ -246,7 +246,7 @@ async def create_pv_asset(
     )
 
     # Create production sensor (15min, kW)
-    pv_production_sensor = await client.add_sensor(
+    pv_production_sensor = await client.add_sensor(  # to store raw generation values
         name="electricity-production",
         event_resolution="PT15M",
         unit="kW",
@@ -254,9 +254,17 @@ async def create_pv_asset(
         timezone="Europe/Amsterdam",
     )
 
-    print(f"Created PV asset with ID: {pv_asset['id']}")
-    return pv_asset, pv_production_sensor
+    # Create power sensor (15min, kW)   
+    pv_power_sensor = await client.add_sensor(   # to store realized generation values
+        name="electricity-power",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=pv_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
 
+    print(f"Created PV asset with ID: {pv_asset['id']}")
+    return pv_asset, pv_production_sensor, pv_power_sensor
 
 async def create_battery_asset(
     client: FlexMeasuresClient,
@@ -758,11 +766,12 @@ async def create_sites_assets_and_sensors(
     print(f"Max consumption sensor ID: {max_consumption_sensor['id']}")
     print(f"Self-consumption sensor ID: {self_consumption_sensor['id']}")
     print("Creating PV asset with production sensor")
-    pv_asset, pv_production_sensor = await create_pv_asset(
+    pv_asset, pv_production_sensor, pv_power_sensor = await create_pv_asset(
         client, account_id, site_asset["id"], pv_name=f"{pv_name} {site_index}"
     )
     print(f"PV asset ID: {pv_asset['id']}")
     print(f"PV production sensor ID: {pv_production_sensor['id']}")
+    print(f"PV power sensor ID: {pv_power_sensor['id']}")
     print("Creating battery asset with power and SoC sensors")
     battery_asset, battery_power_sensor, battery_soc_sensor = (
         await create_battery_asset(
