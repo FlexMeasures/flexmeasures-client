@@ -254,8 +254,8 @@ async def create_pv_asset(
         timezone="Europe/Amsterdam",
     )
 
-    # Create power sensor (15min, kW)   
-    pv_power_sensor = await client.add_sensor(   # to store realized generation values
+    # Create power sensor (15min, kW)
+    pv_power_sensor = await client.add_sensor(  # to store realized generation values
         name="electricity-power",
         event_resolution="PT15M",
         unit="kW",
@@ -265,6 +265,7 @@ async def create_pv_asset(
 
     print(f"Created PV asset with ID: {pv_asset['id']}")
     return pv_asset, pv_production_sensor, pv_power_sensor
+
 
 async def create_battery_asset(
     client: FlexMeasuresClient,
