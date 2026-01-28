@@ -45,7 +45,8 @@ async def generate_sensor_forecasts(
     sensors = await find_sensors_by_asset(
         client=client,
         sensor_mappings=sensor_mappings,
-        top_level_asset_name=community_name)
+        top_level_asset_name=community_name,
+    )
     target_sensor = sensors[sensor_name]
     regressor_sensors = []
     if regressors is not None:
@@ -101,7 +102,9 @@ async def generate_sensor_forecasts(
         return False
 
 
-async def generate_forecasts(client: FlexMeasuresClient, community_name: str, site_names: list[str,]):
+async def generate_forecasts(
+    client: FlexMeasuresClient, community_name: str, site_names: list[str,]
+):
     """Generate forecasts for sensors that need to be forecasted for tutorial."""
 
     forecast_configs = []

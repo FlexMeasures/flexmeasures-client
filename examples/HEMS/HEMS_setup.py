@@ -92,7 +92,9 @@ async def main(
         # Part 3: Generate PV forecasts for second week
         print("\n" + "=" * 50)
         print("PART 3: GENERATING PV FORECASTS")
-        await generate_forecasts(client, community_name=community_name, site_names=site_names)
+        await generate_forecasts(
+            client, community_name=community_name, site_names=site_names
+        )
 
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
