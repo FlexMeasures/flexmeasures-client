@@ -521,7 +521,7 @@ async def compute_site_measurements(
         start=current_time,
         duration=battery_power_duration,
         prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-        values=pv_scheduled_power,
+        values=pv_scheduled_power,  # todo: instead, upload the minimum of the pv_scheduled_power and the pv_raw_power
         unit="kW",
     )
 
