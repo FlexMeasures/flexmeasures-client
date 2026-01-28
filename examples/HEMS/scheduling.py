@@ -342,7 +342,9 @@ async def compute_site_schedules(
             **battery_scheduling_dynamic_flex_model,
         },
         {
-            "sensor": sensors[f"pv-production-{index}"]["id"],
+            "sensor": sensors[f"pv-power-{index}"][
+                "id"
+            ],  # use power sensor to store realized data
             **curtailable_pv_flex_model,
         },
         {
@@ -516,12 +518,31 @@ async def compute_site_measurements(
         unit="kW",
     )
     # Upload PV power measurements
-    await client.post_sensor_data(
+    pv_raw_data = await client.get_sensor_data(
         sensor_id=sensors[f"pv-production-{index}"]["id"],
+        start=current_time,
+        duration=timedelta(hours=SIMULATION_STEP_HOURS),
+        unit="kW",
+        resolution=timedelta(minutes=15),
+    )
+    pv_raw_power = pv_raw_data.get("values")
+    if pv_raw_power is None:
+        raise ValueError(
+            f"Failed to fetch PV raw power from sensor {sensors[f"pv-production-{index}"]["id"]}"
+        )
+
+    pv_realized_power = [
+        min(raw, scheduled) for raw, scheduled in zip(pv_raw_power, pv_scheduled_power)
+    ]
+
+    await client.post_sensor_data(
+        sensor_id=sensors[f"pv-power-{index}"][
+            "id"
+        ],  # use power sensor to store realized data
         start=current_time,
         duration=battery_power_duration,
         prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-        values=pv_scheduled_power,
+        values=pv_realized_power,
         unit="kW",
     )
 
@@ -835,6 +856,7 @@ async def map_site_sensors(
         sensor_mappings = [
             (f"building-consumption-{index}", site_name, "electricity-consumption"),
             (f"pv-production-{index}", f"{pv_name} {index}", "electricity-production"),
+            (f"pv-power-{index}", f"{pv_name} {index}", "electricity-power"),
             (f"battery-power-{index}", f"{battery_name} {index}", "electricity-power"),
             (f"battery-soc-{index}", f"{battery_name} {index}", "state-of-charge"),
             (f"evse1-power-{index}", f"{evse1_name} {index}", "electricity-power"),
