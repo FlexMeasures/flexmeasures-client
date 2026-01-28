@@ -16,7 +16,7 @@ from utils.reporter_utils import fill_reporter_params, run_report_cmd
 from flexmeasures_client import FlexMeasuresClient
 
 
-async def create_reports(client: FlexMeasuresClient, site_names: list[str]):
+async def create_reports(client: FlexMeasuresClient, community_name: str, site_names: list[str]):
     """Generate reports using FlexMeasures CLI."""
     print("Generating reports...")
 
@@ -48,7 +48,7 @@ async def create_reports(client: FlexMeasuresClient, site_names: list[str]):
             ),
             ("heating-power", "power", f"{heating_name} {i}"),
         ]
-        sensors = await find_sensors_by_asset(client, sensor_mappings)
+        sensors = await find_sensors_by_asset(client, sensor_mappings, top_level_asset_name=community_name)
 
         # Prepare parameters for self-consumption reporter
         fill_reporter_params(
