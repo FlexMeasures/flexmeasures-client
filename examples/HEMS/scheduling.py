@@ -528,7 +528,7 @@ async def compute_site_measurements(
     pv_raw_power = pv_raw_data.get("values", [0.0] * SIMULATION_STEP_HOURS)
 
     pv_realized_power = [
-        -min(abs(raw), abs(scheduled))
+        min(raw, scheduled)
         for raw, scheduled in zip(pv_raw_power, pv_scheduled_power)
     ]
 
