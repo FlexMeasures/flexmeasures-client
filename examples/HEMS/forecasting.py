@@ -10,7 +10,7 @@ from const import (
     pv_name,
     weather_station_name,
 )
-from utils.asset_utils import find_sensor_by_name_and_asset
+from utils.asset_utils import find_sensors_by_asset
 
 from flexmeasures_client import FlexMeasuresClient
 
@@ -19,6 +19,7 @@ async def generate_sensor_forecasts(
     client: FlexMeasuresClient,
     sensor_name: str,
     asset_name: str,
+    community_name: str,
     regressors: list[tuple[str, str]] | None = None,
 ):
     """Generate forecasts using FlexMeasures CLI for the second week."""
@@ -33,13 +34,24 @@ async def generate_sensor_forecasts(
         return False
 
     # Find sensors
-    target_sensor = await find_sensor_by_name_and_asset(client, sensor_name, asset_name)
+    sensor_mappings = [
+        # (key, sensor name, asset name)
+        (sensor_name, sensor_name, asset_name),
+    ]
+    if regressors is not None:
+        sensor_mappings.extend(
+            [(regressor[0], regressor[0], regressor[1]) for regressor in regressors]
+        )
+    sensors = await find_sensors_by_asset(
+        client=client,
+        sensor_mappings=sensor_mappings,
+        top_level_asset_name=community_name,
+    )
+    target_sensor = sensors[sensor_name]
     regressor_sensors = []
     if regressors is not None:
         for regressor in regressors:
-            regressor_sensor = await find_sensor_by_name_and_asset(
-                client, regressor[0], regressor[1]
-            )
+            regressor_sensor = sensors[regressor[0]]
             regressor_sensors.append(regressor_sensor)
 
     if not target_sensor:
@@ -90,7 +102,9 @@ async def generate_sensor_forecasts(
         return False
 
 
-async def generate_forecasts(client: FlexMeasuresClient, site_names: list[str,]):
+async def generate_forecasts(
+    client: FlexMeasuresClient, community_name: str, site_names: list[str,]
+):
     """Generate forecasts for sensors that need to be forecasted for tutorial."""
 
     forecast_configs = []
@@ -98,16 +112,19 @@ async def generate_forecasts(client: FlexMeasuresClient, site_names: list[str,])
         forecast_configs.extend(
             [
                 {
+                    "community_name": community_name,
                     "asset_name": f"{pv_name} {i}",
                     "sensor_name": "electricity-production",
                     "regressors": [("irradiation", weather_station_name)],
                 },
                 {
+                    "community_name": community_name,
                     "asset_name": site_name,
                     "sensor_name": "electricity-consumption",
                     "regressors": None,
                 },
                 {
+                    "community_name": community_name,
                     "asset_name": f"{heating_name} {i}",
                     "sensor_name": "soc-usage",
                     "regressors": None,
@@ -120,5 +137,6 @@ async def generate_forecasts(client: FlexMeasuresClient, site_names: list[str,])
             client,
             sensor_name=config["sensor_name"],
             asset_name=config["asset_name"],
+            community_name=config["community_name"],
             regressors=config.get("regressors", None),
         )

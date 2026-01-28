@@ -106,6 +106,7 @@ async def upload_data_for_first_two_weeks(
     for i, site_name in enumerate(site_names, start=1):
         # Find all required sensors
         sensor_mappings = [
+            # (key, sensor name, asset name)
             ("site-power-capacity", "site-power-capacity", community_name),
             ("electricity-price", "electricity-price", price_market_name),
             ("electricity-consumption", "electricity-consumption", site_name),
