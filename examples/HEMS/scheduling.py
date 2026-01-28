@@ -342,7 +342,7 @@ async def compute_site_schedules(
             **battery_scheduling_dynamic_flex_model,
         },
         {
-            "sensor": sensors[f"pv-production-{index}"]["id"],
+            "sensor": sensors[f"pv-power-{index}"]["id"],  # use power sensor to store realized data
             **curtailable_pv_flex_model,
         },
         {
@@ -517,7 +517,7 @@ async def compute_site_measurements(
     )
     # Upload PV power measurements
     await client.post_sensor_data(
-        sensor_id=sensors[f"pv-production-{index}"]["id"],
+        sensor_id=sensors[f"pv-power-{index}"]["id"],   # use power sensor to store realized data
         start=current_time,
         duration=battery_power_duration,
         prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
@@ -835,6 +835,7 @@ async def map_site_sensors(
         sensor_mappings = [
             (f"building-consumption-{index}", site_name, "electricity-consumption"),
             (f"pv-production-{index}", f"{pv_name} {index}", "electricity-production"),
+            (f"pv-power-{index}", f"{pv_name} {index}", "electricity-power"),
             (f"battery-power-{index}", f"{battery_name} {index}", "electricity-power"),
             (f"battery-soc-{index}", f"{battery_name} {index}", "state-of-charge"),
             (f"evse1-power-{index}", f"{evse1_name} {index}", "electricity-power"),
