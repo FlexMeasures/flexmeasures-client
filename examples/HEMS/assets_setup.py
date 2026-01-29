@@ -672,6 +672,7 @@ async def configure_site_dashboard(
     site_asset,
     consumption_sensor,
     pv_production_sensor,
+    pv_power_sensor,
     battery_power_sensor,
     battery_soc_sensor,
     evse1_power_sensor,
@@ -705,7 +706,7 @@ async def configure_site_dashboard(
         },
         {
             "title": "Solar self-consumption",
-            "sensors": [self_consumption_sensor["id"], pv_production_sensor["id"]],
+            "sensors": [self_consumption_sensor["id"], pv_production_sensor["id"], pv_power_sensor["id"]],
         },
         {
             "title": "Prices",
@@ -900,6 +901,7 @@ async def create_sites_assets_and_sensors(
         site_asset=site_asset,
         consumption_sensor=consumption_sensor,
         pv_production_sensor=pv_production_sensor,
+        pv_power_sensor=pv_power_sensor,
         battery_power_sensor=battery_power_sensor,
         battery_soc_sensor=battery_soc_sensor,
         evse1_power_sensor=evse1_power_sensor,
