@@ -54,7 +54,7 @@ async def main(
         asset = None  # Initialize asset variable
         assets = await client.get_assets(parse_json_fields=True)
         for sst in assets:
-            if sst["name"] in community_name:
+            if sst["name"] == community_name:
                 asset = sst
                 break
 
