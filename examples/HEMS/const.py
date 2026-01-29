@@ -36,6 +36,12 @@ MAX_RESCHEDULING_ITERATIONS = 2
 random.seed(42)
 
 # Configuration constants
+HOME_CONFIG = {
+    "connection capacity": "330 V * 16 A * 3",
+}
+PV_CONFIG = {
+    "kW peak": "15 kW",
+}
 EV_CONFIG = {
     "default_capacity_kwh": 60.0,
     "default_power_capacity_kw": 11.0,
