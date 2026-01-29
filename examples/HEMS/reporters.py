@@ -34,6 +34,7 @@ async def create_reports(
         # Find all required sensors
         sensor_mappings = [
             ("electricity-production", "electricity-production", f"{pv_name} {i}"),
+            ("pv-power", "electricity-power", f"{pv_name} {i}"),
             ("electricity-consumption", "electricity-consumption", site_name),
             ("electricity-power", "electricity-power", f"{battery_name} {i}"),
             ("evse1-power", "electricity-power", f"{evse1_name} {i}"),
@@ -58,6 +59,7 @@ async def create_reports(
         fill_reporter_params(
             input_sensors=[
                 {"production": sensors["electricity-production"]["id"]},
+                {"pv-power": sensors["pv-power"]["id"]},
                 {"building-consumption": sensors["electricity-consumption"]["id"]},
                 {"evse1-consumption": sensors["evse1-power"]["id"]},
                 {"evse2-consumption": sensors["evse2-power"]["id"]},
