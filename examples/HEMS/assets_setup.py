@@ -14,6 +14,7 @@ from const import (
 )
 
 from flexmeasures_client import FlexMeasuresClient
+from utils.asset_utils import get_first_asset_by_name
 
 
 async def create_public_price_sensor(client: FlexMeasuresClient):
@@ -26,24 +27,35 @@ async def create_public_price_sensor(client: FlexMeasuresClient):
     account = await client.get_account()
     account_id = account["id"]
     print(f"Account ID: {account_id}")
-    # Create public market asset (no account_id for public assets)
+    # Create top-level market asset (not public, but still under the toy account)
     # Generic asset type 8 is typically used for market/price assets
-    price_market_asset = await client.add_asset(
-        name=price_market_name,
-        latitude=latitude,
-        longitude=longitude,
-        generic_asset_type_id=8,  # Transmission zone  A grid regulated & balanced as a whole, usually a national grid.
-        account_id=account_id,
+    all_top_level_assets = await client.get_assets(
+        include_public=True,
+        depth=0,
+        fields=["id", "name", "account_id", "sensors"],
     )
+    price_market_asset = get_first_asset_by_name(
+        assets=all_top_level_assets, name=price_market_name, account_id=account_id
+    )
+    if price_market_asset is None:
+        price_market_asset = await client.add_asset(
+            name=price_market_name,
+            latitude=latitude,
+            longitude=longitude,
+            generic_asset_type_id=8,  # Transmission zone  A grid regulated & balanced as a whole, usually a national grid.
+            account_id=account_id,
+        )
 
-    # Create price sensor with 1-hour resolution
-    price_sensor = await client.add_sensor(
-        name="electricity-price",
-        event_resolution="PT1H",
-        unit="EUR/kWh",
-        generic_asset_id=price_market_asset["id"],
-        timezone="Europe/Amsterdam",
-    )
+        # Create price sensor with 1-hour resolution
+        price_sensor = await client.add_sensor(
+            name="electricity-price",
+            event_resolution="PT1H",
+            unit="EUR/kWh",
+            generic_asset_id=price_market_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    else:
+        price_sensor = price_market_asset["sensors"][0]
 
     print(f"Created public price sensor with ID: {price_sensor['id']}")
     return price_sensor
@@ -56,33 +68,55 @@ async def create_weather_station(client: FlexMeasuresClient):
     account = await client.get_account()
     account_id = account["id"]
     print(f"Account ID: {account_id}")
-    # Create public weather station asset
+    # Create top-level weather station asset (not public, but still under the toy account)
     # Generic asset type 7 (process) used for weather stations since no dedicated type exists
-    weather_asset = await client.add_asset(
-        name=weather_station_name,
-        latitude=latitude,
-        longitude=longitude,
-        generic_asset_type_id=7,  # Process asset type (for weather station)
-        account_id=account_id,  # Public account ID
+    all_top_level_assets = await client.get_assets(
+        include_public=True,
+        depth=0,
+        fields=["id", "name", "account_id", "sensors"],
     )
+    weather_asset = get_first_asset_by_name(
+        assets=all_top_level_assets, name=weather_station_name, account_id=account_id
+    )
+    if weather_asset is None:
+        weather_asset = await client.add_asset(
+            name=weather_station_name,
+            latitude=latitude,
+            longitude=longitude,
+            generic_asset_type_id=7,  # Process asset type (for weather station)
+            account_id=account_id,  # Public account ID
+        )
 
-    # Create irradiation sensor (1H, W/m²)
-    irradiation_sensor = await client.add_sensor(
-        name="irradiation",
-        event_resolution="PT1H",
-        unit="W/m²",
-        generic_asset_id=weather_asset["id"],
-        timezone="Europe/Amsterdam",
-    )
+        # Create irradiation sensor (1H, W/m²)
+        irradiation_sensor = await client.add_sensor(
+            name="irradiation",
+            event_resolution="PT1H",
+            unit="W/m²",
+            generic_asset_id=weather_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
 
-    # Create cloud coverage sensor (1H, %)
-    cloud_coverage_sensor = await client.add_sensor(
-        name="cloud-coverage",
-        event_resolution="PT1H",
-        unit="%",
-        generic_asset_id=weather_asset["id"],
-        timezone="Europe/Amsterdam",
-    )
+        # Create cloud coverage sensor (1H, %)
+        cloud_coverage_sensor = await client.add_sensor(
+            name="cloud-coverage",
+            event_resolution="PT1H",
+            unit="%",
+            generic_asset_id=weather_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    else:
+        sensors = weather_asset["sensors"]
+        cloud_coverage_sensor = None
+        irradiation_sensor = None
+        for sensor in sensors:
+            if sensor["name"] == "cloud-coverage":
+                cloud_coverage_sensor = sensor
+            elif sensor["name"] == "irradiation":
+                irradiation_sensor = sensor
+        if cloud_coverage_sensor is None or irradiation_sensor is None:
+            raise ValueError(
+                "Could not identify cloud_coverage_sensor or irradiation_sensor. Maybe a name changed?"
+            )
 
     print(f"Created weather station with ID: {weather_asset['id']}")
     return weather_asset, irradiation_sensor, cloud_coverage_sensor
