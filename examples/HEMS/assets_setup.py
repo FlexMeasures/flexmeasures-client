@@ -12,9 +12,9 @@ from const import (
     pv_name,
     weather_station_name,
 )
+from utils.asset_utils import get_first_asset_by_name
 
 from flexmeasures_client import FlexMeasuresClient
-from utils.asset_utils import get_first_asset_by_name
 
 
 async def create_public_price_sensor(client: FlexMeasuresClient):
