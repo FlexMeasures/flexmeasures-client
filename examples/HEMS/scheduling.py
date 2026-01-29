@@ -492,7 +492,7 @@ async def compute_site_measurements(
             elif sensor_id == sensors[f"evse2-power-{index}"]["id"]:
                 evse2_scheduled_power = power_values
                 sensor_name = "EVSE-2"
-            elif sensor_id == sensors[f"pv-production-{index}"]["id"]:
+            elif sensor_id == sensors[f"pv-power-{index}"]["id"]:
                 pv_scheduled_power = [-v for v in power_values]
                 sensor_name = "PV"
             elif sensor_id == sensors[f"heating-power-{index}"]["id"]:
