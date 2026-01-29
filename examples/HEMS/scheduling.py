@@ -899,7 +899,7 @@ def run_community_aggregate(
         # Fill reporter parameters for each site
         fill_reporter_params(
             input_sensors=[
-                {"pv": sensors[f"pv-production-{index}"]["id"]},
+                {"pv": sensors[f"pv-power-{index}"]["id"]},
                 {"consumption": sensors[f"building-consumption-{index}"]["id"]},
                 {"battery-power": sensors[f"battery-power-{index}"]["id"]},
                 {"evse1-power": sensors[f"evse1-power-{index}"]["id"]},
