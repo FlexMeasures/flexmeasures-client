@@ -143,7 +143,8 @@ async def create_site_asset(
         generic_asset_type_id=6,  # Building asset type
         account_id=account_id,
         flex_model={
-            "power-capacity": HOME_CONFIG["connection capacity"],
+            # "power-capacity": HOME_CONFIG["connection capacity"],
+            "storage-efficiency": "100%",  # no effect, just to trick the server into seeing this as a device in the asset tree
         }
     )
 
@@ -283,7 +284,8 @@ async def create_pv_asset(
         account_id=account_id,
         parent_asset_id=site_asset_id,  # Child of site
         flex_model={
-            "power-capacity": PV_CONFIG["kW peak"],
+            # "power-capacity": PV_CONFIG["kW peak"],
+            "storage-efficiency": "100%",  # no effect, just to trick the server into seeing this as a device in the asset tree
         }
     )
 
