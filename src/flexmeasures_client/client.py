@@ -823,7 +823,7 @@ class FlexMeasuresClient:
     async def trigger_and_get_schedule(
         self,
         start: str | datetime,
-        duration: str | timedelta,
+        duration: str | timedelta | None = None,
         flex_model: dict | list[dict] | None = None,
         flex_context: dict | None = None,
         sensor_id: int | None = None,
@@ -1194,7 +1194,7 @@ class FlexMeasuresClient:
     async def trigger_schedule(
         self,
         start: str | datetime,
-        duration: str | timedelta,
+        duration: str | timedelta | None = None,
         flex_model: dict | list[dict] | None = None,
         flex_context: dict | None = None,
         sensor_id: int | None = None,
@@ -1208,8 +1208,9 @@ class FlexMeasuresClient:
             "start": pd.Timestamp(
                 start
             ).isoformat(),  # for example: 2021-10-13T00:00+02:00
-            "duration": pd.Timedelta(duration).isoformat(),
         }
+        if duration is not None:
+            message["duration"] = pd.Timedelta(duration).isoformat()
         if flex_model is not None:
             message["flex-model"] = flex_model
         if flex_context is not None:
