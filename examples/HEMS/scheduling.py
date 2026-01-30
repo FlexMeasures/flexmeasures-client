@@ -46,7 +46,7 @@ async def run_scheduling_simulation(
     client: FlexMeasuresClient,
     community_name: str,
     site_names: list[str],
-    simulate_live_corrections: bool = True,
+    simulate_live_corrections: bool = False,
     callback: Callable = just_continue,
 ):
     """Run step-by-step scheduling simulation for the third week with EV charging."""
