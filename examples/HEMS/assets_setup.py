@@ -706,7 +706,11 @@ async def configure_site_dashboard(
         },
         {
             "title": "Solar self-consumption",
-            "sensors": [self_consumption_sensor["id"], pv_production_sensor["id"], pv_power_sensor["id"]],
+            "sensors": [
+                self_consumption_sensor["id"],
+                pv_production_sensor["id"],
+                pv_power_sensor["id"],
+            ],
         },
         {
             "title": "Prices",
