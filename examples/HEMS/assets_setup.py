@@ -1,8 +1,6 @@
 from const import (
     BATTERY_CONFIG,
     EV_CONFIG,
-    HOME_CONFIG,
-    PV_CONFIG,
     HEATING_CONFIG,
     battery_name,
     evse1_name,
@@ -142,10 +140,6 @@ async def create_site_asset(
         parent_asset_id=site_asset_id,
         generic_asset_type_id=6,  # Building asset type
         account_id=account_id,
-        flex_model={
-            # "power-capacity": HOME_CONFIG["connection capacity"],
-            "storage-efficiency": "100%",  # no effect, just to trick the server into seeing this as a device in the asset tree
-        }
     )
 
     # Create general consumption sensor (15min resolution, kW)
@@ -283,10 +277,6 @@ async def create_pv_asset(
         generic_asset_type_id=1,  # Solar/PV asset type
         account_id=account_id,
         parent_asset_id=site_asset_id,  # Child of site
-        flex_model={
-            # "power-capacity": PV_CONFIG["kW peak"],
-            "storage-efficiency": "100%",  # no effect, just to trick the server into seeing this as a device in the asset tree
-        }
     )
 
     # Create production sensor (15min, kW)
