@@ -414,24 +414,32 @@ async def compute_site_schedules(
         schedule_id=job_uuid,
         duration=schedule_duration,
     )
+    if (scheduler := battery_soc_schedule["scheduler_info"]["scheduler"]) != "StorageScheduler":
+        raise ValueError(f"Unexpected scheduler was used to determine battery SOC schedule: {scheduler}")
 
     evse1_soc_schedule = await client.get_schedule(
         sensor_id=sensors[f"evse1-soc-{index}"]["id"],
         schedule_id=job_uuid,
         duration=schedule_duration,
     )
+    if (scheduler := evse1_soc_schedule["scheduler_info"]["scheduler"]) != "StorageScheduler":
+        raise ValueError(f"Unexpected scheduler was used to determine EVSE 1 SOC schedule: {scheduler}")
 
     evse2_soc_schedule = await client.get_schedule(
         sensor_id=sensors[f"evse2-soc-{index}"]["id"],
         schedule_id=job_uuid,
         duration=schedule_duration,
     )
+    if (scheduler := evse2_soc_schedule["scheduler_info"]["scheduler"]) != "StorageScheduler":
+        raise ValueError(f"Unexpected scheduler was used to determine EVSE 2 SOC schedule: {scheduler}")
 
     heating_soc_schedule = await client.get_schedule(
         sensor_id=sensors[f"heating-soc-{index}"]["id"],
         schedule_id=job_uuid,
         duration=schedule_duration,
     )
+    if (scheduler := heating_soc_schedule["scheduler_info"]["scheduler"]) != "StorageScheduler":
+        raise ValueError(f"Unexpected scheduler was used to determine heating SOC schedule: {scheduler}")
 
     print("Multi-device power and SoC schedules retrieved successfully")
 
