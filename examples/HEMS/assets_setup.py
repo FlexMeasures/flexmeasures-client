@@ -642,7 +642,7 @@ async def configure_site_flex_context(
         "site-peak-production-price": {
             "sensor": site_peak_production_price_sensor["id"]
         },
-        "site-peak-consumption": "0 kW",
+        "site-peak-consumption": "30/2 kW",  # i.e. the community capacity fairly shared amongst the sites
         # Configure breach prices for soft constraints
         # Energy price units (match electricity-price sensor): EUR/kWh
         # Moderate penalty for not meeting soc-minima (allows some flexibility)
