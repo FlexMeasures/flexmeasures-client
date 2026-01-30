@@ -528,7 +528,7 @@ async def compute_site_measurements(
     pv_raw_power = pv_raw_data.get("values")
     if pv_raw_power is None:
         raise ValueError(
-            f"Failed to fetch PV raw power from sensor {sensors[f"pv-production-{index}"]["id"]}"
+            f"Failed to fetch PV raw power from sensor {sensors[f'pv-production-{index}']['id']}"
         )
 
     pv_realized_power = [
