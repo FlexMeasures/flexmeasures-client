@@ -46,7 +46,7 @@ async def run_scheduling_simulation(
     client: FlexMeasuresClient,
     community_name: str,
     site_names: list[str],
-    simulate_live_corrections: bool = True,
+    simulate_live_corrections: bool = False,
     callback: Callable = just_continue,
 ):
     """Run step-by-step scheduling simulation for the third week with EV charging."""
@@ -342,7 +342,9 @@ async def compute_site_schedules(
             **battery_scheduling_dynamic_flex_model,
         },
         {
-            "sensor": sensors[f"pv-production-{index}"]["id"],
+            "sensor": sensors[f"pv-power-{index}"][
+                "id"
+            ],  # use power sensor to store realized data
             **curtailable_pv_flex_model,
         },
         {
@@ -412,24 +414,48 @@ async def compute_site_schedules(
         schedule_id=job_uuid,
         duration=schedule_duration,
     )
+    if (
+        scheduler := battery_soc_schedule["scheduler_info"]["scheduler"]
+    ) != "StorageScheduler":
+        raise ValueError(
+            f"Unexpected scheduler was used to determine battery SOC schedule: {scheduler}"
+        )
 
     evse1_soc_schedule = await client.get_schedule(
         sensor_id=sensors[f"evse1-soc-{index}"]["id"],
         schedule_id=job_uuid,
         duration=schedule_duration,
     )
+    if (
+        scheduler := evse1_soc_schedule["scheduler_info"]["scheduler"]
+    ) != "StorageScheduler":
+        raise ValueError(
+            f"Unexpected scheduler was used to determine EVSE 1 SOC schedule: {scheduler}"
+        )
 
     evse2_soc_schedule = await client.get_schedule(
         sensor_id=sensors[f"evse2-soc-{index}"]["id"],
         schedule_id=job_uuid,
         duration=schedule_duration,
     )
+    if (
+        scheduler := evse2_soc_schedule["scheduler_info"]["scheduler"]
+    ) != "StorageScheduler":
+        raise ValueError(
+            f"Unexpected scheduler was used to determine EVSE 2 SOC schedule: {scheduler}"
+        )
 
     heating_soc_schedule = await client.get_schedule(
         sensor_id=sensors[f"heating-soc-{index}"]["id"],
         schedule_id=job_uuid,
         duration=schedule_duration,
     )
+    if (
+        scheduler := heating_soc_schedule["scheduler_info"]["scheduler"]
+    ) != "StorageScheduler":
+        raise ValueError(
+            f"Unexpected scheduler was used to determine heating SOC schedule: {scheduler}"
+        )
 
     print("Multi-device power and SoC schedules retrieved successfully")
 
@@ -490,7 +516,7 @@ async def compute_site_measurements(
             elif sensor_id == sensors[f"evse2-power-{index}"]["id"]:
                 evse2_scheduled_power = power_values
                 sensor_name = "EVSE-2"
-            elif sensor_id == sensors[f"pv-production-{index}"]["id"]:
+            elif sensor_id == sensors[f"pv-power-{index}"]["id"]:
                 pv_scheduled_power = [-v for v in power_values]
                 sensor_name = "PV"
             elif sensor_id == sensors[f"heating-power-{index}"]["id"]:
@@ -516,12 +542,31 @@ async def compute_site_measurements(
         unit="kW",
     )
     # Upload PV power measurements
-    await client.post_sensor_data(
+    pv_raw_data = await client.get_sensor_data(
         sensor_id=sensors[f"pv-production-{index}"]["id"],
+        start=current_time,
+        duration=timedelta(hours=SIMULATION_STEP_HOURS),
+        unit="kW",
+        resolution=timedelta(minutes=15),
+    )
+    pv_raw_power = pv_raw_data.get("values")
+    if pv_raw_power is None:
+        raise ValueError(
+            f"Failed to fetch PV raw power from sensor {sensors[f'pv-production-{index}']['id']}"
+        )
+
+    pv_realized_power = [
+        min(raw, scheduled) for raw, scheduled in zip(pv_raw_power, pv_scheduled_power)
+    ]
+
+    await client.post_sensor_data(
+        sensor_id=sensors[f"pv-power-{index}"][
+            "id"
+        ],  # use power sensor to store realized data
         start=current_time,
         duration=battery_power_duration,
         prior=current_time + timedelta(hours=SIMULATION_STEP_HOURS),
-        values=pv_scheduled_power,
+        values=pv_realized_power,
         unit="kW",
     )
 
@@ -835,6 +880,7 @@ async def map_site_sensors(
         sensor_mappings = [
             (f"building-consumption-{index}", site_name, "electricity-consumption"),
             (f"pv-production-{index}", f"{pv_name} {index}", "electricity-production"),
+            (f"pv-power-{index}", f"{pv_name} {index}", "electricity-power"),
             (f"battery-power-{index}", f"{battery_name} {index}", "electricity-power"),
             (f"battery-soc-{index}", f"{battery_name} {index}", "state-of-charge"),
             (f"evse1-power-{index}", f"{evse1_name} {index}", "electricity-power"),
@@ -877,7 +923,7 @@ def run_community_aggregate(
         # Fill reporter parameters for each site
         fill_reporter_params(
             input_sensors=[
-                {"pv": sensors[f"pv-production-{index}"]["id"]},
+                {"pv": sensors[f"pv-power-{index}"]["id"]},
                 {"consumption": sensors[f"building-consumption-{index}"]["id"]},
                 {"battery-power": sensors[f"battery-power-{index}"]["id"]},
                 {"evse1-power": sensors[f"evse1-power-{index}"]["id"]},

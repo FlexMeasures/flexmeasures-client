@@ -106,6 +106,7 @@ async def upload_data_for_first_two_weeks(
     for i, site_name in enumerate(site_names, start=1):
         # Find all required sensors
         sensor_mappings = [
+            # (key, sensor name, asset name)
             ("site-power-capacity", "site-power-capacity", community_name),
             ("electricity-price", "electricity-price", price_market_name),
             ("electricity-consumption", "electricity-consumption", site_name),
@@ -237,3 +238,20 @@ def load_and_align_csv_data(
 
     print(f"Aligned {len(df)} records from {file_path}")
     return aligned_df
+
+
+def get_first_asset_by_name(
+    assets: list[dict], name: str, account_id: int | None = 0
+) -> dict | None:
+    """
+    :param assets:      List of dictionaries describing assets, each with at least a "name".
+    :param name:        The asset name to find the first occurrence for.
+    :param account_id:  Optionally, filter by account_id (a positive integer, or None for a public account).
+                        To use this filter, each dictionary in `assets` should contain the "account_id", too.
+                        NB the 0 default is used to signal the argument is missing (real IDs are strictly positive).
+    """
+    for asset in assets:
+        if asset["name"] == name:
+            if account_id != 0 and asset["account_id"] != account_id:
+                continue
+            return asset

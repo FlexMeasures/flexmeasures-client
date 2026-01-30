@@ -12,6 +12,7 @@ from const import (
     pv_name,
     weather_station_name,
 )
+from utils.asset_utils import get_first_asset_by_name
 
 from flexmeasures_client import FlexMeasuresClient
 
@@ -26,24 +27,35 @@ async def create_public_price_sensor(client: FlexMeasuresClient):
     account = await client.get_account()
     account_id = account["id"]
     print(f"Account ID: {account_id}")
-    # Create public market asset (no account_id for public assets)
+    # Create top-level market asset (not public, but still under the toy account)
     # Generic asset type 8 is typically used for market/price assets
-    price_market_asset = await client.add_asset(
-        name=price_market_name,
-        latitude=latitude,
-        longitude=longitude,
-        generic_asset_type_id=8,  # Transmission zone  A grid regulated & balanced as a whole, usually a national grid.
-        account_id=account_id,
+    all_top_level_assets = await client.get_assets(
+        include_public=True,
+        depth=0,
+        fields=["id", "name", "account_id", "sensors"],
     )
+    price_market_asset = get_first_asset_by_name(
+        assets=all_top_level_assets, name=price_market_name, account_id=account_id
+    )
+    if price_market_asset is None:
+        price_market_asset = await client.add_asset(
+            name=price_market_name,
+            latitude=latitude,
+            longitude=longitude,
+            generic_asset_type_id=8,  # Transmission zone  A grid regulated & balanced as a whole, usually a national grid.
+            account_id=account_id,
+        )
 
-    # Create price sensor with 1-hour resolution
-    price_sensor = await client.add_sensor(
-        name="electricity-price",
-        event_resolution="PT1H",
-        unit="EUR/kWh",
-        generic_asset_id=price_market_asset["id"],
-        timezone="Europe/Amsterdam",
-    )
+        # Create price sensor with 1-hour resolution
+        price_sensor = await client.add_sensor(
+            name="electricity-price",
+            event_resolution="PT1H",
+            unit="EUR/kWh",
+            generic_asset_id=price_market_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    else:
+        price_sensor = price_market_asset["sensors"][0]
 
     print(f"Created public price sensor with ID: {price_sensor['id']}")
     return price_sensor
@@ -56,33 +68,55 @@ async def create_weather_station(client: FlexMeasuresClient):
     account = await client.get_account()
     account_id = account["id"]
     print(f"Account ID: {account_id}")
-    # Create public weather station asset
+    # Create top-level weather station asset (not public, but still under the toy account)
     # Generic asset type 7 (process) used for weather stations since no dedicated type exists
-    weather_asset = await client.add_asset(
-        name=weather_station_name,
-        latitude=latitude,
-        longitude=longitude,
-        generic_asset_type_id=7,  # Process asset type (for weather station)
-        account_id=account_id,  # Public account ID
+    all_top_level_assets = await client.get_assets(
+        include_public=True,
+        depth=0,
+        fields=["id", "name", "account_id", "sensors"],
     )
+    weather_asset = get_first_asset_by_name(
+        assets=all_top_level_assets, name=weather_station_name, account_id=account_id
+    )
+    if weather_asset is None:
+        weather_asset = await client.add_asset(
+            name=weather_station_name,
+            latitude=latitude,
+            longitude=longitude,
+            generic_asset_type_id=7,  # Process asset type (for weather station)
+            account_id=account_id,  # Public account ID
+        )
 
-    # Create irradiation sensor (1H, W/m²)
-    irradiation_sensor = await client.add_sensor(
-        name="irradiation",
-        event_resolution="PT1H",
-        unit="W/m²",
-        generic_asset_id=weather_asset["id"],
-        timezone="Europe/Amsterdam",
-    )
+        # Create irradiation sensor (1H, W/m²)
+        irradiation_sensor = await client.add_sensor(
+            name="irradiation",
+            event_resolution="PT1H",
+            unit="W/m²",
+            generic_asset_id=weather_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
 
-    # Create cloud coverage sensor (1H, %)
-    cloud_coverage_sensor = await client.add_sensor(
-        name="cloud-coverage",
-        event_resolution="PT1H",
-        unit="%",
-        generic_asset_id=weather_asset["id"],
-        timezone="Europe/Amsterdam",
-    )
+        # Create cloud coverage sensor (1H, %)
+        cloud_coverage_sensor = await client.add_sensor(
+            name="cloud-coverage",
+            event_resolution="PT1H",
+            unit="%",
+            generic_asset_id=weather_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    else:
+        sensors = weather_asset["sensors"]
+        cloud_coverage_sensor = None
+        irradiation_sensor = None
+        for sensor in sensors:
+            if sensor["name"] == "cloud-coverage":
+                cloud_coverage_sensor = sensor
+            elif sensor["name"] == "irradiation":
+                irradiation_sensor = sensor
+        if cloud_coverage_sensor is None or irradiation_sensor is None:
+            raise ValueError(
+                "Could not identify cloud_coverage_sensor or irradiation_sensor. Maybe a name changed?"
+            )
 
     print(f"Created weather station with ID: {weather_asset['id']}")
     return weather_asset, irradiation_sensor, cloud_coverage_sensor
@@ -246,7 +280,7 @@ async def create_pv_asset(
     )
 
     # Create production sensor (15min, kW)
-    pv_production_sensor = await client.add_sensor(
+    pv_production_sensor = await client.add_sensor(  # to store raw generation values
         name="electricity-production",
         event_resolution="PT15M",
         unit="kW",
@@ -254,8 +288,17 @@ async def create_pv_asset(
         timezone="Europe/Amsterdam",
     )
 
+    # Create power sensor (15min, kW)
+    pv_power_sensor = await client.add_sensor(  # to store realized generation values
+        name="electricity-power",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=pv_asset["id"],
+        timezone="Europe/Amsterdam",
+    )
+
     print(f"Created PV asset with ID: {pv_asset['id']}")
-    return pv_asset, pv_production_sensor
+    return pv_asset, pv_production_sensor, pv_power_sensor
 
 
 async def create_battery_asset(
@@ -630,6 +673,7 @@ async def configure_site_dashboard(
     site_asset,
     consumption_sensor,
     pv_production_sensor,
+    pv_power_sensor,
     battery_power_sensor,
     battery_soc_sensor,
     evse1_power_sensor,
@@ -663,7 +707,11 @@ async def configure_site_dashboard(
         },
         {
             "title": "Solar self-consumption",
-            "sensors": [self_consumption_sensor["id"], pv_production_sensor["id"]],
+            "sensors": [
+                self_consumption_sensor["id"],
+                pv_production_sensor["id"],
+                pv_power_sensor["id"],
+            ],
         },
         {
             "title": "Prices",
@@ -759,11 +807,12 @@ async def create_sites_assets_and_sensors(
     print(f"Max consumption sensor ID: {max_consumption_sensor['id']}")
     print(f"Self-consumption sensor ID: {self_consumption_sensor['id']}")
     print("Creating PV asset with production sensor")
-    pv_asset, pv_production_sensor = await create_pv_asset(
+    pv_asset, pv_production_sensor, pv_power_sensor = await create_pv_asset(
         client, account_id, site_asset["id"], pv_name=f"{pv_name} {site_index}"
     )
     print(f"PV asset ID: {pv_asset['id']}")
     print(f"PV production sensor ID: {pv_production_sensor['id']}")
+    print(f"PV power sensor ID: {pv_power_sensor['id']}")
     print("Creating battery asset with power and SoC sensors")
     battery_asset, battery_power_sensor, battery_soc_sensor = (
         await create_battery_asset(
@@ -857,6 +906,7 @@ async def create_sites_assets_and_sensors(
         site_asset=site_asset,
         consumption_sensor=consumption_sensor,
         pv_production_sensor=pv_production_sensor,
+        pv_power_sensor=pv_power_sensor,
         battery_power_sensor=battery_power_sensor,
         battery_soc_sensor=battery_soc_sensor,
         evse1_power_sensor=evse1_power_sensor,
