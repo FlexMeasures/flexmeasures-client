@@ -1,5 +1,5 @@
 {
-    "required_input" :[{"name":"production","unit": "kW"}, {"name":"heating-power","unit": "kW"},{"name":"evse1-consumption","unit": "kW"},{"name":"evse2-consumption","unit": "kW"},{"name":"building-consumption","unit": "kW"}, {"name":"battery-power","unit": "kW"}],
+    "required_input" :[{"name":"production","unit": "kW"}, {"name":"pv-power","unit": "kW"}, {"name":"heating-power","unit": "kW"}, {"name":"evse1-consumption","unit": "kW"}, {"name":"evse2-consumption","unit": "kW"}, {"name":"building-consumption","unit": "kW"}, {"name":"battery-power","unit": "kW"}],
     "required_output" :[{"name":"self-consumption","unit": "kW"}, {"name":"daily-share-of-self-consumption", "unit": "%"}],
     "droplevels": true,
     "transformations" : [
@@ -32,7 +32,7 @@
             "args": ["@heating-power"]
         },
         {
-            "df_input": "production",
+            "df_input": "pv-power",
             "df_output": "excess-pv",
             "method": "sub",
             "args": ["@total-load"]
@@ -44,7 +44,7 @@
             "kwargs": {"lower": 0}
         },
         {
-            "df_input": "production",
+            "df_input": "pv-power",
             "df_output": "self-consumption",
             "method": "sub",
             "args": ["@excess-pv"]
