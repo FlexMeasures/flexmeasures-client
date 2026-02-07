@@ -1252,7 +1252,6 @@ class FlexMeasuresClient:
             )
         check_for_status(status, 200)
 
-        self.logger.info("Schedule triggered successfully.")
         if not isinstance(response, dict):
             raise ContentTypeError(
                 f"Expected a dictionary, but got {type(response)}",
@@ -1263,6 +1262,7 @@ class FlexMeasuresClient:
                 f"Expected a schedule ID, but got {type(response.get('schedule'))}",
             )
         schedule_id = response["schedule"]
+        self.logger.info(f"Schedule triggered successfully. Schedule ID: {schedule_id}")
         return schedule_id
 
     @staticmethod
