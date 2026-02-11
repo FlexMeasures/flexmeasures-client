@@ -109,7 +109,7 @@ Post a measurement from a sensor:
 
 .. code-block:: python
 
-    await client.post_measurements(
+    await client.post_sensor_data(
         sensor_id=<sensor_id>,  # integer
         start="2023-03-26T10:00+02:00",  # ISO datetime
         duration="PT6H",  # ISO duration
@@ -153,7 +153,7 @@ Here is a small but complete FlexMeasures Client script, which simply updates th
 
 
 For a slightly larger self-contained script, see `this script for sending data <examples/send_data_to_asset.py>`_.
-It sets up an asset and sensor (checking if they exist first), and then sends data to it using `post_measurements()`.
+It sets up an asset and sensor (checking if they exist first), and then sends data to it using `post_sensor_data()`.
 
 
 Scheduling
