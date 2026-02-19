@@ -1,5 +1,7 @@
 import asyncio
 import json
+import logging
+import os
 
 import aiohttp
 from aiohttp import web
@@ -8,6 +10,13 @@ from s2python.common import ControlType
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
+
+log_level = os.getenv("LOGGING_LEVEL", "WARNING").upper()
+logging.basicConfig(
+    level=log_level,
+    format="[CEM][%(asctime)s] %(levelname)s:  %(name)s | %(message)s",
+)
+LOGGER = logging.getLogger(__name__)
 
 
 async def rm_details_watchdog(ws, cem: CEM):
@@ -78,7 +87,11 @@ async def websocket_handler(request):
         site_name, fm_client
     )
 
-    cem = CEM(sensor_id=power_sensor["id"], fm_client=fm_client)
+    cem = CEM(
+        sensor_id=power_sensor["id"],
+        fm_client=fm_client,
+        logger=LOGGER,
+    )
     frbc = FRBCSimple(
         power_sensor_id=power_sensor["id"],
         price_sensor_id=price_sensor["id"],
