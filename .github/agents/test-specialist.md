@@ -55,45 +55,71 @@ When writing tests for this project, follow these patterns:
 
 ## Code Quality and Linting
 
-Before finalizing tests, always apply the project's code quality checks:
+Before finalizing tests, always apply the project's code quality checks.
 
-### Running Pre-commit Hooks
-The project uses `.pre-commit-config.yaml` to enforce code quality standards. Always run pre-commit hooks before committing:
+### Poe Tasks
+The project uses [poethepoet](https://poethepoet.natn.io/) for common tasks. Prefer these over running tools directly:
 
 ```bash
-# Install pre-commit (if not already installed)
-pip install pre-commit
+uv run poe lint        # Run all pre-commit hooks on all files
+uv run poe type-check  # Run mypy on files with type hints
+uv run poe test        # Run the full test suite
+uv run poe test-no-s2  # Run tests excluding S2
+uv run poe test-s2     # Run S2 tests only
+```
+
+### Running Pre-commit Hooks
+The project uses `.pre-commit-config.yaml` to enforce code quality standards. `pre-commit` is included in the `dev` dependency group, so no separate installation is needed:
+
+```bash
+# If you have not installed pre-commit already:
+uv tool install pre-commit
 
 # Run all pre-commit hooks on all files
-pre-commit run --all-files
+uv run pre-commit run --all-files
+
+# Or via the poe task
+uv run poe lint
 ```
 
 ### Pre-commit Hooks in This Project
 The following hooks are configured:
 - **trailing-whitespace**: Removes trailing whitespace
-- **end-of-file-fixer**: Ensures files end with a newline
+- **check-added-large-files**: Prevents committing large files
 - **check-ast**: Validates Python syntax
 - **check-json**: Validates JSON files
+- **check-merge-conflict**: Detects merge conflict markers
+- **check-xml**: Validates XML files
 - **check-yaml**: Validates YAML files
 - **debug-statements**: Detects debug statements
+- **end-of-file-fixer**: Ensures files end with a newline
+- **requirements-txt-fixer**: Sorts requirements files
+- **mixed-line-ending**: Normalises line endings
 - **isort**: Sorts Python imports
 - **black**: Formats Python code (line length, style)
 - **flake8**: Checks Python code style and quality
-- **mypy**: Performs static type checking
+
+### Type Checking
+Mypy is run separately from pre-commit via the poe task:
+
+```bash
+uv run poe type-check
+```
+
+When mypy reports errors:
+- Add type hints where needed
+- Use `# type: ignore` comments sparingly for known issues
 
 ### Fixing Linting Issues
 When pre-commit hooks fail:
 1. Review the output to understand what failed
-2. Many hooks auto-fix issues (black, isort, end-of-file-fixer) - re-run to verify
+2. Many hooks auto-fix issues (black, isort, end-of-file-fixer) — re-run to verify
 3. For manual fixes (flake8 errors):
    - Address unused imports, undefined names, line too long, etc.
    - Run pre-commit again to verify fixes
-4. For mypy type errors:
-   - Add type hints where needed
-   - Use `# type: ignore` comments sparingly for known issues
 
 ### Best Practices
-- Run pre-commit hooks frequently during development
+- Run `uv run poe lint` frequently during development
 - Fix linting issues before requesting code review
 - Keep test code clean and well-formatted like production code
 - Ensure all hooks pass before pushing changes

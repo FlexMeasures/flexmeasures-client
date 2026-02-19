@@ -13,8 +13,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    depends_on:
-      - server
     restart: always
     ports:
       - "8080:8080"   # aiohttp default; adjust if you change it
@@ -26,10 +24,10 @@ services:
       LOGGING_LEVEL: INFO
     volumes:
       # If flexmeasures_client lives in your repo and you want live edits
-      - ../flexmeasures-client:/app/flexmeasures-client:rw
+      - flexmeasures-client:/app/flexmeasures-client:rw
     entrypoint: ["/bin/sh", "-c"]
     command:
-    - |
-      # pip install --break-system-packages --no-cache-dir "git+https://github.com/FlexMeasures/flexmeasures-client.git@main#egg=flexmeasures-client[s2]"
-      pip install --break-system-packages -e /app/flexmeasures-client[s2]
-      python3 /app/flexmeasures-client/src/flexmeasures_client/s2/script/websockets_server.py
+    - python3 /app/src/flexmeasures_client/s2/script/websockets_server.py
+
+volumes:
+  flexmeasures-client:
