@@ -65,7 +65,7 @@ async def websocket_consumer(ws, cem: CEM):
             else:
                 try:
                     await cem.handle_message(json.loads(msg.json()))
-                except:
+                except TypeError:
                     await cem.handle_message(msg.json())
 
         elif msg.type == aiohttp.WSMsgType.ERROR:
