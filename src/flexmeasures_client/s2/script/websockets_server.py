@@ -63,7 +63,10 @@ async def websocket_consumer(ws, cem: CEM):
                 cem.close()
                 await ws.close()
             else:
-                await cem.handle_message(json.loads(msg.json()))
+                try:
+                    await cem.handle_message(json.loads(msg.json()))
+                except:
+                    await cem.handle_message(msg.json())
 
         elif msg.type == aiohttp.WSMsgType.ERROR:
             cem._logger.debug("close...")
