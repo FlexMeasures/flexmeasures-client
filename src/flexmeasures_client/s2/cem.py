@@ -172,11 +172,9 @@ class CEM(Handler):
 
     async def handle_message(self, message: Dict | pydantic.BaseModel | str):
         """
-        This method handles the incoming messages to the CEM
-        and routes them to their custom handler. If certain
-        control type is active and there's a handler defined in both
-        the control type handler as well as in the CEM, it prevails the
-        on of the the control type.
+        This method handles the incoming messages to the CEM and routes them to their custom handler.
+        If a certain control type is active and there's a handler defined in both
+        the control type handler and in the CEM, then the one defined in the control type prevails.
         """
 
         response = None
