@@ -55,7 +55,7 @@ async def websocket_producer(ws, cem: CEM):
 
 async def websocket_consumer(ws, cem: CEM):
     async for msg in ws:
-        cem._logger.debug(f"RECEIVED: {json.loads(msg.json())}")
+        cem._logger.debug(f"RECEIVED: {msg}")
         if msg.type == aiohttp.WSMsgType.TEXT:
             if msg.data == "close":
                 # TODO: save cem state?
