@@ -1,12 +1,103 @@
 [build-system]
-# AVOID CHANGING REQUIRES: IT WILL BE UPDATED BY PYSCAFFOLD!
-requires = ["setuptools>=46.1.0", "setuptools_scm[toml]>=5"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
-[tool.setuptools_scm]
-# For smarter version schemes and other configuration options,
-# check out https://github.com/pypa/setuptools_scm
-version_scheme = "no-guess-dev"
+[project]
+name = "flexmeasures-client"
+description = "Async client to connect to the FlexMeasures API"
+readme = "README.rst"
+requires-python = ">=3.10, <3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE.txt"]
+authors = [
+    {name = "Flexmeasures", email = "info@seita.nl"}
+]
+keywords = ["flexmeasures", "energy", "flexibility", "scheduling", "smart grid"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dynamic = ["version"]
+dependencies = [
+    "aiohttp>=3.13.3",
+    "pandas>=2.1.4",
+    "async-timeout>=5.0.1",
+    "packaging>=26.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/FlexMeasures/flexmeasures-client"
+Documentation = "https://flexmeasures-client.readthedocs.io/"
+"Source code" = "https://github.com/FlexMeasures/flexmeasures-client"
+
+[project.optional-dependencies]
+s2 = [
+    "requests>=2.32.5",
+    "s2-python>=0.8.1",
+    "semver>=3.0.4",
+    "tzdata>=2025.3",
+]
+
+[dependency-groups]
+test = [
+    "aioresponses>=0.7.8",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+    "pytest-mock>=3.15.1",
+]
+dev = [
+    "mypy>=0.902",
+    "poethepoet>=0.41.0",
+    "pre-commit>=4.5.1",
+    "types-pytz>=2025.2.0.20251108",
+    "types-requests>=2.32.4.20260107",
+]
+docs = [
+    "sphinx>=3.2.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flexmeasures_client"]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.poe.tasks.test]
+help = "Run the full test suite."
+cmd = "pytest"
+
+[tool.poe.tasks.test-no-s2]
+help = "Run the test suite (excluding S2)."
+cmd = "pytest --ignore=tests/s2"
+
+[tool.poe.tasks.test-s2]
+help = "Run S2 tests."
+cmd = "pytest tests/s2"
+
+[tool.poe.tasks.type-check]
+help = "Run mypy on files with type hints."
+shell = """
+    files=$(find src -name \\*.py | xargs grep -l "from typing import")
+    mypy --follow-imports skip --ignore-missing-imports $files
+"""
+
+[tool.poe.tasks.lint]
+help = "Run pre-commit hooks on all files."
+cmd = "pre-commit run --all-files"
+
+[tool.pytest]
+# https://github.com/zupo/awesome-pytest-speedup?tab=readme-ov-file
+testpaths = ["tests"]
+addopts = ["--strict-markers", "--import-mode=importlib"]
 
 [tool.black]
 line-length = 88
+
+[tool.isort]
+profile = "black"
+known_first_party = ["flexmeasures_client"]
