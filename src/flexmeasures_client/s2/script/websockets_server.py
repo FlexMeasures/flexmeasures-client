@@ -35,43 +35,43 @@ async def rm_details_watchdog(ws, cem: CEM):
 
     # check/wait that the control type is set properly
     while cem._control_type != ControlType.FILL_RATE_BASED_CONTROL:
-        print("waiting for the activation of the control type...")
+        cem._logger.debug("waiting for the activation of the control type...")
         await asyncio.sleep(1)
 
-    print("CONTROL TYPE: ", cem._control_type)
+    cem._logger.debug(f"CONTROL TYPE: {cem._control_type}")
 
     # after this, schedule will be triggered on reception of a new system description
 
 
 async def websocket_producer(ws, cem: CEM):
-    print("start websocket message producer")
-    print("IS CLOSED? ", cem.is_closed())
+    cem._logger.debug("start websocket message producer")
+    cem._logger.debug(f"IS CLOSED? {cem.is_closed()}")
     while not cem.is_closed():
         message = await cem.get_message()
-        print("sending message")
+        cem._logger.debug("sending message")
         await ws.send_json(message)
-    print("cem closed")
+    cem._logger.debug("cem closed")
 
 
 async def websocket_consumer(ws, cem: CEM):
     async for msg in ws:
-        print("RECEIVED: ", json.loads(msg.json()))
+        cem._logger.debug(f"RECEIVED: {json.loads(msg.json())}")
         if msg.type == aiohttp.WSMsgType.TEXT:
             if msg.data == "close":
                 # TODO: save cem state?
-                print("close...")
+                cem._logger.debug("close...")
                 cem.close()
                 await ws.close()
             else:
                 await cem.handle_message(json.loads(msg.json()))
 
         elif msg.type == aiohttp.WSMsgType.ERROR:
-            print("close...")
+            cem._logger.debug("close...")
             cem.close()
-            print("ws connection closed with exception %s" % ws.exception())
+            cem._logger.debug(f"ws connection closed with exception {ws.exception()}")
             # TODO: save cem state?
 
-    print("websocket connection closed")
+    cem._logger.debug("websocket connection closed")
 
 
 async def websocket_handler(request):
