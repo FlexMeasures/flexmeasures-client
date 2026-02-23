@@ -35,16 +35,22 @@ repos:
 #       --remove-unused-variables,
 #     ]
 
-- repo: https://github.com/PyCQA/isort
-  rev: 5.12.0
+- repo: local
   hooks:
-  - id: isort
+    - id: isort
+      name: isort
+      language: system
+      entry: uv run isort .
+      require_serial: true
+      types_or: [cython, pyi, python]
 
-- repo: https://github.com/psf/black
-  rev: 25.1.0
+- repo: local
   hooks:
-  - id: black
-    language_version: python3
+    - id: black
+      name: black (code formatting)
+      language: system
+      entry: uv run black
+      types: [python]
 
 ## If like to embrace black styles even in the docs:
 # - repo: https://github.com/asottile/blacken-docs
@@ -53,12 +59,13 @@ repos:
 #   - id: blacken-docs
 #     additional_dependencies: [black]
 
-- repo: https://github.com/PyCQA/flake8
-  rev: 7.3.0
+- repo: local
   hooks:
-  - id: flake8
-  ## You can add flake8 plugins via `additional_dependencies`:
-  #  additional_dependencies: [flake8-bugbear]
+    - id: flake8
+      name: flake8 (code linting)
+      language: system
+      entry: uv run flake8
+      types: [python]
 
 ## Check for misspells in documentation files:
 # - repo: https://github.com/codespell-project/codespell
@@ -71,6 +78,6 @@ repos:
   - id: mypy
     name: mypy (static typing)
     pass_filenames: false
-    language: script
-    entry: ci/run_mypy.sh
+    language: system
+    entry: uv run poe type-check
     verbose: true
