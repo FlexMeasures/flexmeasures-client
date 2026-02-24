@@ -1,33 +1,34 @@
-.. These are examples of badges you might want to add to your README:
-   please update the URLs accordingly
+.. raw:: html
 
-    .. image:: https://api.cirrus-ci.com/github/<USER>/flexmeasures-client.svg?branch=main
-        :alt: Built Status
-        :target: https://cirrus-ci.com/github/<USER>/flexmeasures-client
-    .. image:: https://readthedocs.org/projects/flexmeasures-client/badge/?version=latest
-        :alt: ReadTheDocs
-        :target: https://flexmeasures-client.readthedocs.io/en/stable/
-    .. image:: https://img.shields.io/coveralls/github/<USER>/flexmeasures-client/main.svg
-        :alt: Coveralls
-        :target: https://coveralls.io/r/<USER>/flexmeasures-client
-    .. image:: https://img.shields.io/pypi/v/flexmeasures-client.svg
-        :alt: PyPI-Server
-        :target: https://pypi.org/project/flexmeasures-client/
-    .. image:: https://img.shields.io/conda/vn/conda-forge/flexmeasures-client.svg
-        :alt: Conda-Forge
-        :target: https://anaconda.org/conda-forge/flexmeasures-client
-    .. image:: https://pepy.tech/badge/flexmeasures-client/month
-        :alt: Monthly Downloads
-        :target: https://pepy.tech/project/flexmeasures-client
-    .. image:: https://img.shields.io/twitter/url/http/shields.io.svg?style=social&label=Twitter
-        :alt: Twitter
-        :target: https://twitter.com/flexmeasures-client
+   <p align="center">
+     <picture>
+       <source media="(prefers-color-scheme: dark)" srcset="https://github.com/FlexMeasures/screenshots/blob/main/logo/flexmeasures-horizontal-dark.svg?raw=true">
+       <source media="(prefers-color-scheme: light)" srcset="https://github.com/FlexMeasures/screenshots/blob/main/logo/flexmeasures-horizontal-color.svg?raw=true">
+       <img alt="FlexMeasures Logo" src="https://github.com/FlexMeasures/screenshots/blob/main/logo/flexmeasures-horizontal-color.svg?raw=true">
+     </picture>
+   </p>
 
-.. image:: https://img.shields.io/badge/-PyScaffold-005CA0?logo=pyscaffold
-    :alt: Project generated with PyScaffold
-    :target: https://pyscaffold.org/
-.. image::https://img.shields.io/badge/python-3.9+-blue.svg
+.. image:: https://img.shields.io/github/license/FlexMeasures/flexmeasures-client?color=blue
+    :alt: License
+    :target: https://github.com/FlexMeasures/flexmeasures-client/blob/main/LICENSE.txt
+.. image:: https://github.com/FlexMeasures/flexmeasures-client/actions/workflows/ci.yml/badge.svg
+    :alt: Tests
+    :target: https://github.com/FlexMeasures/flexmeasures-client/actions/workflows/ci.yml
+.. image:: https://img.shields.io/pypi/v/flexmeasures-client.svg
+    :alt: PyPI Version
+    :target: https://pypi.python.org/pypi/flexmeasures-client
+.. image:: https://img.shields.io/badge/python-3.9+-blue.svg
+    :alt: Python 3.9+
     :target: https://www.python.org/downloads/
+.. image:: https://img.shields.io/badge/code%20style-black-000000.svg
+    :alt: Code style: black
+    :target: https://github.com/psf/black
+.. image:: https://readthedocs.org/projects/flexmeasures-client/badge/?version=latest
+    :alt: Documentation Status
+    :target: https://flexmeasures-client.readthedocs.io/en/latest/?badge=latest
+.. image:: https://coveralls.io/repos/github/FlexMeasures/flexmeasures-client/badge.svg
+    :alt: Coverage
+    :target: https://coveralls.io/github/FlexMeasures/flexmeasures-client
 
 |
 
