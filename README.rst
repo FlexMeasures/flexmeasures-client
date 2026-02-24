@@ -23,9 +23,6 @@
 .. image:: https://img.shields.io/badge/code%20style-black-000000.svg
     :alt: Code style: black
     :target: https://github.com/psf/black
-.. image:: https://readthedocs.org/projects/flexmeasures-client/badge/?version=latest
-    :alt: Documentation Status
-    :target: https://flexmeasures-client.readthedocs.io/en/latest/?badge=latest
 .. image:: https://coveralls.io/repos/github/FlexMeasures/flexmeasures-client/badge.svg
     :alt: Coverage
     :target: https://coveralls.io/github/FlexMeasures/flexmeasures-client
