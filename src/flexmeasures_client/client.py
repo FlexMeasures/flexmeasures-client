@@ -200,10 +200,11 @@ class FlexMeasuresClient:
                             if response.status < 300:
                                 break
                     except asyncio.TimeoutError:
-                        message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {self.polling_interval} seconds..."  # noqa: E501
+                        sleep_interval = self.polling_interval * (2**polling_step)
+                        message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {sleep_interval} seconds..."  # noqa: E501
                         self.logger.debug(message)
                         polling_step += 1
-                        await asyncio.sleep(self.polling_interval)
+                        await asyncio.sleep(sleep_interval)
                     except (ClientError, socket.gaierror) as exception:
                         self.logger.debug(exception)
                         # if endpoint wasn't found, we might know why and can tell the user
