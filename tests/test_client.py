@@ -827,6 +827,83 @@ async def test_update_assets():
 
 
 @pytest.mark.asyncio
+async def test_update_asset_aggregate_power_version_check(caplog):
+    """Test that a warning is issued when using 'aggregate-power' with a server < 0.31.0."""
+    with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/",
+            status=200,
+            payload={
+                "flexmeasures_version": "0.30.0",
+                "message": "",
+                "status": 200,
+                "versions": ["v3_0"],
+            },
+        )
+        m.patch(
+            "http://localhost:5000/api/v3_0/assets/1",
+            status=200,
+            payload={"testpayload": "test_payload"},
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="password",
+        )
+        flexmeasures_client.access_token = "test-token"
+        with caplog.at_level("WARNING"):
+            await flexmeasures_client.update_asset(
+                asset_id=1,
+                updates={
+                    "flex_context": {
+                        "site-power-capacity": "1 MW",
+                        "aggregate-power": {"sensor": 42},
+                    }
+                },
+            )
+        assert "aggregate-power" in caplog.text
+        assert "0.31.0" in caplog.text
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_update_asset_aggregate_power_no_warning_on_new_server(caplog):
+    """Test that no warning is issued when using 'aggregate-power' with a server >= 0.31.0."""
+    with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/",
+            status=200,
+            payload={
+                "flexmeasures_version": "0.31.0",
+                "message": "",
+                "status": 200,
+                "versions": ["v3_0"],
+            },
+        )
+        m.patch(
+            "http://localhost:5000/api/v3_0/assets/1",
+            status=200,
+            payload={"testpayload": "test_payload"},
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="password",
+        )
+        flexmeasures_client.access_token = "test-token"
+        with caplog.at_level("WARNING"):
+            await flexmeasures_client.update_asset(
+                asset_id=1,
+                updates={
+                    "flex_context": {
+                        "site-power-capacity": "1 MW",
+                        "aggregate-power": {"sensor": 42},
+                    }
+                },
+            )
+        assert "aggregate-power" not in caplog.text
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
 async def test_get_fallback_schedule():
     url = "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid?duration=P0DT0H45M0S"  # noqa: E501
     redirect_url = "http://localhost:5000/api/v3_0/sensors/1/schedules/fallback-schedule?duration=P0DT0H45M0S"  # noqa: E501
