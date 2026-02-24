@@ -58,4 +58,3 @@ After the sub-agent completes, **verify yourself** that:
 2. Linting passes: `black --check src/ tests/ && flake8 src/ tests/`
 
 Do not accept the sub-agent's output at face value — run both checks yourself and iterate if needed.
-
