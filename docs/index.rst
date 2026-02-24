@@ -30,6 +30,7 @@ Contents
    :maxdepth: 2
 
    Overview <readme>
+   Forecasting <forecasting>
    Contributions & Help <contributing>
    License <license>
    Authors <authors>
