@@ -26,9 +26,6 @@
 .. image:: https://coveralls.io/repos/github/FlexMeasures/flexmeasures-client/badge.svg
     :alt: Coverage
     :target: https://coveralls.io/github/FlexMeasures/flexmeasures-client
-.. image:: https://bestpractices.coreinfrastructure.org/projects/6095/badge)
-    :alt: CII Best Practices
-    :target: https://bestpractices.coreinfrastructure.org/projects/6095
 
 |
 
