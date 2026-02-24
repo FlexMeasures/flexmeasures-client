@@ -4,6 +4,7 @@ branch = True
 source = flexmeasures_client
 omit =
     src/flexmeasures_client/s2/*
+    */site-packages/flexmeasures_client/s2/*
 
 [paths]
 source =
