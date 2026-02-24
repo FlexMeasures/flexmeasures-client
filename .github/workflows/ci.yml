@@ -98,6 +98,11 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
+      - name: Coveralls Finished
+        uses: coverallsapp/github-action@master
+        with:
+          parallel-finished: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: echo "Finished checks"
 
   publish:
