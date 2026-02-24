@@ -1,14 +1,10 @@
-# GitHub Actions configuration **EXAMPLE**,
-# MODIFY IT ACCORDING TO YOUR NEEDS!
-# Reference: https://docs.github.com/en/actions
-
 name: tests
 
 on:
   push:
     # Avoid using all the resources/limits available by checking only
     # relevant branches and tags. Other branches can be checked via PRs.
-    branches: [main, hotfix/hackathon]
+    branches: [main]
     tags:
       - 'v[0-9]+\.[0-9]+\.[0-9]+\.dev[0-9]+' # Match tags that resemble a version
       - 'v[0-9]+\.[0-9]+\.[0-9]+' # Match tags that resemble a version
@@ -88,20 +84,25 @@ jobs:
           pipx run --python '${{ steps.setup-python.outputs.python-path }}'
           tox -e s2 --installpkg '${{ needs.prepare.outputs.wheel-distribution }}'
           -- -rFEx --durations 10 --color yes  # pytest args
-      # - name: Generate coverage report
-      #   run: pipx run coverage lcov -o coverage.lcov
-      # - name: Upload partial coverage report
-      #   uses: coverallsapp/github-action@master
-      #   with:
-      #     path-to-lcov: coverage.lcov
-      #     github-token: ${{ secrets.GITHUB_TOKEN }}
-      #     flag-name: ${{ matrix.platform }} - py${{ matrix.python }}
-      #     parallel: true
+      - name: Generate coverage report
+        run: pipx run coverage lcov -o coverage.lcov
+      - name: Upload partial coverage report
+        uses: coverallsapp/github-action@v2
+        with:
+          path-to-lcov: coverage.lcov
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          flag-name: ${{ matrix.platform }} - py${{ matrix.python }}
+          parallel: true
 
   finalize:
     needs: test
     runs-on: ubuntu-latest
     steps:
+      - name: Coveralls Finished
+        uses: coverallsapp/github-action@master
+        with:
+          parallel-finished: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: echo "Finished checks"
 
   publish:
