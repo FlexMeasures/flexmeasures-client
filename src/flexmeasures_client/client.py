@@ -1362,9 +1362,7 @@ class FlexMeasuresClient:
                 f"Expected a forecast ID, but got {type(response.get('forecast'))}",
             )
         forecast_id = response["forecast"]
-        self.logger.info(
-            f"Forecast triggered successfully. Forecast ID: {forecast_id}"
-        )
+        self.logger.info(f"Forecast triggered successfully. Forecast ID: {forecast_id}")
         return forecast_id
 
     async def get_forecast(
