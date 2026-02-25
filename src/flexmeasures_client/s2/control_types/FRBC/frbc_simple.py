@@ -45,6 +45,8 @@ class FRBCSimple(FRBC):
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
         valid_from_shift: timedelta = timedelta(days=1),
+        power_unit: str = "kW",
+        energy_unit: str = "kWh",
     ) -> None:
         super().__init__(max_size)
         self._power_sensor_id = power_sensor_id
@@ -57,6 +59,8 @@ class FRBCSimple(FRBC):
         # delay the start of the schedule from the time `valid_from`
         # of the FRBC.SystemDescription.
         self._valid_from_shift = valid_from_shift
+        self.power_unit = power_unit
+        self.energy_unit = energy_unit
 
     def now(self):
         return self._timezone.localize(datetime.now())
@@ -66,7 +70,7 @@ class FRBCSimple(FRBC):
             self._soc_sensor_id,
             start=self.now(),
             values=[status.present_fill_level],
-            unit="MWh",
+            unit=self.energy_unit,
             duration=timedelta(minutes=1),
         )
 
@@ -86,7 +90,7 @@ class FRBCSimple(FRBC):
             self._rm_discharge_sensor_id,
             start=dt,
             values=[-power],
-            unit="MWh",
+            unit=self.power_unit,
             duration=timedelta(minutes=15),
         )
 
