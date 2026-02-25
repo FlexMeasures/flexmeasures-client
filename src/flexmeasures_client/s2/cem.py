@@ -290,7 +290,7 @@ class CEM(Handler):
         # TODO: check the version that the RM is using and send a
         # `selected_protocol_version` that matches the one of the RM
         # TODO: Return a TBD "CloseConnection" message to close the connection
-        await self.send_message(get_reception_status(message, ReceptionStatusValues.OK))
+        await self._sending_queue.put(get_reception_status(message, ReceptionStatusValues.OK))
 
         latest_compatible_version = get_latest_compatible_version(
             message.supported_protocol_versions,
