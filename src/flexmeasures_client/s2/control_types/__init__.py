@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from logging import Logger
-from typing import cast, Callable
+from typing import Callable, cast
 
 from pydantic import BaseModel
 from s2python.common import (

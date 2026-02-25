@@ -99,11 +99,13 @@ class FRBCSimple(FRBC):
         """Translates S2 System Description into FM API calls"""
 
         if system_description_id:
-            system_description: FRBCSystemDescription = self._system_description_history[
-                system_description_id
-            ]
+            system_description: FRBCSystemDescription = (
+                self._system_description_history[system_description_id]
+            )
         else:
-            system_description: FRBCSystemDescription = list(self._system_description_history.values())[-1]
+            system_description: FRBCSystemDescription = list(
+                self._system_description_history.values()
+            )[-1]
 
         if len(self._storage_status_history) > 0:
             soc_at_start = list(self._storage_status_history.values())[
@@ -116,7 +118,9 @@ class FRBCSimple(FRBC):
         soc_min, soc_max = get_soc_min_max(system_description)
 
         # call schedule
-        start = system_description.valid_from + self._valid_from_shift  # TODO: localize datetime
+        start = (
+            system_description.valid_from + self._valid_from_shift
+        )  # TODO: localize datetime
         start = start.replace(minute=(start.minute // 15) * 15, second=0, microsecond=0)
         schedule = await self._fm_client.trigger_and_get_schedule(
             start=start,
