@@ -171,17 +171,16 @@ async def configure_site(
         )
 
     # Continue immediately without awaiting
-    LOGGER.debug("Posting 1 year of prices in monthly background tasks..")
-    for m in range(12):
-        asyncio.create_task(
-            fm_client.post_sensor_data(
-                sensor_id=price_sensor["id"],
-                start=f"2026-{m+ 1:02}-01T00:00+01",  # 2026-01-01T00:00+01 + m months
-                duration="P31D",
-                values=[0.3],
-                unit="EUR/kWh",
-            )
+    LOGGER.debug("Posting 3 days of prices in a background task..")
+    asyncio.create_task(
+        fm_client.post_sensor_data(
+            sensor_id=price_sensor["id"],
+            start="2026-01-15T00:00+01",  # 2026-01-01T00:00+01
+            duration="P3D",  # P1M
+            values=[0.3],
+            unit="EUR/kWh",
         )
+    )
     if power_sensor is None:
         power_sensor = await fm_client.add_sensor(
             name="power",
