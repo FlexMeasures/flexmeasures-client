@@ -4,18 +4,11 @@
 # run this from the flexmeasures folder (which contains the Dockerfile):
 # docker compose \
 #  -f docker-compose.yml \
-#  -f ../flexmeasures-client/docker-compose.override.yml \
+#  -f ../flexmeasures-client/docker-compose.yml \
 #  up
 # ------------------------------------------------------------------
 
 services:
-  server:
-    command:
-      - |
-        pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
-        flexmeasures db upgrade
-        # toy account step removed
-        gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 2 --threads 4 wsgi:applicationservices:
   cem:
     build:
       context: .
