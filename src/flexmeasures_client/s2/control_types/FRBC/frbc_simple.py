@@ -73,6 +73,7 @@ class FRBCSimple(FRBC):
             unit=self.energy_unit,
             duration=timedelta(minutes=1),
         )
+        await self.trigger_schedule()
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
@@ -94,12 +95,15 @@ class FRBCSimple(FRBC):
             duration=timedelta(minutes=15),
         )
 
-    async def trigger_schedule(self, system_description_id: str):
+    async def trigger_schedule(self, system_description_id: str | None = None):
         """Translates S2 System Description into FM API calls"""
 
-        system_description: FRBCSystemDescription = self._system_description_history[
-            system_description_id
-        ]
+        if system_description_id:
+            system_description: FRBCSystemDescription = self._system_description_history[
+                system_description_id
+            ]
+        else:
+            system_description: FRBCSystemDescription = list(self._system_description_history.values())[-1]
 
         if len(self._storage_status_history) > 0:
             soc_at_start = list(self._storage_status_history.values())[
