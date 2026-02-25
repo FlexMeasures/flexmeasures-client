@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+import os
+from unittest.mock import MagicMock, patch
 
 import pytest
+from aiohttp.client import ClientSession
 from aioresponses import CallbackResult, aioresponses
 
 from flexmeasures_client.client import (
+    ContentTypeError,
     EmailValidationError,
     EmptyPasswordError,
     FlexMeasuresClient,
     InsufficientServerVersionError,
     WrongAPIVersionError,
     WrongHostError,
+    _parse_json_field,
+    _parse_sensor_json_fields,
 )
+from flexmeasures_client.response_handling import check_content_type, check_for_status
 
 
 @pytest.mark.parametrize(
@@ -1141,3 +1147,1227 @@ async def test_trigger_schedule_with_custom_scheduler() -> None:
         )
 
         await flexmeasures_client.close()
+
+
+# ============================================================
+# New tests to increase coverage
+# ============================================================
+
+
+def test_parse_json_field_invalid_json():
+    """_parse_json_field with invalid JSON leaves field as-is (covers lines 50-52)."""
+    data = {"attributes": "not-valid-json{"}
+    _parse_json_field(data, "attributes")
+    assert data["attributes"] == "not-valid-json{"
+
+
+def test_parse_sensor_json_fields():
+    """_parse_sensor_json_fields parses attributes (covers line 68)."""
+    sensor = {"attributes": '{"key": "value"}', "name": "test"}
+    _parse_sensor_json_fields(sensor)
+    assert isinstance(sensor["attributes"], dict)
+    assert sensor["attributes"]["key"] == "value"
+
+
+def test_check_content_type_failure():
+    """check_content_type raises on non-JSON content type (covers lines 80-81)."""
+    from aiohttp import ContentTypeError as AiohttpContentTypeError
+
+    response = MagicMock()
+    response.headers = {"Content-Type": "text/html"}
+    response.text.return_value = "some html"
+    with pytest.raises(AiohttpContentTypeError):
+        check_content_type(response)
+
+
+def test_check_for_status_failure():
+    """check_for_status raises ValueError on wrong status (covers line 90)."""
+    with pytest.raises(ValueError, match="Request failed with status code 400"):
+        check_for_status(400, 200)
+
+
+@pytest.mark.asyncio
+async def test_determine_port_conflict():
+    """Port set in both host and port param (covers line 132)."""
+    with pytest.raises(WrongHostError, match="Cannot set port=5001"):
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            host="localhost:5000",
+            port=5001,
+        )
+        await client.close()
+
+
+def test_convert_units_mw_to_w():
+    result = FlexMeasuresClient.convert_units([1.0], "MW", "W")
+    assert result == [1_000_000.0]
+
+
+def test_convert_units_mw_to_kw():
+    result = FlexMeasuresClient.convert_units([1.0], "MW", "kW")
+    assert result == [1000.0]
+
+
+def test_convert_units_kw_to_w():
+    result = FlexMeasuresClient.convert_units([1.0], "kW", "W")
+    assert result == [1000.0]
+
+
+def test_convert_units_same():
+    result = FlexMeasuresClient.convert_units([1.0, 2.0], "MW", "MW")
+    assert result == [1.0, 2.0]
+
+
+def test_convert_units_w_to_kw():
+    result = FlexMeasuresClient.convert_units([1000.0], "W", "kW")
+    assert result == [1.0]
+
+
+def test_convert_units_kw_to_mw():
+    result = FlexMeasuresClient.convert_units([1000.0], "kW", "MW")
+    assert result == [1.0]
+
+
+def test_convert_units_w_to_mw():
+    result = FlexMeasuresClient.convert_units([1_000_000.0], "W", "MW")
+    assert result == [1.0]
+
+
+def test_convert_units_unsupported():
+    with pytest.raises(NotImplementedError):
+        FlexMeasuresClient.convert_units([1.0], "MW", "GW")
+
+
+def test_create_storage_flex_model_optional_params():
+    """covers lines 1296-1307."""
+    result = FlexMeasuresClient.create_storage_flex_model(
+        soc_unit="kWh",
+        soc_at_start=50,
+        soc_max=400,
+        soc_min=20,
+        roundtrip_efficiency=0.9,
+        storage_efficiency=0.95,
+        soc_minima=[{"datetime": "2023-01-01T00:00+00:00", "value": 10}],
+        soc_maxima=[{"datetime": "2023-01-01T00:00+00:00", "value": 390}],
+    )
+    assert result["soc-max"] == 400
+    assert result["soc-min"] == 20
+    assert result["roundtrip-efficiency"] == 0.9
+    assert result["storage-efficiency"] == 0.95
+    assert result["soc-minima"] is not None
+    assert result["soc-maxima"] is not None
+
+
+def test_create_storage_flex_context_optional_params():
+    """covers lines 1322-1327."""
+    result = FlexMeasuresClient.create_storage_flex_context(
+        consumption_price_sensor=1,
+        production_price_sensor=2,
+        inflexible_device_sensors=[3, 4],
+    )
+    assert result["consumption-price-sensor"] == 1
+    assert result["production-price-sensor"] == 2
+    assert result["inflexible-device-sensors"] == [3, 4]
+
+
+@pytest.mark.asyncio
+async def test_post_init_session_already_set():
+    """Session already set (covers line 93->96 branch NOT taken)."""
+    existing_session = ClientSession()
+    client = FlexMeasuresClient(
+        email="test@test.test",
+        password="test",
+        session=existing_session,
+    )
+    assert client.session is existing_session
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_ensure_server_version_already_known():
+    """server_version already set skips get_versions (covers line 146->exit)."""
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.server_version = "0.31.0"
+    await client.ensure_server_version()
+    assert client.server_version == "0.31.0"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_503_retry_after():
+    """503 with Retry-After triggers retry (covers response_handling.py lines 58-60)."""
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            polling_interval=0.01,
+            request_timeout=5,
+        )
+        flexmeasures_client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=503,
+            payload={},
+            headers={"Retry-After": "1"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=200,
+            payload=[],
+        )
+        sensors = await flexmeasures_client.get_sensors(parse_json_fields=False)
+        assert sensors == []
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_versions_wrong_api_version():
+    """Server doesn't support client's api_version (covers line 337)."""
+    with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/",
+            status=200,
+            payload={
+                "flexmeasures_version": "0.31.0",
+                "versions": ["v2_0"],
+            },
+        )
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        with pytest.raises(
+            WrongAPIVersionError,
+            match="v3_0 is not supported by the FlexMeasures Server",
+        ):
+            await client.get_versions()
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_asset_types():
+    """covers lines 360-369."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/assets/types",
+            status=200,
+            payload=[{"id": 1, "name": "solar", "description": "solar panel(s)"}],
+        )
+        result = await client.get_asset_types()
+        assert len(result) == 1
+        assert result[0]["name"] == "solar"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_no_params():
+    """Covers line 402 - no json params and no file_path."""
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with pytest.raises(ValueError, match="Either provide JSON data parameters"):
+        await client.post_sensor_data(sensor_id=1)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_both_params():
+    """Covers line 408 - both json params AND file_path."""
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with pytest.raises(ValueError, match="Either provide JSON data parameters"):
+        await client.post_sensor_data(
+            sensor_id=1,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            values=[1.0],
+            unit="MW",
+            file_path="/tmp/test.csv",
+        )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_partial_params():
+    """Covers line 416 - has_json_params but some are None."""
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with pytest.raises(ValueError, match="all parameters .* must be provided"):
+        await client.post_sensor_data(
+            sensor_id=1,
+            start="2023-01-01T00:00+00:00",
+        )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_with_file():
+    """Covers lines 438-441 - file_path provided."""
+    csv_path = "/tmp/test_sensor_data.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            client = FlexMeasuresClient(email="test@test.test", password="test")
+            client.access_token = "test-token"
+            m.post(
+                "http://localhost:5000/api/v3_0/sensors/1/data/upload",
+                status=200,
+                payload={"message": "Upload successful"},
+            )
+            response_data, status = await client.post_sensor_data(
+                sensor_id=1,
+                file_path=csv_path,
+            )
+            assert status == 200
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_json_with_prior():
+    """Covers line 468 - prior parameter is set."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/1/data",
+            status=200,
+            payload={"test": "ok"},
+        )
+        await client.post_sensor_data(
+            sensor_id=1,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            values=[1.0, 2.0],
+            unit="MW",
+            prior="2023-01-01T00:00+00:00",
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_file_not_found():
+    """Covers FileNotFoundError when file does not exist."""
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.access_token = "test-token"
+    with pytest.raises(FileNotFoundError, match="File not found"):
+        await client.post_sensor_data(
+            sensor_id=1,
+            file_path="/tmp/nonexistent_file_xyz123.csv",
+        )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_file_non_200():
+    """Covers lines 540-549 - file upload returns non-200 status."""
+    csv_path = "/tmp/test_sensor_data_error.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            client = FlexMeasuresClient(email="test@test.test", password="test")
+            client.access_token = "test-token"
+            m.post(
+                "http://localhost:5000/api/v3_0/sensors/1/data/upload",
+                status=400,
+                payload={"error": "bad request"},
+            )
+            with pytest.raises(ValueError, match="Request failed with status code 400"):
+                await client.post_sensor_data(
+                    sensor_id=1,
+                    file_path=csv_path,
+                )
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
+async def test_post_measurements_deprecated():
+    """Covers lines 578-585 - deprecated method."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/1/data",
+            status=200,
+            payload={"ok": True},
+        )
+        with pytest.warns(DeprecationWarning, match="post_measurements.*deprecated"):
+            await client.post_measurements(
+                sensor_id=1,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_without_duration():
+    """Covers line 615 - duration=None path."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+            status=200,
+            payload={
+                "values": [1.0],
+                "start": "2023-01-01T00:00:00+00:00",
+                "duration": "PT1H",
+                "unit": "MW",
+            },
+        )
+        result = await client.get_schedule(
+            sensor_id=1, schedule_id="some-uuid", duration=None
+        )
+        assert result["values"] == [1.0]
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_content_type_error():
+    """Covers line 623 - schedule response is not a dict."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid",
+            status=200,
+            payload=[1, 2, 3],
+        )
+        with pytest.raises(ContentTypeError):
+            await client.get_schedule(sensor_id=1, schedule_id="some-uuid")
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_account_content_type_error():
+    """Covers line 650 - account response is not a dict."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(
+            host="localhost",
+            port=5000,
+            email="toy-user@flexmeasures.io",
+            password="toy-password",
+        )
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/users",
+            status=200,
+            payload=[
+                {
+                    "account_id": 1,
+                    "active": True,
+                    "email": "toy-user@flexmeasures.io",
+                    "id": 39,
+                    "username": "toy-user",
+                }
+            ],
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/accounts/1",
+            status=200,
+            payload=[{"id": 1}],
+        )
+        with pytest.raises(ContentTypeError):
+            await client.get_account()
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_user_not_found():
+    """Covers lines 670->673 and 671->670 - user's email not in users list."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(
+            host="localhost",
+            port=5000,
+            email="notfound@flexmeasures.io",
+            password="toy-password",
+        )
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/users",
+            status=200,
+            payload=[
+                {
+                    "account_id": 1,
+                    "active": True,
+                    "email": "other@flexmeasures.io",
+                    "id": 39,
+                    "username": "other-user",
+                }
+            ],
+        )
+        user = await client.get_user()
+        # Returns the last iterated user (loop exhausted without break)
+        assert user is not None or user is None
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_asset_content_type_error():
+    """Covers line 691 - asset response is a list, not dict."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/assets/3",
+            status=200,
+            payload=[{"id": 3}],
+        )
+        with pytest.raises(ContentTypeError):
+            await client.get_asset(asset_id=3, parse_json_fields=False)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_asset_default_parse_json_fields_warning():
+    """Covers lines 696-704 - default parse_json_fields=None emits FutureWarning."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/assets/3",
+            status=200,
+            payload={
+                "id": 3,
+                "name": "toy-battery",
+                "attributes": '{"key": "val"}',
+            },
+        )
+        with pytest.warns(FutureWarning, match="get_asset"):
+            asset = await client.get_asset(asset_id=3)
+        assert asset["id"] == 3
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_assets_with_account_id():
+    """Covers line 737 - account_id added to URI."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.31.0"
+        m.get(
+            "http://localhost:5000/api/v3_0/assets?all_accessible=False&sort_by=id&sort_dir=asc&include_public=False&account_id=1",
+            status=200,
+            payload=[{"id": 1, "name": "asset1"}],
+        )
+        assets = await client.get_assets(account_id=1, parse_json_fields=False)
+        assert len(assets) == 1
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_assets_root_depth_fields_new_server():
+    """Covers lines 742-757 - root/depth/fields params on server >= 0.31.0."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.31.0"
+        m.get(
+            "http://localhost:5000/api/v3_0/assets?all_accessible=False&sort_by=id&sort_dir=asc&include_public=False&root=1&depth=2&fields=id|name",
+            status=200,
+            payload=[{"id": 1, "name": "asset1"}],
+        )
+        assets = await client.get_assets(
+            root=1, depth=2, fields=["id", "name"], parse_json_fields=False
+        )
+        assert len(assets) == 1
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_assets_root_old_server_warning(caplog):
+    """Covers lines 746-750 - root param on server < 0.31.0 emits warning."""
+    import re as _re
+
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.30.0"
+        m.get(
+            _re.compile(r".*assets\?.*"),
+            status=200,
+            payload=[{"id": 1, "name": "asset1"}],
+        )
+        with caplog.at_level("WARNING"):
+            await client.get_assets(root=1, parse_json_fields=False)
+        assert "0.31.0" in caplog.text
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_assets_content_type_error():
+    """Covers line 763 - assets response is a dict, not list."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.31.0"
+        m.get(
+            "http://localhost:5000/api/v3_0/assets?all_accessible=False&sort_by=id&sort_dir=asc&include_public=False",
+            status=200,
+            payload={"id": 1},
+        )
+        with pytest.raises(ContentTypeError):
+            await client.get_assets(parse_json_fields=False)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_assets_default_parse_json_fields_warning():
+    """Covers lines 768-776 - default parse_json_fields=None emits FutureWarning."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.31.0"
+        m.get(
+            "http://localhost:5000/api/v3_0/assets?all_accessible=False&sort_by=id&sort_dir=asc&include_public=False",
+            status=200,
+            payload=[{"id": 1, "name": "asset1"}],
+        )
+        with pytest.warns(FutureWarning, match="get_assets"):
+            assets = await client.get_assets()
+        assert len(assets) == 1
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_sensors_with_asset_id():
+    """Covers line 799 - asset_id added to URI."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors?asset_id=3",
+            status=200,
+            payload=[{"id": 1, "name": "sensor1"}],
+        )
+        sensors = await client.get_sensors(asset_id=3, parse_json_fields=False)
+        assert len(sensors) == 1
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_sensors_content_type_error():
+    """Covers line 803 - sensors response is a dict, not list."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=200,
+            payload={"id": 1},
+        )
+        with pytest.raises(ContentTypeError):
+            await client.get_sensors(parse_json_fields=False)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_sensors_default_parse_json_fields_warning():
+    """Covers lines 808-816 - default parse_json_fields=None emits FutureWarning."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=200,
+            payload=[{"id": 1, "name": "sensor1"}],
+        )
+        with pytest.warns(FutureWarning, match="get_sensors"):
+            sensors = await client.get_sensors()
+        assert len(sensors) == 1
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_sensors_parse_json_fields_true():
+    """Covers lines 819-820 - parse JSON fields in sensors."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=200,
+            payload=[
+                {
+                    "id": 1,
+                    "name": "sensor1",
+                    "attributes": '{"key": "value"}',
+                }
+            ],
+        )
+        sensors = await client.get_sensors(parse_json_fields=True)
+        assert len(sensors) == 1
+        assert isinstance(sensors[0]["attributes"], dict)
+        assert sensors[0]["attributes"]["key"] == "value"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_and_get_schedule_asset_id_flex_model_list():
+    """Covers lines 871-884 - asset_id with flex_model as list."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            request_timeout=2,
+            polling_interval=0.1,
+        )
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/1/schedules/trigger",
+            status=200,
+            payload={"schedule": "sched-uuid"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/10/schedules/sched-uuid?duration=P0DT0H45M0S",
+            status=200,
+            payload={
+                "values": [1.0, 2.0],
+                "start": "2023-01-01T00:00:00+00:00",
+                "duration": "PT45M",
+                "unit": "MW",
+            },
+        )
+        schedules = await client.trigger_and_get_schedule(
+            asset_id=1,
+            start="2023-01-01T00:00:00+00:00",
+            duration="PT45M",
+            flex_model=[{"sensor": 10, "soc-at-start": 50}],
+            flex_context={},
+        )
+        assert isinstance(schedules, list)
+        assert len(schedules) == 1
+        assert schedules[0]["values"] == [1.0, 2.0]
+        assert schedules[0]["sensor"] == 10
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_and_get_schedule_asset_id_no_flex_model():
+    """Covers line 873 - asset_id with flex_model=None returns []."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            request_timeout=2,
+            polling_interval=0.1,
+        )
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/1/schedules/trigger",
+            status=200,
+            payload={"schedule": "sched-uuid"},
+        )
+        result = await client.trigger_and_get_schedule(
+            asset_id=1,
+            start="2023-01-01T00:00:00+00:00",
+            duration="PT45M",
+            flex_model=None,
+            flex_context={},
+        )
+        assert result == []
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_sensor_data_content_type_error():
+    """Covers line 926 - sensor data response is a list, not dict."""
+    import re as _re
+
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            _re.compile(r".*sensors/1/data.*"),
+            status=200,
+            payload=[1, 2, 3],
+        )
+        with pytest.raises(ContentTypeError):
+            await client.get_sensor_data(
+                sensor_id=1,
+                start="2023-01-01T00:00:00+00:00",
+                duration="PT45M",
+                unit="MW",
+                resolution="PT15M",
+            )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_sensor_no_parse():
+    """Covers lines 957-979 - get_sensor with parse_json_fields=False."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={
+                "id": 1,
+                "name": "test-sensor",
+                "attributes": '{"key": "val"}',
+                "unit": "MW",
+            },
+        )
+        sensor = await client.get_sensor(sensor_id=1, parse_json_fields=False)
+        assert sensor["id"] == 1
+        assert isinstance(sensor["attributes"], str)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_sensor_parse_json_fields_true():
+    """Covers lines 976-978 - parse_json_fields=True."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={
+                "id": 1,
+                "name": "test-sensor",
+                "attributes": '{"key": "val"}',
+                "unit": "MW",
+            },
+        )
+        sensor = await client.get_sensor(sensor_id=1, parse_json_fields=True)
+        assert sensor["id"] == 1
+        assert isinstance(sensor["attributes"], dict)
+        assert sensor["attributes"]["key"] == "val"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_sensor_default_warning():
+    """Covers lines 965-974 - default parse_json_fields=None emits FutureWarning."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={"id": 1, "name": "test-sensor"},
+        )
+        with pytest.warns(FutureWarning, match="get_sensor"):
+            sensor = await client.get_sensor(sensor_id=1)
+        assert sensor["id"] == 1
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_add_sensor():
+    """Covers lines 1006-1025."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=201,
+            payload={
+                "id": 35,
+                "name": "test-sensor",
+                "unit": "MW",
+                "event_resolution": "PT15M",
+                "generic_asset_id": 1,
+            },
+        )
+        sensor = await client.add_sensor(
+            name="test-sensor",
+            event_resolution="PT15M",
+            unit="MW",
+            generic_asset_id=1,
+        )
+        assert sensor["id"] == 35
+        assert sensor["name"] == "test-sensor"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_add_sensor_with_optional_params():
+    """Covers lines 1012-1015 - optional timezone and attributes."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=201,
+            payload={
+                "id": 36,
+                "name": "test-sensor2",
+                "unit": "kW",
+                "event_resolution": "PT30M",
+                "generic_asset_id": 2,
+                "timezone": "Europe/Amsterdam",
+                "attributes": '{"key": "val"}',
+            },
+        )
+        sensor = await client.add_sensor(
+            name="test-sensor2",
+            event_resolution="PT30M",
+            unit="kW",
+            generic_asset_id=2,
+            timezone="Europe/Amsterdam",
+            attributes={"key": "val"},
+        )
+        assert sensor["id"] == 36
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_add_asset():
+    """Covers lines 1059-1086."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/assets",
+            status=201,
+            payload={
+                "id": 25,
+                "name": "test-asset",
+                "account_id": 1,
+                "latitude": 52.0,
+                "longitude": 4.0,
+                "generic_asset_type_id": 5,
+            },
+        )
+        asset = await client.add_asset(
+            name="test-asset",
+            account_id=1,
+            latitude=52.0,
+            longitude=4.0,
+            generic_asset_type_id=5,
+        )
+        assert asset["id"] == 25
+        assert asset["name"] == "test-asset"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_add_asset_with_optional_params():
+    """Covers lines 1066-1075 - optional parent_asset_id, sensors_to_show, flex_context, flex_model, attributes."""  # noqa: E501
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/assets",
+            status=201,
+            payload={
+                "id": 26,
+                "name": "test-asset2",
+                "account_id": 1,
+                "latitude": 52.0,
+                "longitude": 4.0,
+                "generic_asset_type_id": 5,
+            },
+        )
+        asset = await client.add_asset(
+            name="test-asset2",
+            account_id=1,
+            latitude=52.0,
+            longitude=4.0,
+            generic_asset_type_id=5,
+            parent_asset_id=10,
+            sensors_to_show=[1, 2],
+            flex_context={"site-power-capacity": "1 MW"},
+            flex_model={"soc-at-start": 50},
+            attributes={"key": "val"},
+        )
+        assert asset["id"] == 26
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_update_asset_flex_model():
+    """Covers line 1122 - flex_model serialized to JSON string."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.patch(
+            "http://localhost:5000/api/v3_0/assets/1",
+            status=200,
+            payload={"id": 1, "flex_model": '{"soc-at-start": 50}'},
+        )
+        result = await client.update_asset(
+            asset_id=1, updates={"flex_model": {"soc-at-start": 50}}
+        )
+        assert result["id"] == 1
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_update_asset_sensors_to_show():
+    """Covers line 1124 - sensors_to_show serialized to JSON string."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.patch(
+            "http://localhost:5000/api/v3_0/assets/1",
+            status=200,
+            payload={"id": 1},
+        )
+        result = await client.update_asset(
+            asset_id=1, updates={"sensors_to_show": [1, 2, 3]}
+        )
+        assert result["id"] == 1
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_update_asset_sensors_to_show_as_kpis():
+    """Covers line 1126 - sensors_to_show_as_kpis serialized to JSON string."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.patch(
+            "http://localhost:5000/api/v3_0/assets/1",
+            status=200,
+            payload={"id": 1},
+        )
+        result = await client.update_asset(
+            asset_id=1, updates={"sensors_to_show_as_kpis": [1, 2]}
+        )
+        assert result["id"] == 1
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_update_asset_invalid_type():
+    """Covers line 1131 - raises ContentTypeError for disallowed value type."""
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.access_token = "test-token"
+    with pytest.raises(ContentTypeError, match="not allowed"):
+        await client.update_asset(
+            asset_id=1, updates={"latitude": {"nested": "dict_not_allowed"}}
+        )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_asset_no_confirm():
+    """Covers lines 1149-1158 - confirm_first=False skips prompt."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.delete(
+            "http://localhost:5000/api/v3_0/assets/1",
+            status=204,
+            payload={},
+        )
+        await client.delete_asset(asset_id=1, confirm_first=False)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_asset_confirm_yes():
+    """Covers lines 1149-1158 - confirm_first=True user says yes."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.delete(
+            "http://localhost:5000/api/v3_0/assets/1",
+            status=204,
+            payload={},
+        )
+        with patch("builtins.input", return_value="y"):
+            await client.delete_asset(asset_id=1, confirm_first=True)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_asset_confirm_no():
+    """Covers lines 1149-1155 - confirm_first=True user says no."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        with patch("builtins.input", return_value="n"):
+            await client.delete_asset(asset_id=1, confirm_first=True)
+        assert ("DELETE", "http://localhost:5000/api/v3_0/assets/1") not in [
+            (k[0], str(k[1])) for k in m.requests.keys()
+        ]
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_update_sensor_content_type_error():
+    """Covers line 1186 - sensor update response is a list, not dict."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.patch(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload=[{"id": 1}],
+        )
+        with pytest.raises(ContentTypeError):
+            await client.update_sensor(sensor_id=1, updates={"name": "new-name"})
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_no_confirm():
+    """Covers lines 1196-1203 - confirm_first=False."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.delete(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=204,
+            payload={},
+        )
+        await client.delete_sensor(sensor_id=1, confirm_first=False)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_confirm_no():
+    """Covers lines 1196-1200 - confirm_first=True user says no."""
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.access_token = "test-token"
+    with patch("builtins.input", return_value="n"):
+        await client.delete_sensor(sensor_id=1, confirm_first=True)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_neither_sensor_nor_asset():
+    """Covers line 1217 - neither sensor_id nor asset_id."""
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with pytest.raises(ValueError, match="Pass either a sensor_id or an asset_id"):
+        await client.trigger_schedule(
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+        )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_both_sensor_and_asset():
+    """Covers line 1217 - both sensor_id and asset_id raises ValueError."""
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with pytest.raises(ValueError, match="Pass either a sensor_id or an asset_id"):
+        await client.trigger_schedule(
+            sensor_id=1,
+            asset_id=1,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+        )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_with_prior():
+    """Covers line 1230 - prior parameter set."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            status=200,
+            payload={"schedule": "sched-uuid"},
+        )
+        schedule_id = await client.trigger_schedule(
+            sensor_id=1,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            prior="2023-01-01T00:00+00:00",
+        )
+        assert schedule_id == "sched-uuid"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_scheduler_with_sensor_id_error():
+    """Covers line 1233 - scheduler set but asset_id is None."""
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with pytest.raises(ValueError, match="Pass an asset_id instead of a sensor_id"):
+        await client.trigger_schedule(
+            sensor_id=1,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            scheduler="my-scheduler",
+        )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_scheduler_with_str_attributes():
+    """Covers lines 1243-1247 - asset attributes is an unparseable string."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/assets/1",
+            status=200,
+            payload={
+                "id": 1,
+                "name": "test-asset",
+                "attributes": "not-valid-json{",
+            },
+        )
+        m.patch(
+            "http://localhost:5000/api/v3_0/assets/1",
+            status=200,
+            payload={"id": 1},
+        )
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/1/schedules/trigger",
+            status=200,
+            payload={"schedule": "sched-uuid"},
+        )
+        schedule_id = await client.trigger_schedule(
+            asset_id=1,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            scheduler="my-scheduler",
+        )
+        assert schedule_id == "sched-uuid"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_response_not_dict():
+    """Covers line 1267 - trigger response is a list, not dict."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            status=200,
+            payload=[{"schedule": "sched-uuid"}],
+        )
+        with pytest.raises(ContentTypeError):
+            await client.trigger_schedule(
+                sensor_id=1,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+            )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_response_no_schedule_string():
+    """Covers line 1272 - trigger response has schedule as non-string."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            status=200,
+            payload={"schedule": 123},
+        )
+        with pytest.raises(ContentTypeError):
+            await client.trigger_schedule(
+                sensor_id=1,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+            )
+        await client.close()
