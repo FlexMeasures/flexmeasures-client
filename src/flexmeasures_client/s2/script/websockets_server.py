@@ -47,9 +47,13 @@ async def websocket_producer(ws, cem: CEM):
     cem._logger.debug("start websocket message producer")
     cem._logger.debug(f"IS CLOSED? {cem.is_closed()}")
     while not cem.is_closed():
-        message = await cem.get_message()
-        cem._logger.debug("sending message")
-        await ws.send_json(message)
+        message, fut = await cem.get_message()
+        try:
+            cem._logger.debug("sending message")
+            await ws.send_json(message)
+            fut.set_result(True)
+        except Exception as exc:
+            fut.set_exception(exc)
     cem._logger.debug("cem closed")
 
 

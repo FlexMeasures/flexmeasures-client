@@ -59,7 +59,7 @@ class CEM(Handler):
     ]  # maps the CommodityQuantity power measurement sensors to FM sensor IDs
 
     _fm_client: FlexMeasuresClient
-    _sending_queue: Queue[pydantic.BaseModel]
+    _sending_queue: asyncio.Queue[tuple[pydantic.BaseModel, asyncio.Future]]
 
     _timers: dict[str, datetime]
     _datastore: dict
@@ -216,7 +216,7 @@ class CEM(Handler):
             )
 
         if response is not None:
-            await self._sending_queue.put(response)
+            await self.send_message(response)
 
     def update_control_type(self, control_type: ControlType):
         """
@@ -232,14 +232,20 @@ class CEM(Handler):
             str: message in JSON format
         """
 
-        message = await self._sending_queue.get()
-        await asyncio.sleep(0.3)
+        item = await self._sending_queue.get()
+
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise RuntimeError(
+                "Invalid item in sending queue. All messages must go through send_message() rather than _sending_queue.put()."
+            )
+
+        message, fut = item
 
         # Pending for pydantic V2 to implement model.model_dump(mode="json") in
         # PR #1409 (https://github.com/pydantic/pydantic/issues/1409)
         message = json.loads(message.json())
 
-        return message
+        return message, fut
 
     async def activate_control_type(
         self, control_type: ControlType
@@ -279,8 +285,7 @@ class CEM(Handler):
                 ].register_success_callbacks(
                     message_id, self.update_control_type, control_type=control_type
                 )
-
-            await self._sending_queue.put(
+            await self.send_message(
                 SelectControlType(message_id=message_id, control_type=control_type)
             )
         return None
@@ -291,7 +296,6 @@ class CEM(Handler):
         # `selected_protocol_version` that matches the one of the RM
         # TODO: Return a TBD "CloseConnection" message to close the connection
         await self.send_message(get_reception_status(message, ReceptionStatusValues.OK))
-        await asyncio.sleep(0.5)
 
         latest_compatible_version = get_latest_compatible_version(
             message.supported_protocol_versions,
@@ -426,8 +430,11 @@ class CEM(Handler):
         return get_reception_status(message, ReceptionStatusValues.OK)
 
     async def send_message(self, message):
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
         self._logger.debug(f"Sent: {message}")
-        await self._sending_queue.put(message)
+        await self._sending_queue.put((message, fut))
+        await fut  # wait until actually sent
 
 
 def get_commodity_unit(commodity_quantity) -> str:
