@@ -1240,7 +1240,6 @@ def test_convert_units_unsupported():
 
 
 def test_create_storage_flex_model_optional_params():
-    """covers lines 1296-1307."""
     result = FlexMeasuresClient.create_storage_flex_model(
         soc_unit="kWh",
         soc_at_start=50,
@@ -1363,7 +1362,10 @@ async def test_get_asset_types():
 async def test_post_sensor_data_no_params():
     """Covers line 402 - no json params and no file_path."""
     client = FlexMeasuresClient(email="test@test.test", password="test")
-    with pytest.raises(ValueError, match="Either provide JSON data parameters"):
+    with pytest.raises(
+        ValueError,
+        match="Either provide JSON data parameters \\(start, duration, values, unit\\) or a file_path parameter, but not neither\\.",
+    ):
         await client.post_sensor_data(sensor_id=1)
     await client.close()
 
@@ -1372,7 +1374,10 @@ async def test_post_sensor_data_no_params():
 async def test_post_sensor_data_both_params():
     """Covers line 408 - both json params AND file_path."""
     client = FlexMeasuresClient(email="test@test.test", password="test")
-    with pytest.raises(ValueError, match="Either provide JSON data parameters"):
+    with pytest.raises(
+        ValueError,
+        match="Either provide JSON data parameters \\(start, duration, values, unit\\) or a file_path parameter, but not both\\.",
+    ):
         await client.post_sensor_data(
             sensor_id=1,
             start="2023-01-01T00:00+00:00",
@@ -2178,7 +2183,7 @@ async def test_delete_asset_confirm_yes():
             payload={},
         )
         with patch("builtins.input", return_value="y"):
-            await client.delete_asset(asset_id=1, confirm_first=True)
+            await client.delete_asset(asset_id=1)
         await client.close()
 
 
@@ -2233,7 +2238,7 @@ async def test_delete_sensor_confirm_no():
     client = FlexMeasuresClient(email="test@test.test", password="test")
     client.access_token = "test-token"
     with patch("builtins.input", return_value="n"):
-        await client.delete_sensor(sensor_id=1, confirm_first=True)
+        await client.delete_sensor(sensor_id=1)
     await client.close()
 
 
@@ -2288,7 +2293,10 @@ async def test_trigger_schedule_with_prior():
 async def test_trigger_schedule_scheduler_with_sensor_id_error():
     """Covers line 1233 - scheduler set but asset_id is None."""
     client = FlexMeasuresClient(email="test@test.test", password="test")
-    with pytest.raises(ValueError, match="Pass an asset_id instead of a sensor_id"):
+    with pytest.raises(
+        ValueError,
+        match="Pass an asset_id instead of a sensor_id if selecting a custom scheduler\\.",
+    ):
         await client.trigger_schedule(
             sensor_id=1,
             start="2023-01-01T00:00+00:00",
