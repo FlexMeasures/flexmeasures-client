@@ -116,9 +116,10 @@ class FRBCSimple(FRBC):
         soc_min, soc_max = get_soc_min_max(system_description)
 
         # call schedule
+        start = system_description.valid_from + self._valid_from_shift  # TODO: localize datetime
+        start = start.replace(minute=(start.minute // 15) * 15, second=0, microsecond=0)
         schedule = await self._fm_client.trigger_and_get_schedule(
-            start=system_description.valid_from
-            + self._valid_from_shift,  # TODO: localize datetime
+            start=start,
             sensor_id=self._power_sensor_id,
             flex_context={
                 "production-price": {"sensor": self._price_sensor_id},
