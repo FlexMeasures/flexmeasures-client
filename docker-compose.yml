@@ -23,7 +23,7 @@ services:
       FLEXMEASURES_BASE_URL: http://server:5000
       FLEXMEASURES_USER: toy-user@flexmeasures.io
       FLEXMEASURES_PASSWORD: toy-password
-      LOGGING_LEVEL: INFO
+      LOGGING_LEVEL: DEBUG
     volumes:
       # If flexmeasures_client lives in your repo and you want live edits
       - ../flexmeasures-client:/app/flexmeasures-client:rw
