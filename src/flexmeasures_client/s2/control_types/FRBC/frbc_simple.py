@@ -87,7 +87,7 @@ class FRBCSimple(FRBC):
         dt = status.transition_timestamp or self.now()
 
         await self._fm_client.post_sensor_data(
-            self._rm_discharge_sensor_id,
+            self._power_sensor_id,
             start=dt,
             values=[-power],
             unit=self.power_unit,
