@@ -201,7 +201,7 @@ async def configure_site(
         rm_discharge_sensor = await fm_client.add_sensor(
             name="RM discharge",
             event_resolution="PT15M",
-            unit="kW",
+            unit="dimensionless",
             generic_asset_id=site_asset["id"],
             timezone="Europe/Amsterdam",
         )
