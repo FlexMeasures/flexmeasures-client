@@ -80,7 +80,7 @@ class FRBCSimple(FRBC):
             + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
         )
 
-        dt = status.transition_timestamp  # self.now()
+        dt = status.transition_timestamp or self.now()
 
         await self._fm_client.post_sensor_data(
             self._rm_discharge_sensor_id,
