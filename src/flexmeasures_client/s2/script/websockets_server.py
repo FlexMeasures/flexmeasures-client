@@ -75,6 +75,7 @@ async def websocket_consumer(ws, cem: CEM):
         elif msg.type == aiohttp.WSMsgType.ERROR:
             cem._logger.debug("close...")
             cem.close()
+            await ws.close()
             cem._logger.error(f"ws connection closed with exception {ws.exception()}")
             # TODO: save cem state?
 
