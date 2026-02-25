@@ -174,7 +174,11 @@ async def configure_site(
 
     # Continue immediately without awaiting
     LOGGER.debug("Posting 3 days of prices in a background task..")
-    start_of_today = datetime.now(ZoneInfo("Europe/Amsterdam")).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    start_of_today = (
+        datetime.now(ZoneInfo("Europe/Amsterdam"))
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+        .isoformat()
+    )
     asyncio.create_task(
         fm_client.post_sensor_data(
             sensor_id=price_sensor["id"],
