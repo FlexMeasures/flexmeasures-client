@@ -196,4 +196,4 @@ class FRBCTest(FRBC):
         )
 
         # put instruction into the sending queue
-        await self._sending_queue.put(instruction)
+        await self.send_message(instruction)

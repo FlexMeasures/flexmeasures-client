@@ -159,8 +159,8 @@ class CEM(Handler):
         # add fm_client to control_type handler
         control_type_handler._fm_client = self._fm_client
 
-        # add sending queue
-        control_type_handler._sending_queue = self._sending_queue
+        # add send_message method so the handler can send messages
+        control_type_handler.send_message = self.send_message
 
         # Add logger
         control_type_handler._logger = self._logger
