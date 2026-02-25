@@ -144,4 +144,4 @@ class FRBCSimple(FRBC):
 
         # put instructions to sending queue
         for instruction in instructions:
-            await self._sending_queue.put(instruction)
+            await self.send_message(instruction)
