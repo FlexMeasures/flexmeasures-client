@@ -291,6 +291,7 @@ class CEM(Handler):
         # `selected_protocol_version` that matches the one of the RM
         # TODO: Return a TBD "CloseConnection" message to close the connection
         await self.send_message(get_reception_status(message, ReceptionStatusValues.OK))
+        await asyncio.sleep(0.5)
 
         latest_compatible_version = get_latest_compatible_version(
             message.supported_protocol_versions,
