@@ -15,7 +15,7 @@ services:
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         flexmeasures db upgrade
         # toy account step removed
-        gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 2 --threads 4 wsgi:applicationservices:
+        gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 2 --threads 4 wsgi:application
   cem:
     build:
       context: .
