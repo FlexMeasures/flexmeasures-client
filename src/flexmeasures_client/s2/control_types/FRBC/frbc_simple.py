@@ -62,7 +62,7 @@ class FRBCSimple(FRBC):
         return self._timezone.localize(datetime.now())
 
     async def send_storage_status(self, status: FRBCStorageStatus):
-        await self._fm_client.post_measurements(
+        await self._fm_client.post_sensor_data(
             self._soc_sensor_id,
             start=self.now(),
             values=[status.present_fill_level],
@@ -82,7 +82,7 @@ class FRBCSimple(FRBC):
 
         dt = status.transition_timestamp  # self.now()
 
-        await self._fm_client.post_measurements(
+        await self._fm_client.post_sensor_data(
             self._rm_discharge_sensor_id,
             start=dt,
             values=[-power],
