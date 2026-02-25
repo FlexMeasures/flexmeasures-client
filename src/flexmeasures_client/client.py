@@ -290,7 +290,7 @@ class FlexMeasuresClient:
 
     async def get_headers(self, include_auth: bool) -> dict:
         """Create HTTP headers dictionary with content type and, optionally, access token."""  # noqa: E501
-        headers = CONTENT_TYPE_HEADERS
+        headers = dict(CONTENT_TYPE_HEADERS)
         if include_auth:
             if self.access_token is None:
                 await self.get_access_token()

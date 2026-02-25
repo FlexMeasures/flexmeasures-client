@@ -84,11 +84,14 @@ jobs:
           pipx run --python '${{ steps.setup-python.outputs.python-path }}'
           tox -e s2 --installpkg '${{ needs.prepare.outputs.wheel-distribution }}'
           -- -rFEx --durations 10 --color yes  # pytest args
+      - name: Show coverage report
+        run: pipx run coverage report
       - name: Generate coverage report
         run: pipx run coverage lcov -o coverage.lcov
       - name: Upload partial coverage report
         uses: coverallsapp/github-action@v2
         with:
+          fail-on-error: false
           path-to-lcov: coverage.lcov
           github-token: ${{ secrets.GITHUB_TOKEN }}
           flag-name: ${{ matrix.platform }} - py${{ matrix.python }}
@@ -99,8 +102,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Coveralls Finished
-        uses: coverallsapp/github-action@master
+        uses: coverallsapp/github-action@v2
         with:
+          fail-on-error: false
           parallel-finished: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: echo "Finished checks"
