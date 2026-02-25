@@ -22,11 +22,12 @@ async def test_handshake(rm_handshake):
     await cem.handle_message(rm_handshake)
 
     assert (
-        cem._sending_queue.qsize() == 1
-    )  # check that message is put to the outgoing queue
+        cem._sending_queue.qsize() == 2
+    )  # check that two messages are put to the outgoing queue (ReceptionStatus and HandshakeResponse)
 
     # CEM response
-    response = await cem.get_message()
+    response = await cem.get_message()  # ReceptionStatus for Handshake
+    response = await cem.get_message()  # HandshakeResponse
 
     assert (
         response["message_type"] == "HandshakeResponse"
@@ -50,10 +51,11 @@ async def test_resource_manager_details(resource_manager_details, rm_handshake):
     await cem.handle_message(rm_handshake)
 
     assert (
-        cem._sending_queue.qsize() == 1
+        cem._sending_queue.qsize() == 2
     )  # check that message is put to the outgoing queue
 
-    response = await cem.get_message()
+    response = await cem.get_message()  # ReceptionStatus for Handshake
+    response = await cem.get_message()  # HandshakeResponse
 
     ##########################
     # ResourceManagerDetails #
@@ -90,7 +92,8 @@ async def test_activate_control_type(
     #############
 
     await cem.handle_message(rm_handshake)
-    response = await cem.get_message()
+    response = await cem.get_message()  # ReceptionStatus for Handshake
+    response = await cem.get_message()  # HandshakeResponse
 
     ##########################
     # ResourceManagerDetails #
@@ -136,7 +139,8 @@ async def test_messages_route_to_control_type_handler(
     #############
 
     await cem.handle_message(rm_handshake)
-    response = await cem.get_message()
+    response = await cem.get_message()  # ReceptionStatus for Handshake
+    response = await cem.get_message()  # HandshakeResponse
 
     ##########################
     # ResourceManagerDetails #
@@ -215,10 +219,11 @@ async def test_automatic_change_control_type(resource_manager_details, rm_handsh
     await cem.handle_message(rm_handshake)
 
     assert (
-        cem._sending_queue.qsize() == 1
+        cem._sending_queue.qsize() == 2
     )  # check that message is put to the outgoing queue
 
     response = await cem.get_message()
+    response = await cem.get_message()  # HandshakeResponse
 
     ##########################
     # ResourceManagerDetails #

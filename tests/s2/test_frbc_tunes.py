@@ -78,7 +78,8 @@ async def setup_cem(resource_manager_details, rm_handshake):
     #############
 
     await cem.handle_message(rm_handshake)
-    response = await cem.get_message()
+    response = await cem.get_message()  # ReceptionStatus for Handshake
+    response = await cem.get_message()  # HandshakeResponse
 
     ##########################
     # ResourceManagerDetails #
