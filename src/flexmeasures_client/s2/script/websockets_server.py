@@ -175,7 +175,8 @@ async def configure_site(
     asyncio.create_task(
         fm_client.post_sensor_data(
             sensor_id=price_sensor["id"],
-            start="2026-01-15T00:00+01",  # 2026-01-01T00:00+01
+            start="2026-02-25T00:00+01",  # now
+            prior="2026-01-01T00:00+01",  # 2026-01-01T00:00+01
             duration="P3D",  # P1M
             values=[0.3],
             unit="EUR/kWh",
