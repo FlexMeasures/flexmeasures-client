@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import aiohttp
 from aiohttp import web
@@ -172,10 +174,11 @@ async def configure_site(
 
     # Continue immediately without awaiting
     LOGGER.debug("Posting 3 days of prices in a background task..")
+    start_of_today = datetime.now(ZoneInfo("Europe/Amsterdam")).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     asyncio.create_task(
         fm_client.post_sensor_data(
             sensor_id=price_sensor["id"],
-            start="2026-02-25T00:00+01",  # now
+            start=start_of_today,
             prior="2026-01-01T00:00+01",  # 2026-01-01T00:00+01
             duration="P3D",  # P1M
             values=[0.3],
