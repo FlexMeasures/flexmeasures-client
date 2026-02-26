@@ -196,6 +196,7 @@ async def configure_site(
             unit="kW",
             generic_asset_id=site_asset["id"],
             timezone="Europe/Amsterdam",
+            attributes={"consumption_is_positive": True},
         )
     if soc_sensor is None:
         soc_sensor = await fm_client.add_sensor(
