@@ -128,7 +128,7 @@ async def configure_site(
     account = await fm_client.get_account()
     assets = await fm_client.get_assets(parse_json_fields=True)
 
-    site_asset = None
+    site_asset: dict | None = None
     for asset in assets:
         if asset["name"] == site_name:
             site_asset = asset
@@ -238,6 +238,20 @@ async def configure_site(
             generic_asset_id=site_asset["id"],
             timezone="Europe/Amsterdam",
         )
+    sensors_to_show = [
+        {
+            "title": "State of charge",
+            "sensors": [soc_minima_sensor["id"], soc_maxima_sensor["id"], soc_sensor["id"]],
+        },
+        {
+            "title": "Prices",
+            "sensor": price_sensor["id"],
+        },
+    ]
+    await fm_client.update_asset(
+        asset_id=site_asset["id"],
+        updates=dict(sensors_to_show=sensors_to_show),
+    )
     return price_sensor, power_sensor, soc_sensor, rm_discharge_sensor, soc_minima_sensor, soc_maxima_sensor
 
 
