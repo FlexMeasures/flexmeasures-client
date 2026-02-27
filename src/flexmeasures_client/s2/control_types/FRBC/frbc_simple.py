@@ -107,9 +107,11 @@ class FRBCSimple(FRBC):
                 self._system_description_history[system_description_id]
             )
         else:
+            # Use last SystemDescription
             system_description: FRBCSystemDescription = list(
                 self._system_description_history.values()
             )[-1]
+        self._logger.debug(f"Using system description: {system_description}")
 
         if len(self._storage_status_history) > 0:
             soc_at_start = list(self._storage_status_history.values())[
