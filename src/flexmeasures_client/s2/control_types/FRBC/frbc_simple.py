@@ -5,9 +5,8 @@ Used it at your own risk :)
 
 from datetime import datetime, timedelta
 
-import pytz
-
 import pandas as pd
+import pytz
 
 try:
     from s2python.frbc import (
