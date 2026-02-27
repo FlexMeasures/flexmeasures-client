@@ -1,4 +1,6 @@
+import json
 import logging
+import uuid
 from datetime import timedelta
 from math import isclose
 from typing import List
@@ -9,6 +11,7 @@ import pandas as pd
 try:
     from s2python.common import NumberRange
     from s2python.frbc import (
+        FRBCActuatorDescription,
         FRBCInstruction,
         FRBCLeakageBehaviour,
         FRBCOperationMode,
@@ -155,7 +158,12 @@ def fm_schedule_to_instructions(
             f"{len(system_description.actuators)} were provided"
         )
 
-    operation_modes: list[FRBCOperationMode] = actuator.operation_modes
+    actuators: dict[uuid.UUID, FRBCActuatorDescription] = {
+        a.id: a for a in system_description.actuators
+    }
+    operation_modes: dict[uuid.UUID, FRBCOperationMode] = {
+        om.id: om for om in actuator.operation_modes
+    }
 
     fill_level = initial_fill_level
 
@@ -170,7 +178,7 @@ def fm_schedule_to_instructions(
             # Convert from power to fill rate
             results = [
                 (om, *power_to_fill_rate_with_metrics(om, power, fill_level))
-                for om in operation_modes
+                for om in operation_modes.values()
             ]
 
             # Step 1: minimize fill-level penalty (primary)
@@ -238,6 +246,18 @@ def fm_schedule_to_instructions(
             )
             previous_instruction = instruction
             instructions.append(instruction)
+        logger.debug(
+            "Instructions JSON: %s",
+            json.dumps(
+                [
+                    serialize_instruction(
+                        instr, actuators=actuators, operation_modes=operation_modes
+                    )
+                    for instr in instructions
+                ],
+                indent=2,
+            ),
+        )
 
         # Update fill level
         fill_level = compute_next_fill_level(
@@ -394,3 +414,29 @@ def explain_choice(
             lines.append(f"{label} (element={element_label}): rejected due to {reason}")
 
     return "; ".join(lines)
+
+
+def serialize_instruction(
+    instr: FRBCInstruction,
+    actuators: dict[uuid.UUID, FRBCActuatorDescription],
+    operation_modes: dict[uuid.UUID, FRBCOperationMode],
+):
+    """Create dict of instructions suitable for logging."""
+    actuator = (
+        getattr(actuators[instr.actuator_id], "diagnostic_label", None)
+        or instr.actuator_id
+    )
+    operation_mode = (
+        getattr(operation_modes[instr.operation_mode], "diagnostic_label", None)
+        or instr.operation_mode
+    )
+    return {
+        "message_type": instr.message_type,
+        "message_id": str(instr.message_id),
+        "instruction_id": str(instr.id),
+        "actuator": str(actuator),
+        "operation_mode": str(operation_mode),
+        "operation_mode_factor": instr.operation_mode_factor,
+        "execution_time": instr.execution_time.isoformat(),
+        "abnormal_condition": instr.abnormal_condition,
+    }
