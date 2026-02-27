@@ -123,7 +123,6 @@ class FillRateBasedControlTUNES(FRBC):
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
         fill_level_scale: float = 0.1,
-        valid_from_shift: timedelta = timedelta(days=1),
         timers: dict[str, datetime] | None = None,
         datastore: dict | None = None,
         **kwargs,
@@ -154,10 +153,6 @@ class FillRateBasedControlTUNES(FRBC):
         self._production_price_sensor_id = production_price_sensor
 
         self._timezone = pytz.timezone(timezone)
-
-        # delay the start of the schedule from the time `valid_from` of the FRBC.SystemDescription
-        self._valid_from_shift = valid_from_shift
-
         self._fill_level_scale = fill_level_scale
 
         self._active_recurring_schedule = False

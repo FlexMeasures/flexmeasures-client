@@ -39,7 +39,6 @@ class FRBCSimple(FRBC):
     _soc_sensor_id: int
     _rm_discharge_sensor_id: int
     _schedule_duration: timedelta
-    _valid_from_shift: timedelta
 
     def __init__(
         self,
@@ -52,7 +51,6 @@ class FRBCSimple(FRBC):
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
-        valid_from_shift: timedelta = timedelta(days=1),
         power_unit: str = "kW",
         energy_unit: str = "kWh",
     ) -> None:
@@ -65,10 +63,6 @@ class FRBCSimple(FRBC):
         self._soc_minima_sensor_id = soc_minima_sensor_id
         self._soc_maxima_sensor_id = soc_maxima_sensor_id
         self._timezone = pytz.timezone(timezone)
-
-        # delay the start of the schedule from the time `valid_from`
-        # of the FRBC.SystemDescription.
-        self._valid_from_shift = valid_from_shift
         self.power_unit = power_unit
         self.energy_unit = energy_unit
 
@@ -129,7 +123,7 @@ class FRBCSimple(FRBC):
 
         # call schedule
         start = (
-            system_description.valid_from + self._valid_from_shift
+            system_description.valid_from
         )  # TODO: localize datetime
         start = start.replace(minute=(start.minute // 15) * 15, second=0, microsecond=0)
         schedule = await self._fm_client.trigger_and_get_schedule(
