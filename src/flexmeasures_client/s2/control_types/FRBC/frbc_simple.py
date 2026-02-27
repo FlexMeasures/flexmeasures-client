@@ -7,9 +7,12 @@ from datetime import datetime, timedelta
 
 import pytz
 
+import pandas as pd
+
 try:
     from s2python.frbc import (
         FRBCActuatorStatus,
+        FRBCFillLevelTargetProfile,
         FRBCStorageStatus,
         FRBCSystemDescription,
     )
@@ -24,6 +27,9 @@ from flexmeasures_client.s2.control_types.FRBC import FRBC
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     fm_schedule_to_instructions,
     get_soc_min_max,
+)
+from flexmeasures_client.s2.control_types.translations import (
+    translate_fill_level_target_profile,
 )
 
 
@@ -41,6 +47,8 @@ class FRBCSimple(FRBC):
         soc_sensor_id: int,
         rm_discharge_sensor_id: int,
         price_sensor_id: int,
+        soc_minima_sensor_id: int,
+        soc_maxima_sensor_id: int,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
@@ -54,6 +62,8 @@ class FRBCSimple(FRBC):
         self._schedule_duration = schedule_duration
         self._soc_sensor_id = soc_sensor_id
         self._rm_discharge_sensor_id = rm_discharge_sensor_id
+        self._soc_minima_sensor_id = soc_minima_sensor_id
+        self._soc_maxima_sensor_id = soc_maxima_sensor_id
         self._timezone = pytz.timezone(timezone)
 
         # delay the start of the schedule from the time `valid_from`
@@ -135,6 +145,8 @@ class FRBCSimple(FRBC):
                 "soc-at-start": soc_at_start,  # TODO: use forecast of the SOC instead
                 "soc-min": soc_min,
                 "soc-max": soc_max,
+                "soc-minima": {"sensor": self._soc_minima_sensor_id},
+                "soc-maxima": {"sensor": self._soc_maxima_sensor_id},
             },
             duration=self._schedule_duration,  # next 12 hours
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
@@ -149,3 +161,42 @@ class FRBCSimple(FRBC):
         # put instructions to sending queue
         for instruction in instructions:
             await self.send_message(instruction)
+
+    async def send_fill_level_target_profile(
+        self, fill_level_target_profile: FRBCFillLevelTargetProfile
+    ):
+        """
+        Send FRBC.FillLevelTargetProfile to FlexMeasures.
+
+        Args:
+            fill_level_target_profile (FRBCFillLevelTargetProfile): The fill level target profile to be translated and sent.
+        """
+        # if not self._is_timer_due("fill_level_target_profile"):
+        #     return
+        RESOLUTION = "15min"
+
+        soc_minima, soc_maxima = translate_fill_level_target_profile(
+            fill_level_target_profile=fill_level_target_profile,
+            resolution=RESOLUTION,
+            fill_level_scale=1,
+        )
+
+        duration = str(pd.Timedelta(RESOLUTION) * len(soc_maxima))
+
+        # POST SOC Minima measurements to FlexMeasures
+        await self._fm_client.post_sensor_data(
+            sensor_id=self._soc_minima_sensor_id,
+            start=fill_level_target_profile.start_time,
+            values=soc_minima.tolist(),
+            unit=self.energy_unit,
+            duration=duration,
+        )
+
+        # POST SOC Maxima measurements to FlexMeasures
+        await self._fm_client.post_sensor_data(
+            sensor_id=self._soc_maxima_sensor_id,
+            start=fill_level_target_profile.start_time,
+            values=soc_maxima.tolist(),
+            unit=self.energy_unit,
+            duration=duration,
+        )

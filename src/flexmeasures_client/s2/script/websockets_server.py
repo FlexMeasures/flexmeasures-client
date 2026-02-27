@@ -93,7 +93,7 @@ async def websocket_handler(request):
         "toy-password", "toy-user@flexmeasures.io", host="server:5000"
     )
 
-    price_sensor, power_sensor, soc_sensor, rm_discharge_sensor = await configure_site(
+    price_sensor, power_sensor, soc_sensor, rm_discharge_sensor, soc_minima_sensor, soc_maxima_sensor = await configure_site(
         site_name, fm_client
     )
 
@@ -107,6 +107,8 @@ async def websocket_handler(request):
         price_sensor_id=price_sensor["id"],
         soc_sensor_id=soc_sensor["id"],
         rm_discharge_sensor_id=rm_discharge_sensor["id"],
+        soc_minima_sensor_id=soc_minima_sensor["id"],
+        soc_maxima_sensor_id=soc_maxima_sensor["id"],
     )
     cem.register_control_type(frbc)
 
@@ -153,6 +155,8 @@ async def configure_site(
     power_sensor = None
     soc_sensor = None
     rm_discharge_sensor = None
+    soc_minima_sensor = None
+    soc_maxima_sensor = None
     for sensor in sensors:
         if sensor["name"] == "price":
             price_sensor = sensor
@@ -162,6 +166,10 @@ async def configure_site(
             soc_sensor = sensor
         elif sensor["name"] == "RM discharge":
             rm_discharge_sensor = sensor
+        elif sensor["name"] == "soc-minima":
+            soc_minima_sensor = sensor
+        elif sensor["name"] == "soc-maxima":
+            soc_maxima_sensor = sensor
 
     if price_sensor is None:
         price_sensor = await fm_client.add_sensor(
@@ -214,7 +222,23 @@ async def configure_site(
             generic_asset_id=site_asset["id"],
             timezone="Europe/Amsterdam",
         )
-    return price_sensor, power_sensor, soc_sensor, rm_discharge_sensor
+    if soc_minima_sensor is None:
+        soc_minima_sensor = await fm_client.add_sensor(
+            name="soc-minima",
+            event_resolution="PT15M",
+            unit="kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if soc_maxima_sensor is None:
+        soc_maxima_sensor = await fm_client.add_sensor(
+            name="soc-maxima",
+            event_resolution="PT15M",
+            unit="kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    return price_sensor, power_sensor, soc_sensor, rm_discharge_sensor, soc_minima_sensor, soc_maxima_sensor
 
 
 app = web.Application()
