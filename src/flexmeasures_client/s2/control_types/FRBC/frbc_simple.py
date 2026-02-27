@@ -15,6 +15,7 @@ try:
         FRBCFillLevelTargetProfile,
         FRBCStorageStatus,
         FRBCSystemDescription,
+        FRBCUsageForecast,
     )
 except ImportError:
     raise ImportError(
@@ -30,6 +31,7 @@ from flexmeasures_client.s2.control_types.FRBC.utils import (
 )
 from flexmeasures_client.s2.control_types.translations import (
     translate_fill_level_target_profile,
+    translate_usage_forecast_to_fm,
 )
 
 
@@ -38,7 +40,12 @@ class FRBCSimple(FRBC):
     _price_sensor_id: int
     _soc_sensor_id: int
     _rm_discharge_sensor_id: int
+    _soc_minima_sensor_id: int
+    _soc_maxima_sensor_id: int
+    _usage_forecast_sensor_id: int
     _schedule_duration: timedelta
+    _fill_level_scale: int = 1
+    _resolution = "15min"
 
     def __init__(
         self,
@@ -48,6 +55,7 @@ class FRBCSimple(FRBC):
         price_sensor_id: int,
         soc_minima_sensor_id: int,
         soc_maxima_sensor_id: int,
+        usage_forecast_sensor_id: int,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
@@ -62,6 +70,7 @@ class FRBCSimple(FRBC):
         self._rm_discharge_sensor_id = rm_discharge_sensor_id
         self._soc_minima_sensor_id = soc_minima_sensor_id
         self._soc_maxima_sensor_id = soc_maxima_sensor_id
+        self._usage_forecast_sensor_id = usage_forecast_sensor_id
         self._timezone = pytz.timezone(timezone)
         self.power_unit = power_unit
         self.energy_unit = energy_unit
@@ -151,6 +160,7 @@ class FRBCSimple(FRBC):
                 "soc-minima": {"sensor": self._soc_minima_sensor_id},
                 "soc-maxima": {"sensor": self._soc_maxima_sensor_id},
                 "state-of-charge": {"sensor": self._soc_sensor_id},
+                "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
             },
             duration=self._schedule_duration,  # next 12 hours
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
@@ -177,15 +187,14 @@ class FRBCSimple(FRBC):
         """
         # if not self._is_timer_due("fill_level_target_profile"):
         #     return
-        RESOLUTION = "15min"
 
         soc_minima, soc_maxima = translate_fill_level_target_profile(
             fill_level_target_profile=fill_level_target_profile,
-            resolution=RESOLUTION,
-            fill_level_scale=1,
+            resolution=self._resolution,
+            fill_level_scale=self._fill_level_scale,
         )
 
-        duration = str(pd.Timedelta(RESOLUTION) * len(soc_maxima))
+        duration = str(pd.Timedelta(self._resolution) * len(soc_maxima))
 
         # POST SOC Minima measurements to FlexMeasures
         await self._fm_client.post_sensor_data(
@@ -203,4 +212,40 @@ class FRBCSimple(FRBC):
             values=soc_maxima.tolist(),
             unit=self.energy_unit,
             duration=duration,
+        )
+
+    async def send_usage_forecast(self, usage_forecast: FRBCUsageForecast):
+        """
+        Send FRBC.UsageForecast to FlexMeasures.
+
+        Args:
+            usage_forecast (FRBCUsageForecast): The usage forecast to be translated and sent.
+        """
+        # if not self._is_timer_due("usage_forecast"):
+        #     return
+
+        start_time = usage_forecast.start_time
+
+        # flooring to previous 15min tick
+        start_time = start_time.replace(
+            minute=(start_time.minute // 15) * 15, second=0, microsecond=0
+        )
+
+        usage_forecast = translate_usage_forecast_to_fm(
+            usage_forecast,
+            self._resolution,
+            strategy="mean",
+            fill_level_scale=self._fill_level_scale,
+        )
+
+        # Scale usage forecast e.g. [0, 100] %/s ->  [0, 100] %/(15 min)
+        scale = timedelta(minutes=15) / timedelta(seconds=1)
+        scaled_usage_forecast = usage_forecast * scale
+
+        await self._fm_client.post_sensor_data(
+            sensor_id=self._usage_forecast_sensor_id,
+            start=start_time,
+            values=scaled_usage_forecast.tolist(),
+            unit=self.power_unit,  # e.g. [0, 100] MW/(15 min)
+            duration=str(pd.Timedelta(self._resolution) * len(usage_forecast)),
         )

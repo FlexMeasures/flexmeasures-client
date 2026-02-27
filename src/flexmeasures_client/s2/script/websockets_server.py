@@ -100,6 +100,7 @@ async def websocket_handler(request):
         rm_discharge_sensor,
         soc_minima_sensor,
         soc_maxima_sensor,
+        usage_forecast_sensor,
     ) = await configure_site(site_name, fm_client)
 
     cem = CEM(
@@ -114,6 +115,7 @@ async def websocket_handler(request):
         rm_discharge_sensor_id=rm_discharge_sensor["id"],
         soc_minima_sensor_id=soc_minima_sensor["id"],
         soc_maxima_sensor_id=soc_maxima_sensor["id"],
+        usage_forecast_sensor_id=usage_forecast_sensor["id"],
     )
     cem.register_control_type(frbc)
 
@@ -129,7 +131,7 @@ async def websocket_handler(request):
 
 async def configure_site(
     site_name: str, fm_client: FlexMeasuresClient
-) -> tuple[dict, dict, dict, dict, dict, dict]:
+) -> tuple[dict, dict, dict, dict, dict, dict, dict]:
     account = await fm_client.get_account()
     assets = await fm_client.get_assets(parse_json_fields=True)
 
@@ -162,6 +164,7 @@ async def configure_site(
     rm_discharge_sensor = None
     soc_minima_sensor = None
     soc_maxima_sensor = None
+    usage_forecast_sensor = None
     for sensor in sensors:
         if sensor["name"] == "price":
             price_sensor = sensor
@@ -175,6 +178,8 @@ async def configure_site(
             soc_minima_sensor = sensor
         elif sensor["name"] == "soc-maxima":
             soc_maxima_sensor = sensor
+        elif sensor["name"] == "usage-forecast":
+            usage_forecast_sensor = sensor
 
     if price_sensor is None:
         price_sensor = await fm_client.add_sensor(
@@ -243,6 +248,14 @@ async def configure_site(
             generic_asset_id=site_asset["id"],
             timezone="Europe/Amsterdam",
         )
+    if usage_forecast_sensor is None:
+        usage_forecast_sensor = await fm_client.add_sensor(
+            name="usage-forecast",
+            event_resolution="PT15M",
+            unit="kW",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
     sensors_to_show = [
         {
             "title": "State of charge",
@@ -268,6 +281,7 @@ async def configure_site(
         rm_discharge_sensor,
         soc_minima_sensor,
         soc_maxima_sensor,
+        usage_forecast_sensor,
     )
 
 
