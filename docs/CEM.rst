@@ -15,14 +15,14 @@ Then point your Resource Managers (RMs) to ``http://localhost:8080/ws`` and run:
 
     python3 flexmeasures_client/s2/scripts/websockets_server.py
 
-We also included a ``docker-compose.yaml`` that can be used to set up the CEM including the FlexMeasures server, creating a fully self-hosted HEMS.
+We also included a ``docker-compose.override.yaml`` that can be used to set up the CEM including the FlexMeasures server, creating a fully self-hosted HEMS.
 Assuming your ``flexmeasures`` and ``flexmeasures-client`` repo folders are located side by side, run this from your flexmeasures folder:
 
 .. code-block:: bash
 
     docker compose \
       -f docker-compose.yml \
-      -f ../flexmeasures-client/docker-compose.yml \
+      -f ../flexmeasures-client/docker-compose.override.yml \
       up
 
 
@@ -39,6 +39,14 @@ To test, run the included example RM:
 .. code-block:: bash
 
     python3 flexmeasures_client/s2/script/websockets_client.py
+
+For full access via the UI, create an admin user for the Docker Toy Account (here, we assume it has ID 1):
+
+.. code-block:: bash
+
+    docker exec -it flexmeasures-server-1 bash
+    flexmeasures show accounts
+    flexmeasures add user --roles admin  --account 1 --email <email> --username <username>
 
 Disclaimer
 ==========
