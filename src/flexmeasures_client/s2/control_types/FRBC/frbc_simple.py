@@ -111,6 +111,15 @@ class FRBCSimple(FRBC):
             system_description: FRBCSystemDescription = list(
                 self._system_description_history.values()
             )[-1]
+        system_descriptions = self._system_description_history.values()
+        self._logger.error(
+            list(
+                [
+                    system_description.valid_from
+                    for system_description in system_descriptions
+                ]
+            )
+        )
         self._logger.debug(f"Using system description: {system_description}")
 
         if len(self._storage_status_history) > 0:
@@ -124,9 +133,7 @@ class FRBCSimple(FRBC):
         soc_min, soc_max = get_soc_min_max(system_description)
 
         # call schedule
-        start = (
-            system_description.valid_from
-        )  # TODO: localize datetime
+        start = system_description.valid_from  # TODO: localize datetime
         start = start.replace(minute=(start.minute // 15) * 15, second=0, microsecond=0)
         schedule = await self._fm_client.trigger_and_get_schedule(
             start=start,

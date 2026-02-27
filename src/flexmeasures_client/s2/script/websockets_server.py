@@ -93,9 +93,14 @@ async def websocket_handler(request):
         "toy-password", "toy-user@flexmeasures.io", host="server:5000"
     )
 
-    price_sensor, power_sensor, soc_sensor, rm_discharge_sensor, soc_minima_sensor, soc_maxima_sensor = await configure_site(
-        site_name, fm_client
-    )
+    (
+        price_sensor,
+        power_sensor,
+        soc_sensor,
+        rm_discharge_sensor,
+        soc_minima_sensor,
+        soc_maxima_sensor,
+    ) = await configure_site(site_name, fm_client)
 
     cem = CEM(
         sensor_id=power_sensor["id"],
@@ -241,7 +246,11 @@ async def configure_site(
     sensors_to_show = [
         {
             "title": "State of charge",
-            "sensors": [soc_minima_sensor["id"], soc_maxima_sensor["id"], soc_sensor["id"]],
+            "sensors": [
+                soc_minima_sensor["id"],
+                soc_maxima_sensor["id"],
+                soc_sensor["id"],
+            ],
         },
         {
             "title": "Prices",
@@ -252,7 +261,14 @@ async def configure_site(
         asset_id=site_asset["id"],
         updates=dict(sensors_to_show=sensors_to_show),
     )
-    return price_sensor, power_sensor, soc_sensor, rm_discharge_sensor, soc_minima_sensor, soc_maxima_sensor
+    return (
+        price_sensor,
+        power_sensor,
+        soc_sensor,
+        rm_discharge_sensor,
+        soc_minima_sensor,
+        soc_maxima_sensor,
+    )
 
 
 app = web.Application()
