@@ -124,7 +124,7 @@ async def websocket_handler(request):
 
 async def configure_site(
     site_name: str, fm_client: FlexMeasuresClient
-) -> tuple[dict, dict, dict, dict]:
+) -> tuple[dict, dict, dict, dict, dict, dict]:
     account = await fm_client.get_account()
     assets = await fm_client.get_assets(parse_json_fields=True)
 
