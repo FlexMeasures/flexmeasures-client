@@ -225,7 +225,7 @@ class CEM(Handler):
         """
         self._control_type = control_type
 
-    async def get_message(self) -> str:
+    async def get_message(self) -> tuple[str, asyncio.Future]:
         """Call this function to get the messages to be sent to the RM
 
         Returns:
