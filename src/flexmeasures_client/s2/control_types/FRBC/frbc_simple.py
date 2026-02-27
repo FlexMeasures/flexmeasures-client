@@ -120,7 +120,7 @@ class FRBCSimple(FRBC):
                 self._system_description_history.values()
             )[-1]
         system_descriptions = self._system_description_history.values()
-        self._logger.error(
+        self._logger.debug(
             list(
                 [
                     system_description.valid_from
