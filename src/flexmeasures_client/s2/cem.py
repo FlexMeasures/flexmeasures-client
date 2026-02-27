@@ -240,10 +240,7 @@ class CEM(Handler):
             )
 
         message, fut = item
-
-        # Pending for pydantic V2 to implement model.model_dump(mode="json") in
-        # PR #1409 (https://github.com/pydantic/pydantic/issues/1409)
-        message = json.loads(message.json())
+        message = message.model_dump(mode="json")
 
         return message, fut
 
