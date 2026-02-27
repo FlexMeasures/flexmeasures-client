@@ -161,6 +161,7 @@ def fm_schedule_to_instructions(
 
     deltaT = timedelta(minutes=15) / timedelta(hours=1)
 
+    previous_instruction = None
     for timestamp, row in schedule.iterrows():
         power = row["schedule"]
         usage = row.get("usage_forecast", 0)
@@ -221,9 +222,21 @@ def fm_schedule_to_instructions(
                 execution_time=timestamp,
                 abnormal_condition=False,
             )
+            if previous_instruction and all(
+                getattr(previous_instruction, attr) == getattr(instruction, attr)
+                for attr in (
+                    "actuator_id",
+                    "operation_mode",
+                    "operation_mode_factor",
+                    "abnormal_condition",
+                )
+            ):
+                logger.info("Instruction removed, no changes to previous instruction")
+                continue
             logger.info(
                 f"Instruction created: at {timestamp} set {actuator.diagnostic_label if isinstance(actuator.diagnostic_label, str) else actuator} to {best_operation_mode.diagnostic_label if isinstance(best_operation_mode.diagnostic_label, str) else best_operation_mode} with factor {operation_mode_factor}"
             )
+            previous_instruction = instruction
             instructions.append(instruction)
 
         # Update fill level
