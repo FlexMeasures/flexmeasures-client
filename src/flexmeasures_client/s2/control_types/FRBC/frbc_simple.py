@@ -12,6 +12,7 @@ try:
     from s2python.frbc import (
         FRBCActuatorStatus,
         FRBCFillLevelTargetProfile,
+        FRBCLeakageBehaviour,
         FRBCStorageStatus,
         FRBCSystemDescription,
         FRBCUsageForecast,
@@ -31,6 +32,7 @@ from flexmeasures_client.s2.control_types.FRBC.utils import (
 from flexmeasures_client.s2.control_types.translations import (
     translate_fill_level_target_profile,
     translate_usage_forecast_to_fm,
+    leakage_behaviour_to_storage_efficiency,
 )
 
 
@@ -42,6 +44,7 @@ class FRBCSimple(FRBC):
     _soc_minima_sensor_id: int
     _soc_maxima_sensor_id: int
     _usage_forecast_sensor_id: int
+    _leakage_behaviour_sensor_id: int
     _schedule_duration: timedelta
     _fill_level_scale: int = 1
     _resolution = "15min"
@@ -55,6 +58,7 @@ class FRBCSimple(FRBC):
         soc_minima_sensor_id: int,
         soc_maxima_sensor_id: int,
         usage_forecast_sensor_id: int,
+        leakage_behaviour_sensor_id: int,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
@@ -70,6 +74,7 @@ class FRBCSimple(FRBC):
         self._soc_minima_sensor_id = soc_minima_sensor_id
         self._soc_maxima_sensor_id = soc_maxima_sensor_id
         self._usage_forecast_sensor_id = usage_forecast_sensor_id
+        self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._timezone = pytz.timezone(timezone)
         self.power_unit = power_unit
         self.energy_unit = energy_unit
@@ -161,6 +166,7 @@ class FRBCSimple(FRBC):
                 "soc-maxima": {"sensor": self._soc_maxima_sensor_id},
                 "state-of-charge": {"sensor": self._soc_sensor_id},
                 "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
+                "storage-efficiency": {"sensor": self._leakage_behaviour_sensor_id},
             },
             duration=self._schedule_duration,  # next 12 hours
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
@@ -248,4 +254,26 @@ class FRBCSimple(FRBC):
             values=scaled_usage_forecast.tolist(),
             unit=self.power_unit,  # e.g. [0, 100] MW/(15 min)
             duration=str(pd.Timedelta(self._resolution) * len(usage_forecast)),
+        )
+
+    async def send_leakage_behaviour(self, leakage: FRBCLeakageBehaviour):
+        # if not self._is_timer_due("leakage_behaviour"):
+        #     return
+
+        start = leakage.valid_from or self.now()
+        start = start.replace(minute=(start.minute // 15) * 15, second=0, microsecond=0)
+
+        storage_efficiency = leakage_behaviour_to_storage_efficiency(
+            message=leakage,
+            resolution=timedelta(minutes=15),
+            fill_level_scale=self._fill_level_scale,
+        )
+        self._logger.debug(storage_efficiency)
+
+        await self._fm_client.post_sensor_data(
+            self._leakage_behaviour_sensor_id,
+            start=start,
+            values=[storage_efficiency],
+            unit="%",
+            duration=timedelta(hours=48),
         )
