@@ -147,6 +147,7 @@ class FRBCSimple(FRBC):
                 "soc-max": soc_max,
                 "soc-minima": {"sensor": self._soc_minima_sensor_id},
                 "soc-maxima": {"sensor": self._soc_maxima_sensor_id},
+                "state-of-charge": {"sensor": self._soc_sensor_id},
             },
             duration=self._schedule_duration,  # next 12 hours
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
