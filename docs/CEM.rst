@@ -40,6 +40,14 @@ To test, run the included example RM:
 
     python3 flexmeasures_client/s2/script/websockets_client.py
 
+For full access via the UI, create an admin user for the Docker Toy Account (here, we assume it has ID 1):
+
+.. code-block:: bash
+
+    docker exec -it flexmeasures-server-1 bash
+    flexmeasures show accounts
+    flexmeasures add user --roles admin  --account 1 --email <email> --username <username>
+
 Disclaimer
 ==========
 
