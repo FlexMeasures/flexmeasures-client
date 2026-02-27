@@ -141,7 +141,7 @@ class FRBCSimple(FRBC):
                 "site-power-capacity": f"{3 * 25 * 230} VA",
             },
             flex_model={
-                "soc-unit": "MWh",
+                "soc-unit": self.energy_unit,
                 "soc-at-start": soc_at_start,  # TODO: use forecast of the SOC instead
                 "soc-min": soc_min,
                 "soc-max": soc_max,
