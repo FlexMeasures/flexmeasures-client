@@ -90,7 +90,10 @@ async def websocket_handler(request):
 
     site_name = "My CEM"
     fm_client = FlexMeasuresClient(
-        "toy-password", "toy-user@flexmeasures.io", host="server:5000"
+        host="server:5000",
+        email="toy-user@flexmeasures.io",
+        password="toy-password",
+        polling_interval=0.5,
     )
 
     (
