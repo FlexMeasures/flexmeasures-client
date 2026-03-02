@@ -86,6 +86,7 @@ class FRBCSimple(FRBC):
         await self._fm_client.post_sensor_data(
             self._soc_sensor_id,
             start=self.now(),
+            prior=self.now(),
             values=[status.present_fill_level],
             unit=self.energy_unit,
             duration=timedelta(minutes=1),
@@ -107,6 +108,7 @@ class FRBCSimple(FRBC):
         await self._fm_client.post_sensor_data(
             self._power_sensor_id,
             start=start,
+            prior=self.now(),
             values=[-power],
             unit=self.power_unit,
             duration=timedelta(minutes=15),
@@ -206,6 +208,7 @@ class FRBCSimple(FRBC):
         await self._fm_client.post_sensor_data(
             sensor_id=self._soc_minima_sensor_id,
             start=fill_level_target_profile.start_time,
+            prior=self.now(),
             values=soc_minima.tolist(),
             unit=self.energy_unit,
             duration=duration,
@@ -215,6 +218,7 @@ class FRBCSimple(FRBC):
         await self._fm_client.post_sensor_data(
             sensor_id=self._soc_maxima_sensor_id,
             start=fill_level_target_profile.start_time,
+            prior=self.now(),
             values=soc_maxima.tolist(),
             unit=self.energy_unit,
             duration=duration,
@@ -251,6 +255,7 @@ class FRBCSimple(FRBC):
         await self._fm_client.post_sensor_data(
             sensor_id=self._usage_forecast_sensor_id,
             start=start_time,
+            prior=self.now(),
             values=scaled_usage_forecast.tolist(),
             unit=self.power_unit,  # e.g. [0, 100] MW/(15 min)
             duration=str(pd.Timedelta(self._resolution) * len(usage_forecast)),
@@ -273,6 +278,7 @@ class FRBCSimple(FRBC):
         await self._fm_client.post_sensor_data(
             self._leakage_behaviour_sensor_id,
             start=start,
+            prior=self.now(),
             values=[storage_efficiency],
             unit="%",
             duration=timedelta(hours=48),
