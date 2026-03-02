@@ -185,7 +185,19 @@ class CEM(Handler):
         if isinstance(message, str):
             message = json.loads(message)
 
-        self._logger.debug(f"Received: {message}")
+        # Detect wrapper
+        if isinstance(message, dict) and "message" in message and "metadata" in message:
+            metadata = message["metadata"]
+            message = message["message"]
+            self._logger.debug(f"Received wrapped message")
+            self._logger.debug(f"Received message: {message}")
+            self._logger.debug(f"Received metadata: {metadata}")
+            if "dt" in metadata:
+                for control_type in self._control_types_handlers.values():
+                    control_type.now = lambda: metadata["dt"]
+                self.now = lambda: metadata["dt"]
+        else:
+            self._logger.debug(f"Received: {message}")
 
         # try to handle the message with the control_type handle
         if (
