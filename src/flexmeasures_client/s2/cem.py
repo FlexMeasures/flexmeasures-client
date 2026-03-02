@@ -194,8 +194,8 @@ class CEM(Handler):
             self._logger.debug(f"Received metadata: {metadata}")
             if "dt" in metadata:
                 for control_type in self._control_types_handlers.values():
-                    control_type.now = lambda: metadata["dt"]
-                self.now = lambda: metadata["dt"]
+                    control_type.now = lambda: metadata["dt"]  # type: ignore
+                self.now = lambda: metadata["dt"]  # type: ignore
         else:
             self._logger.debug(f"Received: {message}")
 
