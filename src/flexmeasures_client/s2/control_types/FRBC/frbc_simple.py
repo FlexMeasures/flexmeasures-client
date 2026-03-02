@@ -30,9 +30,9 @@ from flexmeasures_client.s2.control_types.FRBC.utils import (
     get_soc_min_max,
 )
 from flexmeasures_client.s2.control_types.translations import (
+    leakage_behaviour_to_storage_efficiency,
     translate_fill_level_target_profile,
     translate_usage_forecast_to_fm,
-    leakage_behaviour_to_storage_efficiency,
 )
 
 

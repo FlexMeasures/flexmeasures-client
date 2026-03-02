@@ -189,7 +189,7 @@ class CEM(Handler):
         if isinstance(message, dict) and "message" in message and "metadata" in message:
             metadata = message["metadata"]
             message = message["message"]
-            self._logger.debug(f"Received wrapped message")
+            self._logger.debug("Received wrapped message")
             self._logger.debug(f"Received message: {message}")
             self._logger.debug(f"Received metadata: {metadata}")
             if "dt" in metadata:
