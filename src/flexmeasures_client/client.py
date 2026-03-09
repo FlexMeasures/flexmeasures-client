@@ -1106,6 +1106,16 @@ class FlexMeasuresClient:
         if "attributes" in updates:
             updates["attributes"] = json.dumps(updates["attributes"])
         if "flex_context" in updates:
+            if (
+                isinstance(updates["flex_context"], dict)
+                and "aggregate-power" in updates["flex_context"]
+            ):
+                await self.ensure_server_version()
+                if Version(self.server_version) < Version("0.31.0"):
+                    self.logger.warning(
+                        "update_asset(): The 'aggregate-power' flex-context field requires FlexMeasures server version 0.31.0 or above. "
+                        "The 'aggregate-power' field will be ignored by the server."
+                    )
             updates["flex_context"] = json.dumps(updates["flex_context"])
         if "flex_model" in updates:
             updates["flex_model"] = json.dumps(updates["flex_model"])
