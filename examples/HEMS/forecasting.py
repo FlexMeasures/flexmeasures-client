@@ -79,6 +79,7 @@ async def generate_sensor_forecasts(
         "--forecast-frequency",
         f"PT{SIMULATION_STEP_HOURS}H",
         "--ensure-positive",
+        "True",
         "--model-save-dir",
         "forecaster_models",
     ]

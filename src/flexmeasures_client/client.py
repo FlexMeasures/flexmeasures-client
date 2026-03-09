@@ -746,7 +746,7 @@ class FlexMeasuresClient:
             if Version(self.server_version) < Version("0.31.0"):
                 self.logger.warning(
                     "get_assets(): The 'root', 'depth' and 'fields' parameters require FlexMeasures server version 0.31.0 or above. "
-                    "These parameters will be ignored."
+                    f"The current server has version {self.server_version} and therefore these parameters will be ignored."
                 )
             if root and isinstance(root, int):
                 uri += f"&root={root}"
