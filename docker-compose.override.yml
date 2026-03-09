@@ -13,9 +13,16 @@ services:
     command:
       - |
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
+        pip install timely-beliefs -U --break-system-packages
         flexmeasures db upgrade
         # toy account step removed
         gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 2 --threads 4 wsgi:application
+  worker:
+    command:
+      - |
+        pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
+        pip install timely-beliefs -U --break-system-packages
+        flexmeasures jobs run-worker --name flexmeasures-worker --queue forecasting\|scheduling
   cem:
     build:
       context: .
