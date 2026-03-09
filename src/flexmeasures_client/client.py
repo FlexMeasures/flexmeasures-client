@@ -1228,6 +1228,7 @@ class FlexMeasuresClient:
 
         if prior is not None:
             message["prior"] = pd.Timestamp(prior).isoformat()
+            message["force_new_job_creation"] = True
         if scheduler is not None:
             if asset_id is None:
                 raise ValueError(
