@@ -607,12 +607,9 @@ class FlexMeasuresClient:
                       'unit': 'MW'
                   }
         """
+        params = {}
         if duration is not None:
-            params = {
-                "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
-            }
-        else:
-            params = {}
+            params["duration"] = pd.Timedelta(duration).isoformat(),  # for example: PT1H
         schedule, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
             method="GET",
