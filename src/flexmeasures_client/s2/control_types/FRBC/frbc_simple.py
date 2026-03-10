@@ -180,9 +180,9 @@ class FRBCSimple(FRBC):
         if self.energy_unit == "J":
             f = 3.6 * 10 ** 6
             energy_unit = "kWh"
-            soc_at_start *= f
-            soc_min *= f
-            soc_max *= f
+            soc_at_start /= f
+            soc_min /= f
+            soc_max /= f
         else:
             energy_unit = self.energy_unit
 
