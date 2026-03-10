@@ -170,7 +170,7 @@ class FRBCSimple(FRBC):
             },
             flex_model={
                 "soc-unit": self.energy_unit,
-                "soc-at-start": soc_at_start,  # TODO: use forecast of the SOC instead
+                "soc-at-start": soc_at_start,
                 "soc-min": soc_min,
                 "soc-max": soc_max,
                 "soc-minima": {"sensor": self._soc_minima_sensor_id},
