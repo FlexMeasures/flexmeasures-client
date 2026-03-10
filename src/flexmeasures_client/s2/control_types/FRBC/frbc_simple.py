@@ -46,7 +46,7 @@ class FRBCSimple(FRBC):
     _usage_forecast_sensor_id: int
     _leakage_behaviour_sensor_id: int
     _schedule_duration: timedelta
-    _fill_level_scale: int = 1
+    _fill_level_scale: float
     _resolution = "15min"
 
     def __init__(
@@ -62,6 +62,7 @@ class FRBCSimple(FRBC):
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
+        fill_level_scale: float = 1,
         power_unit: str = "kW",
         energy_unit: str = "kWh",
     ) -> None:
@@ -76,6 +77,7 @@ class FRBCSimple(FRBC):
         self._usage_forecast_sensor_id = usage_forecast_sensor_id
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._timezone = pytz.timezone(timezone)
+        self._fill_level_scale = fill_level_scale
         self.power_unit = power_unit
         self.energy_unit = energy_unit
 
@@ -88,7 +90,7 @@ class FRBCSimple(FRBC):
             self._soc_sensor_id,
             start=now,
             prior=now,
-            values=[status.present_fill_level],
+            values=[status.present_fill_level * self._fill_level_scale],
             unit=self.energy_unit,
             duration=timedelta(minutes=1),
         )
@@ -102,7 +104,7 @@ class FRBCSimple(FRBC):
         power = (
             fill_rate.start_of_range
             + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
-        )
+        ) * self._fill_level_scale
 
         start = status.transition_timestamp or self.now()
 
@@ -141,14 +143,15 @@ class FRBCSimple(FRBC):
         self._logger.debug(f"Using system description: {system_description}")
 
         if len(self._storage_status_history) > 0:
-            soc_at_start = list(self._storage_status_history.values())[
-                -1
-            ].present_fill_level
+            soc_at_start = (
+                list(self._storage_status_history.values())[-1].present_fill_level
+                * self._fill_level_scale
+            )
         else:
             print("Can't trigger schedule without knowing the status of the storage...")
             return
 
-        soc_min, soc_max = get_soc_min_max(system_description)
+        soc_min, soc_max = get_soc_min_max(system_description, self._fill_level_scale)
 
         # call schedule
         if isinstance(start, str):
@@ -183,7 +186,9 @@ class FRBCSimple(FRBC):
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
         instructions = fm_schedule_to_instructions(
-            schedule, system_description, initial_fill_level=soc_at_start
+            schedule,
+            system_description,
+            initial_fill_level=soc_at_start / self._fill_level_scale,
         )
 
         # put instructions to sending queue
