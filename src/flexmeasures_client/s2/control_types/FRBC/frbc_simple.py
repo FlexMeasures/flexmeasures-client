@@ -83,15 +83,16 @@ class FRBCSimple(FRBC):
         return self._timezone.localize(datetime.now())
 
     async def send_storage_status(self, status: FRBCStorageStatus):
+        now = self.now()
         await self._fm_client.post_sensor_data(
             self._soc_sensor_id,
-            start=self.now(),
-            prior=self.now(),
+            start=now,
+            prior=now,
             values=[status.present_fill_level],
             unit=self.energy_unit,
             duration=timedelta(minutes=1),
         )
-        await self.trigger_schedule()
+        await self.trigger_schedule(now)
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
@@ -114,7 +115,7 @@ class FRBCSimple(FRBC):
             duration=timedelta(minutes=15),
         )
 
-    async def trigger_schedule(self, system_description_id: str | None = None):
+    async def trigger_schedule(self, start: datetime, system_description_id: str | None = None):
         """Translates S2 System Description into FM API calls"""
 
         if system_description_id:
@@ -148,7 +149,8 @@ class FRBCSimple(FRBC):
         soc_min, soc_max = get_soc_min_max(system_description)
 
         # call schedule
-        start = system_description.valid_from  # TODO: localize datetime
+        if isinstance(start, str):
+            start = pd.Timestamp(start)
         schedule = await self._fm_client.trigger_and_get_schedule(
             start=start.replace(minute=(start.minute // 15) * 15, second=0, microsecond=0),
             prior=start,
