@@ -115,7 +115,9 @@ class FRBCSimple(FRBC):
             duration=timedelta(minutes=15),
         )
 
-    async def trigger_schedule(self, start: datetime, system_description_id: str | None = None):
+    async def trigger_schedule(
+        self, start: datetime, system_description_id: str | None = None
+    ):
         """Translates S2 System Description into FM API calls"""
 
         if system_description_id:
@@ -152,7 +154,9 @@ class FRBCSimple(FRBC):
         if isinstance(start, str):
             start = pd.Timestamp(start)
         schedule = await self._fm_client.trigger_and_get_schedule(
-            start=start.replace(minute=(start.minute // 15) * 15, second=0, microsecond=0),
+            start=start.replace(
+                minute=(start.minute // 15) * 15, second=0, microsecond=0
+            ),
             prior=start,
             sensor_id=self._power_sensor_id,
             flex_context={
