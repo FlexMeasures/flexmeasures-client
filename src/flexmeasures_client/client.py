@@ -614,6 +614,12 @@ class FlexMeasuresClient:
                 pd.Timedelta(duration).isoformat(),
             )  # for example: PT1H
         if unit is not None:
+            await self.ensure_server_version()
+            if Version(self.server_version) < Version("0.31.0"):
+                self.logger.warning(
+                    "get_schedule(): The 'unit' parameter requires FlexMeasures server version 0.31.0 or above. "
+                    "This parameter will be ignored."
+                )
             params["unit"] = unit
         schedule, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
