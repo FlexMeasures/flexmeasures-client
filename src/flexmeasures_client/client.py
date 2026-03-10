@@ -618,7 +618,7 @@ class FlexMeasuresClient:
             if Version(self.server_version) < Version("0.31.0"):
                 self.logger.warning(
                     "get_schedule(): The 'unit' parameter requires FlexMeasures server version 0.31.0 or above. "
-                    "This parameter will be ignored."
+                    f"This parameter will be ignored for server version {self.server_version}."
                 )
             params["unit"] = unit
         schedule, status = await self.request(
@@ -754,7 +754,7 @@ class FlexMeasuresClient:
             if Version(self.server_version) < Version("0.31.0"):
                 self.logger.warning(
                     "get_assets(): The 'root', 'depth' and 'fields' parameters require FlexMeasures server version 0.31.0 or above. "
-                    "These parameters will be ignored."
+                    f"These parameters will be ignored for server version {self.server_version}."
                 )
             if root and isinstance(root, int):
                 uri += f"&root={root}"
@@ -1127,7 +1127,7 @@ class FlexMeasuresClient:
                 if Version(self.server_version) < Version("0.31.0"):
                     self.logger.warning(
                         "update_asset(): The 'aggregate-power' flex-context field requires FlexMeasures server version 0.31.0 or above. "
-                        "The 'aggregate-power' field will be ignored by the server."
+                        f"The 'aggregate-power' field will be ignored by the server, which is at version {self.server_version}."
                     )
             updates["flex_context"] = json.dumps(updates["flex_context"])
         if "flex_model" in updates:
