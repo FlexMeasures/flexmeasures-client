@@ -20,7 +20,7 @@ async def generate_sensor_forecasts(
     community_name: str,
     regressors: list[tuple[str, str]] | None = None,
 ):
-    """Generate forecasts for the second week using the forecast endpoint."""
+    """Generate forecasts for the second week and wait until the job finishes."""
     print(f"Generating {sensor_name} forecasts for {asset_name}...")
 
     # Find sensors
@@ -62,10 +62,13 @@ async def generate_sensor_forecasts(
     )
     if forecast_id is not None:
         print(f"Forecast triggered with ID: {forecast_id}")
-        return True
-    else:
-        print(f"{sensor_name} forecasts for {asset_name} failed to trigger.")
-        return False
+        await client.get_forecast(
+            sensor_id=target_sensor["id"],
+            forecast_id=forecast_id,
+        )
+        print(f"Forecast job completed for {sensor_name} on {asset_name}")
+
+    return forecast_id
 
 
 async def generate_forecasts(
