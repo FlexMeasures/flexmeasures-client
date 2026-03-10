@@ -63,8 +63,8 @@ class FRBCSimple(FRBC):
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
         fill_level_scale: float = 1,
-        power_unit: str = "kW",
-        energy_unit: str = "kWh",
+        power_unit: str = "W",
+        energy_unit: str = "J",
     ) -> None:
         super().__init__(max_size)
         self._power_sensor_id = power_sensor_id
@@ -176,6 +176,16 @@ class FRBCSimple(FRBC):
 
         soc_min, soc_max = get_soc_min_max(system_description, self._fill_level_scale)
 
+        # Support for J energy unit (FM server only accepts kWh and MWh)
+        if self.energy_unit == "J":
+            f = 3.6 * 10 ** 6
+            energy_unit = "kWh"
+            soc_at_start *= f
+            soc_min *= f
+            soc_max *= f
+        else:
+            energy_unit = self.energy_unit
+
         # call schedule
         if isinstance(start, str):
             start = pd.Timestamp(start)
@@ -192,7 +202,7 @@ class FRBCSimple(FRBC):
                 "relax-constraints": True,
             },
             flex_model={
-                "soc-unit": self.energy_unit,
+                "soc-unit": energy_unit,
                 "soc-at-start": soc_at_start,
                 "soc-min": soc_min,
                 "soc-max": soc_max,
