@@ -120,7 +120,9 @@ class FRBCSimple(FRBC):
     async def trigger_schedule(
         self, start: datetime, system_description_id: str | None = None
     ):
-        """Translates S2 System Description into FM API calls"""
+        """
+        Ask FlexMeasures for a new schedule and create FRBC.Instructions to send back to the ResourceManager
+        """
 
         if system_description_id:
             system_description: FRBCSystemDescription = (
