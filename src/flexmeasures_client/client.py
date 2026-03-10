@@ -596,6 +596,7 @@ class FlexMeasuresClient:
         sensor_id: int,
         schedule_id: str,
         duration: str | timedelta | None = None,
+        unit: str | None = None,
     ) -> dict:
         """Get schedule with given ID.
 
@@ -609,7 +610,11 @@ class FlexMeasuresClient:
         """
         params = {}
         if duration is not None:
-            params["duration"] = pd.Timedelta(duration).isoformat(),  # for example: PT1H
+            params["duration"] = (
+                pd.Timedelta(duration).isoformat(),
+            )  # for example: PT1H
+        if unit is not None:
+            params["unit"] = unit
         schedule, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
             method="GET",
@@ -828,6 +833,7 @@ class FlexMeasuresClient:
         asset_id: int | None = None,
         prior: datetime | None = None,
         scheduler: str | None = None,
+        unit: str | None = None,
     ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
 
@@ -863,7 +869,10 @@ class FlexMeasuresClient:
         if sensor_id is not None:
             # Get the schedule for a single device
             return await self.get_schedule(
-                sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
+                sensor_id=sensor_id,
+                schedule_id=schedule_id,
+                duration=duration,
+                unit=unit,
             )
         elif flex_model is None:
             # If there is no flex-model referencing power sensors, no power schedules are retrieved
