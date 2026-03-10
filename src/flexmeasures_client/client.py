@@ -610,9 +610,7 @@ class FlexMeasuresClient:
         """
         params = {}
         if duration is not None:
-            params["duration"] = (
-                pd.Timedelta(duration).isoformat(),
-            )  # for example: PT1H
+            params["duration"] = pd.Timedelta(duration).isoformat()  # for example: PT1H
         if unit is not None:
             await self.ensure_server_version()
             if Version(self.server_version) < Version("0.32.0"):
