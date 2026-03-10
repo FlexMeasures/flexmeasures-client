@@ -15,7 +15,9 @@ services:
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         flexmeasures db upgrade
-        # toy account step removed
+        if ! flexmeasures show accounts | grep -q "Docker Toy Account"; then
+            flexmeasures add toy-account --name 'Docker Toy Account'
+        fi
         gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 2 --threads 4 wsgi:application
   worker:
     command:
