@@ -178,7 +178,7 @@ class FRBCSimple(FRBC):
 
         # Support for J energy unit (FM server scheduling trigger endpoint only accepts kWh and MWh)
         if self.energy_unit == "J":
-            f = 3.6 * 10 ** 6
+            f = 3.6 * 10**6
             energy_unit = "kWh"
             soc_at_start /= f
             soc_min /= f
