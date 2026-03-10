@@ -176,7 +176,7 @@ class FRBCSimple(FRBC):
 
         soc_min, soc_max = get_soc_min_max(system_description, self._fill_level_scale)
 
-        # Support for J energy unit (FM server only accepts kWh and MWh)
+        # Support for J energy unit (FM server scheduling trigger endpoint only accepts kWh and MWh)
         if self.energy_unit == "J":
             f = 3.6 * 10 ** 6
             energy_unit = "kWh"
