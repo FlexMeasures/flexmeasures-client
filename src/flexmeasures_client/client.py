@@ -615,7 +615,7 @@ class FlexMeasuresClient:
             )  # for example: PT1H
         if unit is not None:
             await self.ensure_server_version()
-            if Version(self.server_version) < Version("0.31.0"):
+            if Version(self.server_version) < Version("0.32.0"):
                 self.logger.warning(
                     "get_schedule(): The 'unit' parameter requires FlexMeasures server version 0.31.0 or above. "
                     f"This parameter will be ignored for server version {self.server_version}."
