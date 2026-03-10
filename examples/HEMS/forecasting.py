@@ -64,7 +64,7 @@ async def generate_sensor_forecasts(
         print(f"Forecast triggered with ID: {forecast_id}")
         return True
     else:
-        print(f"{sensor_name} forecasts for {asset_name} failed to trigger.")")
+        print(f"{sensor_name} forecasts for {asset_name} failed to trigger.")
         return False
 
 
