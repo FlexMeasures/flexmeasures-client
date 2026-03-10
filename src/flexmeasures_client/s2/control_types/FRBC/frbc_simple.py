@@ -151,6 +151,27 @@ class FRBCSimple(FRBC):
             print("Can't trigger schedule without knowing the status of the storage...")
             return
 
+        # Assume a single actuator
+        actuator = system_description.actuators[0]
+
+        # Derive the overall power range
+        charging_capacity = None
+        discharging_capacity = None
+        for operation_mode in actuator.operation_modes:
+            for element in operation_mode.elements:
+                for power_range in element.power_ranges:
+                    # todo: distinguish power range per commodity
+                    p_min = power_range.end_of_range
+                    if discharging_capacity is None:
+                        discharging_capacity = p_min
+                    else:
+                        discharging_capacity = min(discharging_capacity, p_min)
+                    p_max = power_range.start_of_range
+                    if charging_capacity is None:
+                        charging_capacity = p_max
+                    else:
+                        charging_capacity = max(charging_capacity, p_max)
+
         soc_min, soc_max = get_soc_min_max(system_description, self._fill_level_scale)
 
         # call schedule
@@ -178,6 +199,8 @@ class FRBCSimple(FRBC):
                 "state-of-charge": {"sensor": self._soc_sensor_id},
                 "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
                 "storage-efficiency": {"sensor": self._leakage_behaviour_sensor_id},
+                "consumption-capacity": f"{charging_capacity} {self.power_unit}",
+                "production-capacity": f"{discharging_capacity} {self.power_unit}",
             },
             duration=self._schedule_duration,  # next 12 hours
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
