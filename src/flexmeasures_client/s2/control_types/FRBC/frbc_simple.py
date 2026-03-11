@@ -112,7 +112,7 @@ class FRBCSimple(FRBC):
             self._power_sensor_id,
             start=start,
             prior=self.now(),
-            values=[-power],
+            values=[power],
             unit=self.power_unit,
             duration=timedelta(minutes=15),
         )
