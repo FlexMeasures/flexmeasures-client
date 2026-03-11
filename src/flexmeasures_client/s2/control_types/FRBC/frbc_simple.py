@@ -199,7 +199,7 @@ class FRBCSimple(FRBC):
                 "production-price": {"sensor": self._price_sensor_id},
                 "consumption-price": {"sensor": self._price_sensor_id},
                 "site-power-capacity": f"{3 * 25 * 230} VA",
-                "relax-constraints": True,
+                "relax-soc-constraints": True,
             },
             flex_model={
                 "soc-unit": energy_unit,
