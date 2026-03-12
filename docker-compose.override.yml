@@ -10,8 +10,16 @@
 
 services:
   server:
+    volumes:
+      # A place for config and plugin code, and custom requirements.txt
+      # The 1st mount point is for running the FlexMeasures CLI, the 2nd for gunicorn
+      # We use :rw so flexmeasures CLI commands can write log files
+      - ./flexmeasures-instance/:/usr/var/flexmeasures-instance/:rw
+      - ./flexmeasures-instance/:/app/instance/:rw
+      - ../flexmeasures/flexmeasures:/app/flexmeasures:rw
     command:
       - |
+        pip install --break-system-packages -e /app
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         flexmeasures db upgrade
@@ -20,8 +28,14 @@ services:
         fi
         gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 2 --threads 4 wsgi:application
   worker:
+    volumes:
+      # a place for config and plugin code, and custom requirements.txt
+      - ./flexmeasures-instance/:/usr/var/flexmeasures-instance/:rw
+      - ../flexmeasures/flexmeasures:/app/flexmeasures:rw
+      - ./flexmeasures-instance/:/app/instance/:rw
     command:
       - |
+        pip install --break-system-packages -e /app
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         flexmeasures jobs run-worker --name flexmeasures-worker --queue forecasting\|scheduling
