@@ -596,6 +596,7 @@ class FlexMeasuresClient:
         sensor_id: int,
         schedule_id: str,
         duration: str | timedelta | None = None,
+        unit: str | None = None,
     ) -> dict:
         """Get schedule with given ID.
 
@@ -607,12 +608,17 @@ class FlexMeasuresClient:
                       'unit': 'MW'
                   }
         """
+        params = {}
         if duration is not None:
-            params = {
-                "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
-            }
-        else:
-            params = {}
+            params["duration"] = pd.Timedelta(duration).isoformat()  # for example: PT1H
+        if unit is not None:
+            await self.ensure_server_version()
+            if Version(self.server_version) < Version("0.32.0"):
+                self.logger.warning(
+                    "get_schedule(): The 'unit' parameter requires FlexMeasures server version 0.31.0 or above. "
+                    f"This parameter will be ignored by the server, which is at version {self.server_version}."
+                )
+            params["unit"] = unit
         schedule, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
             method="GET",
@@ -746,7 +752,7 @@ class FlexMeasuresClient:
             if Version(self.server_version) < Version("0.31.0"):
                 self.logger.warning(
                     "get_assets(): The 'root', 'depth' and 'fields' parameters require FlexMeasures server version 0.31.0 or above. "
-                    "These parameters will be ignored."
+                    f"These parameters will be ignored for server version {self.server_version}."
                 )
             if root and isinstance(root, int):
                 uri += f"&root={root}"
@@ -831,6 +837,7 @@ class FlexMeasuresClient:
         asset_id: int | None = None,
         prior: datetime | None = None,
         scheduler: str | None = None,
+        unit: str | None = None,
     ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
 
@@ -866,7 +873,10 @@ class FlexMeasuresClient:
         if sensor_id is not None:
             # Get the schedule for a single device
             return await self.get_schedule(
-                sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
+                sensor_id=sensor_id,
+                schedule_id=schedule_id,
+                duration=duration,
+                unit=unit,
             )
         elif flex_model is None:
             # If there is no flex-model referencing power sensors, no power schedules are retrieved
@@ -1115,7 +1125,7 @@ class FlexMeasuresClient:
                 if Version(self.server_version) < Version("0.31.0"):
                     self.logger.warning(
                         "update_asset(): The 'aggregate-power' flex-context field requires FlexMeasures server version 0.31.0 or above. "
-                        "The 'aggregate-power' field will be ignored by the server."
+                        f"The 'aggregate-power' field will be ignored by the server, which is at version {self.server_version}."
                     )
             updates["flex_context"] = json.dumps(updates["flex_context"])
         if "flex_model" in updates:
@@ -1228,6 +1238,7 @@ class FlexMeasuresClient:
 
         if prior is not None:
             message["prior"] = pd.Timestamp(prior).isoformat()
+            message["force_new_job_creation"] = True
         if scheduler is not None:
             if asset_id is None:
                 raise ValueError(
