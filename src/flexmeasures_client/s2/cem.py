@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import math
@@ -172,11 +171,9 @@ class CEM(Handler):
 
     async def handle_message(self, message: Dict | pydantic.BaseModel | str):
         """
-        This method handles the incoming messages to the CEM
-        and routes them to their custom handler. If certain
-        control type is active and there's a handler defined in both
-        the control type handler as well as in the CEM, it prevails the
-        on of the the control type.
+        This method handles the incoming messages to the CEM and routes them to their custom handler.
+        If a certain control type is active and there's a handler defined in both
+        the control type handler and in the CEM, then the one defined in the control type prevails.
         """
 
         response = None
@@ -235,13 +232,7 @@ class CEM(Handler):
         """
 
         message = await self._sending_queue.get()
-        await asyncio.sleep(0.3)
-
-        # Pending for pydantic V2 to implement model.model_dump(mode="json") in
-        # PR #1409 (https://github.com/pydantic/pydantic/issues/1409)
-        message = json.loads(message.json())
-
-        return message
+        return message.model_dump(mode="json")
 
     async def activate_control_type(
         self, control_type: ControlType
@@ -288,10 +279,11 @@ class CEM(Handler):
         return None
 
     @register(Handshake)
-    def handle_handshake(self, message: Handshake):
+    async def handle_handshake(self, message: Handshake):
         # TODO: check the version that the RM is using and send a
         # `selected_protocol_version` that matches the one of the RM
         # TODO: Return a TBD "CloseConnection" message to close the connection
+        await self.send_message(get_reception_status(message, ReceptionStatusValues.OK))
 
         latest_compatible_version = get_latest_compatible_version(
             message.supported_protocol_versions,
@@ -391,7 +383,7 @@ class CEM(Handler):
                     values=[avg_value],
                     unit=get_commodity_unit(commodity_quantity),
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: B902 - intentional safety net
                 self._logger.warning(
                     f"POSTing power measurement failed with error: {e}"
                 )

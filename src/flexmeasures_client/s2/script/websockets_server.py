@@ -1,5 +1,7 @@
 import asyncio
 import json
+import logging
+import os
 
 import aiohttp
 from aiohttp import web
@@ -8,6 +10,13 @@ from s2python.common import ControlType
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
+
+log_level = os.getenv("LOGGING_LEVEL", "WARNING").upper()
+logging.basicConfig(
+    level=log_level,
+    format="[CEM][%(asctime)s] %(levelname)s:  %(name)s | %(message)s",
+)
+LOGGER = logging.getLogger(__name__)
 
 
 async def rm_details_watchdog(ws, cem: CEM):
@@ -26,43 +35,46 @@ async def rm_details_watchdog(ws, cem: CEM):
 
     # check/wait that the control type is set properly
     while cem._control_type != ControlType.FILL_RATE_BASED_CONTROL:
-        print("waiting for the activation of the control type...")
+        cem._logger.debug("waiting for the activation of the control type...")
         await asyncio.sleep(1)
 
-    print("CONTROL TYPE: ", cem._control_type)
+    cem._logger.debug(f"CONTROL TYPE: {cem._control_type}")
 
     # after this, schedule will be triggered on reception of a new system description
 
 
 async def websocket_producer(ws, cem: CEM):
-    print("start websocket message producer")
-    print("IS CLOSED? ", cem.is_closed())
+    cem._logger.debug("start websocket message producer")
+    cem._logger.debug(f"IS CLOSED? {cem.is_closed()}")
     while not cem.is_closed():
         message = await cem.get_message()
-        print("sending message")
+        cem._logger.debug("sending message")
         await ws.send_json(message)
-    print("cem closed")
+    cem._logger.debug("cem closed")
 
 
 async def websocket_consumer(ws, cem: CEM):
     async for msg in ws:
-        print("RECEIVED: ", json.loads(msg.json()))
+        cem._logger.info(f"RECEIVED: {msg}")
         if msg.type == aiohttp.WSMsgType.TEXT:
             if msg.data == "close":
                 # TODO: save cem state?
-                print("close...")
+                cem._logger.debug("close...")
                 cem.close()
                 await ws.close()
             else:
-                await cem.handle_message(json.loads(msg.json()))
+                try:
+                    await cem.handle_message(json.loads(msg.json()))
+                except TypeError:
+                    await cem.handle_message(msg.json())
 
         elif msg.type == aiohttp.WSMsgType.ERROR:
-            print("close...")
+            cem._logger.debug("close...")
             cem.close()
-            print("ws connection closed with exception %s" % ws.exception())
+            cem._logger.error(f"ws connection closed with exception {ws.exception()}")
             # TODO: save cem state?
 
-    print("websocket connection closed")
+    cem._logger.debug("websocket connection closed")
 
 
 async def websocket_handler(request):
@@ -78,7 +90,11 @@ async def websocket_handler(request):
         site_name, fm_client
     )
 
-    cem = CEM(sensor_id=power_sensor["id"], fm_client=fm_client)
+    cem = CEM(
+        sensor_id=power_sensor["id"],
+        fm_client=fm_client,
+        logger=LOGGER,
+    )
     frbc = FRBCSimple(
         power_sensor_id=power_sensor["id"],
         price_sensor_id=price_sensor["id"],

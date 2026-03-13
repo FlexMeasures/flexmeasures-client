@@ -55,7 +55,7 @@ class FRBCSimple(FRBC):
         self._timezone = pytz.timezone(timezone)
 
         # delay the start of the schedule from the time `valid_from`
-        # of the FRBC.SystemDescritption.
+        # of the FRBC.SystemDescription.
         self._valid_from_shift = valid_from_shift
 
     def now(self):

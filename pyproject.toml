@@ -75,8 +75,8 @@ help = "Run the full test suite."
 cmd = "pytest"
 
 [tool.poe.tasks.test-no-s2]
-help = "Run the test suite (excluding S2)."
-cmd = "pytest --ignore=tests/s2"
+help = "Run the test suite (excluding S2) and generate coverage report."
+cmd = "pytest --ignore=tests/s2 --cov --cov-report="
 
 [tool.poe.tasks.test-s2]
 help = "Run S2 tests."
