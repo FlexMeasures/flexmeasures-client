@@ -36,7 +36,7 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: '.pre-commit-config.yaml'
-          uv-version: "0.10"
+          version: "0.10.9"
       - name: Install dev dependencies
         run: uv sync --only-group dev --frozen
       - uses: tox-dev/action-pre-commit-uv@v1
@@ -58,12 +58,11 @@ jobs:
     name: "Test (${{ matrix.platform }} on Python ${{ matrix.python }})"
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # needed for hatch-vcs versioning
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          version: "0.10.9"
           python-version: ${{ matrix.python }}
       - name: Install dependencies
         run: uv sync --frozen --group test
@@ -76,12 +75,11 @@ jobs:
     name: "Test S2 (on Python 3.12)"
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          version: "0.10.9"
           python-version-file: ".python-version"
       - name: Install dependencies
         run: uv sync --frozen --extra s2 --group test
