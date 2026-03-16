@@ -84,11 +84,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --extra s2 --group test
       - name: Run S2 tests
-        run: uv run pytest tests/s2 -rFEx --durations 10 --color yes
+        run: uv run pytest tests/s2 -rFEx --durations 10 --color yes --cov
       - name: Show coverage report
-        run: pipx run coverage report
+        run: uv run coverage report
       - name: Generate coverage report
-        run: pipx run coverage lcov -o coverage.lcov
+        run: uv run coverage lcov -o coverage.lcov
       - name: Upload partial coverage report
         uses: coverallsapp/github-action@v2
         with:
