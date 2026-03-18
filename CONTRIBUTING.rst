@@ -93,9 +93,10 @@ that any documentation update is done in the same way was a code contribution.
       submit your proposal.
 
 When working on documentation changes in your local machine, you can
-compile them using |tox|_::
+compile them using Sphinx::
 
-    tox -e docs
+    uv sync --group docs
+    uv run sphinx-build docs docs/_build/html
 
 and use Python's built-in web server for a preview in your web browser
 (``http://localhost:8000``)::
@@ -122,17 +123,20 @@ This often provides additional considerations and avoids unnecessary work.
 Create an environment
 ---------------------
 
-Before you start coding, we recommend creating an isolated `virtual
-environment`_ to avoid any problems with your installed Python packages.
-This can easily be done via either |virtualenv|_::
+We use the excellent `uv <https://docs.astral.sh/uv/>`_ tool to manage our dependencies.
+First, `install uv <https://docs.astral.sh/uv/getting-started/installation/>`_.
 
-    virtualenv <PATH TO VENV>
-    source <PATH TO VENV>/bin/activate
+Before you start coding, install all dependencies including the ones needed for development:
 
-or Miniconda_::
+.. code-block:: bash
 
-    conda create -n flexmeasures-client python=3 six virtualenv pytest pytest-cov
-    conda activate flexmeasures-client
+    uv sync --group dev --group test
+
+This will also create an isolated virtual environment automatically.
+
+.. note::
+
+    If you prefer shorter commands during interactive development, you can either activate the virtual environment (``source .venv/bin/activate``, or ``.venv\\Scripts\\activate`` on Windows) or prefix commands with ``uv run``.
 
 Clone the repository
 --------------------
@@ -147,7 +151,7 @@ Clone the repository
 
 #. You should run::
 
-    pip install -U pip setuptools -e .
+    uv sync --group dev --group test
 
    to be able to import the package under development in the Python REPL.
 
@@ -155,7 +159,7 @@ Clone the repository
 
 #. Install |pre-commit|_::
 
-    pip install pre-commit
+    uv tool install pre-commit
     pre-commit install
 
    ``flexmeasures-client`` comes with a lot of hooks configured to automatically help the
@@ -201,9 +205,7 @@ Implement your changes
 
 #. Please check that your changes don't break any unit tests with::
 
-    tox
-
-   (after having installed |tox|_ with ``pip install tox`` or ``pipx``).
+    uv run poe test
 
    You can also use |tox|_ to run several other pre-configured tasks in the
    repository. Try ``tox -av`` to see a list of the available checks.
@@ -239,32 +241,20 @@ package:
    ``.eggs``, as well as the ``*.egg-info`` folders in the ``src`` folder or
    potentially in the root of your project.
 
-#. Sometimes |tox|_ misses out when new dependencies are added, especially to
-   ``setup.cfg`` and ``docs/requirements.txt``. If you find any problems with
-   missing dependencies when running a command with |tox|_, try to recreate the
-   ``tox`` environment using the ``-r`` flag. For example, instead of::
+#. If you find any problems with missing dependencies, try recreating the
+   virtual environment by removing it and re-running ``uv sync``::
 
-    tox -e docs
+    rm -rf .venv
+    uv sync --group dev --group test
 
-   Try running::
+#. Make sure ``uv`` is up to date::
 
-    tox -r -e docs
+    uv self update
 
-#. Make sure to have a reliable |tox|_ installation that uses the correct
-   Python version (e.g., 3.7+). When in doubt you can run::
+   If you have trouble with the virtual environment, you can verify which Python
+   is being used::
 
-    tox --version
-    # OR
-    which tox
-
-   If you have trouble and are seeing weird errors upon running |tox|_, you can
-   also try to create a dedicated `virtual environment`_ with a |tox|_ binary
-   freshly installed. For example::
-
-    virtualenv .venv
-    source .venv/bin/activate
-    .venv/bin/pip install tox
-    .venv/bin/tox -e all
+    uv run python --version
 
 #. `Pytest can drop you`_ in an interactive session in the case an error occurs.
    In order to do that you need to pass a ``--pdb`` option (for example by
@@ -278,27 +268,21 @@ Maintainer tasks
 Releases
 --------
 
-.. todo:: This section assumes you are using PyPI to publicly release your package.
+Releases are handled automatically by the CI pipeline (``release.yml``). To publish a new release:
 
-   If instead you are using a different/private package index, please update
-   the instructions accordingly.
+#. Make sure all unit tests are successful on ``main``.
+#. Tag the commit with a version tag and push it::
 
-If you are part of the group of maintainers and have correct user permissions
-on PyPI_, the following steps can be used to release a new version for
-``flexmeasures-client``:
+    git tag -s -a vX.Y.Z -m "Short summary"
+    git push upstream vX.Y.Z
 
-#. Make sure all unit tests are successful.
-#. Tag the current commit on the main branch with a release tag, e.g., ``v1.2.3``.
-#. Push the new tag to the upstream repository_, e.g., ``git push upstream v1.2.3``
-#. Clean up the ``dist`` and ``build`` folders with ``tox -e clean``
-   (or ``rm -rf dist build``)
-   to avoid confusion with old builds and Sphinx docs.
-#. Run ``tox -e build`` and check that the files in ``dist`` have
-   the correct version (no ``.dirty`` or git_ hash) according to the git_ tag.
-   Also check the sizes of the distributions, if they are too big (e.g., >
-   500KB), unwanted clutter may have been accidentally included.
-#. Run ``tox -e publish -- --repository pypi`` and check that everything was
-   uploaded to PyPI_ correctly.
+Or make a new release in the GitHub UI.
+
+The CI will then automatically:
+
+- Build the distribution with ``uv build``
+- Publish it to PyPI_ using trusted publishing (no API token required)
+- Create a GitHub release with auto-generated release notes
 
 
 
