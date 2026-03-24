@@ -55,20 +55,19 @@ Run the tutorial script
 =======================
 
 Before running the tutorial, make sure to update the connection details and other relevant settings (e.g., host, port, credentials) in examples/HEMS/const.py to match your local FlexMeasures setup.
-Open four terminals. In the first terminal, run the server:
+Open three terminals. In the first terminal, run the server:
 
 .. code-block:: bash
 
     flexmeasures run
 
-In the second and third terminals, run flexmeasures workers for the scheduling and forecasting jobs:
+In the second terminals, run flexmeasures workers that listen to both the scheduling and forecasting queues:
 
 .. code-block:: bash
 
-    flexmeasures jobs run-worker --queue "scheduling"
-    flexmeasures jobs run-worker --queue "forecasting"
+    flexmeasures jobs run-worker --queue "forecasting|scheduling"
 
-In the fourth terminal, run the client script using the `/examples/HEMS` folder as the current working directory:
+In the third terminal, run the client script using the `/examples/HEMS` folder as the current working directory:
 
 .. code-block:: bash
 
