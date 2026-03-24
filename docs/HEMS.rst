@@ -15,7 +15,7 @@ This is the resulting dashboard:
     :align: center
 |
 
-.. note:: The tutorial still uses the CLI for reporting.
+.. note:: The tutorial still uses the CLI for reporting. In future versions, we might make reporting available via the API, as well.
 
 
 Set up your environment
