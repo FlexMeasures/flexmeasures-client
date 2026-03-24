@@ -1429,6 +1429,17 @@ class FlexMeasuresClient:
                             if isinstance(forecast, dict)
                             else "unknown"
                         )
+                        if job_status.lower() == "failed":
+                            error_details = ""
+                            if isinstance(forecast, dict):
+                                for key in ("message", "error", "exc_info"):
+                                    value = forecast.get(key)
+                                    if value:
+                                        error_details = f" Details: {value}"
+                                        break
+                            raise ConnectionError(
+                                f"Forecast job failed for forecast ID {forecast_id}.{error_details}"
+                            )
                         message = f"Forecast job status: {job_status}. Polling step: {polling_step}. Retrying in {self.polling_interval} seconds..."
                         self.logger.debug(message)
                         polling_step += 1
