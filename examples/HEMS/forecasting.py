@@ -63,10 +63,20 @@ async def generate_sensor_forecasts(
     )
     if forecast_id is not None:
         print(f"Forecast triggered with ID: {forecast_id}")
-        await client.get_forecast(
-            sensor_id=target_sensor["id"],
-            forecast_id=forecast_id,
-        )
+        try:
+            await client.get_forecast(
+                sensor_id=target_sensor["id"],
+                forecast_id=forecast_id,
+            )
+        except Exception as exc:
+            print(
+                f"Forecast job {forecast_id} failed for {sensor_name} on {asset_name}: {exc}"
+            )
+            print(
+                "Look up this job in the RQ dashboard for more details about the failure."
+            )
+            return False
+
         print(f"Forecast job completed for {sensor_name} on {asset_name}")
 
     return forecast_id
