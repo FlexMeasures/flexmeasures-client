@@ -48,7 +48,6 @@ async def generate_sensor_forecasts(
         print("Could not find required sensors for forecasting")
         return False
 
-
     forecast_id = await client.trigger_forecast(
         sensor_id=target_sensor["id"],
         train_start=TUTORIAL_START_DATE,
@@ -56,9 +55,11 @@ async def generate_sensor_forecasts(
         end=SCHEDULING_END,
         max_forecast_horizon=f"PT{FORECAST_HORIZON_HOURS}H",
         forecast_frequency=f"PT{SIMULATION_STEP_HOURS}H",
-        past_regressors=[sensor["id"] for sensor in regressor_sensors]
-        if regressor_sensors
-        else None,
+        past_regressors=(
+            [sensor["id"] for sensor in regressor_sensors]
+            if regressor_sensors
+            else None
+        ),
     )
     if forecast_id is not None:
         print(f"Forecast triggered with ID: {forecast_id}")
