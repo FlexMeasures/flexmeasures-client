@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import math
@@ -233,13 +232,7 @@ class CEM(Handler):
         """
 
         message = await self._sending_queue.get()
-        await asyncio.sleep(0.3)
-
-        # Pending for pydantic V2 to implement model.model_dump(mode="json") in
-        # PR #1409 (https://github.com/pydantic/pydantic/issues/1409)
-        message = json.loads(message.json())
-
-        return message
+        return message.model_dump(mode="json")
 
     async def activate_control_type(
         self, control_type: ControlType
@@ -390,7 +383,7 @@ class CEM(Handler):
                     values=[avg_value],
                     unit=get_commodity_unit(commodity_quantity),
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: B902 - intentional safety net
                 self._logger.warning(
                     f"POSTing power measurement failed with error: {e}"
                 )
