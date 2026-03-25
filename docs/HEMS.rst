@@ -61,7 +61,7 @@ Open three terminals. In the first terminal, run the server:
 
     flexmeasures run
 
-In the second terminals, run flexmeasures workers that listen to both the scheduling and forecasting queues:
+In the second terminal, run a flexmeasures worker that listens to both the scheduling and forecasting queues:
 
 .. code-block:: bash
 
