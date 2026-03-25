@@ -67,6 +67,8 @@ In the second terminal, run a flexmeasures worker that listens to both the sched
 
     flexmeasures jobs run-worker --queue "forecasting|scheduling"
 
+Note: you can run the same command in two terminals (2 workers), to speed up the computation!
+
 In the third terminal, run the client script using the `/examples/HEMS` folder as the current working directory:
 
 .. code-block:: bash
