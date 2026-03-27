@@ -146,7 +146,7 @@ async def test_get_forecast_polling() -> None:
 
 @pytest.mark.asyncio
 async def test_get_forecast_failed_job() -> None:
-    """Test getting a forecast stops early when the job reports failure."""
+    """Test getting a forecast surfaces API failure details for failed jobs."""
     sensor_id = 1
     forecast_id = "failed-uuid"
     url = f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/forecasts/{forecast_id}"
@@ -154,9 +154,8 @@ async def test_get_forecast_failed_job() -> None:
     with aioresponses() as m:
         m.get(
             url=url,
-            status=202,
+            status=422,
             payload={
-                "status": "FAILED",
                 "message": "Training data is incomplete.",
             },
         )
@@ -170,8 +169,8 @@ async def test_get_forecast_failed_job() -> None:
         )
 
         with pytest.raises(
-            ConnectionError,
-            match="Forecast job failed for forecast ID failed-uuid. Details: Training data is incomplete.",
+            ValueError,
+            match="Request failed with status code 422: Training data is incomplete.",
         ):
             await flexmeasures_client.get_forecast(
                 sensor_id=sensor_id, forecast_id=forecast_id

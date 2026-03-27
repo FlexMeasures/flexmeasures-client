@@ -61,6 +61,10 @@ async def check_response(
     elif payload.get("errors"):
         # try to raise any error messages from the response
         raise ValueError(" ,".join(payload.get("errors")))
+    elif payload.get("message"):
+        raise ValueError(
+            f"Request failed with status code {status}: {payload.get('message')}"
+        )
     else:
         message = f"""
         status: {status}
