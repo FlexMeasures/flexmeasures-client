@@ -48,36 +48,37 @@ async def generate_sensor_forecasts(
         print("Could not find required sensors for forecasting")
         return False
 
-    forecast_id = await client.trigger_forecast(
-        sensor_id=target_sensor["id"],
-        train_start=TUTORIAL_START_DATE,
-        start=FORECASTING_START,
-        end=SCHEDULING_END,
-        max_forecast_horizon=f"PT{FORECAST_HORIZON_HOURS}H",
-        forecast_frequency=f"PT{SIMULATION_STEP_HOURS}H",
-        past_regressors=(
-            [sensor["id"] for sensor in regressor_sensors]
-            if regressor_sensors
-            else None
-        ),
-    )
-    if forecast_id is not None:
+    forecast_id: str | None = None
+    try:
+        forecast_id = await client.trigger_forecast(
+            sensor_id=target_sensor["id"],
+            train_start=TUTORIAL_START_DATE,
+            start=FORECASTING_START,
+            end=SCHEDULING_END,
+            max_forecast_horizon=f"PT{FORECAST_HORIZON_HOURS}H",
+            forecast_frequency=f"PT{SIMULATION_STEP_HOURS}H",
+            past_regressors=(
+                [sensor["id"] for sensor in regressor_sensors]
+                if regressor_sensors
+                else None
+            ),
+        )
         print(f"Forecast triggered with ID: {forecast_id}")
-        try:
-            await client.get_forecast(
-                sensor_id=target_sensor["id"],
-                forecast_id=forecast_id,
-            )
-        except Exception as exc:
-            print(
-                f"Forecast job {forecast_id} failed for {sensor_name} on {asset_name}: {exc}"
-            )
-            print(
-                "Look up this job in the RQ dashboard for more details about the failure."
-            )
-            return False
+        await client.get_forecast(
+            sensor_id=target_sensor["id"],
+            forecast_id=forecast_id,
+        )
+    except Exception as exc:
+        job_id = forecast_id if forecast_id is not None else "unknown"
+        print(
+            f"Forecast job {job_id} failed for {sensor_name} on {asset_name}: {exc}"
+        )
+        print(
+            "Look up this job in the RQ dashboard for more details about the failure."
+        )
+        return False
 
-        print(f"Forecast job completed for {sensor_name} on {asset_name}")
+    print(f"Forecast job completed for {sensor_name} on {asset_name}")
 
     return forecast_id
 
