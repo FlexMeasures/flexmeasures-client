@@ -61,7 +61,10 @@ async def check_response(
     elif payload.get("errors"):
         # try to raise any error messages from the response
         raise ValueError(" ,".join(payload.get("errors")))
-    elif payload.get("message"):
+    elif payload.get("message") and status != 404:
+        # For most non-2xx responses with a JSON message, raise ValueError.
+        # 404s are excluded so they fall through to response.raise_for_status(),
+        # preserving the aiohttp.ClientError behavior used by version checks.
         raise ValueError(
             f"Request failed with status code {status}: {payload.get('message')}"
         )
