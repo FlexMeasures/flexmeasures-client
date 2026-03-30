@@ -19,7 +19,7 @@ async def generate_sensor_forecasts(
     asset_name: str,
     community_name: str,
     regressors: list[tuple[str, str]] | None = None,
-):
+) -> str | None:
     """Generate forecasts for the second week and wait until the job finishes."""
     print(f"Generating {sensor_name} forecasts for {asset_name}...")
 
@@ -46,7 +46,7 @@ async def generate_sensor_forecasts(
 
     if not target_sensor:
         print("Could not find required sensors for forecasting")
-        return False
+        return None
 
     forecast_id: str | None = None
     try:
@@ -76,7 +76,7 @@ async def generate_sensor_forecasts(
         print(
             "Look up this job in the RQ dashboard for more details about the failure."
         )
-        return False
+        return None
 
     print(f"Forecast job completed for {sensor_name} on {asset_name}")
 
