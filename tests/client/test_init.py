@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -343,6 +344,34 @@ async def test_ensure_server_version_already_known():
     client.server_version = "0.31.0"
     await client.ensure_server_version()
     assert client.server_version == "0.31.0"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_ensure_minimum_server_version_already_satisfied():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.server_version = "0.31.0"
+    await client.ensure_minimum_server_version("0.31.0")
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_ensure_minimum_server_version_raises_with_message():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.server_version = "0.30.0"
+    expected_message = (
+        "This functionality requires FlexMeasures server of 0.31.0 or above. "
+        "Current server has version 0.30.0.\n"
+        "The HEMS example requires a FlexMeasures server of v0.31.0 or above."
+    )
+    with pytest.raises(
+        InsufficientServerVersionError,
+        match=re.escape(expected_message),
+    ):
+        await client.ensure_minimum_server_version(
+            "0.31.0",
+            "The HEMS example requires a FlexMeasures server of v0.31.0 or above.",
+        )
     await client.close()
 
 

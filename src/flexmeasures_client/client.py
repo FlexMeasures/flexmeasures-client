@@ -147,6 +147,23 @@ class FlexMeasuresClient:
             version_info = await self.get_versions()
             self.server_version = version_info["server_version"]
 
+    async def ensure_minimum_server_version(
+        self,
+        minimum_server_version: str,
+        minimum_server_version_msg: str | None = None,
+    ):
+        """Ensure that the server version meets a minimum requirement."""
+        await self.ensure_server_version()
+        if Version(cast(str, self.server_version)) < Version(minimum_server_version):
+            msg = (
+                "This functionality requires FlexMeasures server of "
+                f"{minimum_server_version} or above. Current server has version "
+                f"{self.server_version}."
+            )
+            if minimum_server_version_msg:
+                msg += f"\n{minimum_server_version_msg}"
+            raise InsufficientServerVersionError(msg)
+
     async def request(
         self,
         uri: str,
@@ -212,14 +229,10 @@ class FlexMeasuresClient:
                             "404" in str(exception)
                             and minimum_server_version is not None
                         ):
-                            await self.ensure_server_version()
-                            if Version(self.server_version) < Version(
-                                minimum_server_version
-                            ):
-                                msg = f"This functionality requires FlexMeasures server of {minimum_server_version} or above. Current server has version {self.server_version}."
-                                if minimum_server_version_msg:
-                                    msg += f"\n{minimum_server_version_msg}"
-                                raise InsufficientServerVersionError(msg)
+                            await self.ensure_minimum_server_version(
+                                minimum_server_version,
+                                minimum_server_version_msg,
+                            )
                         raise ConnectionError(
                             f"Error occurred while communicating with the API: {exception}"
                         ) from exception

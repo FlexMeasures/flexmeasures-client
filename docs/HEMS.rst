@@ -6,7 +6,7 @@ HEMS tutorial
 We wrote a complete tutorial with the client*, which sets up a HEMS from scratch (from nothing but a FlexMeasures account).
 
 - It creates the whole structure - with PV, battery and a heat pump.
-- It loads two weeks of historical data and creates forecasts based on it
+- It loads two weeks of historical data and creates forecasts through the forecasting API.
 - It goes through one week in 4h steps, forecasting and scheduling all flexible assets.
 
 This is the resulting dashboard:
@@ -15,7 +15,7 @@ This is the resulting dashboard:
     :align: center
 |
 
-.. note:: The tutorial still uses the CLI for two things: forecasting and reporting. We are working on those...
+.. note:: The tutorial still uses the CLI for reporting. In future versions, we might make reporting available via the API, as well.
 
 
 Set up your environment
@@ -61,11 +61,13 @@ Open three terminals. In the first terminal, run the server:
 
     flexmeasures run
 
-In the second terminal, run a flexmeasures worker for the scheduling jobs:
+In the second terminal, run a flexmeasures worker that listens to both the scheduling and forecasting queues:
 
 .. code-block:: bash
 
-    flexmeasures jobs run-worker --queue "scheduling"
+    flexmeasures jobs run-worker --queue "forecasting|scheduling"
+
+Note: you can run the same command in two terminals (2 workers), to speed up the computation!
 
 In the third terminal, run the client script using the `/examples/HEMS` folder as the current working directory:
 
