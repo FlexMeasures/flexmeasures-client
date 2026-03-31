@@ -73,9 +73,7 @@ async def generate_sensor_forecasts(
         )
     except Exception as exc:
         job_id = forecast_id if forecast_id is not None else "unknown"
-        print(
-            f"Forecast job {job_id} failed for {sensor_name} on {asset_name}: {exc}"
-        )
+        print(f"Forecast job {job_id} failed for {sensor_name} on {asset_name}: {exc}")
         print(
             "Look up this job in the RQ dashboard for more details about the failure."
         )
