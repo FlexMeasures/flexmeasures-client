@@ -20,7 +20,10 @@ async def generate_sensor_forecasts(
     community_name: str,
     regressors: list[tuple[str, str]] | None = None,
 ) -> str | None:
-    """Generate forecasts for the second week and wait until the job finishes."""
+    """
+    Generate forecasts for the second week and wait until the job finishes.
+    Returns sensor ID as str, or None if a failure happened.
+    """
     print(f"Generating {sensor_name} forecasts for {asset_name}...")
 
     # Find sensors
