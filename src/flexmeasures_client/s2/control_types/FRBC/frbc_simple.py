@@ -4,8 +4,7 @@ Used it at your own risk :)
 """
 
 from datetime import datetime, timedelta
-
-import pytz
+from zoneinfo import ZoneInfo
 
 try:
     from s2python.frbc import (
@@ -52,14 +51,14 @@ class FRBCSimple(FRBC):
         self._schedule_duration = schedule_duration
         self._soc_sensor_id = soc_sensor_id
         self._rm_discharge_sensor_id = rm_discharge_sensor_id
-        self._timezone = pytz.timezone(timezone)
+        self._timezone = ZoneInfo(timezone)
 
         # delay the start of the schedule from the time `valid_from`
         # of the FRBC.SystemDescription.
         self._valid_from_shift = valid_from_shift
 
     def now(self):
-        return self._timezone.localize(datetime.now())
+        return datetime.now(self._timezone)
 
     async def send_storage_status(self, status: FRBCStorageStatus):
         await self._fm_client.post_measurements(

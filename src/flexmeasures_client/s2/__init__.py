@@ -7,9 +7,9 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Coroutine, Dict, Type
+from zoneinfo import ZoneInfo
 
 import pydantic
-import pytz
 
 try:
     from s2python.common import ReceptionStatus, ReceptionStatusValues, RevokeObject
@@ -125,7 +125,7 @@ class Handler:
 
         self.outgoing_messages_status = SizeLimitOrderedDict(max_size=max_size)
 
-        self._timezone = pytz.timezone(timezone)
+        self._timezone = ZoneInfo(timezone)
 
         self.discover()
 
