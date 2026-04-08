@@ -292,7 +292,10 @@ class FlexMeasuresClient:
         # Track server version from the FlexMeasures-Version response header
         header_version = response.headers.get("FlexMeasures-Version")
         if header_version is not None:
-            if self.server_version is not None and self.server_version != header_version:
+            if (
+                self.server_version is not None
+                and self.server_version != header_version
+            ):
                 self.logger.info(
                     f"FlexMeasures server version changed from {self.server_version} to {header_version}."
                 )
@@ -762,7 +765,9 @@ class FlexMeasuresClient:
             uri += f"&account_id={account_id}"
 
         if root or depth or fields:
-            if self.server_version is not None and Version(self.server_version) < Version("0.31.0"):
+            if self.server_version is not None and Version(
+                self.server_version
+            ) < Version("0.31.0"):
                 self.logger.warning(
                     "get_assets(): The 'root', 'depth' and 'fields' parameters require FlexMeasures server version 0.31.0 or above. "
                     "These parameters will be ignored."
@@ -1130,7 +1135,9 @@ class FlexMeasuresClient:
                 isinstance(updates["flex_context"], dict)
                 and "aggregate-power" in updates["flex_context"]
             ):
-                if self.server_version is not None and Version(self.server_version) < Version("0.31.0"):
+                if self.server_version is not None and Version(
+                    self.server_version
+                ) < Version("0.31.0"):
                     self.logger.warning(
                         "update_asset(): The 'aggregate-power' flex-context field requires FlexMeasures server version 0.31.0 or above. "
                         "The 'aggregate-power' field will be ignored by the server."
