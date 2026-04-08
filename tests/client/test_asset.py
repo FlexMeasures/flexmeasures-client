@@ -371,16 +371,6 @@ async def test_update_assets():
 async def test_update_asset_aggregate_power_version_check(caplog):
     """Warning is issued when using 'aggregate-power' with a server < 0.31.0."""
     with aioresponses() as m:
-        m.get(
-            "http://localhost:5000/api/",
-            status=200,
-            payload={
-                "flexmeasures_version": "0.30.0",
-                "message": "",
-                "status": 200,
-                "versions": ["v3_0"],
-            },
-        )
         m.patch(
             "http://localhost:5000/api/v3_0/assets/1",
             status=200,
@@ -391,6 +381,7 @@ async def test_update_asset_aggregate_power_version_check(caplog):
             password="test",
         )
         flexmeasures_client.access_token = "test-token"
+        flexmeasures_client.server_version = "0.30.0"
         with caplog.at_level("WARNING"):
             await flexmeasures_client.update_asset(
                 asset_id=1,
@@ -410,16 +401,6 @@ async def test_update_asset_aggregate_power_version_check(caplog):
 async def test_update_asset_aggregate_power_no_warning_on_new_server(caplog):
     """No warning is issued when using 'aggregate-power' with a server >= 0.31.0."""
     with aioresponses() as m:
-        m.get(
-            "http://localhost:5000/api/",
-            status=200,
-            payload={
-                "flexmeasures_version": "0.31.0",
-                "message": "",
-                "status": 200,
-                "versions": ["v3_0"],
-            },
-        )
         m.patch(
             "http://localhost:5000/api/v3_0/assets/1",
             status=200,
@@ -430,6 +411,7 @@ async def test_update_asset_aggregate_power_no_warning_on_new_server(caplog):
             password="test",
         )
         flexmeasures_client.access_token = "test-token"
+        flexmeasures_client.server_version = "0.31.0"
         with caplog.at_level("WARNING"):
             await flexmeasures_client.update_asset(
                 asset_id=1,

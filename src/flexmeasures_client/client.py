@@ -141,19 +141,17 @@ class FlexMeasuresClient:
         """Function to close FlexMeasuresClient session when all requests are done."""
         await cast(ClientSession, self.session).close()
 
-    async def ensure_server_version(self):
-        """Ensure that the server version is known."""
-        if self.server_version is None:
-            version_info = await self.get_versions()
-            self.server_version = version_info["server_version"]
-
     async def ensure_minimum_server_version(
         self,
         minimum_server_version: str,
         minimum_server_version_msg: str | None = None,
     ):
         """Ensure that the server version meets a minimum requirement."""
-        await self.ensure_server_version()
+        if self.server_version is None:
+            # Fall back to explicit version lookup for older servers that don't
+            # send the FlexMeasures-Version response header.
+            version_info = await self.get_versions()
+            self.server_version = version_info["server_version"]
         if Version(cast(str, self.server_version)) < Version(minimum_server_version):
             msg = (
                 "This functionality requires FlexMeasures server of "
@@ -290,6 +288,18 @@ class FlexMeasuresClient:
         self.logger.debug(response_payload_msg)
         self.logger.debug(headers_msg)
         self.logger.debug("=" * 14)
+
+        # Track server version from the FlexMeasures-Version response header
+        header_version = response.headers.get("FlexMeasures-Version")
+        if header_version is not None:
+            if (
+                self.server_version is not None
+                and self.server_version != header_version
+            ):
+                self.logger.info(
+                    f"FlexMeasures server version changed from {self.server_version} to {header_version}."
+                )
+            self.server_version = header_version
 
         polling_step, reauth_once, url = await check_response(
             self, response, polling_step, reauth_once, url
@@ -754,9 +764,10 @@ class FlexMeasuresClient:
         if account_id and isinstance(account_id, int):
             uri += f"&account_id={account_id}"
 
-        await self.ensure_server_version()
         if root or depth or fields:
-            if Version(self.server_version) < Version("0.31.0"):
+            if self.server_version is not None and Version(
+                self.server_version
+            ) < Version("0.31.0"):
                 self.logger.warning(
                     "get_assets(): The 'root', 'depth' and 'fields' parameters require FlexMeasures server version 0.31.0 or above. "
                     "These parameters will be ignored."
@@ -1124,8 +1135,9 @@ class FlexMeasuresClient:
                 isinstance(updates["flex_context"], dict)
                 and "aggregate-power" in updates["flex_context"]
             ):
-                await self.ensure_server_version()
-                if Version(self.server_version) < Version("0.31.0"):
+                if self.server_version is not None and Version(
+                    self.server_version
+                ) < Version("0.31.0"):
                     self.logger.warning(
                         "update_asset(): The 'aggregate-power' flex-context field requires FlexMeasures server version 0.31.0 or above. "
                         "The 'aggregate-power' field will be ignored by the server."
