@@ -8,8 +8,8 @@
 # serve to show the default.
 
 import os
-import sys
 import shutil
+import sys
 
 # -- Path setup --------------------------------------------------------------
 
@@ -24,9 +24,9 @@ sys.path.insert(0, os.path.join(__location__, "../src"))
 # This hack is necessary since RTD does not issue `sphinx-apidoc` before running
 # `sphinx-build -b html . _build/html`. See Issue:
 # https://github.com/readthedocs/readthedocs.org/issues/1139
-# DON'T FORGET: Check the box "Install your project inside a virtualenv using
-# setup.py install" in the RTD Advanced Settings.
-# Additionally it helps us to avoid running apidoc manually
+# Additionally it helps us to avoid running apidoc manually.
+# Docs dependencies are declared in the `docs` dependency group in pyproject.toml.
+# Install with: uv sync --group docs
 
 try:  # for Sphinx >= 1.7
     from sphinx.ext import apidoc
