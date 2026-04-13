@@ -60,6 +60,7 @@ services:
       FLEXMEASURES_USER: toy-user@flexmeasures.io
       FLEXMEASURES_PASSWORD: toy-password
       LOGGING_LEVEL: DEBUG
+      SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FLEXMEASURES_CLIENT: "0.0.0"
     volumes:
       # If flexmeasures_client lives in your repo and you want live edits
       - ../flexmeasures-client:/app/flexmeasures-client:rw
@@ -68,4 +69,7 @@ services:
     - |
       # pip install --break-system-packages --no-cache-dir "git+https://github.com/FlexMeasures/flexmeasures-client.git@main#egg=flexmeasures-client[s2]"
       pip install --break-system-packages -e /app/flexmeasures-client[s2]
+      pip install --break-system-packages aiohttp
+      pip install --break-system-packages pytz
+      pip install --break-system-packages s2-python==0.8.2
       python3 /app/flexmeasures-client/src/flexmeasures_client/s2/script/websockets_server.py
