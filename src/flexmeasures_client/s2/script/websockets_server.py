@@ -104,7 +104,7 @@ async def websocket_handler(request):
         soc_minima_sensor,
         soc_maxima_sensor,
         usage_forecast_sensor,
-        leakage_behaviour_sensor_id,
+        leakage_behaviour_sensor,
         charging_efficiency_sensor,
     ) = await configure_site(site_name, fm_client)
 
@@ -121,7 +121,7 @@ async def websocket_handler(request):
         soc_minima_sensor_id=soc_minima_sensor["id"],
         soc_maxima_sensor_id=soc_maxima_sensor["id"],
         usage_forecast_sensor_id=usage_forecast_sensor["id"],
-        leakage_behaviour_sensor_id=leakage_behaviour_sensor_id["id"],
+        leakage_behaviour_sensor_id=leakage_behaviour_sensor["id"],
         charging_efficiency_sensor_id=charging_efficiency_sensor["id"],
     )
     cem.register_control_type(frbc)
