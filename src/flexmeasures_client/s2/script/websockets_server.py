@@ -42,7 +42,7 @@ async def rm_details_watchdog(ws, cem: CEM):
 
     cem._logger.debug(f"CONTROL TYPE: {cem._control_type}")
 
-    # after this, schedule will be triggered on reception of a new system description
+    # after this, schedule will be triggered on reception of a new storage status
 
 
 async def websocket_producer(ws, cem: CEM):
