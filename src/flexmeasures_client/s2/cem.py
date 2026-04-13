@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import math
-from asyncio import Queue
+import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta
 from logging import Logger
@@ -84,7 +84,7 @@ class CEM(Handler):
         super(CEM, self).__init__()
 
         self._fm_client = fm_client
-        self._sending_queue = Queue()
+        self._sending_queue = asyncio.Queue()
         self._power_sensors = dict()
         self.power_sensor_id = power_sensor_id
         self._control_types_handlers = dict()
