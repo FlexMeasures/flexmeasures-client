@@ -11,7 +11,7 @@
 services:
   dev-db:
     ports:
-      - "5432:5432"
+      - "5433:5432"
   server:
     volumes:
       # A place for config and plugin code, and custom requirements.txt
