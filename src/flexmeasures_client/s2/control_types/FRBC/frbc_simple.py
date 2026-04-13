@@ -45,6 +45,7 @@ class FRBCSimple(FRBC):
     _soc_maxima_sensor_id: int
     _usage_forecast_sensor_id: int
     _leakage_behaviour_sensor_id: int
+    _charging_efficiency_sensor_id: int
     _schedule_duration: timedelta
     _fill_level_scale: float
     _resolution = "15min"
@@ -59,6 +60,7 @@ class FRBCSimple(FRBC):
         soc_maxima_sensor_id: int,
         usage_forecast_sensor_id: int,
         leakage_behaviour_sensor_id: int,
+        charging_efficiency_sensor_id: int,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
@@ -76,6 +78,7 @@ class FRBCSimple(FRBC):
         self._soc_maxima_sensor_id = soc_maxima_sensor_id
         self._usage_forecast_sensor_id = usage_forecast_sensor_id
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
+        self.charging_efficiency_sensor_id = charging_efficiency_sensor_id
         self._timezone = pytz.timezone(timezone)
         self._fill_level_scale = fill_level_scale
         self.power_unit = power_unit
@@ -211,6 +214,7 @@ class FRBCSimple(FRBC):
                 "state-of-charge": {"sensor": self._soc_sensor_id},
                 "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
                 "storage-efficiency": {"sensor": self._leakage_behaviour_sensor_id},
+                "charging-efficiency": {"sensor": self.charging_efficiency_sensor_id},
                 "consumption-capacity": f"{charging_capacity} {self.power_unit}",
                 "production-capacity": f"{discharging_capacity} {self.power_unit}",
             },

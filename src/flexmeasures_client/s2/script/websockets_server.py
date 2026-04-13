@@ -105,6 +105,7 @@ async def websocket_handler(request):
         soc_maxima_sensor,
         usage_forecast_sensor,
         leakage_behaviour_sensor_id,
+        charging_efficiency_sensor,
     ) = await configure_site(site_name, fm_client)
 
     cem = CEM(
@@ -121,6 +122,7 @@ async def websocket_handler(request):
         soc_maxima_sensor_id=soc_maxima_sensor["id"],
         usage_forecast_sensor_id=usage_forecast_sensor["id"],
         leakage_behaviour_sensor_id=leakage_behaviour_sensor_id["id"],
+        charging_efficiency_sensor_id=charging_efficiency_sensor["id"],
     )
     cem.register_control_type(frbc)
 
@@ -136,7 +138,7 @@ async def websocket_handler(request):
 
 async def configure_site(
     site_name: str, fm_client: FlexMeasuresClient
-) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict]:
+) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict]:
     account = await fm_client.get_account()
     assets = await fm_client.get_assets(parse_json_fields=True)
 
@@ -171,6 +173,7 @@ async def configure_site(
     soc_maxima_sensor = None
     usage_forecast_sensor = None
     leakage_behaviour_sensor = None
+    charging_efficiency_sensor = None
     for sensor in sensors:
         if sensor["name"] == "price":
             price_sensor = sensor
@@ -272,6 +275,14 @@ async def configure_site(
             generic_asset_id=site_asset["id"],
             timezone="Europe/Amsterdam",
         )
+    if charging_efficiency_sensor is None:
+        charging_efficiency_sensor = await fm_client.add_sensor(
+            name="charging-efficiency",
+            event_resolution="PT15M",
+            unit="%",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
     sensors_to_show = [
         {
             "title": "State of charge",
@@ -299,6 +310,7 @@ async def configure_site(
         soc_maxima_sensor,
         usage_forecast_sensor,
         leakage_behaviour_sensor,
+        charging_efficiency_sensor,
     )
 
 
