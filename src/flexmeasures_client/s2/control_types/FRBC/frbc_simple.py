@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import pytz
+from zoneinfo import ZoneInfo
 
 try:
     from s2python.frbc import (
@@ -82,13 +83,13 @@ class FRBCSimple(FRBC):
         self._usage_forecast_sensor_id = usage_forecast_sensor_id
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self.charging_efficiency_sensor_id = charging_efficiency_sensor_id
-        self._timezone = pytz.timezone(timezone)
+        self._timezone = ZoneInfo(timezone)
         self._fill_level_scale = fill_level_scale
         self.power_unit = power_unit
         self.energy_unit = energy_unit
 
     def now(self):
-        return self._timezone.localize(datetime.now())
+        return datetime.now(self._timezone)
 
     async def send_storage_status(self, status: FRBCStorageStatus):
         now = self.now()

@@ -19,25 +19,30 @@ The main client class is `FlexMeasuresClient` in `src/flexmeasures_client/client
 ## Running Tests
 
 ```bash
-pip install -e ".[testing]"
-python3 -m pytest tests/test_client.py -q
+uv sync --group test --extra s2
+uv run poe test
 ```
 
 ## Linting
 
-Always fix linting before pushing. Run individually if `pre-commit` is unavailable:
+Always fix linting before pushing. Run via pre-commit (preferred):
 
 ```bash
-pip install black isort flake8
-black src/ tests/
-isort src/ tests/
-flake8 src/ tests/
+uv run poe lint
 ```
 
-Or via pre-commit (preferred):
+Or run individually using `uv run`:
 
 ```bash
-pip install pre-commit && pre-commit run --all-files
+uv run black src/ tests/
+uv run isort src/ tests/
+uv run flake8 src/ tests/
+```
+
+To install pre-commit as a standalone tool:
+
+```bash
+uv tool install pre-commit && pre-commit run --all-files
 ```
 
 ## Coding Patterns
@@ -54,7 +59,7 @@ pip install pre-commit && pre-commit run --all-files
 Delegate test writing to the **test-specialist** sub-agent (see `.github/agents/test-specialist.md`).
 After the sub-agent completes, **verify yourself** that:
 
-1. All new tests pass: `python3 -m pytest tests/test_client.py -q`
+1. All new tests pass: `python3 -m pytest tests/client -q`
 2. Linting passes: `black --check src/ tests/ && flake8 src/ tests/`
 
 Do not accept the sub-agent's output at face value — run both checks yourself and iterate if needed.

@@ -8,6 +8,7 @@ import asyncio
 import json
 import math
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from requests.exceptions import HTTPError
@@ -25,7 +26,6 @@ import_optional_dependency("tzdata")
 from typing import cast
 
 import pydantic
-import pytz
 
 try:
     from s2python.common import (
@@ -152,7 +152,7 @@ class FillRateBasedControlTUNES(FRBC):
         self._consumption_price_sensor_id = consumption_price_sensor
         self._production_price_sensor_id = production_price_sensor
 
-        self._timezone = pytz.timezone(timezone)
+        self._timezone = ZoneInfo(timezone)
         self._fill_level_scale = fill_level_scale
 
         self._active_recurring_schedule = False

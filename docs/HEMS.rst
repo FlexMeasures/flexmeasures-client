@@ -6,7 +6,7 @@ HEMS tutorial
 We wrote a complete tutorial with the client*, which sets up a HEMS from scratch (from nothing but a FlexMeasures account).
 
 - It creates the whole structure - with PV, battery and a heat pump.
-- It loads two weeks of historical data and creates forecasts based on it
+- It loads two weeks of historical data and creates forecasts through the forecasting API.
 - It goes through one week in 4h steps, forecasting and scheduling all flexible assets.
 
 This is the resulting dashboard:
@@ -15,27 +15,29 @@ This is the resulting dashboard:
     :align: center
 |
 
-.. note:: The tutorial still uses the CLI for two things: forecasting and reporting. We are working on those...
+.. note:: The tutorial still uses the CLI for reporting. In future versions, we might make reporting available via the API, as well.
 
 
 Set up your environment
 ========================
 
-To run the HEMS example (``HEMS_setup.py``), you'll need a virtual environment in which both ``flexmeasures`` (the server) and ``flexmeasures-client`` is installed.
+To run the HEMS example (``HEMS_setup.py``), you'll need an environment in which both ``flexmeasures`` (the server) and ``flexmeasures-client`` is installed.
+
+We use `uv <https://docs.astral.sh/uv/>`_ to manage dependencies. First, `install uv <https://docs.astral.sh/uv/getting-started/installation/>`_.
+
+From the ``flexmeasures-client`` repository, install the client and the FlexMeasures server:
 
 .. code-block:: bash
 
-    python3.12 -m venv venv
-    pip install -e .
-    pip install git+https://github.com/flexmeasures/flexmeasures.git@main
+    uv sync
+    uv add git+https://github.com/flexmeasures/flexmeasures.git@main
 
-Or, alternatively, for developers:
+Or, alternatively, to install released versions into a fresh project:
 
 .. code-block:: bash
 
-    python3.12 -m venv venv
-    pip install flexmeasures-client
-    pip install flexmeasures
+    uv init my-hems && cd my-hems
+    uv add flexmeasures-client flexmeasures
 
 
 Next steps:
@@ -61,11 +63,13 @@ Open three terminals. In the first terminal, run the server:
 
     flexmeasures run
 
-In the second terminal, run a flexmeasures worker for the scheduling jobs:
+In the second terminal, run a flexmeasures worker that listens to both the scheduling and forecasting queues:
 
 .. code-block:: bash
 
-    flexmeasures jobs run-worker --queue "scheduling"
+    flexmeasures jobs run-worker --queue "forecasting|scheduling"
+
+Note: you can run the same command in two terminals (2 workers), to speed up the computation!
 
 In the third terminal, run the client script using the `/examples/HEMS` folder as the current working directory:
 

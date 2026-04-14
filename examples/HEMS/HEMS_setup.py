@@ -43,6 +43,11 @@ async def main(
     client = FlexMeasuresClient(email=usr, password=pwd, host=host)
 
     try:
+        await client.ensure_minimum_server_version(
+            "0.31.0",
+            "The HEMS example requires a FlexMeasures server of v0.31.0 or above.",
+        )
+
         # Get user account information
         account = await client.get_account()
         if not account:

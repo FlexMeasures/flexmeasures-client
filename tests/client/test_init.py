@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -337,12 +338,30 @@ async def test_post_init_session_already_set():
 
 
 @pytest.mark.asyncio
-async def test_ensure_server_version_already_known():
-    """server_version already set skips get_versions."""
+async def test_ensure_minimum_server_version_already_satisfied():
     client = FlexMeasuresClient(email="test@test.test", password="test")
     client.server_version = "0.31.0"
-    await client.ensure_server_version()
-    assert client.server_version == "0.31.0"
+    await client.ensure_minimum_server_version("0.31.0")
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_ensure_minimum_server_version_raises_with_message():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.server_version = "0.30.0"
+    expected_message = (
+        "This functionality requires FlexMeasures server of 0.31.0 or above. "
+        "Current server has version 0.30.0.\n"
+        "The HEMS example requires a FlexMeasures server of v0.31.0 or above."
+    )
+    with pytest.raises(
+        InsufficientServerVersionError,
+        match=re.escape(expected_message),
+    ):
+        await client.ensure_minimum_server_version(
+            "0.31.0",
+            "The HEMS example requires a FlexMeasures server of v0.31.0 or above.",
+        )
     await client.close()
 
 
@@ -404,6 +423,76 @@ async def test_get_versions_wrong_api_version():
             match="v3_0 is not supported by the FlexMeasures Server",
         ):
             await client.get_versions()
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_server_version_updated_from_header():
+    """server_version is updated from FlexMeasures-Version response header."""
+    with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=200,
+            payload=[],
+            headers={"FlexMeasures-Version": "0.32.0"},
+        )
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+        )
+        assert client.server_version is None
+        await client.get_sensors(parse_json_fields=False)
+        assert client.server_version == "0.32.0"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_server_version_change_logged(caplog):
+    """A server version change is logged at INFO level."""
+    import logging
+
+    with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=200,
+            payload=[],
+            headers={"FlexMeasures-Version": "0.33.0"},
+        )
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+        )
+        client.server_version = "0.32.0"
+        with caplog.at_level(logging.INFO, logger="flexmeasures_client.client"):
+            await client.get_sensors(parse_json_fields=False)
+        assert "0.32.0" in caplog.text
+        assert "0.33.0" in caplog.text
+        assert client.server_version == "0.33.0"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_ensure_minimum_server_version_falls_back_to_get_versions():
+    """Falls back to get_versions() when server_version is None (old server without header)."""
+    with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/",
+            status=200,
+            payload={
+                "flexmeasures_version": "0.32.0",
+                "versions": ["v3_0"],
+            },
+        )
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+        )
+        assert client.server_version is None
+        await client.ensure_minimum_server_version("0.31.0")
+        assert client.server_version == "0.32.0"
         await client.close()
 
 

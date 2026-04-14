@@ -141,11 +141,26 @@ class FlexMeasuresClient:
         """Function to close FlexMeasuresClient session when all requests are done."""
         await cast(ClientSession, self.session).close()
 
-    async def ensure_server_version(self):
-        """Ensure that the server version is known."""
+    async def ensure_minimum_server_version(
+        self,
+        minimum_server_version: str,
+        minimum_server_version_msg: str | None = None,
+    ):
+        """Ensure that the server version meets a minimum requirement."""
         if self.server_version is None:
+            # Fall back to explicit version lookup for older servers that don't
+            # send the FlexMeasures-Version response header.
             version_info = await self.get_versions()
             self.server_version = version_info["server_version"]
+        if Version(cast(str, self.server_version)) < Version(minimum_server_version):
+            msg = (
+                "This functionality requires FlexMeasures server of "
+                f"{minimum_server_version} or above. Current server has version "
+                f"{self.server_version}."
+            )
+            if minimum_server_version_msg:
+                msg += f"\n{minimum_server_version_msg}"
+            raise InsufficientServerVersionError(msg)
 
     async def request(
         self,
@@ -212,14 +227,10 @@ class FlexMeasuresClient:
                             "404" in str(exception)
                             and minimum_server_version is not None
                         ):
-                            await self.ensure_server_version()
-                            if Version(self.server_version) < Version(
-                                minimum_server_version
-                            ):
-                                msg = f"This functionality requires FlexMeasures server of {minimum_server_version} or above. Current server has version {self.server_version}."
-                                if minimum_server_version_msg:
-                                    msg += f"\n{minimum_server_version_msg}"
-                                raise InsufficientServerVersionError(msg)
+                            await self.ensure_minimum_server_version(
+                                minimum_server_version,
+                                minimum_server_version_msg,
+                            )
                         raise ConnectionError(
                             f"Error occurred while communicating with the API: {exception}"
                         ) from exception
@@ -277,6 +288,18 @@ class FlexMeasuresClient:
         self.logger.debug(response_payload_msg)
         self.logger.debug(headers_msg)
         self.logger.debug("=" * 14)
+
+        # Track server version from the FlexMeasures-Version response header
+        header_version = response.headers.get("FlexMeasures-Version")
+        if header_version is not None:
+            if (
+                self.server_version is not None
+                and self.server_version != header_version
+            ):
+                self.logger.info(
+                    f"FlexMeasures server version changed from {self.server_version} to {header_version}."
+                )
+            self.server_version = header_version
 
         polling_step, reauth_once, url = await check_response(
             self, response, polling_step, reauth_once, url
@@ -747,9 +770,10 @@ class FlexMeasuresClient:
         if account_id and isinstance(account_id, int):
             uri += f"&account_id={account_id}"
 
-        await self.ensure_server_version()
         if root or depth or fields:
-            if Version(self.server_version) < Version("0.31.0"):
+            if self.server_version is not None and Version(
+                self.server_version
+            ) < Version("0.31.0"):
                 self.logger.warning(
                     "get_assets(): The 'root', 'depth' and 'fields' parameters require FlexMeasures server version 0.31.0 or above. "
                     f"These parameters will be ignored for server version {self.server_version}."
@@ -1121,8 +1145,9 @@ class FlexMeasuresClient:
                 isinstance(updates["flex_context"], dict)
                 and "aggregate-power" in updates["flex_context"]
             ):
-                await self.ensure_server_version()
-                if Version(self.server_version) < Version("0.31.0"):
+                if self.server_version is not None and Version(
+                    self.server_version
+                ) < Version("0.31.0"):
                     self.logger.warning(
                         "update_asset(): The 'aggregate-power' flex-context field requires FlexMeasures server version 0.31.0 or above. "
                         f"The 'aggregate-power' field will be ignored by the server, which is at version {self.server_version}."
@@ -1286,6 +1311,210 @@ class FlexMeasuresClient:
         schedule_id = response["schedule"]
         self.logger.info(f"Schedule triggered successfully. Schedule ID: {schedule_id}")
         return schedule_id
+
+    async def trigger_forecast(
+        self,
+        sensor_id: int,
+        start: str | datetime | None = None,
+        end: str | datetime | None = None,
+        duration: str | timedelta | None = None,
+        train_start: str | datetime | None = None,
+        train_period: str | timedelta | None = None,
+        max_training_period: str | timedelta | None = None,
+        retrain_frequency: str | timedelta | None = None,
+        future_regressors: list[int] | None = None,
+        past_regressors: list[int] | None = None,
+        regressors: list[int] | None = None,
+        max_forecast_horizon: str | timedelta | None = None,
+        forecast_frequency: str | timedelta | None = None,
+        probabilistic: bool | None = None,
+    ) -> str:
+        """Trigger a forecasting job for the given sensor.
+
+        :param sensor_id: ID of the sensor to forecast.
+        :param start: Start date for predictions (ISO 8601 datetime string or datetime).
+        :param end: End date of the forecast period (ISO 8601 datetime string or datetime).
+        :param duration: Duration of the forecast period (ISO 8601 duration or timedelta).
+                         Provide at most two of start, end, and duration.
+        :param train_start: Start date of historical training data.
+        :param train_period: Duration of the training period (min 2 days).
+        :param max_training_period: Maximum duration of the training period. Defaults to 1 year.
+        :param retrain_frequency: How often to retrain (ISO 8601 duration or timedelta).
+        :param future_regressors: List of sensor IDs used only as future regressors.
+        :param past_regressors: List of sensor IDs used only as past regressors.
+        :param regressors: List of sensor IDs used as both past and future regressors.
+        :param max_forecast_horizon: Maximum forecast horizon (ISO 8601 duration or timedelta).
+        :param forecast_frequency: How often to recompute forecasts (ISO 8601 duration or timedelta).
+        :param probabilistic: If True, enable probabilistic forecasting.
+
+        :returns: Forecast job UUID (string).
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        json_payload: dict[str, Any] = {}
+
+        if start is not None:
+            json_payload["start"] = pd.Timestamp(start).isoformat()
+        if end is not None:
+            json_payload["end"] = pd.Timestamp(end).isoformat()
+        if duration is not None:
+            json_payload["duration"] = pd.Timedelta(duration).isoformat()
+        if max_forecast_horizon is not None:
+            json_payload["max-forecast-horizon"] = pd.Timedelta(
+                max_forecast_horizon
+            ).isoformat()
+        if forecast_frequency is not None:
+            json_payload["forecast-frequency"] = pd.Timedelta(
+                forecast_frequency
+            ).isoformat()
+        if probabilistic is not None:
+            json_payload["probabilistic"] = probabilistic
+
+        # Build config sub-dict for training and regressor parameters
+        config: dict[str, Any] = {}
+        if train_start is not None:
+            config["train-start"] = pd.Timestamp(train_start).isoformat()
+        if train_period is not None:
+            config["train-period"] = pd.Timedelta(train_period).isoformat()
+        if max_training_period is not None:
+            config["max-training-period"] = pd.Timedelta(
+                max_training_period
+            ).isoformat()
+        if retrain_frequency is not None:
+            config["retrain-frequency"] = pd.Timedelta(retrain_frequency).isoformat()
+        if future_regressors is not None:
+            config["future-regressors"] = future_regressors
+        if past_regressors is not None:
+            config["past-regressors"] = past_regressors
+        if regressors is not None:
+            config["regressors"] = regressors
+        if config:
+            json_payload["config"] = config
+
+        response, status = await self.request(
+            uri=f"sensors/{sensor_id}/forecasts/trigger",
+            json_payload=json_payload,
+            method="POST",
+            minimum_server_version="0.31.0",
+        )
+        check_for_status(status, 200)
+
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected a dictionary, but got {type(response)}",
+            )
+
+        if not isinstance(response.get("forecast"), str):
+            raise ContentTypeError(
+                f"Expected a forecast ID, but got {type(response.get('forecast'))}",
+            )
+        forecast_id = response["forecast"]
+        self.logger.info(f"Forecast triggered successfully. Forecast ID: {forecast_id}")
+        return forecast_id
+
+    async def get_forecast(
+        self,
+        sensor_id: int,
+        forecast_id: str,
+    ) -> dict:
+        """Get forecast with given ID.
+
+        Polls the server until the forecasting job is complete and returns the result.
+
+        :returns: forecast as dictionary, for example:
+                {
+                    'values': [1.2, 1.5, 1.4, 0.8],
+                    'start': '2025-10-15T00:00:00+01:00',
+                    'duration': 'PT4H',
+                    'unit': 'kW'
+                }
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        polling_step = 0
+        try:
+            async with async_timeout.timeout(self.polling_timeout):
+                while polling_step < self.max_polling_steps:
+                    forecast, status = await self.request(
+                        uri=f"sensors/{sensor_id}/forecasts/{forecast_id}",
+                        method="GET",
+                        minimum_server_version="0.31.0",
+                    )
+                    if status == 200:
+                        if not isinstance(forecast, dict):
+                            raise ContentTypeError(
+                                f"Expected a forecast dictionary, but got {type(forecast)}",
+                            )
+                        return forecast
+                    elif status == 202:
+                        job_status = (
+                            forecast.get("status", "unknown")
+                            if isinstance(forecast, dict)
+                            else "unknown"
+                        )
+                        message = f"Forecast job status: {job_status}. Polling step: {polling_step}. Retrying in {self.polling_interval} seconds..."
+                        self.logger.debug(message)
+                        polling_step += 1
+                        await asyncio.sleep(self.polling_interval)
+                    else:
+                        check_for_status(status, 200)
+        except asyncio.TimeoutError as exception:
+            raise ConnectionError(
+                "Client polling timeout while waiting for forecast job to complete."
+            ) from exception
+        raise ConnectionError(
+            "Max polling steps reached while waiting for forecast job to complete."
+        )
+
+    async def trigger_and_get_forecast(
+        self,
+        sensor_id: int,
+        start: str | datetime | None = None,
+        end: str | datetime | None = None,
+        duration: str | timedelta | None = None,
+        train_start: str | datetime | None = None,
+        train_period: str | timedelta | None = None,
+        max_training_period: str | timedelta | None = None,
+        retrain_frequency: str | timedelta | None = None,
+        future_regressors: list[int] | None = None,
+        past_regressors: list[int] | None = None,
+        regressors: list[int] | None = None,
+        max_forecast_horizon: str | timedelta | None = None,
+        forecast_frequency: str | timedelta | None = None,
+        probabilistic: bool | None = None,
+    ) -> dict:
+        """Trigger a forecasting job and then fetch the result.
+
+        :returns: forecast as dictionary, for example:
+                {
+                    'values': [1.2, 1.5, 1.4, 0.8],
+                    'start': '2025-10-15T00:00:00+01:00',
+                    'duration': 'PT4H',
+                    'unit': 'kW'
+                }
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        forecast_id = await self.trigger_forecast(
+            sensor_id=sensor_id,
+            start=start,
+            end=end,
+            duration=duration,
+            train_start=train_start,
+            train_period=train_period,
+            max_training_period=max_training_period,
+            retrain_frequency=retrain_frequency,
+            future_regressors=future_regressors,
+            past_regressors=past_regressors,
+            regressors=regressors,
+            max_forecast_horizon=max_forecast_horizon,
+            forecast_frequency=forecast_frequency,
+            probabilistic=probabilistic,
+        )
+        return await self.get_forecast(
+            sensor_id=sensor_id,
+            forecast_id=forecast_id,
+        )
 
     @staticmethod
     def create_storage_flex_model(

@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from datetime import datetime
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -54,6 +55,8 @@ async def websocket_producer(ws, cem: CEM):
             cem._logger.debug("sending message")
             await ws.send_json(message)
             fut.set_result(True)
+        # except aiohttp.ClientConnectionResetError:
+        #     break
         except Exception as exc:
             fut.set_exception(exc)
     cem._logger.debug("cem closed")
@@ -66,17 +69,17 @@ async def websocket_consumer(ws, cem: CEM):
             if msg.data == "close":
                 # TODO: save cem state?
                 cem._logger.debug("close...")
-                cem.close()
+                await cem.close()
                 await ws.close()
             else:
                 try:
-                    await cem.handle_message(json.loads(msg.json()))
-                except TypeError:
-                    await cem.handle_message(msg.json())
+                    await cem.handle_message(json.loads(msg.data))
+                except (json.JSONDecodeError, KeyError):
+                    cem._logger.exception(f"handle_message failed for {msg.data!r}")
 
         elif msg.type == aiohttp.WSMsgType.ERROR:
             cem._logger.debug("close...")
-            cem.close()
+            await cem.close()
             await ws.close()
             cem._logger.error(f"ws connection closed with exception {ws.exception()}")
             # TODO: save cem state?
@@ -89,10 +92,13 @@ async def websocket_handler(request):
     await ws.prepare(request)
 
     site_name = "My CEM"
+    base_url = os.getenv("FLEXMEASURES_BASE_URL", "http://localhost:5000")  # or "server:5000"
+    parsed = urlparse(base_url)
     fm_client = FlexMeasuresClient(
-        host="server:5000",
-        email="toy-user@flexmeasures.io",
-        password="toy-password",
+        password=os.getenv("FLEXMEASURES_PASSWORD", "toy-password"),
+        email=os.getenv("FLEXMEASURES_USER", "toy-user@flexmeasures.io"),
+        host=parsed.netloc,
+        ssl=parsed.scheme == "https",
         polling_interval=0.5,
     )
 

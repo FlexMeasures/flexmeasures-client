@@ -1,8 +1,8 @@
 import asyncio
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import aiohttp
-import pytz
 from s2python.common import (
     Commodity,
     CommodityQuantity,
@@ -41,7 +41,7 @@ async def main_s2():
 
             print("SENDING: HANDSHAKE")
 
-            await ws.send_json(message.json())
+            await ws.send_str(message.model_dump_json())
 
             response = await ws.receive()
 
@@ -64,11 +64,15 @@ async def main_s2():
                 provides_power_measurement_types=[
                     CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC
                 ],
-            ).json()
+            ).model_dump_json()
 
             print("SENDING: ResourceManagerDetails")
 
-            await ws.send_json(resource_manager_details_message)
+            await ws.send_str(resource_manager_details_message)
+
+            response = await ws.receive()
+
+            print("RECEIVING: ", response.json())
 
             response = await ws.receive()
 
@@ -87,7 +91,7 @@ async def main_s2():
             )
 
             print("SENDING: ReceptionStatus")
-            await ws.send_json(message.json())
+            await ws.send_str(message.model_dump_json())
 
             electric_power = CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC
 
@@ -98,7 +102,7 @@ async def main_s2():
 
             print("SENDING: FRBC.StorageStatus")
 
-            await ws.send_json(storage_status.json())
+            await ws.send_str(storage_status.model_dump_json())
 
             response = await ws.receive()
 
@@ -139,29 +143,21 @@ async def main_s2():
                 fill_level_range=NumberRange(start_of_range=0.05, end_of_range=0.45),
             )
 
-            valid_from = pytz.timezone("Europe/Amsterdam").localize(
-                datetime(2026, 1, 15, 20)
-            )
+            valid_from = datetime(2026, 1, 15, 20, tzinfo=ZoneInfo("Europe/Amsterdam"))
 
             system_description_message = FRBCSystemDescription(
                 message_id=get_unique_id(),
                 valid_from=valid_from,
                 actuators=[actuator],
                 storage=storage,
-            ).json()
+            ).model_dump_json()
 
             print("SENDING: FRBC.SystemDescription")
 
-            await ws.send_json(system_description_message)
+            await ws.send_str(system_description_message)
 
-            msg = await ws.receive()
-            print("RECEIVED: ", msg.json())
-
-            for i in range(6):
-                msg = await ws.receive()
+            async for msg in ws:
                 print("RECEIVED: ", msg.json())
-
-            await ws.close()
 
 
 async def main_websocket():
