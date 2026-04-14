@@ -61,6 +61,8 @@ def _parse_asset_json_fields(asset: dict) -> None:
     _parse_json_field(asset, "attributes")
     _parse_json_field(asset, "flex_context")
     _parse_json_field(asset, "flex_model")
+    _parse_json_field(asset, "sensors_to_show")
+    _parse_json_field(asset, "kpi_sensors_to_show")
 
 
 def _parse_sensor_json_fields(sensor: dict) -> None:
