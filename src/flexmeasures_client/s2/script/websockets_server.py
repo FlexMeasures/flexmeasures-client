@@ -327,6 +327,10 @@ async def configure_site(
             "title": "Prices",
             "sensors": [price_sensor["id"], production_price_sensor["id"]],
         },
+        {
+            "title": "Power",
+            "sensors": [power_sensor["id"]],
+        },
     ]
     await fm_client.update_asset(
         asset_id=site_asset["id"],
