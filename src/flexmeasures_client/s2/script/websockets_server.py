@@ -196,6 +196,8 @@ async def configure_site(
             usage_forecast_sensor = sensor
         elif sensor["name"] == "leakage-behaviour":
             leakage_behaviour_sensor = sensor
+        elif sensor["name"] == "charging-efficiency":
+            charging_efficiency_sensor = sensor
 
     if price_sensor is None:
         price_sensor = await fm_client.add_sensor(
