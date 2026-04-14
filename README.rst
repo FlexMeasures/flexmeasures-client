@@ -244,6 +244,23 @@ This can be used to retrieve the schedule, using:
 The client will re-try until the schedule is available or the ``MAX_POLLING_STEPS`` of ``10`` is reached.
 
 
+Forecasting
+===========
+
+Trigger a forecast for a sensor and wait for the result:
+
+.. code-block:: python
+
+    forecast = await client.trigger_and_get_forecast(
+        sensor_id=<sensor_id>,  # int
+        duration="PT24H",  # ISO duration – how far ahead to forecast
+    )
+    # Returns e.g. {"values": [1.2, 1.5, ...], "start": "...", "duration": "PT24H", "unit": "kW"}
+
+The client polls until the forecasting job is complete.  For more advanced options
+(training window, regressors, forecast frequency, etc.) see :doc:`forecasting`.
+
+
 Development
 ==============
 

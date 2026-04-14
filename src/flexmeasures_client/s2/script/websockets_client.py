@@ -1,8 +1,8 @@
 import asyncio
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import aiohttp
-import pytz
 from s2python.common import (
     Commodity,
     CommodityQuantity,
@@ -143,9 +143,7 @@ async def main_s2():
                 fill_level_range=NumberRange(start_of_range=0.05, end_of_range=0.45),
             )
 
-            valid_from = pytz.timezone("Europe/Amsterdam").localize(
-                datetime(2026, 1, 15, 20)
-            )
+            valid_from = datetime(2026, 1, 15, 20, tzinfo=ZoneInfo("Europe/Amsterdam"))
 
             system_description_message = FRBCSystemDescription(
                 message_id=get_unique_id(),

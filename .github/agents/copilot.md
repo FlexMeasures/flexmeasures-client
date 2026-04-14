@@ -19,7 +19,7 @@ The main client class is `FlexMeasuresClient` in `src/flexmeasures_client/client
 ## Running Tests
 
 ```bash
-uv sync --group test
+uv sync --group test --extra s2
 uv run poe test
 ```
 
@@ -59,7 +59,7 @@ uv tool install pre-commit && pre-commit run --all-files
 Delegate test writing to the **test-specialist** sub-agent (see `.github/agents/test-specialist.md`).
 After the sub-agent completes, **verify yourself** that:
 
-1. All new tests pass: `python3 -m pytest tests/test_client.py -q`
+1. All new tests pass: `python3 -m pytest tests/client -q`
 2. Linting passes: `black --check src/ tests/ && flake8 src/ tests/`
 
 Do not accept the sub-agent's output at face value — run both checks yourself and iterate if needed.

@@ -1,5 +1,3 @@
-import subprocess
-
 from const import (
     FORECAST_HORIZON_HOURS,
     FORECASTING_START,
@@ -21,17 +19,12 @@ async def generate_sensor_forecasts(
     asset_name: str,
     community_name: str,
     regressors: list[tuple[str, str]] | None = None,
-):
-    """Generate forecasts using FlexMeasures CLI for the second week."""
+) -> str | None:
+    """
+    Generate forecasts for the second week and wait until the job finishes.
+    Returns sensor ID as str, or None if a failure happened.
+    """
     print(f"Generating {sensor_name} forecasts for {asset_name}...")
-
-    # Check if flexmeasures CLI is available
-    check_cmd = ["which", "flexmeasures"]
-    check_result = subprocess.run(check_cmd, capture_output=True, text=True)
-
-    if check_result.returncode != 0:
-        print("FlexMeasures CLI not found. Skipping forecast generation.")
-        return False
 
     # Find sensors
     sensor_mappings = [
@@ -56,50 +49,39 @@ async def generate_sensor_forecasts(
 
     if not target_sensor:
         print("Could not find required sensors for forecasting")
-        return False
+        return None
 
-    # Run CLI command
-    # NOTE: This uses the CLI because there is no public API yet.
-    #       An API endpoint is coming soon, so this can later be done via the client.
-    #       Requires FlexMeasures PR #1546.
-    cmd = [
-        "flexmeasures",
-        "add",
-        "forecasts",
-        "--sensor",
-        str(target_sensor["id"]),
-        "--train-start",
-        TUTORIAL_START_DATE,
-        "--from-date",
-        FORECASTING_START,
-        "--to-date",
-        SCHEDULING_END,
-        "--max-forecast-horizon",
-        f"PT{FORECAST_HORIZON_HOURS}H",
-        "--forecast-frequency",
-        f"PT{SIMULATION_STEP_HOURS}H",
-        "--ensure-positive",
-        "--model-save-dir",
-        "forecaster_models",
-    ]
+    forecast_id: str | None = None
+    try:
+        forecast_id = await client.trigger_forecast(
+            sensor_id=target_sensor["id"],
+            train_start=TUTORIAL_START_DATE,
+            start=FORECASTING_START,
+            end=SCHEDULING_END,
+            max_forecast_horizon=f"PT{FORECAST_HORIZON_HOURS}H",
+            forecast_frequency=f"PT{SIMULATION_STEP_HOURS}H",
+            past_regressors=(
+                [sensor["id"] for sensor in regressor_sensors]
+                if regressor_sensors
+                else None
+            ),
+        )
+        print(f"Forecast triggered with ID: {forecast_id}")
+        await client.get_forecast(
+            sensor_id=target_sensor["id"],
+            forecast_id=forecast_id,
+        )
+    except Exception as exc:
+        job_id = forecast_id if forecast_id is not None else "unknown"
+        print(f"Forecast job {job_id} failed for {sensor_name} on {asset_name}: {exc}")
+        print(
+            "Look up this job in the RQ dashboard for more details about the failure."
+        )
+        return None
 
-    if regressor_sensors:
-        cmd.extend(
-            [
-                "--past-regressors",
-                ",".join([str(sensor["id"]) for sensor in regressor_sensors]),
-            ]
-        )  # TODO: to be changed to --regressors when the sensor has irradiance forecasts
+    print(f"Forecast job completed for {sensor_name} on {asset_name}")
 
-    print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-
-    if result.returncode == 0:
-        print(f"{sensor_name} forecasts for {asset_name} generated successfully")
-        return True
-    else:
-        print(f"{sensor_name} forecasts for {asset_name} failed: {result.stderr}")
-        return False
+    return forecast_id
 
 
 async def generate_forecasts(
