@@ -21,21 +21,23 @@ This is the resulting dashboard:
 Set up your environment
 ========================
 
-To run the HEMS example (``HEMS_setup.py``), you'll need a virtual environment in which both ``flexmeasures`` (the server) and ``flexmeasures-client`` is installed.
+To run the HEMS example (``HEMS_setup.py``), you'll need an environment in which both ``flexmeasures`` (the server) and ``flexmeasures-client`` is installed.
+
+We use `uv <https://docs.astral.sh/uv/>`_ to manage dependencies. First, `install uv <https://docs.astral.sh/uv/getting-started/installation/>`_.
+
+From the ``flexmeasures-client`` repository, install the client and the FlexMeasures server:
 
 .. code-block:: bash
 
-    python3.12 -m venv venv
-    pip install -e .
-    pip install git+https://github.com/flexmeasures/flexmeasures.git@main
+    uv sync
+    uv add git+https://github.com/flexmeasures/flexmeasures.git@main
 
-Or, alternatively, for developers:
+Or, alternatively, to install released versions into a fresh project:
 
 .. code-block:: bash
 
-    python3.12 -m venv venv
-    pip install flexmeasures-client
-    pip install flexmeasures
+    uv init my-hems && cd my-hems
+    uv add flexmeasures-client flexmeasures
 
 
 Next steps:

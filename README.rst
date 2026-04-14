@@ -45,17 +45,19 @@ Installation
 ===============
 
 
-Install using ``pip``:
+We use `uv <https://docs.astral.sh/uv/>`_ to manage dependencies. First, `install uv <https://docs.astral.sh/uv/getting-started/installation/>`_.
+
+Then add it to your project:
 
 .. code-block:: bash
 
-    pip install flexmeasures-client
+    uv add flexmeasures-client
 
 The FlexMeasures Client can also run as an `S2 CEM <https://docs.s2standard.org/docs/concepts/common-concepts/>`_. To enable S2 features, you need to install extra requirements:
 
 .. code-block:: bash
 
-    pip install flexmeasures-client[s2]
+    uv add flexmeasures-client[s2]
 
 
 Initialization and authentication
@@ -262,17 +264,23 @@ The client polls until the forecasting job is complete.  For more advanced optio
 Development
 ==============
 
-If you want to develop this package it's necessary to install testing requirements:
+We use `uv <https://docs.astral.sh/uv/>`_ to manage dependencies. First, `install uv <https://docs.astral.sh/uv/getting-started/installation/>`_.
+
+To install the package with all development and testing dependencies:
 
 .. code-block:: bash
 
-    pip install -e ".[testing]"
+    uv sync --group dev --group test
 
 Moreover, if you need to work on S2 features, you need to install extra dependencies:
 
 .. code-block:: bash
 
-    pip install -e ".[s2, testing]"
+    uv sync --extra s2 --group dev --group test
+
+.. note::
+
+   If you prefer shorter commands during interactive development, you can activate the virtual environment (``source .venv/bin/activate``, or ``.venv\\Scripts\\activate`` on Windows) or run commands directly with ``uv run <command>``.
 
 
 
@@ -285,33 +293,32 @@ Making Changes & Contributing
 
 .. note: Read more details in CONTRIBUTING.rst
 
-Install the project locally (in a virtual environment of your choice):
+Install the project locally (creating a virtual environment automatically):
 
 .. code-block:: bash
 
-    pip install -e .
+    uv sync
 
 
-Running tests locally is crucial as well. Staying close to the CI workflow:
-
-.. code-block:: bash
-
-    pip install tox
-    tox -e clean,build
-    tox -- -rFEx --durations 10 --color yes
-
-For S2 features, you need to add `-e s2` to tox:
+Running tests locally is crucial as well:
 
 .. code-block:: bash
 
-    tox -e s2
+    uv run poe test
+
+For S2 features:
+
+.. code-block:: bash
+
+    uv sync --extra s2 --group test
+    uv run poe test-s2
 
 This project uses `pre-commit`_, please make sure to install it before making any
 changes:
 
 .. code-block:: bash
 
-    pip install pre-commit
+    uv tool install pre-commit
     cd flexmeasures-client
     pre-commit install
 

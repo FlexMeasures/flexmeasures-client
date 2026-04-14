@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+from urllib.parse import urlparse
 
 import aiohttp
 from aiohttp import web
@@ -49,7 +50,10 @@ async def websocket_producer(ws, cem: CEM):
     while not cem.is_closed():
         message = await cem.get_message()
         cem._logger.debug("sending message")
-        await ws.send_json(message)
+        try:
+            await ws.send_json(message)
+        except aiohttp.ClientConnectionResetError:
+            break
     cem._logger.debug("cem closed")
 
 
@@ -60,17 +64,17 @@ async def websocket_consumer(ws, cem: CEM):
             if msg.data == "close":
                 # TODO: save cem state?
                 cem._logger.debug("close...")
-                cem.close()
+                await cem.close()
                 await ws.close()
             else:
                 try:
-                    await cem.handle_message(json.loads(msg.json()))
-                except TypeError:
-                    await cem.handle_message(msg.json())
+                    await cem.handle_message(json.loads(msg.data))
+                except (json.JSONDecodeError, KeyError):
+                    cem._logger.exception(f"handle_message failed for {msg.data!r}")
 
         elif msg.type == aiohttp.WSMsgType.ERROR:
             cem._logger.debug("close...")
-            cem.close()
+            await cem.close()
             cem._logger.error(f"ws connection closed with exception {ws.exception()}")
             # TODO: save cem state?
 
@@ -82,8 +86,13 @@ async def websocket_handler(request):
     await ws.prepare(request)
 
     site_name = "My CEM"
+    base_url = os.getenv("FLEXMEASURES_BASE_URL", "http://localhost:5000")
+    parsed = urlparse(base_url)
     fm_client = FlexMeasuresClient(
-        "toy-password", "toy-user@flexmeasures.io", host="server:5000"
+        password=os.getenv("FLEXMEASURES_PASSWORD", "toy-password"),
+        email=os.getenv("FLEXMEASURES_USER", "toy-user@flexmeasures.io"),
+        host=parsed.netloc,
+        ssl=parsed.scheme == "https",
     )
 
     price_sensor, power_sensor, soc_sensor, rm_discharge_sensor = await configure_site(
@@ -168,7 +177,32 @@ async def configure_site(
         sensor_id=price_sensor["id"],
         start="2026-01-15T00:00+01",  # 2026-01-01T00:00+01
         duration="P3D",  # P1M
-        values=[0.3],
+        values=[
+            0.10,
+            0.11,
+            0.12,
+            0.15,
+            0.18,
+            0.17,
+            0.11,
+            0.09,
+            0.10,
+            0.09,
+            0.09,
+            0.10,
+            0.08,
+            0.05,
+            0.04,
+            0.04,
+            0.06,
+            0.08,
+            0.12,
+            0.13,
+            0.14,
+            0.13,
+            0.10,
+            0.07,
+        ],
         unit="EUR/kWh",
     )
     if power_sensor is None:

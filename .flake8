@@ -1,0 +1,10 @@
+[flake8]
+max_line_length = 88
+extend_ignore = E203, E501, W503
+# ^  Black-compatible
+# E203, E501 and W503 have edge cases handled by black
+exclude =
+    build
+    dist
+    .eggs
+    docs/conf.py
