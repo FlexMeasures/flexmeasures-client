@@ -637,7 +637,7 @@ class FlexMeasuresClient:
         if unit is not None:
             message = "get_schedule(): The 'unit' parameter requires FlexMeasures server version 0.31.0 or above. "
             f"This parameter will be ignored by the server, which is at version {self.server_version}."
-            await self.ensure_minimum_server_version("0.32.0", message)
+            await self.ensure_minimum_server_version("0.31.0.dev90", message)
             params["unit"] = unit
         schedule, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
