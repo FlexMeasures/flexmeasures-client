@@ -98,6 +98,7 @@ async def websocket_handler(request):
 
     (
         price_sensor,
+        production_price_sensor,
         power_sensor,
         soc_sensor,
         rm_discharge_sensor,
@@ -116,6 +117,7 @@ async def websocket_handler(request):
     frbc = FRBCSimple(
         power_sensor_id=power_sensor["id"],
         price_sensor_id=price_sensor["id"],
+        production_price_sensor_id=production_price_sensor["id"],
         soc_sensor_id=soc_sensor["id"],
         rm_discharge_sensor_id=rm_discharge_sensor["id"],
         soc_minima_sensor_id=soc_minima_sensor["id"],
@@ -138,7 +140,7 @@ async def websocket_handler(request):
 
 async def configure_site(
     site_name: str, fm_client: FlexMeasuresClient
-) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict]:
+) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict, dict]:
     account = await fm_client.get_account()
     assets = await fm_client.get_assets(parse_json_fields=True)
 
@@ -166,6 +168,7 @@ async def configure_site(
 
     sensors = site_asset.get("sensors", [])
     price_sensor = None
+    production_price_sensor = None
     power_sensor = None
     soc_sensor = None
     rm_discharge_sensor = None
@@ -177,6 +180,8 @@ async def configure_site(
     for sensor in sensors:
         if sensor["name"] == "price":
             price_sensor = sensor
+        if sensor["name"] == "production price":
+            production_price_sensor = sensor
         elif sensor["name"] == "power":
             power_sensor = sensor
         elif sensor["name"] == "state of charge":
@@ -200,6 +205,14 @@ async def configure_site(
             generic_asset_id=site_asset["id"],
             timezone="Europe/Amsterdam",
         )
+    if production_price_sensor is None:
+        production_price_sensor = await fm_client.add_sensor(
+            name="production price",
+            event_resolution="PT15M",
+            unit="EUR/kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
 
     # Continue immediately without awaiting
     LOGGER.debug("Posting 3 days of prices in a background task..")
@@ -215,6 +228,16 @@ async def configure_site(
             prior="2026-01-01T00:00+01",  # 2026-01-01T00:00+01
             duration="P3D",  # P1M
             values=[0.3],
+            unit="EUR/kWh",
+        )
+    )
+    asyncio.create_task(
+        fm_client.post_sensor_data(
+            sensor_id=production_price_sensor["id"],
+            start=start_of_today,
+            prior="2026-01-01T00:00+01",  # 2026-01-01T00:00+01
+            duration="P3D",  # P1M
+            values=[0.2],
             unit="EUR/kWh",
         )
     )
@@ -294,7 +317,7 @@ async def configure_site(
         },
         {
             "title": "Prices",
-            "sensor": price_sensor["id"],
+            "sensors": [price_sensor["id"], production_price_sensor["id"]],
         },
     ]
     await fm_client.update_asset(
@@ -303,6 +326,7 @@ async def configure_site(
     )
     return (
         price_sensor,
+        production_price_sensor,
         power_sensor,
         soc_sensor,
         rm_discharge_sensor,

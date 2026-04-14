@@ -39,6 +39,7 @@ from flexmeasures_client.s2.control_types.translations import (
 class FRBCSimple(FRBC):
     _power_sensor_id: int
     _price_sensor_id: int
+    _production_price_sensor_id: int
     _soc_sensor_id: int
     _rm_discharge_sensor_id: int
     _soc_minima_sensor_id: int
@@ -56,6 +57,7 @@ class FRBCSimple(FRBC):
         soc_sensor_id: int,
         rm_discharge_sensor_id: int,
         price_sensor_id: int,
+        production_price_sensor_id: int,
         soc_minima_sensor_id: int,
         soc_maxima_sensor_id: int,
         usage_forecast_sensor_id: int,
@@ -71,6 +73,7 @@ class FRBCSimple(FRBC):
         super().__init__(max_size)
         self._power_sensor_id = power_sensor_id
         self._price_sensor_id = price_sensor_id
+        self._production_price_sensor_id = production_price_sensor_id
         self._schedule_duration = schedule_duration
         self._soc_sensor_id = soc_sensor_id
         self._rm_discharge_sensor_id = rm_discharge_sensor_id
@@ -199,8 +202,8 @@ class FRBCSimple(FRBC):
             prior=start,
             sensor_id=self._power_sensor_id,
             flex_context={
-                "production-price": {"sensor": self._price_sensor_id},
                 "consumption-price": {"sensor": self._price_sensor_id},
+                "production-price": {"sensor": self._production_price_sensor_id},
                 "site-power-capacity": f"{3 * 25 * 230} VA",
                 "relax-soc-constraints": True,
             },
