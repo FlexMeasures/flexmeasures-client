@@ -223,6 +223,7 @@ class FRBCSimple(FRBC):
                 "production-capacity": f"{discharging_capacity} {self.power_unit}",
             },
             duration=self._schedule_duration,  # next 12 hours
+            prior=self.now(),
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
             # this needs changes on the client
             unit=self.power_unit,
