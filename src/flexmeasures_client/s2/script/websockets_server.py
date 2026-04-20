@@ -92,7 +92,9 @@ async def websocket_handler(request):
     await ws.prepare(request)
 
     site_name = "My CEM"
-    base_url = os.getenv("FLEXMEASURES_BASE_URL", "http://localhost:5000")  # or "server:5000"
+    base_url = os.getenv(
+        "FLEXMEASURES_BASE_URL", "http://localhost:5000"
+    )  # or "server:5000"
     parsed = urlparse(base_url)
     fm_client = FlexMeasuresClient(
         password=os.getenv("FLEXMEASURES_PASSWORD", "toy-password"),

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
-import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta
 from logging import Logger

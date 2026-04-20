@@ -4,10 +4,9 @@ Used it at your own risk :)
 """
 
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
-import pytz
-from zoneinfo import ZoneInfo
 
 try:
     from s2python.frbc import (
