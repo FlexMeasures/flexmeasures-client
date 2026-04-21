@@ -39,7 +39,10 @@ jobs:
               "   :alt: FlexMeasures Logo\n"
               "   :align: center\n"
           )
-          readme.write_text(raw_block.sub(replacement, text))
+          patched_text, replacements = raw_block.subn(replacement, text, count=1)
+          if replacements != 1:
+              raise RuntimeError(f"Expected to replace exactly one logo block, replaced {replacements}.")
+          readme.write_text(patched_text)
           EOF
 
       - name: Build release distributions
