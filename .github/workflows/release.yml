@@ -22,7 +22,7 @@ jobs:
           python-version-file: ".python-version"
           enable-cache: true
 
-      - name: Replace raw HTML logo with plain image for PyPI
+      - name: Patch README.rst for PyPI compatibility
         run: |
           python - <<'EOF'
           import pathlib
@@ -30,6 +30,8 @@ jobs:
 
           readme = pathlib.Path("README.rst")
           text = readme.read_text()
+
+          # 1. Replace the raw HTML <picture> logo block with a plain .. image:: directive
           raw_block = re.compile(
               r"\.\. raw:: html\s*\n(\s+<p[^>]*>\s*\n)?\s+<picture>.*?</picture>\s*\n(\s+</p>\s*\n)?",
               re.DOTALL,
@@ -42,7 +44,16 @@ jobs:
           patched_text, replacements = raw_block.subn(replacement, text, count=1)
           if replacements != 1:
               raise RuntimeError(f"Expected to replace exactly one logo block, replaced {replacements}.")
+
+          # 2. Replace Sphinx :doc:`name` roles with plain hyperlinks to the docs on GitHub
+          base_url = "https://github.com/FlexMeasures/flexmeasures-client/blob/main/docs"
+          def doc_role_to_link(m):
+              name = m.group(1)
+              return f"`{name} <{base_url}/{name}.rst>`_"
+          patched_text = re.sub(r":doc:`([^`]+)`", doc_role_to_link, patched_text)
+
           readme.write_text(patched_text)
+          print("README.rst patched successfully.")
           EOF
 
       - name: Build release distributions
