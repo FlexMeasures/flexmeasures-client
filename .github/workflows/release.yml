@@ -58,10 +58,8 @@ jobs:
 
       - name: Build release distributions
         run: uv build
-
-      - name: Restore README
-        # clean up git working tree after modifying README
-        run: git checkout README.rst
+        env:
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ github.ref_name }}
 
       - name: Upload distributions
         uses: actions/upload-artifact@v4
