@@ -1,12 +1,6 @@
-.. raw:: html
-
-   <p align="center">
-     <picture>
-       <source media="(prefers-color-scheme: dark)" srcset="https://github.com/FlexMeasures/screenshots/blob/main/logo/flexmeasures-horizontal-dark.svg?raw=true">
-       <source media="(prefers-color-scheme: light)" srcset="https://github.com/FlexMeasures/screenshots/blob/main/logo/flexmeasures-horizontal-color.svg?raw=true">
-       <img alt="FlexMeasures Logo" src="https://github.com/FlexMeasures/screenshots/blob/main/logo/flexmeasures-horizontal-color.svg?raw=true">
-     </picture>
-   </p>
+.. image:: https://github.com/FlexMeasures/screenshots/blob/main/logo/flexmeasures-horizontal-color.svg?raw=true
+   :alt: FlexMeasures Logo
+   :align: center
 
 .. image:: https://img.shields.io/github/license/FlexMeasures/flexmeasures-client?color=blue
     :alt: License
