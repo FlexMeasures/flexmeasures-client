@@ -590,3 +590,205 @@ async def test_trigger_schedule_response_no_schedule_string():
                 duration="PT1H",
             )
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_unit_client_side_conversion():
+    """When server version < 0.32.0, unit conversion is done client-side."""
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid?duration=P0DT0H45M0S"
+    with aioresponses() as m:
+        m.get(
+            url=url,
+            status=200,
+            payload={
+                "values": [2.0, 3.0, 1.0],
+                "start": "2015-06-02T10:00:00+00:00",
+                "duration": "PT45M",
+                "unit": "MW",
+            },
+        )
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="skip-auth",
+        )
+        # Simulate an older server that doesn't support the unit query param
+        client.server_version = "0.31.0"
+
+        schedule = await client.get_schedule(
+            sensor_id=1, schedule_id="some-uuid", duration="PT45M", unit="kW"
+        )
+
+    # MW -> kW: multiply by 1000
+    assert schedule["values"] == [2000.0, 3000.0, 1000.0]
+    assert schedule["unit"] == "kW"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_unit_server_side():
+    """When server version >= 0.32.0, unit is passed as query parameter."""
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid?duration=P0DT0H45M0S&unit=kW"
+    with aioresponses() as m:
+        m.get(
+            url=url,
+            status=200,
+            payload={
+                "values": [2000.0, 3000.0, 1000.0],
+                "start": "2015-06-02T10:00:00+00:00",
+                "duration": "PT45M",
+                "unit": "kW",
+            },
+        )
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="skip-auth",
+        )
+        # Simulate a server that supports the unit query param
+        client.server_version = "0.32.0"
+
+        schedule = await client.get_schedule(
+            sensor_id=1, schedule_id="some-uuid", duration="PT45M", unit="kW"
+        )
+
+    assert schedule["values"] == [2000.0, 3000.0, 1000.0]
+    assert schedule["unit"] == "kW"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_unit_no_conversion_same_unit():
+    """When from_unit == to_unit, values are returned unchanged (client-side path)."""
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid?duration=P0DT0H45M0S"
+    with aioresponses() as m:
+        m.get(
+            url=url,
+            status=200,
+            payload={
+                "values": [2.0, 3.0],
+                "start": "2015-06-02T10:00:00+00:00",
+                "duration": "PT45M",
+                "unit": "MW",
+            },
+        )
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="skip-auth",
+        )
+        client.server_version = "0.31.0"
+
+        schedule = await client.get_schedule(
+            sensor_id=1, schedule_id="some-uuid", duration="PT45M", unit="MW"
+        )
+
+    assert schedule["values"] == [2.0, 3.0]
+    assert schedule["unit"] == "MW"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_unit_unsupported_conversion():
+    """Unsupported unit conversion raises NotImplementedError (client-side path)."""
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid?duration=P0DT0H45M0S"
+    with aioresponses() as m:
+        m.get(
+            url=url,
+            status=200,
+            payload={
+                "values": [2.0, 3.0],
+                "start": "2015-06-02T10:00:00+00:00",
+                "duration": "PT45M",
+                "unit": "MW",
+            },
+        )
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="skip-auth",
+        )
+        client.server_version = "0.31.0"
+
+        with pytest.raises(NotImplementedError, match="Power conversion from MW to °C"):
+            await client.get_schedule(
+                sensor_id=1,
+                schedule_id="some-uuid",
+                duration="PT45M",
+                unit="°C",
+            )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_and_get_schedule_with_unit():
+    """unit parameter is passed through trigger_and_get_schedule to get_schedule."""
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid?duration=P0DT0H45M0S"
+    with aioresponses() as m:
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            status=200,
+            payload={"schedule": "schedule-uuid"},
+        )
+        m.get(
+            url=url,
+            status=200,
+            payload={
+                "values": [2.15, 3.0, 2.0],
+                "start": "2015-06-02T10:00:00+00:00",
+                "duration": "PT45M",
+                "unit": "MW",
+            },
+        )
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            request_timeout=2,
+            polling_interval=0.2,
+            access_token="skip-auth",
+        )
+        # Older server: client-side conversion
+        client.server_version = "0.31.0"
+
+        schedule = await client.trigger_and_get_schedule(
+            sensor_id=1,
+            start="2015-06-02T10:00:00+00:00",
+            duration="PT45M",
+            flex_context={},
+            flex_model={},
+            unit="kW",
+        )
+
+    assert schedule["values"] == [2150.0, 3000.0, 2000.0]
+    assert schedule["unit"] == "kW"
+    await client.close()
+
+
+def test_convert_units_all_combinations():
+    """Test all W/kW/MW conversion directions."""
+    from flexmeasures_client.client import convert_units
+
+    # MW -> W
+    assert convert_units([1.0], "MW", "W") == [1_000_000.0]
+    # MW -> kW
+    assert convert_units([1.0], "MW", "kW") == [1_000.0]
+    # kW -> W
+    assert convert_units([1.0], "kW", "W") == [1_000.0]
+    # same unit
+    assert convert_units([1.0, 2.0], "MW", "MW") == [1.0, 2.0]
+    assert convert_units([1.0], "kW", "kW") == [1.0]
+    assert convert_units([1.0], "W", "W") == [1.0]
+    # W -> kW
+    assert convert_units([1000.0], "W", "kW") == [1.0]
+    # kW -> MW
+    assert convert_units([1000.0], "kW", "MW") == [1.0]
+    # W -> MW
+    assert convert_units([1_000_000.0], "W", "MW") == [1.0]
+
+
+def test_convert_units_unsupported():
+    """Unsupported conversion raises NotImplementedError."""
+    from flexmeasures_client.client import convert_units
+
+    with pytest.raises(NotImplementedError, match="Power conversion from MW to °C"):
+        convert_units([1.0], "MW", "°C")
