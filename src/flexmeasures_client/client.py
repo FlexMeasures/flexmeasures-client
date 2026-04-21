@@ -973,7 +973,6 @@ class FlexMeasuresClient:
                 schedule.append(sensor_schedule)
             return schedule
 
-
     async def get_sensor_data(
         self,
         sensor_id: int,
