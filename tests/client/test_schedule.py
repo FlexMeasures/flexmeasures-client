@@ -792,4 +792,3 @@ def test_convert_units_unsupported():
 
     with pytest.raises(NotImplementedError, match="Power conversion from MW to °C"):
         convert_units([1.0], "MW", "°C")
-
