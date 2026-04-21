@@ -98,6 +98,7 @@ async def test__init__(
     init_dict = flexmeasures_client.__dict__
     init_dict.pop("session")
     init_dict.pop("logger")
+    init_dict.pop("_sensor_asset_id_cache")
     assert init_dict == assert_dict
 
 
