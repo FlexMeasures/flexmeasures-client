@@ -120,7 +120,9 @@ class FlexMeasuresClient:
     session: ClientSession | None = None
     server_version: str | None = None
     logger: Logger = LOGGER
-    _sensor_asset_id_cache: dict[int, int] = field(default_factory=dict, init=False, repr=False)
+    _sensor_asset_id_cache: dict[int, int] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def __post_init__(self):
         if self.session is None:
