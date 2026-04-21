@@ -68,6 +68,38 @@ def _parse_sensor_json_fields(sensor: dict) -> None:
     _parse_json_field(sensor, "attributes")
 
 
+def convert_units(
+    values: list[int | float], from_unit: str, to_unit: str
+) -> list[int | float]:
+    """Convert values between W, kW and MW.
+
+    :param values: list of numeric values to convert
+    :param from_unit: source unit, one of "W", "kW", "MW"
+    :param to_unit: target unit, one of "W", "kW", "MW"
+    :returns: list of converted values
+    :raises NotImplementedError: when the conversion is not supported
+    """
+    if from_unit == "MW" and to_unit == "W":
+        values = [v * 1_000_000 for v in values]
+    elif (from_unit == "MW" and to_unit == "kW") or (
+        from_unit == "kW" and to_unit == "W"
+    ):
+        values = [v * 1_000 for v in values]
+    elif from_unit == to_unit:
+        pass
+    elif (from_unit == "W" and to_unit == "kW") or (
+        from_unit == "kW" and to_unit == "MW"
+    ):
+        values = [v / 1_000 for v in values]
+    elif from_unit == "W" and to_unit == "MW":
+        values = [v / 1_000_000 for v in values]
+    else:
+        raise NotImplementedError(
+            f"Power conversion from {from_unit} to {to_unit} is not supported."
+        )
+    return values
+
+
 @dataclass
 class FlexMeasuresClient:
     """Main class for connecting to the FlexMeasures API."""
@@ -619,9 +651,17 @@ class FlexMeasuresClient:
         sensor_id: int,
         schedule_id: str,
         duration: str | timedelta | None = None,
+        unit: str | None = None,
     ) -> dict:
         """Get schedule with given ID.
 
+        :param sensor_id: ID of the sensor to get the schedule for
+        :param schedule_id: ID of the schedule to retrieve
+        :param duration: duration of the schedule to retrieve
+        :param unit: desired unit for the schedule values (e.g. "W", "kW", "MW").
+                     If the server is FlexMeasures >= 0.32.0, the conversion is done
+                     server-side by passing the unit as a query parameter.
+                     Otherwise, client-side conversion is performed for W/kW/MW.
         :returns: schedule as dictionary, for example:
                   {
                       'values': [2.15, 3, 2],
@@ -636,6 +676,16 @@ class FlexMeasuresClient:
             }
         else:
             params = {}
+
+        # Pass unit server-side if the server supports it (>= 0.32.0)
+        server_handles_unit = (
+            unit is not None
+            and self.server_version is not None
+            and Version(self.server_version) >= Version("0.32.0")
+        )
+        if server_handles_unit:
+            params["unit"] = unit
+
         schedule, status = await self.request(
             uri=f"sensors/{sensor_id}/schedules/{schedule_id}",
             method="GET",
@@ -646,6 +696,13 @@ class FlexMeasuresClient:
             raise ContentTypeError(
                 f"Expected a dictionary schedule, but got {type(schedule)}",
             )
+
+        # If unit was requested but server didn't handle it, convert client-side
+        if unit is not None and not server_handles_unit:
+            from_unit = schedule["unit"]
+            schedule["values"] = convert_units(schedule["values"], from_unit, unit)
+            schedule["unit"] = unit
+
         return schedule
 
     async def get_account(self) -> dict | None:
@@ -855,6 +912,7 @@ class FlexMeasuresClient:
         asset_id: int | None = None,
         prior: datetime | None = None,
         scheduler: str | None = None,
+        unit: str | None = None,
     ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
 
@@ -864,6 +922,8 @@ class FlexMeasuresClient:
         If the power sensors are registered to different assets, create an asset
         hierarchy in FlexMeasures and use the asset ID of the top-level asset.
 
+        :param unit: desired unit for the schedule values (e.g. "W", "kW", "MW").
+                     Passed through to get_schedule(); see its docstring for details.
         :returns: For a single device, returns the schedule as a dictionary.
                   For example:
                   {
@@ -890,7 +950,10 @@ class FlexMeasuresClient:
         if sensor_id is not None:
             # Get the schedule for a single device
             return await self.get_schedule(
-                sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
+                sensor_id=sensor_id,
+                schedule_id=schedule_id,
+                duration=duration,
+                unit=unit,
             )
         elif flex_model is None:
             # If there is no flex-model referencing power sensors, no power schedules are retrieved
@@ -901,7 +964,10 @@ class FlexMeasuresClient:
             for sensor_flex_model in flex_model:
                 sensor_id = sensor_flex_model["sensor"]
                 sensor_schedule = await self.get_schedule(
-                    sensor_id=sensor_id, schedule_id=schedule_id, duration=duration
+                    sensor_id=sensor_id,
+                    schedule_id=schedule_id,
+                    duration=duration,
+                    unit=unit,
                 )
                 sensor_schedule["sensor"] = sensor_id
                 schedule.append(sensor_schedule)
