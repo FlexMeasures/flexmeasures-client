@@ -26,8 +26,8 @@ async def test_handshake(rm_handshake):
     )  # check that two messages are put to the outgoing queue (ReceptionStatus and HandshakeResponse)
 
     # CEM response
-    response = await cem.get_message()  # ReceptionStatus for Handshake
-    response = await cem.get_message()  # HandshakeResponse
+    response, _ = await cem.get_message()  # ReceptionStatus for Handshake
+    response, _ = await cem.get_message()  # HandshakeResponse
 
     assert (
         response["message_type"] == "HandshakeResponse"
@@ -54,8 +54,8 @@ async def test_resource_manager_details(resource_manager_details, rm_handshake):
         cem._sending_queue.qsize() == 2
     )  # check that message is put to the outgoing queue
 
-    response = await cem.get_message()  # ReceptionStatus for Handshake
-    response = await cem.get_message()  # HandshakeResponse
+    response, _ = await cem.get_message()  # ReceptionStatus for Handshake
+    response, _ = await cem.get_message()  # HandshakeResponse
 
     ##########################
     # ResourceManagerDetails #
@@ -63,7 +63,7 @@ async def test_resource_manager_details(resource_manager_details, rm_handshake):
 
     # RM sends ResourceManagerDetails
     await cem.handle_message(resource_manager_details)
-    response = await cem.get_message()
+    response, _ = await cem.get_message()
 
     # CEM response is ReceptionStatus with an OK status
     assert response["message_type"] == "ReceptionStatus"
@@ -92,14 +92,14 @@ async def test_activate_control_type(
     #############
 
     await cem.handle_message(rm_handshake)
-    response = await cem.get_message()  # ReceptionStatus for Handshake
-    response = await cem.get_message()  # HandshakeResponse
+    response, _ = await cem.get_message()  # ReceptionStatus for Handshake
+    response, _ = await cem.get_message()  # HandshakeResponse
 
     ##########################
     # ResourceManagerDetails #
     ##########################
     await cem.handle_message(resource_manager_details)
-    response = await cem.get_message()
+    response, _ = await cem.get_message()
 
     #########################
     # Activate control type #
@@ -107,7 +107,7 @@ async def test_activate_control_type(
 
     # CEM sends a request to change te control type
     await cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
-    message = await cem.get_message()
+    message, _ = await cem.get_message()
 
     assert cem.control_type == ControlType.NO_SELECTION, (
         "the control type should still be NO_SELECTION (rather than FRBC),"
@@ -139,21 +139,21 @@ async def test_messages_route_to_control_type_handler(
     #############
 
     await cem.handle_message(rm_handshake)
-    response = await cem.get_message()  # ReceptionStatus for Handshake
-    response = await cem.get_message()  # HandshakeResponse
+    response, _ = await cem.get_message()  # ReceptionStatus for Handshake
+    response, _ = await cem.get_message()  # HandshakeResponse
 
     ##########################
     # ResourceManagerDetails #
     ##########################
     await cem.handle_message(resource_manager_details)
-    response = await cem.get_message()
+    response, _ = await cem.get_message()
 
     #########################
     # Activate control type #
     #########################
 
     await cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
-    message = await cem.get_message()
+    message, _ = await cem.get_message()
 
     response = ReceptionStatus(
         subject_message_id=message.get("message_id"), status=ReceptionStatusValues.OK
@@ -166,7 +166,7 @@ async def test_messages_route_to_control_type_handler(
     ########
 
     await cem.handle_message(frbc_system_description)
-    response = await cem.get_message()
+    response, _ = await cem.get_message()
 
     # checking that FRBC handler is being called
     assert (
@@ -182,7 +182,7 @@ async def test_messages_route_to_control_type_handler(
     # change of control type is not performed in case that the RM answers
     # with a negative response
     await cem.activate_control_type(ControlType.NO_SELECTION)
-    response = await cem.get_message()
+    response, _ = await cem.get_message()
     assert (
         cem._control_type == ControlType.FILL_RATE_BASED_CONTROL
     ), "control type should not change, confirmation still pending"
@@ -222,8 +222,8 @@ async def test_automatic_change_control_type(resource_manager_details, rm_handsh
         cem._sending_queue.qsize() == 2
     )  # check that message is put to the outgoing queue
 
-    response = await cem.get_message()
-    response = await cem.get_message()  # HandshakeResponse
+    response, _ = await cem.get_message()
+    response, _ = await cem.get_message()  # HandshakeResponse
 
     ##########################
     # ResourceManagerDetails #
@@ -231,13 +231,13 @@ async def test_automatic_change_control_type(resource_manager_details, rm_handsh
 
     # RM sends ResourceManagerDetails
     await cem.handle_message(resource_manager_details)
-    response = await cem.get_message()
+    response, _ = await cem.get_message()
 
     # CEM sends control type on receiving the ResourceManagerDetails
     assert response["message_type"] == "SelectControlType"
     assert response["control_type"] == "FILL_RATE_BASED_CONTROL"
 
-    response = await cem.get_message()
+    response, _ = await cem.get_message()
 
     # CEM response is ReceptionStatus with an OK status
     assert response["message_type"] == "ReceptionStatus"

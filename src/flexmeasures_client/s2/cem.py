@@ -442,7 +442,6 @@ class CEM(Handler):
         fut = loop.create_future()
         self._logger.debug(f"Sent: {message}")
         await self._sending_queue.put((message, fut))
-        await fut  # wait until actually sent
 
 
 def get_commodity_unit(commodity_quantity) -> str:
