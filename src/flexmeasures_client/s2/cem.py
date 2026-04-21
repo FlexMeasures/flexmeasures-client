@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
-from asyncio import Queue
 from collections import defaultdict
 from datetime import datetime, timedelta
 from logging import Logger
@@ -58,7 +58,7 @@ class CEM(Handler):
     ]  # maps the CommodityQuantity power measurement sensors to FM sensor IDs
 
     _fm_client: FlexMeasuresClient
-    _sending_queue: Queue[pydantic.BaseModel]
+    _sending_queue: asyncio.Queue[tuple[pydantic.BaseModel, asyncio.Future]]
 
     _timers: dict[str, datetime]
     _datastore: dict
@@ -84,7 +84,7 @@ class CEM(Handler):
         super(CEM, self).__init__()
 
         self._fm_client = fm_client
-        self._sending_queue = Queue()
+        self._sending_queue = asyncio.Queue()
         self._power_sensors = dict()
         self.power_sensor_id = power_sensor_id
         self._control_types_handlers = dict()
@@ -158,8 +158,8 @@ class CEM(Handler):
         # add fm_client to control_type handler
         control_type_handler._fm_client = self._fm_client
 
-        # add sending queue
-        control_type_handler._sending_queue = self._sending_queue
+        # add send_message method so the handler can send messages
+        control_type_handler.send_message = self.send_message
 
         # Add logger
         control_type_handler._logger = self._logger
@@ -184,7 +184,19 @@ class CEM(Handler):
         if isinstance(message, str):
             message = json.loads(message)
 
-        self._logger.debug(f"Received: {message}")
+        # Detect wrapper
+        if isinstance(message, dict) and "message" in message and "metadata" in message:
+            metadata = message["metadata"]
+            message = message["message"]
+            self._logger.debug("Received wrapped message")
+            self._logger.debug(f"Received message: {message}")
+            self._logger.debug(f"Received metadata: {metadata}")
+            if "dt" in metadata:
+                for control_type in self._control_types_handlers.values():
+                    control_type.now = lambda: metadata["dt"]  # type: ignore
+                self.now = lambda: metadata["dt"]  # type: ignore
+        else:
+            self._logger.debug(f"Received: {message}")
 
         # try to handle the message with the control_type handle
         if (
@@ -215,7 +227,7 @@ class CEM(Handler):
             )
 
         if response is not None:
-            await self._sending_queue.put(response)
+            await self.send_message(response)
 
     def update_control_type(self, control_type: ControlType):
         """
@@ -224,15 +236,24 @@ class CEM(Handler):
         """
         self._control_type = control_type
 
-    async def get_message(self) -> str:
+    async def get_message(self) -> tuple[str, asyncio.Future]:
         """Call this function to get the messages to be sent to the RM
 
         Returns:
             str: message in JSON format
         """
 
-        message = await self._sending_queue.get()
-        return message.model_dump(mode="json")
+        item = await self._sending_queue.get()
+
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise RuntimeError(
+                "Invalid item in sending queue. All messages must go through send_message() rather than _sending_queue.put()."
+            )
+
+        message, fut = item
+        message = message.model_dump(mode="json")
+
+        return message, fut
 
     async def activate_control_type(
         self, control_type: ControlType
@@ -272,8 +293,7 @@ class CEM(Handler):
                 ].register_success_callbacks(
                     message_id, self.update_control_type, control_type=control_type
                 )
-
-            await self._sending_queue.put(
+            await self.send_message(
                 SelectControlType(message_id=message_id, control_type=control_type)
             )
         return None
@@ -418,8 +438,10 @@ class CEM(Handler):
         return get_reception_status(message, ReceptionStatusValues.OK)
 
     async def send_message(self, message):
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
         self._logger.debug(f"Sent: {message}")
-        await self._sending_queue.put(message)
+        await self._sending_queue.put((message, fut))
 
 
 def get_commodity_unit(commodity_quantity) -> str:

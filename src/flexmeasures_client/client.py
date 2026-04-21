@@ -672,12 +672,9 @@ class FlexMeasuresClient:
                       'unit': 'MW'
                   }
         """
+        params = {}
         if duration is not None:
-            params = {
-                "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
-            }
-        else:
-            params = {}
+            params["duration"] = pd.Timedelta(duration).isoformat()  # for example: PT1H
 
         # Pass unit server-side if the server supports it (>= 0.32.0)
         server_handles_unit = (
@@ -829,7 +826,7 @@ class FlexMeasuresClient:
             ) < Version("0.31.0"):
                 self.logger.warning(
                     "get_assets(): The 'root', 'depth' and 'fields' parameters require FlexMeasures server version 0.31.0 or above. "
-                    "These parameters will be ignored."
+                    f"These parameters will be ignored for server version {self.server_version}."
                 )
             if root and isinstance(root, int):
                 uri += f"&root={root}"
@@ -1208,7 +1205,7 @@ class FlexMeasuresClient:
                 ) < Version("0.31.0"):
                     self.logger.warning(
                         "update_asset(): The 'aggregate-power' flex-context field requires FlexMeasures server version 0.31.0 or above. "
-                        "The 'aggregate-power' field will be ignored by the server."
+                        f"The 'aggregate-power' field will be ignored by the server, which is at version {self.server_version}."
                     )
             updates["flex_context"] = json.dumps(updates["flex_context"])
         if "flex_model" in updates:
@@ -1321,6 +1318,7 @@ class FlexMeasuresClient:
 
         if prior is not None:
             message["prior"] = pd.Timestamp(prior).isoformat()
+            message["force_new_job_creation"] = True
         if scheduler is not None:
             if asset_id is None:
                 raise ValueError(

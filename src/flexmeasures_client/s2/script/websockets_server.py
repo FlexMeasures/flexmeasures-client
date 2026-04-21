@@ -2,7 +2,9 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import aiohttp
 from aiohttp import web
@@ -41,19 +43,22 @@ async def rm_details_watchdog(ws, cem: CEM):
 
     cem._logger.debug(f"CONTROL TYPE: {cem._control_type}")
 
-    # after this, schedule will be triggered on reception of a new system description
+    # after this, schedule will be triggered on reception of a new storage status
 
 
 async def websocket_producer(ws, cem: CEM):
     cem._logger.debug("start websocket message producer")
     cem._logger.debug(f"IS CLOSED? {cem.is_closed()}")
     while not cem.is_closed():
-        message = await cem.get_message()
-        cem._logger.debug("sending message")
+        message, fut = await cem.get_message()
         try:
+            cem._logger.debug("sending message")
             await ws.send_json(message)
-        except aiohttp.ClientConnectionResetError:
-            break
+            fut.set_result(True)
+        # except aiohttp.ClientConnectionResetError:
+        #     break
+        except Exception as exc:
+            fut.set_exception(exc)
     cem._logger.debug("cem closed")
 
 
@@ -75,6 +80,7 @@ async def websocket_consumer(ws, cem: CEM):
         elif msg.type == aiohttp.WSMsgType.ERROR:
             cem._logger.debug("close...")
             await cem.close()
+            await ws.close()
             cem._logger.error(f"ws connection closed with exception {ws.exception()}")
             # TODO: save cem state?
 
@@ -86,18 +92,30 @@ async def websocket_handler(request):
     await ws.prepare(request)
 
     site_name = "My CEM"
-    base_url = os.getenv("FLEXMEASURES_BASE_URL", "http://localhost:5000")
+    base_url = os.getenv(
+        "FLEXMEASURES_BASE_URL", "http://localhost:5000"
+    )  # or "server:5000"
     parsed = urlparse(base_url)
     fm_client = FlexMeasuresClient(
         password=os.getenv("FLEXMEASURES_PASSWORD", "toy-password"),
         email=os.getenv("FLEXMEASURES_USER", "toy-user@flexmeasures.io"),
         host=parsed.netloc,
         ssl=parsed.scheme == "https",
+        polling_interval=0.5,
     )
 
-    price_sensor, power_sensor, soc_sensor, rm_discharge_sensor = await configure_site(
-        site_name, fm_client
-    )
+    (
+        price_sensor,
+        production_price_sensor,
+        power_sensor,
+        soc_sensor,
+        rm_discharge_sensor,
+        soc_minima_sensor,
+        soc_maxima_sensor,
+        usage_forecast_sensor,
+        leakage_behaviour_sensor,
+        charging_efficiency_sensor,
+    ) = await configure_site(site_name, fm_client)
 
     cem = CEM(
         sensor_id=power_sensor["id"],
@@ -107,8 +125,14 @@ async def websocket_handler(request):
     frbc = FRBCSimple(
         power_sensor_id=power_sensor["id"],
         price_sensor_id=price_sensor["id"],
+        production_price_sensor_id=production_price_sensor["id"],
         soc_sensor_id=soc_sensor["id"],
         rm_discharge_sensor_id=rm_discharge_sensor["id"],
+        soc_minima_sensor_id=soc_minima_sensor["id"],
+        soc_maxima_sensor_id=soc_maxima_sensor["id"],
+        usage_forecast_sensor_id=usage_forecast_sensor["id"],
+        leakage_behaviour_sensor_id=leakage_behaviour_sensor["id"],
+        charging_efficiency_sensor_id=charging_efficiency_sensor["id"],
     )
     cem.register_control_type(frbc)
 
@@ -124,11 +148,11 @@ async def websocket_handler(request):
 
 async def configure_site(
     site_name: str, fm_client: FlexMeasuresClient
-) -> tuple[dict, dict, dict, dict]:
+) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict, dict]:
     account = await fm_client.get_account()
     assets = await fm_client.get_assets(parse_json_fields=True)
 
-    site_asset = None
+    site_asset: dict | None = None
     for asset in assets:
         if asset["name"] == site_name:
             site_asset = asset
@@ -152,18 +176,36 @@ async def configure_site(
 
     sensors = site_asset.get("sensors", [])
     price_sensor = None
+    production_price_sensor = None
     power_sensor = None
     soc_sensor = None
     rm_discharge_sensor = None
+    soc_minima_sensor = None
+    soc_maxima_sensor = None
+    usage_forecast_sensor = None
+    leakage_behaviour_sensor = None
+    charging_efficiency_sensor = None
     for sensor in sensors:
         if sensor["name"] == "price":
             price_sensor = sensor
+        if sensor["name"] == "production price":
+            production_price_sensor = sensor
         elif sensor["name"] == "power":
             power_sensor = sensor
         elif sensor["name"] == "state of charge":
             soc_sensor = sensor
         elif sensor["name"] == "RM discharge":
             rm_discharge_sensor = sensor
+        elif sensor["name"] == "soc-minima":
+            soc_minima_sensor = sensor
+        elif sensor["name"] == "soc-maxima":
+            soc_maxima_sensor = sensor
+        elif sensor["name"] == "usage-forecast":
+            usage_forecast_sensor = sensor
+        elif sensor["name"] == "leakage-behaviour":
+            leakage_behaviour_sensor = sensor
+        elif sensor["name"] == "charging-efficiency":
+            charging_efficiency_sensor = sensor
 
     if price_sensor is None:
         price_sensor = await fm_client.add_sensor(
@@ -173,37 +215,41 @@ async def configure_site(
             generic_asset_id=site_asset["id"],
             timezone="Europe/Amsterdam",
         )
-    await fm_client.post_sensor_data(
-        sensor_id=price_sensor["id"],
-        start="2026-01-15T00:00+01",  # 2026-01-01T00:00+01
-        duration="P3D",  # P1M
-        values=[
-            0.10,
-            0.11,
-            0.12,
-            0.15,
-            0.18,
-            0.17,
-            0.11,
-            0.09,
-            0.10,
-            0.09,
-            0.09,
-            0.10,
-            0.08,
-            0.05,
-            0.04,
-            0.04,
-            0.06,
-            0.08,
-            0.12,
-            0.13,
-            0.14,
-            0.13,
-            0.10,
-            0.07,
-        ],
-        unit="EUR/kWh",
+    if production_price_sensor is None:
+        production_price_sensor = await fm_client.add_sensor(
+            name="production price",
+            event_resolution="PT15M",
+            unit="EUR/kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+
+    # Continue immediately without awaiting
+    LOGGER.debug("Posting 3 days of prices in a background task..")
+    start_of_today = (
+        datetime.now(ZoneInfo("Europe/Amsterdam"))
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+        .isoformat()
+    )
+    asyncio.create_task(
+        fm_client.post_sensor_data(
+            sensor_id=price_sensor["id"],
+            start=start_of_today,
+            prior="2026-01-01T00:00+01",  # 2026-01-01T00:00+01
+            duration="P3D",  # P1M
+            values=[0.3],
+            unit="EUR/kWh",
+        )
+    )
+    asyncio.create_task(
+        fm_client.post_sensor_data(
+            sensor_id=production_price_sensor["id"],
+            start=start_of_today,
+            prior="2026-01-01T00:00+01",  # 2026-01-01T00:00+01
+            duration="P3D",  # P1M
+            values=[0.2],
+            unit="EUR/kWh",
+        )
     )
     if power_sensor is None:
         power_sensor = await fm_client.add_sensor(
@@ -212,6 +258,7 @@ async def configure_site(
             unit="kW",
             generic_asset_id=site_asset["id"],
             timezone="Europe/Amsterdam",
+            attributes={"consumption_is_positive": True},
         )
     if soc_sensor is None:
         soc_sensor = await fm_client.add_sensor(
@@ -229,7 +276,80 @@ async def configure_site(
             generic_asset_id=site_asset["id"],
             timezone="Europe/Amsterdam",
         )
-    return price_sensor, power_sensor, soc_sensor, rm_discharge_sensor
+    if soc_minima_sensor is None:
+        soc_minima_sensor = await fm_client.add_sensor(
+            name="soc-minima",
+            event_resolution="PT15M",
+            unit="kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if soc_maxima_sensor is None:
+        soc_maxima_sensor = await fm_client.add_sensor(
+            name="soc-maxima",
+            event_resolution="PT15M",
+            unit="kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if usage_forecast_sensor is None:
+        usage_forecast_sensor = await fm_client.add_sensor(
+            name="usage-forecast",
+            event_resolution="PT15M",
+            unit="kW",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if leakage_behaviour_sensor is None:
+        leakage_behaviour_sensor = await fm_client.add_sensor(
+            name="leakage-behaviour",
+            event_resolution="PT15M",
+            unit="%",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if charging_efficiency_sensor is None:
+        charging_efficiency_sensor = await fm_client.add_sensor(
+            name="charging-efficiency",
+            event_resolution="PT15M",
+            unit="%",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    sensors_to_show = [
+        {
+            "title": "State of charge",
+            "sensors": [
+                soc_minima_sensor["id"],
+                soc_maxima_sensor["id"],
+                soc_sensor["id"],
+            ],
+        },
+        {
+            "title": "Prices",
+            "sensors": [price_sensor["id"], production_price_sensor["id"]],
+        },
+        {
+            "title": "Power",
+            "sensors": [power_sensor["id"]],
+        },
+    ]
+    await fm_client.update_asset(
+        asset_id=site_asset["id"],
+        updates=dict(sensors_to_show=sensors_to_show),
+    )
+    return (
+        price_sensor,
+        production_price_sensor,
+        power_sensor,
+        soc_sensor,
+        rm_discharge_sensor,
+        soc_minima_sensor,
+        soc_maxima_sensor,
+        usage_forecast_sensor,
+        leakage_behaviour_sensor,
+        charging_efficiency_sensor,
+    )
 
 
 app = web.Application()
