@@ -7,7 +7,7 @@ import os
 import re
 import socket
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from logging import Logger
 from typing import Any, cast
@@ -120,6 +120,7 @@ class FlexMeasuresClient:
     session: ClientSession | None = None
     server_version: str | None = None
     logger: Logger = LOGGER
+    _sensor_asset_id_cache: dict[int, int] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self):
         if self.session is None:
@@ -1319,6 +1320,26 @@ class FlexMeasuresClient:
 
         if prior is not None:
             message["prior"] = pd.Timestamp(prior).isoformat()
+
+        # For a sensor_id, try to resolve to the sensor's asset_id so we can use
+        # the asset scheduling endpoint (preferred over the sensor endpoint).
+        # Fall back to the sensor endpoint only when the server is known to be
+        # older than v0.27.0, which is when the asset endpoint was introduced.
+        use_sensor_endpoint = False
+        if sensor_id is not None:
+            if self.server_version is not None and Version(
+                self.server_version
+            ) < Version("0.27.0"):
+                use_sensor_endpoint = True
+            else:
+                # Look up asset_id from sensor (cached after first lookup)
+                if sensor_id not in self._sensor_asset_id_cache:
+                    sensor = await self.get_sensor(
+                        sensor_id=sensor_id, parse_json_fields=False
+                    )
+                    self._sensor_asset_id_cache[sensor_id] = sensor["generic_asset_id"]
+                asset_id = self._sensor_asset_id_cache[sensor_id]
+
         if scheduler is not None:
             if asset_id is None:
                 raise ValueError(
@@ -1341,7 +1362,7 @@ class FlexMeasuresClient:
                 asset_id=asset_id, updates=dict(attributes=asset_attributes)
             )
 
-        if sensor_id is not None:
+        if use_sensor_endpoint:
             response, status = await self.request(
                 uri=f"sensors/{sensor_id}/schedules/trigger",
                 json_payload=message,
