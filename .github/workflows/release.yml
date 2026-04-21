@@ -22,6 +22,29 @@ jobs:
           python-version-file: ".python-version"
           enable-cache: true
 
+      - name: Replace raw HTML logo with plain image for PyPI
+        run: |
+          python - <<'EOF'
+          import pathlib
+          import re
+
+          readme = pathlib.Path("README.rst")
+          text = readme.read_text()
+          raw_block = re.compile(
+              r"\.\. raw:: html\s*\n(\s+<p[^>]*>\s*\n)?\s+<picture>.*?</picture>\s*\n(\s+</p>\s*\n)?",
+              re.DOTALL,
+          )
+          replacement = (
+              ".. image:: https://github.com/FlexMeasures/screenshots/blob/main/logo/flexmeasures-horizontal-color.svg?raw=true\n"
+              "   :alt: FlexMeasures Logo\n"
+              "   :align: center\n"
+          )
+          patched_text, replacements = raw_block.subn(replacement, text, count=1)
+          if replacements != 1:
+              raise RuntimeError(f"Expected to replace exactly one logo block, replaced {replacements}.")
+          readme.write_text(patched_text)
+          EOF
+
       - name: Build release distributions
         run: uv build
 
