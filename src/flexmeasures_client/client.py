@@ -80,19 +80,19 @@ def convert_units(
     :raises NotImplementedError: when the conversion is not supported
     """
     if from_unit == "MW" and to_unit == "W":
-        values = [v * 10**6 for v in values]
+        values = [v * 1_000_000 for v in values]
     elif (from_unit == "MW" and to_unit == "kW") or (
         from_unit == "kW" and to_unit == "W"
     ):
-        values = [v * 10**3 for v in values]
+        values = [v * 1_000 for v in values]
     elif from_unit == to_unit:
         pass
     elif (from_unit == "W" and to_unit == "kW") or (
         from_unit == "kW" and to_unit == "MW"
     ):
-        values = [v * 10**-3 for v in values]
+        values = [v / 1_000 for v in values]
     elif from_unit == "W" and to_unit == "MW":
-        values = [v * 10**-6 for v in values]
+        values = [v / 1_000_000 for v in values]
     else:
         raise NotImplementedError(
             f"Power conversion from {from_unit} to {to_unit} is not supported."
