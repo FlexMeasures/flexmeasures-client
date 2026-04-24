@@ -1,9 +1,10 @@
 import asyncio
 import os
+import tempfile
 from pathlib import Path
 
 import pandas as pd
-from const import heating_name, price_market_name, pv_name, weather_station_name
+from const import heating_name, price_market_name, pv_name, weather_station_name, FORECASTING_START
 
 from flexmeasures_client import FlexMeasuresClient
 
@@ -45,20 +46,47 @@ async def upload_csv_file_to_sensor(
     sensor_id: int,
     file_path: str,
     belief_time_measured_instantly: bool,
+    until: str | None = None,
 ):
-    """Upload CSV file directly to a sensor using file upload."""
+    """Upload CSV file directly to a sensor using file upload.
+
+    Optionally filter records to only upload rows where `event_start` is strictly
+    earlier than `until`.
+    """
+    filtered_file_path = None
     try:
         full_path = os.path.join(BASE_DIR, file_path)
+        upload_file_path = full_path
+
+        if until is not None:
+            until_timestamp = pd.to_datetime(until)
+            df = pd.read_csv(full_path)
+            df["event_start"] = pd.to_datetime(df["event_start"])
+            filtered_df = df[df["event_start"] < until_timestamp]
+
+            fd, filtered_file_path = tempfile.mkstemp(
+                prefix=f"filtered_{sensor_id}_",
+                suffix=f"_{Path(file_path).name}",
+                dir=BASE_DIR,
+            )
+            os.close(fd)
+            filtered_df.to_csv(filtered_file_path, index=False)
+            upload_file_path = filtered_file_path
+
         await client.post_sensor_data(
             sensor_id=sensor_id,
-            file_path=full_path,
+            file_path=upload_file_path,
             belief_time_measured_instantly=belief_time_measured_instantly,  # Set belief_time immediately after event ends
         )
-        print(f"Uploaded {file_path} to sensor {sensor_id}")
+        filter_msg = f" (filtered until {until})" if until is not None else ""
+        print(f"Uploaded {file_path}{filter_msg} to sensor {sensor_id}")
         return True
     except Exception as e:
         print(f"Failed to upload {file_path} to sensor {sensor_id}: {e}")
         return False
+    finally:
+        if filtered_file_path and os.path.exists(filtered_file_path):
+            os.remove(filtered_file_path)
 
 
 async def find_top_level_asset_id(
@@ -120,33 +148,36 @@ async def upload_data_for_first_two_weeks(
         sensors = await find_sensors_by_asset(client, sensor_mappings, community_name)
 
         # Upload data files directly
+        # Data for consumption and production sensors is uploaded until the forecast start
         data_files = [
-            ("data/site_power_capacity.csv", "site-power-capacity", False),
-            ("data/price_data.csv", "electricity-price", False),
-            ("data/building_data.csv", "electricity-consumption", True),
-            ("data/irradiation_data.csv", "irradiation", True),
-            ("data/PV_production_data.csv", "electricity-production", True),
-            ("data/max_consumption_capacity.csv", "max-consumption-capacity", False),
-            ("data/max_production_capacity.csv", "max-production-capacity", False),
-            ("data/heating_soc_usage_data.csv", "soc-usage", True),
+            # (file path, sensor name, belief time measured instantly, upload until schedulation)
+            ("data/site_power_capacity.csv", "site-power-capacity", False, True),
+            ("data/price_data.csv", "electricity-price", False, False),
+            ("data/building_data.csv", "electricity-consumption", True, True),
+            ("data/irradiation_data.csv", "irradiation", True, False),
+            ("data/PV_production_data.csv", "electricity-production", True, True),
+            ("data/max_consumption_capacity.csv", "max-consumption-capacity", False, False),
+            ("data/max_production_capacity.csv", "max-production-capacity", False, False),
+            ("data/heating_soc_usage_data.csv", "soc-usage", True, True),
         ]
         if i > 1:
             data_files = data_files[
                 2:
             ]  # Remove site power capacity and price datafiles to not fill them more than once
-        for file_path, sensor_key, belief_time_measured_instantly in data_files:
+        for file_path, sensor_key, belief_time_measured_instantly, until_schedulation in data_files:
             if sensor_key not in sensors:
                 print(f"Skipping {file_path} - sensor not found")
                 continue
 
             print(f"Processing {file_path}...")
 
-            # Upload CSV file directly
+            # Upload CSV file, upload data until forecast start
             success = await upload_csv_file_to_sensor(
                 client=client,
                 sensor_id=sensors[sensor_key]["id"],
                 file_path=file_path,
                 belief_time_measured_instantly=belief_time_measured_instantly,
+                until=FORECASTING_START if until_schedulation else None,
             )
 
             if success:
