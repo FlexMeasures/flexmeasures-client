@@ -4,7 +4,13 @@ import tempfile
 from pathlib import Path
 
 import pandas as pd
-from const import heating_name, price_market_name, pv_name, weather_station_name, FORECASTING_START
+from const import (
+    FORECASTING_START,
+    heating_name,
+    price_market_name,
+    pv_name,
+    weather_station_name,
+)
 
 from flexmeasures_client import FlexMeasuresClient
 
@@ -156,15 +162,30 @@ async def upload_data_for_first_two_weeks(
             ("data/building_data.csv", "electricity-consumption", True, True),
             ("data/irradiation_data.csv", "irradiation", True, False),
             ("data/PV_production_data.csv", "electricity-production", True, True),
-            ("data/max_consumption_capacity.csv", "max-consumption-capacity", False, False),
-            ("data/max_production_capacity.csv", "max-production-capacity", False, False),
+            (
+                "data/max_consumption_capacity.csv",
+                "max-consumption-capacity",
+                False,
+                False,
+            ),
+            (
+                "data/max_production_capacity.csv",
+                "max-production-capacity",
+                False,
+                False,
+            ),
             ("data/heating_soc_usage_data.csv", "soc-usage", True, True),
         ]
         if i > 1:
             data_files = data_files[
                 2:
             ]  # Remove site power capacity and price datafiles to not fill them more than once
-        for file_path, sensor_key, belief_time_measured_instantly, until_schedulation in data_files:
+        for (
+            file_path,
+            sensor_key,
+            belief_time_measured_instantly,
+            until_schedulation,
+        ) in data_files:
             if sensor_key not in sensors:
                 print(f"Skipping {file_path} - sensor not found")
                 continue
