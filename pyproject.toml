@@ -8,7 +8,7 @@ description = "Async client to connect to the FlexMeasures API"
 readme = "README.rst"
 requires-python = ">=3.10, <3.13"
 license = "Apache-2.0"
-license-files = ["LICENSE.txt"]
+license-files = ["LICENSE"]
 authors = [
     {name = "Flexmeasures", email = "info@seita.nl"}
 ]
