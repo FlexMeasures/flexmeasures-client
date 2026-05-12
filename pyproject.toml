@@ -27,6 +27,8 @@ dependencies = [
     "pandas>=2.1.4",
     "async-timeout>=5.0.1",
     "packaging>=26.0",
+    # Below: minimum requirements solely here for security reasons
+    "urllib3>=2.7.0",  # https://github.com/FlexMeasures/flexmeasures-client/security/dependabot/16
 ]
 
 [project.urls]
