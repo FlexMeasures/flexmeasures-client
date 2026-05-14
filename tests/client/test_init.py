@@ -527,3 +527,37 @@ def test_check_for_status_failure():
     """check_for_status raises ValueError on wrong status."""
     with pytest.raises(ValueError, match="Request failed with status code 400"):
         check_for_status(400, 200)
+
+
+def test_check_for_status_exact_match(caplog):
+    """check_for_status does not raise and does not log when status matches expected."""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="flexmeasures_client.response_handling"):
+        check_for_status(200, 200)
+    assert caplog.records == []
+
+
+def test_check_for_status_different_2xx_logs_info(caplog):
+    """check_for_status logs at INFO level when status is 2xx but differs from expected."""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="flexmeasures_client.response_handling"):
+        check_for_status(202, 200)
+    assert len(caplog.records) == 1
+    assert caplog.records[0].levelno == logging.INFO
+    assert "202" in caplog.records[0].message
+    assert "200" in caplog.records[0].message
+
+
+@pytest.mark.parametrize("status", [200, 201, 202, 204, 299])
+def test_check_for_status_various_2xx_pass(status):
+    """check_for_status does not raise for any 2xx status code, even when it differs from expected."""
+    check_for_status(status, 200)
+
+
+@pytest.mark.parametrize("status", [199, 300, 400, 404, 500, 503])
+def test_check_for_status_non_2xx_raises(status):
+    """check_for_status raises ValueError for non-2xx status codes."""
+    with pytest.raises(ValueError, match=f"Request failed with status code {status}"):
+        check_for_status(status, 200)
