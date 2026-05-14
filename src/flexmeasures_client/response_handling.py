@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 from aiohttp import ContentTypeError
@@ -10,6 +11,8 @@ from flexmeasures_client.constants import CONTENT_TYPE
 
 if TYPE_CHECKING:  # Only imports the below statements during type checking
     from flexmeasures_client.client import FlexMeasuresClient
+
+logger = logging.getLogger(__name__)
 
 
 async def check_response(
@@ -92,6 +95,16 @@ def check_content_type(response):
 
 
 def check_for_status(status, expected_status):
-    """Check if status is expected"""
-    if status != expected_status:
+    """Check if status is an acceptable 2xx status code.
+
+    Accepts any 2xx status code as success. Logs at INFO level if the status
+    differs from the expected status but is still a 2xx success code.
+    Raises ValueError for non-2xx status codes.
+    """
+    if 200 <= status < 300:
+        if status != expected_status:
+            logger.info(
+                f"Received HTTP status {status} instead of expected {expected_status}."
+            )
+    else:
         raise ValueError(f"Request failed with status code {status}")
