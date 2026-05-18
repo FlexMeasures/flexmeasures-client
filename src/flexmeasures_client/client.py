@@ -1331,12 +1331,18 @@ class FlexMeasuresClient:
         # For a sensor_id, try to resolve to the sensor's asset_id so we can use
         # the asset scheduling endpoint (preferred over the sensor endpoint).
         # Fall back to the sensor endpoint only when the server is known to be
-        # older than v0.27.0, which is when the asset endpoint was introduced.
+        # older than v0.27.0, which is when the asset endpoint was introduced,
+        # or in case we need to force a new job creation, when the server is older than v0.33.0,
+        # which is when the asset endpoint started to support that field.
         use_sensor_endpoint = False
         if sensor_id is not None:
-            if self.server_version is not None and Version(
-                self.server_version
-            ) < Version("0.27.0"):
+            if self.server_version is not None and (
+                Version(self.server_version) < Version("0.27.0")
+                or (
+                    Version(self.server_version) < Version("0.33.0")
+                    and "force_new_job_creation" in message
+                )
+            ):
                 use_sensor_endpoint = True
             else:
                 # Look up asset_id from sensor (cached after first lookup)
