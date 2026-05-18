@@ -675,12 +675,9 @@ class FlexMeasuresClient:
                       'unit': 'MW'
                   }
         """
+        params = {}
         if duration is not None:
-            params = {
-                "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
-            }
-        else:
-            params = {}
+            params["duration"] = pd.Timedelta(duration).isoformat()  # for example: PT1H
 
         # Pass unit server-side if the server supports it (>= 0.32.0)
         server_handles_unit = (
