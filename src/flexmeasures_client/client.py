@@ -1324,9 +1324,9 @@ class FlexMeasuresClient:
             if self.server_version is not None and Version(
                 self.server_version
             ) < Version("0.33.0"):
-                message["force-new-job-creation"] = True
-            else:
                 message["force_new_job_creation"] = True
+            else:
+                message["force-new-job-creation"] = True
 
         # For a sensor_id, try to resolve to the sensor's asset_id so we can use
         # the asset scheduling endpoint (preferred over the sensor endpoint).
