@@ -1341,6 +1341,7 @@ class FlexMeasuresClient:
                     )
                     self._sensor_asset_id_cache[sensor_id] = sensor["generic_asset_id"]
                 asset_id = self._sensor_asset_id_cache[sensor_id]
+                flex_model["sensor"] = sensor_id
 
         if scheduler is not None:
             if asset_id is None:
