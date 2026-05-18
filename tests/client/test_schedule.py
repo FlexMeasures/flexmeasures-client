@@ -16,8 +16,13 @@ async def test_trigger_schedule() -> None:
             email="test@test.test", password="test"
         )
         flexmeasures_client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/3",
+            status=200,
+            payload={"id": 3, "generic_asset_id": 5, "name": "test-sensor"},
+        )
         m.post(
-            "http://localhost:5000/api/v3_0/sensors/3/schedules/trigger",
+            "http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
             status=200,
             payload={"schedule": "test_schedule_id"},
         )
@@ -48,7 +53,7 @@ async def test_trigger_schedule() -> None:
 
         assert schedule_id == "test_schedule_id"
 
-        m.assert_called_once_with(
+        m.assert_called_with(
             method="POST",
             headers={"Content-Type": "application/json", "Authorization": "test-token"},
             json={
@@ -65,7 +70,7 @@ async def test_trigger_schedule() -> None:
                 },
                 "flex-context": {"consumption-price-sensor": 3},
             },
-            url="http://localhost:5000/api/v3_0/sensors/3/schedules/trigger",
+            url="http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
             params=None,
             ssl=False,
             allow_redirects=False,
@@ -162,8 +167,13 @@ async def test_trigger_and_get_schedule() -> None:
         m.get(
             url=url, status=400, payload={"message": "Scheduling job waiting"}, repeat=3
         )
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={"id": 1, "generic_asset_id": 10, "name": "test-sensor"},
+        )
         m.post(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            "http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
             status=200,
             payload={"schedule": "schedule-uuid"},
         )
@@ -207,8 +217,13 @@ async def test_get_fallback_schedule():
             payload={"message": "Scheduling job waiting"},
             repeat=3,
         )
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={"id": 1, "generic_asset_id": 10, "name": "test-sensor"},
+        )
         m.post(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            "http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
             status=200,
             payload={"schedule": "schedule-uuid"},
         )
@@ -485,8 +500,13 @@ async def test_trigger_schedule_with_prior():
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={"id": 1, "generic_asset_id": 10, "name": "test-sensor"},
+        )
         m.post(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            "http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
             status=200,
             payload={"schedule": "sched-uuid"},
         )
@@ -502,8 +522,11 @@ async def test_trigger_schedule_with_prior():
 
 @pytest.mark.asyncio
 async def test_trigger_schedule_scheduler_with_sensor_id_error():
-    """scheduler set but asset_id is None raises ValueError."""
+    """scheduler set with sensor_id on a server older than v0.27.0 raises ValueError."""
     client = FlexMeasuresClient(email="test@test.test", password="test")
+    # Simulate a server older than v0.27.0 so the sensor endpoint is used and
+    # asset_id cannot be resolved automatically.
+    client.server_version = "0.26.0"
     with pytest.raises(
         ValueError,
         match="Pass an asset_id instead of a sensor_id if selecting a custom scheduler\\.",
@@ -553,13 +576,144 @@ async def test_trigger_schedule_scheduler_with_str_attributes():
 
 
 @pytest.mark.asyncio
+async def test_trigger_schedule_sensor_id_uses_asset_endpoint():
+    """sensor_id resolves the asset and uses the asset scheduling endpoint."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={"id": 1, "generic_asset_id": 10, "name": "test-sensor"},
+        )
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
+            status=200,
+            payload={"schedule": "sched-uuid"},
+        )
+        schedule_id = await client.trigger_schedule(
+            sensor_id=1,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+        )
+        assert schedule_id == "sched-uuid"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_sensor_id_caches_asset_id():
+    """asset_id for a sensor is only looked up once and then cached."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        # Only register one GET sensors/1 response - a second call would raise ConnectionError
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={"id": 1, "generic_asset_id": 10, "name": "test-sensor"},
+        )
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
+            status=200,
+            payload={"schedule": "sched-uuid-1"},
+        )
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
+            status=200,
+            payload={"schedule": "sched-uuid-2"},
+        )
+        # First call: looks up sensor to get asset_id
+        schedule_id_1 = await client.trigger_schedule(
+            sensor_id=1,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+        )
+        # Second call: uses cached asset_id (no additional GET sensors/1)
+        schedule_id_2 = await client.trigger_schedule(
+            sensor_id=1,
+            start="2023-01-02T00:00+00:00",
+            duration="PT1H",
+        )
+        assert schedule_id_1 == "sched-uuid-1"
+        assert schedule_id_2 == "sched-uuid-2"
+        assert client._sensor_asset_id_cache == {1: 10}
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_old_server_uses_sensor_endpoint():
+    """For server versions below v0.27.0, the sensor scheduling endpoint is used."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.26.0"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            status=200,
+            payload={"schedule": "sched-uuid"},
+        )
+        schedule_id = await client.trigger_schedule(
+            sensor_id=1,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+        )
+        assert schedule_id == "sched-uuid"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_sensor_id_with_scheduler():
+    """sensor_id + scheduler resolves the asset and patches the custom-scheduler attribute."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={"id": 1, "generic_asset_id": 10, "name": "test-sensor"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/assets/10",
+            status=200,
+            payload={
+                "id": 10,
+                "name": "test-asset",
+                "attributes": {"existing-key": "existing-value"},
+            },
+        )
+        m.patch(
+            "http://localhost:5000/api/v3_0/assets/10",
+            status=200,
+            payload={"message": "Asset updated"},
+        )
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
+            status=200,
+            payload={"schedule": "sched-uuid"},
+        )
+        schedule_id = await client.trigger_schedule(
+            sensor_id=1,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            scheduler="my-scheduler",
+        )
+        assert schedule_id == "sched-uuid"
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_trigger_schedule_response_not_dict():
     """trigger response is a list, not dict raises ContentTypeError."""
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={"id": 1, "generic_asset_id": 10, "name": "test-sensor"},
+        )
         m.post(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            "http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
             status=200,
             payload=[{"schedule": "sched-uuid"}],
         )
@@ -578,8 +732,13 @@ async def test_trigger_schedule_response_no_schedule_string():
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={"id": 1, "generic_asset_id": 10, "name": "test-sensor"},
+        )
         m.post(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            "http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
             status=200,
             payload={"schedule": 123},
         )
@@ -725,8 +884,13 @@ async def test_trigger_and_get_schedule_with_unit():
     """unit parameter is passed through trigger_and_get_schedule to get_schedule."""
     url = "http://localhost:5000/api/v3_0/sensors/1/schedules/schedule-uuid?duration=P0DT0H45M0S"
     with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/1",
+            status=200,
+            payload={"id": 1, "generic_asset_id": 10, "name": "test-sensor"},
+        )
         m.post(
-            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            "http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
             status=200,
             payload={"schedule": "schedule-uuid"},
         )
