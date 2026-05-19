@@ -1356,9 +1356,8 @@ class FlexMeasuresClient:
                 # Move sensor ID into the flex-model
                 if flex_model is None:
                     message["flex-model"] = [{"sensor": sensor_id}]
-                elif isinstance(flex_model, dict):
-                    message["flex-model"]["sensor"] = sensor_id
-                    message["flex-model"] = [message["flex-model"]]
+                elif isinstance(flex_model, dict) and "sensor" not in flex_model:
+                    message["flex-model"] = [{**flex_model, **{"sensor": sensor_id}}]
 
         if scheduler is not None:
             if asset_id is None:
