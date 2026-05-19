@@ -59,15 +59,18 @@ async def test_trigger_schedule() -> None:
             json={
                 "start": "2023-03-26T10:00:00+02:00",
                 "duration": "P0DT12H0M0S",
-                "flex-model": {
-                    "soc-unit": "kWh",
-                    "soc-at-start": 50,
-                    "soc-max": 400,
-                    "soc-min": 20,
-                    "soc-targets": [
-                        {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
-                    ],
-                },
+                "flex-model": [
+                    {
+                        "sensor": 3,
+                        "soc-unit": "kWh",
+                        "soc-at-start": 50,
+                        "soc-max": 400,
+                        "soc-min": 20,
+                        "soc-targets": [
+                            {"value": 100, "datetime": "2023-03-03T11:00+02:00"}
+                        ],
+                    }
+                ],
                 "flex-context": {"consumption-price-sensor": 3},
             },
             url="http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
