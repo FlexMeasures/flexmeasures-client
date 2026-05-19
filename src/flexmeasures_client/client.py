@@ -675,12 +675,9 @@ class FlexMeasuresClient:
                       'unit': 'MW'
                   }
         """
+        params = {}
         if duration is not None:
-            params = {
-                "duration": pd.Timedelta(duration).isoformat(),  # for example: PT1H
-            }
-        else:
-            params = {}
+            params["duration"] = pd.Timedelta(duration).isoformat()  # for example: PT1H
 
         # Pass unit server-side if the server supports it (>= 0.32.0)
         server_handles_unit = (
@@ -832,7 +829,7 @@ class FlexMeasuresClient:
             ) < Version("0.31.0"):
                 self.logger.warning(
                     "get_assets(): The 'root', 'depth' and 'fields' parameters require FlexMeasures server version 0.31.0 or above. "
-                    "These parameters will be ignored."
+                    f"These parameters will be ignored for server version {self.server_version}."
                 )
             if root and isinstance(root, int):
                 uri += f"&root={root}"
@@ -1211,7 +1208,7 @@ class FlexMeasuresClient:
                 ) < Version("0.31.0"):
                     self.logger.warning(
                         "update_asset(): The 'aggregate-power' flex-context field requires FlexMeasures server version 0.31.0 or above. "
-                        "The 'aggregate-power' field will be ignored by the server."
+                        f"The 'aggregate-power' field will be ignored by the server, which is at version {self.server_version}."
                     )
             updates["flex_context"] = json.dumps(updates["flex_context"])
         if "flex_model" in updates:
@@ -1324,16 +1321,28 @@ class FlexMeasuresClient:
 
         if prior is not None:
             message["prior"] = pd.Timestamp(prior).isoformat()
+            if self.server_version is not None and Version(
+                self.server_version
+            ) < Version("0.33.0"):
+                message["force_new_job_creation"] = True
+            else:
+                message["force-new-job-creation"] = True
 
         # For a sensor_id, try to resolve to the sensor's asset_id so we can use
         # the asset scheduling endpoint (preferred over the sensor endpoint).
         # Fall back to the sensor endpoint only when the server is known to be
-        # older than v0.27.0, which is when the asset endpoint was introduced.
+        # older than v0.27.0, which is when the asset endpoint was introduced,
+        # or in case we need to force a new job creation, when the server is older than v0.33.0,
+        # which is when the asset endpoint started to support that field.
         use_sensor_endpoint = False
         if sensor_id is not None:
-            if self.server_version is not None and Version(
-                self.server_version
-            ) < Version("0.27.0"):
+            if self.server_version is not None and (
+                Version(self.server_version) < Version("0.27.0")
+                or (
+                    Version(self.server_version) < Version("0.33.0")
+                    and "force_new_job_creation" in message
+                )
+            ):
                 use_sensor_endpoint = True
             else:
                 # Look up asset_id from sensor (cached after first lookup)
@@ -1343,6 +1352,12 @@ class FlexMeasuresClient:
                     )
                     self._sensor_asset_id_cache[sensor_id] = sensor["generic_asset_id"]
                 asset_id = self._sensor_asset_id_cache[sensor_id]
+
+                # Move sensor ID into the flex-model
+                if flex_model is None:
+                    message["flex-model"] = [{"sensor": sensor_id}]
+                elif isinstance(flex_model, dict) and "sensor" not in flex_model:
+                    message["flex-model"] = [{**flex_model, **{"sensor": sensor_id}}]
 
         if scheduler is not None:
             if asset_id is None:
