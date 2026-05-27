@@ -1196,6 +1196,7 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned.
         """
         uri = f"assets/{asset_id}"
+        updates = updates.copy()
         if "attributes" in updates:
             updates["attributes"] = json.dumps(updates["attributes"])
         if "flex_context" in updates:
@@ -1268,6 +1269,7 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned.
         """
         uri = f"sensors/{sensor_id}"
+        updates = updates.copy()
         if "attributes" in updates:
             updates["attributes"] = json.dumps(updates["attributes"])
         updated_sensor, status = await self.request(
