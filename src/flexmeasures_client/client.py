@@ -1196,6 +1196,7 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned.
         """
         uri = f"assets/{asset_id}"
+        updates = updates.copy()
         if "attributes" in updates:
             updates["attributes"] = json.dumps(updates["attributes"])
         if "flex_context" in updates:
@@ -1268,6 +1269,7 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned.
         """
         uri = f"sensors/{sensor_id}"
+        updates = updates.copy()
         if "attributes" in updates:
             updates["attributes"] = json.dumps(updates["attributes"])
         updated_sensor, status = await self.request(
@@ -1324,19 +1326,25 @@ class FlexMeasuresClient:
             if self.server_version is not None and Version(
                 self.server_version
             ) < Version("0.33.0"):
-                message["force-new-job-creation"] = True
-            else:
                 message["force_new_job_creation"] = True
+            else:
+                message["force-new-job-creation"] = True
 
         # For a sensor_id, try to resolve to the sensor's asset_id so we can use
         # the asset scheduling endpoint (preferred over the sensor endpoint).
         # Fall back to the sensor endpoint only when the server is known to be
-        # older than v0.27.0, which is when the asset endpoint was introduced.
+        # older than v0.27.0, which is when the asset endpoint was introduced,
+        # or in case we need to force a new job creation, when the server is older than v0.33.0,
+        # which is when the asset endpoint started to support that field.
         use_sensor_endpoint = False
         if sensor_id is not None:
-            if self.server_version is not None and Version(
-                self.server_version
-            ) < Version("0.27.0"):
+            if self.server_version is not None and (
+                Version(self.server_version) < Version("0.27.0")
+                or (
+                    Version(self.server_version) < Version("0.33.0")
+                    and "force_new_job_creation" in message
+                )
+            ):
                 use_sensor_endpoint = True
             else:
                 # Look up asset_id from sensor (cached after first lookup)
@@ -1347,6 +1355,12 @@ class FlexMeasuresClient:
                     self._sensor_asset_id_cache[sensor_id] = sensor["generic_asset_id"]
                 asset_id = self._sensor_asset_id_cache[sensor_id]
                 flex_model["sensor"] = sensor_id
+
+                # Move sensor ID into the flex-model
+                if flex_model is None:
+                    message["flex-model"] = [{"sensor": sensor_id}]
+                elif isinstance(flex_model, dict) and "sensor" not in flex_model:
+                    message["flex-model"] = [{**flex_model, **{"sensor": sensor_id}}]
 
         if scheduler is not None:
             if asset_id is None:
