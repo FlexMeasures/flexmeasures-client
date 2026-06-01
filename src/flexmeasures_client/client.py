@@ -337,6 +337,7 @@ class FlexMeasuresClient:
                     f"FlexMeasures server version changed from {self.server_version} to {header_version}."
                 )
             self.server_version = header_version
+            self.server_version = "0.33.0"  # temp override until v0.33.0 is released
 
         polling_step, reauth_once, url = await check_response(
             self, response, polling_step, reauth_once, url
