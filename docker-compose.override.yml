@@ -44,7 +44,7 @@ services:
         pip install --break-system-packages -e /app
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
-        flexmeasures jobs run-worker --name flexmeasures-worker --queue forecasting\|scheduling\|ingestion
+        flexmeasures jobs run-worker --name flexmeasures-worker --queue ingestion\|scheduling\|forecasting
   cem:
     build:
       context: .
