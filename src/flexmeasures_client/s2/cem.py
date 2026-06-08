@@ -34,6 +34,7 @@ except ImportError:
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2 import Handler, register
 from flexmeasures_client.s2.control_types import ControlTypeHandler
+from flexmeasures_client.s2.config_utils import configure_site
 from flexmeasures_client.s2.utils import (
     get_latest_compatible_version,
     get_reception_status,
@@ -320,6 +321,15 @@ class CEM(Handler):
     async def handle_resource_manager_details(self, message: ResourceManagerDetails):
         self._resource_manager_details = message
 
+        # schedule map_resource_to_asset to run soon concurrently
+        task = asyncio.create_task(self.map_resource_to_asset(message))
+        # self.background_tasks.add(
+        #     task
+        # )  # important to avoid a task disappearing mid-execution.
+        # task.add_done_callback(self.background_tasks.discard)
+
+        # await self.map_resource_to_asset(message)
+
         if (
             not self._control_type
         ):  # initializing. TODO: check if sending resource_manager_details
@@ -331,6 +341,66 @@ class CEM(Handler):
                 await self.activate_control_type(self._default_control_type)
 
         return get_reception_status(message)
+
+    async def map_resource_to_asset(self, message):
+        """Map S2 resource to FM asset.
+
+        - Creates a new asset if the resource ID does not yet exist in FlexMeasures.
+        - Updates the existing asset if the resource details changed.
+        - Updates the control type for the resource.
+        """
+        assets = await self._fm_client.get_assets()
+        asset = None
+        for ast in assets:
+            if ast["external_id"] == message.resource_id:
+                asset = ast
+        if asset is None:
+            account = await self._fm_client.get_account()
+            asset = await self._fm_client.add_asset(
+                name=message.name,
+                account_id=account["id"],
+                generic_asset_type_id=1,
+                # parent_asset_id=self._asset_id,
+                attributes=json.loads(message.to_json()),
+            )
+        if asset["name"] != message.name:
+            await self._fm_client.update_asset(
+                asset_id=asset["id"], updates={"name": message.name}
+            )
+        if asset["attributes"] != message.to_json():
+            await self._fm_client.update_asset(
+                asset_id=asset["id"],
+                updates={"attributes": json.loads(message.to_json())},
+            )
+
+        # Reconfigure site
+        (
+            price_sensor,
+            production_price_sensor,
+            power_sensor,
+            soc_sensor,
+            rm_discharge_sensor,
+            soc_minima_sensor,
+            soc_maxima_sensor,
+            usage_forecast_sensor,
+            leakage_behaviour_sensor,
+            charging_efficiency_sensor,
+        ) = await configure_site(message.name, self._fm_client)
+        from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
+
+        frbc = FRBCSimple(
+            power_sensor_id=power_sensor["id"],
+            price_sensor_id=price_sensor["id"],
+            production_price_sensor_id=production_price_sensor["id"],
+            soc_sensor_id=soc_sensor["id"],
+            rm_discharge_sensor_id=rm_discharge_sensor["id"],
+            soc_minima_sensor_id=soc_minima_sensor["id"],
+            soc_maxima_sensor_id=soc_maxima_sensor["id"],
+            usage_forecast_sensor_id=usage_forecast_sensor["id"],
+            leakage_behaviour_sensor_id=leakage_behaviour_sensor["id"],
+            charging_efficiency_sensor_id=charging_efficiency_sensor["id"],
+        )
+        self.register_control_type(frbc)
 
     @register(PowerMeasurement)
     async def handle_power_measurement(self, message: PowerMeasurement):
