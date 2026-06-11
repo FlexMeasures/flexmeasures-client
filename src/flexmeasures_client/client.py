@@ -275,6 +275,10 @@ class FlexMeasuresClient:
                         raise ConnectionError(
                             f"Error occurred while communicating with the API: {exception}"
                         ) from exception
+                else:
+                    raise ConnectionError(
+                        "Max polling steps reached while waiting for the API response."
+                    )
 
         except asyncio.TimeoutError as exception:
             raise ConnectionError(
@@ -1532,40 +1536,17 @@ class FlexMeasuresClient:
 
         This function raises a ValueError when an unhandled status code is returned.
         """
-        polling_step = 0
-        try:
-            async with async_timeout.timeout(self.polling_timeout):
-                while polling_step < self.max_polling_steps:
-                    forecast, status = await self.request(
-                        uri=f"sensors/{sensor_id}/forecasts/{forecast_id}",
-                        method="GET",
-                        minimum_server_version="0.31.0",
-                    )
-                    if status == 200:
-                        if not isinstance(forecast, dict):
-                            raise ContentTypeError(
-                                f"Expected a forecast dictionary, but got {type(forecast)}",
-                            )
-                        return forecast
-                    elif status == 202:
-                        job_status = (
-                            forecast.get("status", "unknown")
-                            if isinstance(forecast, dict)
-                            else "unknown"
-                        )
-                        message = f"Forecast job status: {job_status}. Polling step: {polling_step}. Retrying in {self.polling_interval} seconds..."
-                        self.logger.debug(message)
-                        polling_step += 1
-                        await asyncio.sleep(self.polling_interval)
-                    else:
-                        check_for_status(status, 200)
-        except asyncio.TimeoutError as exception:
-            raise ConnectionError(
-                "Client polling timeout while waiting for forecast job to complete."
-            ) from exception
-        raise ConnectionError(
-            "Max polling steps reached while waiting for forecast job to complete."
+        forecast, status = await self.request(
+            uri=f"sensors/{sensor_id}/forecasts/{forecast_id}",
+            method="GET",
+            minimum_server_version="0.31.0",
         )
+        check_for_status(status, 200)
+        if not isinstance(forecast, dict):
+            raise ContentTypeError(
+                f"Expected a forecast dictionary, but got {type(forecast)}",
+            )
+        return forecast
 
     async def trigger_and_get_forecast(
         self,
