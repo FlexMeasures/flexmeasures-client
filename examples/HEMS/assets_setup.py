@@ -70,6 +70,7 @@ async def create_weather_station(client: FlexMeasuresClient):
     print(f"Account ID: {account_id}")
     # Create top-level weather station asset (not public, but still under the toy account)
     # Generic asset type 7 (process) used for weather stations since no dedicated type exists
+    # TODO: remove hard-coded ID, we should actually create a weather station type somehow
     all_top_level_assets = await client.get_assets(
         include_public=True,
         depth=0,

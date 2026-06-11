@@ -235,6 +235,7 @@ class FlexMeasuresClient:
                     headers = await self.get_headers(include_auth=include_auth)
                     try:
                         async with async_timeout.timeout(self.request_timeout):
+                            previous_polling_step = polling_step
                             (
                                 response,
                                 polling_step,
@@ -249,7 +250,10 @@ class FlexMeasuresClient:
                                 polling_step=polling_step,
                                 reauth_once=reauth_once,
                             )
-                            if response.status < 300:
+                            if (
+                                response.status < 300
+                                and polling_step == previous_polling_step
+                            ):
                                 break
                     except asyncio.TimeoutError:
                         sleep_interval = self.polling_interval * (2**polling_step)
@@ -339,7 +343,7 @@ class FlexMeasuresClient:
             self.server_version = header_version
 
         polling_step, reauth_once, url = await check_response(
-            self, response, polling_step, reauth_once, url
+            self, response, polling_step, reauth_once, url, method=method
         )
         return response, polling_step, reauth_once, url
 

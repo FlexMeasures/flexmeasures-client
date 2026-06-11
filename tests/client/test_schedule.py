@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -113,6 +114,49 @@ async def test_get_schedule_polling() -> None:
             sensor_id=1, schedule_id="some-uuid", duration="PT45M"
         )
     assert schedule["values"] == [2.15, 3, 2]
+    await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_polling_accepted(caplog) -> None:
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid?duration=P0DT0H45M0S"  # noqa 501
+    with aioresponses() as m:
+        m.get(
+            url=url,
+            status=202,
+            payload={"status": "QUEUED"},
+        )
+        m.get(
+            url=url,
+            status=202,
+            payload={"status": "STARTED"},
+        )
+        m.get(
+            url=url,
+            status=200,
+            payload={
+                "values": [2.15, 3, 2],
+                "start": "2015-06-02T10:00:00+00:00",
+                "duration": "PT45M",
+                "unit": "MW",
+            },
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            request_timeout=2,
+            polling_interval=0.2,
+            access_token="skip-auth",
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="flexmeasures_client.client"):
+            schedule = await flexmeasures_client.get_schedule(
+                sensor_id=1, schedule_id="some-uuid", duration="PT45M"
+            )
+    assert schedule["values"] == [2.15, 3, 2]
+    assert "result is not ready yet" in caplog.text
+    assert "Job status: QUEUED" in caplog.text
+    assert "Job status: STARTED" in caplog.text
     await flexmeasures_client.close()
 
 
