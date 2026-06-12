@@ -16,22 +16,43 @@ logger = logging.getLogger(__name__)
 
 
 async def check_response(
-    self: FlexMeasuresClient, response, polling_step: int, reauth_once: bool, url: URL
+    self: FlexMeasuresClient,
+    response,
+    polling_step: int,
+    reauth_once: bool,
+    url: URL,
+    method: str = "GET",
 ) -> tuple[int, bool, URL]:
     """
     <300: passes
+    202 on GET: job not ready yet
     303: redirect to new url
     400 + custom message: schedule not ready yet
     401: reauthenticate
     503 + Retry-After header: poll again
     otherwise: call error_handler
+
+    Returns: tuple of (polling_step, reauth_once, url)
+     - polling_step: incremented if we need to poll again, otherwise unchanged
+     - reauth_once: set to False if we re-authenticated (on 401), otherwise unchanged
+     - url: updated if we get a redirect (303), otherwise unchanged
     """
     status = response.status
     payload = await response.json()
     if payload is None:
         payload = {}
     headers = response.headers
-    if status < 300:
+    if status == 202 and method.upper() == "GET":
+        sleep_interval = self.polling_interval * (2**polling_step)
+        job_status = payload.get("status")
+        message = "Server accepted the request but the result is not ready yet."
+        if job_status:
+            message += f" Job status: {job_status}."
+        message += f" Retrying in {sleep_interval} seconds..."
+        self.logger.debug(message)
+        polling_step += 1
+        await asyncio.sleep(sleep_interval)
+    elif status < 300:
         pass
     elif response.status == 303:
         message = f"Redirect to fallback schedule: {response.headers['location']}"  # noqa: E501
