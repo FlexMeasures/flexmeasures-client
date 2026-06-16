@@ -759,7 +759,7 @@ class FlexMeasuresClient:
     ) -> dict:
         """Fetch a single asset.
 
-        :param asset_id: ID of the asset to fetch
+        :param asset_id:          ID of the asset to fetch.
         :param parse_json_fields: If True, parse JSON string fields (attributes, flex_context, flex_model) into Python dicts.
                                   If False, leave them as JSON strings for backward compatibility.
                                   If None (default), uses old behavior (no parsing) with a deprecation warning.
@@ -1027,7 +1027,7 @@ class FlexMeasuresClient:
     ) -> dict:
         """Get a single sensor.
 
-        :param sensor_id: ID of the sensor to fetch
+        :param sensor_id:         ID of the sensor to fetch.
         :param parse_json_fields: If True, parse JSON string fields (attributes) into Python dicts.
                                   If False, leave them as JSON strings for backward compatibility.
                                   If None (default), uses old behavior (no parsing) with a deprecation warning.
@@ -1177,9 +1177,17 @@ class FlexMeasuresClient:
             )
         return new_asset
 
-    async def update_asset(self, asset_id: int, updates: dict) -> dict:
+    async def update_asset(
+        self, asset_id: int, updates: dict, parse_json_fields: bool | None = None
+    ) -> dict:
         """Patch an asset.
 
+        :param asset_id:          ID of the asset to update.
+        :param updates:           Dictionary with the fields to update.
+        :param parse_json_fields: If True, parse JSON string fields (attributes) into Python dicts.
+                                  If False, leave them as JSON strings for backward compatibility.
+                                  If None (default), uses old behavior (no parsing) with a deprecation warning.
+                                  Default will change to True in a future version.
         :returns: asset as dictionary, for example:
                 {
                     'account_id': 2,
@@ -1233,6 +1241,21 @@ class FlexMeasuresClient:
             raise ContentTypeError(
                 f"Expected an asset dictionary, but got {type(updated_asset)}",
             )
+
+        if parse_json_fields is None:
+            warnings.warn(
+                "The default behavior of update_asset() will change in a future version. "
+                "JSON fields (attributes) will be automatically parsed into Python dicts. "
+                "To opt into the new behavior now, pass parse_json_fields=True. "
+                "To silence this warning and keep the old behavior, pass parse_json_fields=False explicitly.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            parse_json_fields = False
+
+        if parse_json_fields:
+            _parse_asset_json_fields(updated_asset)
+
         return updated_asset
 
     async def delete_asset(self, asset_id: int, confirm_first: bool = True):
@@ -1251,9 +1274,17 @@ class FlexMeasuresClient:
         _, status = await self.request(uri=uri, method="DELETE")
         check_for_status(status, 204)
 
-    async def update_sensor(self, sensor_id: int, updates: dict) -> dict:
+    async def update_sensor(
+        self, sensor_id: int, updates: dict, parse_json_fields: bool | None = None
+    ) -> dict:
         """Patch a sensor.
 
+        :param sensor_id:         ID of the sensor to update.
+        :param updates:           Dictionary with the fields to update.
+        :param parse_json_fields: If True, parse JSON string fields (attributes) into Python dicts.
+                                  If False, leave them as JSON strings for backward compatibility.
+                                  If None (default), uses old behavior (no parsing) with a deprecation warning.
+                                  Default will change to True in a future version.
         :returns: sensor as dictionary, for example:
                 {
                     'attributes': '{}',
@@ -1281,6 +1312,21 @@ class FlexMeasuresClient:
             raise ContentTypeError(
                 f"Expected a sensor dictionary, but got {type(updated_sensor)}",
             )
+
+        if parse_json_fields is None:
+            warnings.warn(
+                "The default behavior of update_sensor() will change in a future version. "
+                "JSON fields (attributes) will be automatically parsed into Python dicts. "
+                "To opt into the new behavior now, pass parse_json_fields=True. "
+                "To silence this warning and keep the old behavior, pass parse_json_fields=False explicitly.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            parse_json_fields = False
+
+        if parse_json_fields:
+            _parse_sensor_json_fields(updated_sensor)
+
         return updated_sensor
 
     async def delete_sensor(self, sensor_id: int, confirm_first: bool = True):
