@@ -3,7 +3,7 @@ import asyncio
 import pydantic
 
 try:
-    from s2python.common import ControlType, ReceptionStatusValues
+    from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
     from s2python.frbc import (
         FRBCActuatorStatus,
         FRBCFillLevelTargetProfile,
@@ -156,6 +156,10 @@ class FRBC(ControlTypeHandler):
                         * fill_level_scale
                         / (operation_mode.elements[-1].power_ranges[0].end_of_range)
                     )
+                    self._logger.debug(f"operation_mode.elements[-1].fill_rate.end_of_range: {operation_mode.elements[-1].fill_rate.end_of_range}")
+                    self._logger.debug(f"operation_mode.elements[-1].power_ranges[0].end_of_range: {operation_mode.elements[-1].power_ranges[0].end_of_range}")
+                    self._logger.debug(f"fill_level_scale: {fill_level_scale}")
+                    self._logger.debug(f"efficiency: {efficiency}")
                 except (IndexError, AttributeError, ZeroDivisionError) as e:
                     self._logger.debug(
                         f"Could not calculate efficiency for operation mode {operation_mode.id}: {e}"
@@ -246,6 +250,11 @@ class FRBC(ControlTypeHandler):
         )  # important to avoid a task disappearing mid-execution.
         task.add_done_callback(self.background_tasks.discard)
         return get_reception_status(message, status=ReceptionStatusValues.OK)
+
+    @register(ReceptionStatus)
+    def handle_reception_status(self, message: ReceptionStatus):
+        self._logger.debug(message)
+        self._logger.debug(message.subject_message_id)
 
     @register(FRBCTimerStatus)
     def handle_frbc_timer_status(self, message: FRBCTimerStatus) -> pydantic.BaseModel:
