@@ -28,17 +28,17 @@ async def rm_details_watchdog(ws, cem: CEM):
     """
 
     # wait to get resource manager details
-    while cem._control_type is None:
+    while cem._control.control_type is None:
         await asyncio.sleep(1)
 
     await cem.activate_control_type(control_type=ControlType.FILL_RATE_BASED_CONTROL)
 
     # check/wait that the control type is set properly
-    while cem._control_type != ControlType.FILL_RATE_BASED_CONTROL:
+    while cem._control.control_type != ControlType.FILL_RATE_BASED_CONTROL:
         cem._logger.debug("waiting for the activation of the control type...")
         await asyncio.sleep(1)
 
-    cem._logger.debug(f"CONTROL TYPE: {cem._control_type}")
+    cem._logger.debug(f"CONTROL TYPE: {cem._control.control_type}")
 
     # after this, schedule will be triggered on reception of a new storage status
 
