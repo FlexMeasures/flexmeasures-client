@@ -50,8 +50,6 @@ class CEM(Handler):
 
     _resource_manager_details: ResourceManagerDetails
 
-    _control = ControlContext()
-    _handler_build_tasks: dict[ControlType, asyncio.Task] = {}
 
     _control_types_handlers: Dict[ControlType | None, ControlTypeHandler]
     _control_type = None
@@ -86,6 +84,11 @@ class CEM(Handler):
         """
         Customer Energy Manager (CEM)
         """
+        # Initialize per-instance control context and handler build tasks BEFORE calling super().__init__()
+        # because parent's __init__ calls discover() which accesses control_type property
+        self._control = ControlContext()
+        self._handler_build_tasks: dict[ControlType, asyncio.Task] = {}
+
         super(CEM, self).__init__()
 
         self._fm_client = fm_client
