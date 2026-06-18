@@ -36,6 +36,7 @@ from flexmeasures_client.s2 import Handler, register
 from flexmeasures_client.s2.control_types import ControlTypeHandler
 from flexmeasures_client.s2.config_utils import configure_site
 from flexmeasures_client.s2.utils import (
+    ControlContext,
     get_latest_compatible_version,
     get_reception_status,
     get_unique_id,
@@ -48,6 +49,9 @@ class CEM(Handler):
     __version__ = "0.0.2-beta"
 
     _resource_manager_details: ResourceManagerDetails
+
+    _control = ControlContext()
+    _handler_build_tasks: dict[ControlType, asyncio.Task] = {}
 
     _control_types_handlers: Dict[ControlType | None, ControlTypeHandler]
     _control_type = None
@@ -142,7 +146,7 @@ class CEM(Handler):
 
     @property
     def control_type(self):
-        return self._control_type
+        return self._control.control_type
 
     def register_control_type(self, control_type_handler: ControlTypeHandler):
         """
@@ -200,19 +204,17 @@ class CEM(Handler):
             self._logger.debug(f"Received: {message}")
 
         # try to handle the message with the control_type handle
+        ct = self._control.control_type
+        handler = self._control_types_handlers.get(ct)
+        ready = self._control.handler_ready.get(ct, False)
+
         if (
-            self._control_type is not None
-            and (
-                self._control_type
-                not in [ControlType.NO_SELECTION, ControlType.NOT_CONTROLABLE]
-            )
-            and self._control_types_handlers[self._control_type].supports_message(
-                message
-            )
+            handler is not None
+            and ready
+            and ct not in [ControlType.NO_SELECTION, ControlType.NOT_CONTROLABLE]
+            and handler.supports_message(message)
         ):
-            response = await self._control_types_handlers[
-                self._control_type
-            ].handle_message(message)
+            response = await handler.handle_message(message)
         else:
             if self.supports_message(message):
                 response = await super().handle_message(
@@ -235,7 +237,7 @@ class CEM(Handler):
         Callback function that is triggered when we receive
         a confirmation that the message has been received.
         """
-        self._control_type = control_type
+        self._control.control_type = control_type
 
     async def get_message(self) -> tuple[str, asyncio.Future]:
         """Call this function to get the messages to be sent to the RM
@@ -264,7 +266,7 @@ class CEM(Handler):
         """
 
         # check if it's trying to activate the current control_type
-        if control_type == self._control_type:
+        if control_type == self._control.control_type:
             self._logger.warning(f"RM is already in `{control_type}` control type.")
             return None
 
@@ -274,14 +276,14 @@ class CEM(Handler):
             return None
 
         # RM initialization succeeded
-        if self._control_type is not None:
+        if self._control.control_type is not None:
             message_id = get_unique_id()
 
             # the callback `update_control_type` will be called upon arrival of a
             # ReceptionStatus message with status = ReceptionStatusValues.OK
 
             # register callback in CEM handler
-            if self._control_type in [
+            if self._control.control_type in [
                 ControlType.NOT_CONTROLABLE,
                 ControlType.NO_SELECTION,
             ]:
@@ -290,7 +292,7 @@ class CEM(Handler):
                 )
             else:  # register callback in control mode handler
                 self._control_types_handlers[
-                    self._control_type
+                    self._control.control_type
                 ].register_success_callbacks(
                     message_id, self.update_control_type, control_type=control_type
                 )
@@ -323,6 +325,7 @@ class CEM(Handler):
 
         # schedule map_resource_to_asset to run soon concurrently
         task = asyncio.create_task(self.map_resource_to_asset(message))
+        self._handler_build_tasks[ControlType.FILL_RATE_BASED_CONTROL] = task
         # self.background_tasks.add(
         #     task
         # )  # important to avoid a task disappearing mid-execution.
@@ -331,10 +334,10 @@ class CEM(Handler):
         # await self.map_resource_to_asset(message)
 
         if (
-            not self._control_type
+            not self._control.control_type
         ):  # initializing. TODO: check if sending resource_manager_details
             # resets control type
-            self._control_type = ControlType.NO_SELECTION
+            self._control.control_type = ControlType.NO_SELECTION
 
             # Activate default control type if defined
             if self._default_control_type:
@@ -401,6 +404,7 @@ class CEM(Handler):
             charging_efficiency_sensor_id=charging_efficiency_sensor["id"],
         )
         self.register_control_type(frbc)
+        self._control.handler_ready[ControlType.FILL_RATE_BASED_CONTROL] = True
 
     @register(PowerMeasurement)
     async def handle_power_measurement(self, message: PowerMeasurement):
