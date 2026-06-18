@@ -2,24 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import pytest
-import pytest_asyncio
 from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
 from unittest.mock import AsyncMock, MagicMock
 
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC import FRBCTest
 
-
-@pytest_asyncio.fixture
-async def cleanup_tasks():
-    """Clean up any pending asyncio tasks after each test."""
-    yield
-    # Give any background tasks a chance to complete or fail
-    await asyncio.sleep(0.1)
-    # Cancel any remaining tasks
-    for task in asyncio.all_tasks():
-        if not task.done():
-            task.cancel()
 
 
 
@@ -54,7 +42,7 @@ async def test_handshake(rm_handshake):
 
 
 @pytest.mark.asyncio
-async def test_resource_manager_details(resource_manager_details, rm_handshake, cleanup_tasks):
+async def test_resource_manager_details(resource_manager_details, rm_handshake):
     cem = CEM(fm_client=None)
     frbc = FRBCTest()
 
@@ -93,10 +81,19 @@ async def test_resource_manager_details(resource_manager_details, rm_handshake, 
         "independently of the original type"
     )
 
+    # Cleanup: cancel any pending background tasks
+    for task_id, task in cem._handler_build_tasks.items():
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
 
 @pytest.mark.asyncio
 async def test_activate_control_type(
-    frbc_system_description, resource_manager_details, rm_handshake, cleanup_tasks
+    frbc_system_description, resource_manager_details, rm_handshake
 ):
     cem = CEM(fm_client=None)
     frbc = FRBCTest()
@@ -140,10 +137,19 @@ async def test_activate_control_type(
         cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
     ), "after a positive ResponseStatus, the status changes from NO_SELECTION to FRBC"
 
+    # Cleanup: cancel any pending background tasks
+    for task_id, task in cem._handler_build_tasks.items():
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
 
 @pytest.mark.asyncio
 async def test_messages_route_to_control_type_handler(
-    frbc_system_description, resource_manager_details, rm_handshake, cleanup_tasks
+    frbc_system_description, resource_manager_details, rm_handshake
 ):
     cem = CEM(fm_client=None)
     frbc = FRBCTest()
@@ -221,9 +227,18 @@ async def test_messages_route_to_control_type_handler(
         ].success_callbacks
     ), "success callback should be deleted"
 
+    # Cleanup: cancel any pending background tasks
+    for task_id, task in cem._handler_build_tasks.items():
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
 
 @pytest.mark.asyncio
-async def test_automatic_change_control_type(resource_manager_details, rm_handshake, cleanup_tasks):
+async def test_automatic_change_control_type(resource_manager_details, rm_handshake):
     cem = CEM(fm_client=None, default_control_type=ControlType.FILL_RATE_BASED_CONTROL)
     frbc = FRBCTest()
 
@@ -259,6 +274,15 @@ async def test_automatic_change_control_type(resource_manager_details, rm_handsh
     # CEM response is ReceptionStatus with an OK status
     assert response["message_type"] == "ReceptionStatus"
     assert response["status"] == "OK"
+
+    # Cleanup: cancel any pending background tasks
+    for task_id, task in cem._handler_build_tasks.items():
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 @pytest.mark.asyncio
@@ -317,3 +341,4 @@ async def test_handle_message_during_handler_registration_race():
     await cem.handle_message(msg)
 
     assert frbc_handler.handle_message.called
+
