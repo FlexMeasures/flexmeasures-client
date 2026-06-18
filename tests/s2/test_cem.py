@@ -155,7 +155,6 @@ async def test_messages_route_to_control_type_handler(
     frbc = FRBCTest()
 
     cem.register_control_type(frbc)
-    cem._control.handler_ready[ControlType.FILL_RATE_BASED_CONTROL] = True
 
     #############
     # Handshake #
@@ -307,7 +306,6 @@ async def test_handle_message_during_handler_registration_race():
         await registration_continue.wait()
 
         cem.register_control_type(frbc_handler)
-        cem._control.handler_ready[ControlType.FILL_RATE_BASED_CONTROL] = True
 
     cem.map_resource_to_asset = slow_map_resource_to_asset
 

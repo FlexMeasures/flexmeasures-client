@@ -174,6 +174,9 @@ class CEM(Handler):
             control_type_handler
         )
 
+        # Mark handler as ready once registered
+        self._control.handler_ready[control_type_handler._control_type] = True
+
     async def handle_message(self, message: Dict | pydantic.BaseModel | str):
         """
         This method handles the incoming messages to the CEM and routes them to their custom handler.
@@ -404,7 +407,6 @@ class CEM(Handler):
             charging_efficiency_sensor_id=charging_efficiency_sensor["id"],
         )
         self.register_control_type(frbc)
-        self._control.handler_ready[ControlType.FILL_RATE_BASED_CONTROL] = True
 
     @register(PowerMeasurement)
     async def handle_power_measurement(self, message: PowerMeasurement):
