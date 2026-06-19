@@ -77,7 +77,105 @@ class FRBC(ControlTypeHandler):
             task
         )  # important to avoid a task disappearing mid-execution.
         task.add_done_callback(self.background_tasks.discard)
+
+        # schedule send_conversion_efficiencies to run soon concurrently
+        task = asyncio.create_task(self.send_conversion_efficiencies(message))
+        self.background_tasks.add(task)
+        task.add_done_callback(self.background_tasks.discard)
+
         return get_reception_status(message, status=ReceptionStatusValues.OK)
+
+    def _get_operation_mode_efficiency_sensor_map(
+        self, system_description: FRBCSystemDescription
+    ) -> dict[str, int]:
+        """
+        Get a mapping of operation mode IDs to efficiency sensor IDs.
+
+        Subclasses can override this method to provide operation mode to efficiency
+        sensor mappings. Return an empty dict if there are no efficiency sensors.
+
+        Args:
+            system_description: The system description containing operation mode details.
+
+        Returns:
+            A dictionary mapping operation mode IDs to efficiency sensor IDs.
+            Empty dict ({}) if there are no efficiency sensors (default).
+        """
+        return {}
+
+    async def send_conversion_efficiencies(
+        self, system_description: FRBCSystemDescription
+    ):
+        """
+        Send conversion efficiencies to FlexMeasures for operation modes.
+
+        This method sends efficiency values for each operation mode that has
+        an associated efficiency sensor. Subclasses should override
+        _get_operation_mode_efficiency_sensor_map() to define which operation modes
+        have efficiency sensors.
+
+        Args:
+            system_description: The system description containing actuator details.
+        """
+        efficiency_map = self._get_operation_mode_efficiency_sensor_map(
+            system_description
+        )
+        if not efficiency_map:
+            # No efficiency sensors defined
+            return
+
+        try:
+            from datetime import datetime
+            from datetime import timedelta
+
+            start = system_description.valid_from
+            actuator = system_description.actuators[0]
+
+            start_time = start.replace(
+                minute=(start.minute // 15) * 15, second=0, microsecond=0
+            )
+
+            # Use a default conversion efficiency duration if not set by subclass
+            duration = getattr(self, "_conversion_efficiency_duration", timedelta(hours=99))
+            if isinstance(duration, str):
+                # If duration is a string like "PT99H", use default timedelta
+                duration = timedelta(hours=99)
+
+            for operation_mode in actuator.operation_modes:
+                sensor_id = efficiency_map.get(operation_mode.id)
+                if sensor_id is None:
+                    # Skip operation modes without an efficiency sensor
+                    continue
+
+                # Calculate efficiency from the last element (characteristic endpoint)
+                try:
+                    fill_level_scale = getattr(self, "_fill_level_scale", 1.0)
+                    efficiency = (
+                        3600
+                        * operation_mode.elements[-1].fill_rate.end_of_range
+                        * fill_level_scale
+                        / (operation_mode.elements[-1].power_ranges[0].end_of_range)
+                    )
+                except (IndexError, AttributeError, ZeroDivisionError) as e:
+                    self._logger.debug(
+                        f"Could not calculate efficiency for operation mode {operation_mode.id}: {e}"
+                    )
+                    continue
+
+                try:
+                    await self._fm_client.post_sensor_data(
+                        sensor_id=sensor_id,
+                        start=start_time,
+                        values=[efficiency],
+                        unit="dimensionless",
+                        duration=duration,
+                    )
+                except Exception as e:
+                    self._logger.debug(
+                        f"Error posting efficiency data for sensor {sensor_id}: {e}"
+                    )
+        except Exception as e:
+            self._logger.debug(f"Error sending conversion efficiencies: {e}")
 
     @register(FRBCUsageForecast)
     def handle_usage_forecast(self, message: FRBCUsageForecast) -> pydantic.BaseModel:

@@ -90,6 +90,24 @@ class FRBCSimple(FRBC):
     def now(self):
         return datetime.now(self._timezone)
 
+    def _get_operation_mode_efficiency_sensor_map(self, system_description) -> dict:
+        """
+        Map operation mode IDs to the charging efficiency sensor.
+
+        For FRBCSimple, all operation modes report their efficiency to the
+        single charging_efficiency_sensor_id.
+        """
+        efficiency_map = {}
+        if self.charging_efficiency_sensor_id is None:
+            return efficiency_map
+
+        # Map each operation mode to the charging efficiency sensor
+        actuator = system_description.actuators[0]
+        for operation_mode in actuator.operation_modes:
+            efficiency_map[operation_mode.id] = self.charging_efficiency_sensor_id
+
+        return efficiency_map
+
     async def send_storage_status(self, status: FRBCStorageStatus):
         now = self.now()
         await self._fm_client.post_sensor_data(
