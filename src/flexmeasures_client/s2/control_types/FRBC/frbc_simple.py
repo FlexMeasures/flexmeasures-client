@@ -213,32 +213,36 @@ class FRBCSimple(FRBC):
         # call schedule
         if isinstance(start, str):
             start = pd.Timestamp(start)
+        flex_context = {
+            "consumption-price": {"sensor": self._price_sensor_id},
+            "production-price": {"sensor": self._production_price_sensor_id},
+            "site-power-capacity": f"{3 * 25 * 230} VA",
+            "relax-soc-constraints": True,
+        }
+        flex_model = {
+            "soc-unit": energy_unit,
+            "soc-at-start": soc_at_start,
+            "soc-min": soc_min,
+            "soc-max": soc_max,
+            "soc-minima": {"sensor": self._soc_minima_sensor_id},
+            "soc-maxima": {"sensor": self._soc_maxima_sensor_id},
+            "state-of-charge": {"sensor": self._soc_sensor_id},
+            "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
+            "storage-efficiency": {"sensor": self._leakage_behaviour_sensor_id},
+            "charging-efficiency": {"sensor": self.charging_efficiency_sensor_id},
+            "consumption-capacity": f"{charging_capacity} {self.power_unit}",
+            "production-capacity": f"{discharging_capacity} {self.power_unit}",
+        }
+        self._logger.debug(f"flex_context: {flex_context}")
+        self._logger.debug(f"flex_model: {flex_model}")
         schedule = await self._fm_client.trigger_and_get_schedule(
             start=start.replace(
                 minute=(start.minute // 15) * 15, second=0, microsecond=0
             ),
             prior=start,
             sensor_id=self._power_sensor_id,
-            flex_context={
-                "consumption-price": {"sensor": self._price_sensor_id},
-                "production-price": {"sensor": self._production_price_sensor_id},
-                "site-power-capacity": f"{3 * 25 * 230} VA",
-                "relax-soc-constraints": True,
-            },
-            flex_model={
-                "soc-unit": energy_unit,
-                "soc-at-start": soc_at_start,
-                "soc-min": soc_min,
-                "soc-max": soc_max,
-                "soc-minima": {"sensor": self._soc_minima_sensor_id},
-                "soc-maxima": {"sensor": self._soc_maxima_sensor_id},
-                "state-of-charge": {"sensor": self._soc_sensor_id},
-                "soc-usage": [{"sensor": self._usage_forecast_sensor_id}],
-                "storage-efficiency": {"sensor": self._leakage_behaviour_sensor_id},
-                "charging-efficiency": {"sensor": self.charging_efficiency_sensor_id},
-                "consumption-capacity": f"{charging_capacity} {self.power_unit}",
-                "production-capacity": f"{discharging_capacity} {self.power_unit}",
-            },
+            flex_context=flex_context,
+            flex_model=flex_model,
             duration=self._schedule_duration,  # next 12 hours
             # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
             # this needs changes on the client
