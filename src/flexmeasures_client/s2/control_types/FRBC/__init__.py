@@ -166,6 +166,7 @@ class FRBC(ControlTypeHandler):
                     await self._fm_client.post_sensor_data(
                         sensor_id=sensor_id,
                         start=start_time,
+                        prior=self.now(),
                         values=[efficiency],
                         unit="dimensionless",
                         duration=duration,
