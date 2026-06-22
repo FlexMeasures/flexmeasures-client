@@ -323,7 +323,6 @@ class FRBCSimple(FRBC):
             strategy="mean",
             fill_level_scale=self._fill_level_scale,
         )
-        usage_forecast_duration = pd.Timedelta(self._resolution) * len(usage_forecast)
 
         await self._fm_client.post_sensor_data(
             sensor_id=self._usage_forecast_sensor_id,
@@ -331,11 +330,8 @@ class FRBCSimple(FRBC):
             prior=self.now(),
             values=usage_forecast.tolist(),
             unit=self.power_unit,  # e.g. [0, 100] MW/(15 min)  # todo: or: f"{self.energy_unit}/s" to scale usage forecast e.g. [0, 100] %/s ->  [0, 100] %/(15 min)
-            duration=usage_forecast_duration,
+            duration=str(pd.Timedelta(self._resolution) * len(usage_forecast)),
         )
-
-        # Use usage forecast duration as the next schedule duration
-        self._schedule_duration = usage_forecast_duration
 
     async def send_leakage_behaviour(self, leakage: FRBCLeakageBehaviour):
         # if not self._is_timer_due("leakage_behaviour"):
