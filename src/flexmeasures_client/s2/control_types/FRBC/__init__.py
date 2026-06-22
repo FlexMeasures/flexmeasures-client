@@ -151,7 +151,7 @@ class FRBC(ControlTypeHandler):
                 try:
                     fill_level_scale = getattr(self, "_fill_level_scale", 1.0)
                     efficiency = (
-                        3600
+                        1
                         * operation_mode.elements[-1].fill_rate.end_of_range
                         * fill_level_scale
                         / (operation_mode.elements[-1].power_ranges[0].end_of_range)
