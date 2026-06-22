@@ -64,7 +64,7 @@ class FRBCSimple(FRBC):
         leakage_behaviour_sensor_id: int,
         charging_efficiency_sensor_id: int,
         timezone: str = "UTC",
-        schedule_duration: timedelta = timedelta(hours=12),
+        schedule_duration: timedelta = timedelta(hours=24),
         max_size: int = 100,
         fill_level_scale: float = 1,
         power_unit: str = "W",
