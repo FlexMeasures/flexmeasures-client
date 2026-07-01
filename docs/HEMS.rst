@@ -77,3 +77,9 @@ In the third terminal, run the client script using the `/examples/HEMS` folder a
 
     cd examples/HEMS
     python3 HEMS_setup.py
+
+.. note::
+   Report generation (see :ref:`hems-tutorial` note above) shells out to a ``flexmeasures`` CLI process, which by default is expected on ``PATH`` and configured against the same database as the server. If your FlexMeasures server runs elsewhere (e.g. inside a Docker Compose service), point report generation at it instead via two environment variables:
+
+   - ``FLEXMEASURES_CLI_CMD``: the command used to invoke the CLI, e.g. ``"docker compose exec -T server flexmeasures"``.
+   - ``FLEXMEASURES_CLI_CONFIG_DIR``: the directory the CLI process sees the ``examples/HEMS/configs/`` files at, if different from their local path (e.g. because that directory is bind-mounted into a container at a different path).

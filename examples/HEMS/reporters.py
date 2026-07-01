@@ -11,7 +11,11 @@ from const import (
     pv_name,
 )
 from utils.asset_utils import find_sensors_by_asset
-from utils.reporter_utils import fill_reporter_params, run_report_cmd
+from utils.reporter_utils import (
+    cli_command_prefix,
+    fill_reporter_params,
+    run_report_cmd,
+)
 
 from flexmeasures_client import FlexMeasuresClient
 
@@ -22,8 +26,9 @@ async def create_reports(
     """Generate reports using FlexMeasures CLI."""
     print("Generating reports...")
 
-    # Check if flexmeasures CLI is available
-    check_cmd = ["which", "flexmeasures"]
+    # Check if the configured FlexMeasures CLI command is available
+    # (only meaningful to check the first token, e.g. "flexmeasures" or "docker")
+    check_cmd = ["which", cli_command_prefix()[0]]
     check_result = subprocess.run(check_cmd, capture_output=True, text=True)
 
     if check_result.returncode != 0:
