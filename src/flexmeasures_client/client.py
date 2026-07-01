@@ -604,8 +604,10 @@ class FlexMeasuresClient:
                     allow_redirects=False,
                 )
 
-                # Check response status
-                if response.status != 200:
+                # Check response status (any 2xx is success, e.g. 202 Accepted
+                # for asynchronous processing, matching check_for_status()'s
+                # convention used elsewhere in this client)
+                if not (200 <= response.status < 300):
                     try:
                         error_data = await response.json()
                         error_message = f"Request failed with status code {response.status}: {error_data}"
@@ -619,7 +621,8 @@ class FlexMeasuresClient:
                 # Parse response
                 response_data = await response.json()
                 self.logger.info(
-                    f"File uploaded successfully: {os.path.basename(file_path)}"
+                    f"File uploaded successfully: {os.path.basename(file_path)} "
+                    f"(status {response.status})"
                 )
                 return response_data, response.status
 
