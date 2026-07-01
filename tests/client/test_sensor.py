@@ -437,6 +437,36 @@ async def test_post_sensor_data_with_file():
 
 
 @pytest.mark.asyncio
+async def test_post_sensor_data_with_file_accepted():
+    """202 Accepted (asynchronous processing) is treated as success, not an error."""
+    csv_path = "/tmp/test_sensor_data_accepted.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            client = FlexMeasuresClient(email="test@test.test", password="test")
+            client.access_token = "test-token"
+            m.post(
+                "http://localhost:5000/api/v3_0/sensors/1/data/upload",
+                status=202,
+                payload={
+                    "job_id": "test-job-id",
+                    "message": "Sensor data has been accepted for processing.",
+                    "status": "ACCEPTED",
+                },
+            )
+            response_data, status = await client.post_sensor_data(
+                sensor_id=1,
+                file_path=csv_path,
+            )
+            assert status == 202
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
 async def test_post_sensor_data_json_with_prior():
     """prior parameter is included in payload."""
     with aioresponses() as m:
