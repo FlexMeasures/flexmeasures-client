@@ -70,6 +70,18 @@ def _parse_sensor_json_fields(sensor: dict) -> None:
     _parse_json_field(sensor, "attributes")
 
 
+def _server_version_at_least(server_version: str | None, minimum: str) -> bool:
+    """Compare server versions by release generation.
+
+    FlexMeasures reports development versions such as 0.33.0.dev26 while the
+    server is already exposing the 0.33 API shape. Comparing base versions keeps
+    these development builds on the right side of feature checks.
+    """
+    if server_version is None:
+        return False
+    return Version(Version(server_version).base_version) >= Version(minimum)
+
+
 def convert_units(
     values: list[int | float], from_unit: str, to_unit: str
 ) -> list[int | float]:
