@@ -568,6 +568,42 @@ async def test_trigger_schedule_with_prior():
 
 
 @pytest.mark.asyncio
+async def test_trigger_schedule_with_prior_on_dev_033_uses_asset_field_name():
+    """0.33.0.dev servers already expose the 0.33 asset scheduling API shape."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.33.0.dev26+gda5eae592"
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
+            status=200,
+            payload={"schedule": "sched-uuid"},
+        )
+        schedule_id = await client.trigger_schedule(
+            asset_id=10,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            prior="2023-01-01T00:00+00:00",
+        )
+        assert schedule_id == "sched-uuid"
+        m.assert_called_with(
+            method="POST",
+            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            json={
+                "start": "2023-01-01T00:00:00+00:00",
+                "duration": "P0DT1H0M0S",
+                "prior": "2023-01-01T00:00:00+00:00",
+                "force-new-job-creation": True,
+            },
+            url="http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_trigger_schedule_scheduler_with_sensor_id_error():
     """scheduler set with sensor_id on a server older than v0.27.0 raises ValueError."""
     client = FlexMeasuresClient(email="test@test.test", password="test")
