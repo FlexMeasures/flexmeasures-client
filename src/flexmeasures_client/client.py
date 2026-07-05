@@ -1390,14 +1390,10 @@ class FlexMeasuresClient:
         if flex_context is not None:
             message["flex-context"] = flex_context
 
+        force_new_job_creation_requested = False
         if prior is not None:
             message["prior"] = pd.Timestamp(prior).isoformat()
-            if self.server_version is not None and Version(
-                self.server_version
-            ) < Version("0.33.0"):
-                message["force_new_job_creation"] = True
-            else:
-                message["force-new-job-creation"] = True
+            force_new_job_creation_requested = True
 
         # For a sensor_id, try to resolve to the sensor's asset_id so we can use
         # the asset scheduling endpoint (preferred over the sensor endpoint).
@@ -1408,10 +1404,10 @@ class FlexMeasuresClient:
         use_sensor_endpoint = False
         if sensor_id is not None:
             if self.server_version is not None and (
-                Version(self.server_version) < Version("0.27.0")
+                not _server_version_at_least(self.server_version, "0.27.0")
                 or (
-                    Version(self.server_version) < Version("0.33.0")
-                    and "force_new_job_creation" in message
+                    not _server_version_at_least(self.server_version, "0.33.0")
+                    and force_new_job_creation_requested
                 )
             ):
                 use_sensor_endpoint = True
@@ -1451,6 +1447,14 @@ class FlexMeasuresClient:
             await self.update_asset(
                 asset_id=asset_id, updates=dict(attributes=asset_attributes)
             )
+
+        if force_new_job_creation_requested:
+            if use_sensor_endpoint and not _server_version_at_least(
+                self.server_version, "0.33.0"
+            ):
+                message["force_new_job_creation"] = True
+            else:
+                message["force-new-job-creation"] = True
 
         if use_sensor_endpoint:
             response, status = await self.request(
