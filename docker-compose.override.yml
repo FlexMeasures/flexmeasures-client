@@ -8,6 +8,36 @@
 #  up
 # ------------------------------------------------------------------
 
+# Shared definition for all CEM instances. Each instance keeps listening on
+# port 8080 inside its own container; only the host port mapping differs,
+# so RMs connect to ws://localhost:8080/ws, ws://localhost:8081/ws, etc.
+x-cem: &cem
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: flexmeasures-client-cem
+  depends_on:
+    - server
+  restart: always
+  environment:
+    FLEXMEASURES_BASE_URL: http://server:5000
+    FLEXMEASURES_USER: toy-user@flexmeasures.io
+    FLEXMEASURES_PASSWORD: toy-password
+    LOGGING_LEVEL: DEBUG
+    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FLEXMEASURES_CLIENT: "0.0.0"
+  volumes:
+    # If flexmeasures_client lives in your repo and you want live edits
+    - ../flexmeasures-client:/app/flexmeasures-client:rw
+  entrypoint: ["/bin/sh", "-c"]
+  command:
+  - |
+    # pip install --break-system-packages --no-cache-dir "git+https://github.com/FlexMeasures/flexmeasures-client.git@main#egg=flexmeasures-client[s2]"
+    pip install --break-system-packages -e /app/flexmeasures-client[s2]
+    pip install --break-system-packages aiohttp
+    pip install --break-system-packages pytz
+    pip install --break-system-packages s2-python==0.8.2
+    python3 /app/flexmeasures-client/src/flexmeasures_client/s2/script/websockets_server.py
+
 services:
   dev-db:
     ports:
@@ -45,31 +75,25 @@ services:
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         flexmeasures jobs run-worker --name flexmeasures-worker --queue ingestion\|scheduling\|forecasting
+  # One CEM per simulated household. Add or remove instances as needed;
+  # scale by copying an entry and bumping the host port.
   cem:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    depends_on:
-      - server
-    restart: always
+    <<: *cem
     ports:
-      - "8080:8080"   # aiohttp default; adjust if you change it
-    environment:
-      # Optional, but useful if you later make this configurable
-      FLEXMEASURES_BASE_URL: http://server:5000
-      FLEXMEASURES_USER: toy-user@flexmeasures.io
-      FLEXMEASURES_PASSWORD: toy-password
-      LOGGING_LEVEL: DEBUG
-      SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FLEXMEASURES_CLIENT: "0.0.0"
-    volumes:
-      # If flexmeasures_client lives in your repo and you want live edits
-      - ../flexmeasures-client:/app/flexmeasures-client:rw
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-    - |
-      # pip install --break-system-packages --no-cache-dir "git+https://github.com/FlexMeasures/flexmeasures-client.git@main#egg=flexmeasures-client[s2]"
-      pip install --break-system-packages -e /app/flexmeasures-client[s2]
-      pip install --break-system-packages aiohttp
-      pip install --break-system-packages pytz
-      pip install --break-system-packages s2-python==0.8.2
-      python3 /app/flexmeasures-client/src/flexmeasures_client/s2/script/websockets_server.py
+      - "8080:8080"
+  cem-2:
+    <<: *cem
+    ports:
+      - "8081:8080"
+  cem-3:
+    <<: *cem
+    ports:
+      - "8082:8080"
+  cem-4:
+    <<: *cem
+    ports:
+      - "8083:8080"
+  cem-5:
+    <<: *cem
+    ports:
+      - "8084:8080"

@@ -117,4 +117,4 @@ async def websocket_handler(request):
 
 app = web.Application()
 app.add_routes([web.get("/ws", websocket_handler)])
-web.run_app(app)
+web.run_app(app, port=int(os.getenv("CEM_PORT", "8080")))
