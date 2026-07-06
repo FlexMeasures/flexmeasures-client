@@ -362,6 +362,14 @@ class CEM(Handler):
             if ast["external_id"] == message.resource_id:
                 asset = ast
         if asset is None:
+            # Fall back to matching by name: servers without external_id support
+            # cannot persist the resource ID, and RMs generate a fresh resource ID
+            # on every connection, so a returning RM would otherwise cause a
+            # duplicate-name asset creation attempt.
+            for ast in assets:
+                if ast["name"] == message.name:
+                    asset = ast
+        if asset is None:
             account = await self._fm_client.get_account()
             asset = await self._fm_client.add_asset(
                 name=message.name,
