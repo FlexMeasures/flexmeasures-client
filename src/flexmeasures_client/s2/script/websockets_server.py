@@ -98,6 +98,14 @@ async def websocket_handler(request):
         host=parsed.netloc,
         ssl=parsed.scheme == "https",
         polling_interval=0.5,
+        # Must comfortably exceed FlexMeasures' own scheduling job timeout (see
+        # flexmeasures/data/services/scheduling.py, FLEXMEASURES_JOB_TIMEOUT_SCHEDULING,
+        # currently 600s), or this client gives up on a schedule that's still being
+        # computed/saved server-side. The exponential backoff (0.5 * 2**step) also needs
+        # enough steps to reach that long: 10 steps only sums to ~511s regardless of
+        # polling_timeout, so max_polling_steps is raised too.
+        polling_timeout=650.0,
+        max_polling_steps=12,
     )
 
     cem = CEM(
