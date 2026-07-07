@@ -104,7 +104,7 @@ services:
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         pip install --break-system-packages -e /app/flexmeasures-client[s2]
-        flexmeasures jobs run-worker --name flexmeasures-worker --queue scheduling\|forecasting
+        flexmeasures jobs run-worker --name flexmeasures-worker --queue ingestion\|scheduling\|forecasting
   # One CEM per simulated household. Add or remove instances as needed;
   # scale by copying an entry and bumping the host port.
   cem:
