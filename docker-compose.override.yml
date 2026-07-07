@@ -46,6 +46,10 @@ services:
     ports:
       - "6380:6379"
   server:
+    # SYS_PTRACE: lets py-spy attach to the gunicorn workers for live debugging
+    # of the CEM-asset-reuse hang (see projects/009 HANDOFF.md in pps_flexed).
+    cap_add:
+      - SYS_PTRACE
     volumes:
       # A place for config and plugin code, and custom requirements.txt
       # The 1st mount point is for running the FlexMeasures CLI, the 2nd for gunicorn
@@ -65,11 +69,19 @@ services:
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         pip install --break-system-packages -e /app/flexmeasures-client[s2]
+        pip install --break-system-packages py-spy
         flexmeasures db upgrade
         if ! flexmeasures show accounts | grep -q "Docker Toy Account"; then
             flexmeasures add toy-account --name 'Docker Toy Account'
         fi
-        gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 2 --threads 4 wsgi:application
+        # More worker PROCESSES, fewer threads per worker: a slow CPU-bound
+        # request (see projects/009 HANDOFF.md - belief-dedup in
+        # flexmeasures/data/services/time_series.py can be slow) previously
+        # monopolized the GIL of its gunicorn worker under --threads 4,
+        # starving unrelated concurrent requests until they hit client-side
+        # timeouts. Separate OS processes aren't GIL-bound, so this isolates
+        # a slow request to its own worker instead of blocking the others.
+        gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 4 --threads 1 --timeout 120 wsgi:application
   worker:
     volumes:
       # a place for config and plugin code, and custom requirements.txt
