@@ -38,6 +38,50 @@ x-cem: &cem
     pip install --break-system-packages s2-python==0.8.2
     python3 /app/flexmeasures-client/src/flexmeasures_client/s2/script/websockets_server.py
 
+# Shared definition for all RQ worker instances. Scaled one-per-concurrently-
+# simulated-apartment, same as the cem-* services and the server's gunicorn
+# worker count below, since otherwise every apartment's scheduling jobs funnel
+# through a single worker process and serialize even though gunicorn/CEM are
+# already scaled per apartment. Bump alongside those when scaling further.
+x-worker: &worker
+  # worker-2/worker-3 are new services (not present in the base docker-compose.yml,
+  # unlike "worker" itself), so this anchor must be self-contained rather than
+  # relying on a base-file merge for build/depends_on/restart/base environment.
+  build:
+    context: .
+    dockerfile: Dockerfile
+  depends_on:
+    - dev-db
+    - queue-db
+    - mailhog
+  restart: on-failure
+  cap_add:
+    # SYS_PTRACE: lets py-spy attach to the RQ worker subprocess for live debugging
+    # of slow/stuck scheduling jobs (py-spy itself isn't preinstalled here; install
+    # it ad hoc with `docker exec <container> pip install --break-system-packages py-spy`).
+    - SYS_PTRACE
+  volumes:
+    # a place for config and plugin code, and custom requirements.txt
+    - ./flexmeasures-instance/:/usr/var/flexmeasures-instance/:rw
+    - ../flexmeasures/flexmeasures:/app/flexmeasures:rw
+    - ./flexmeasures-instance/:/app/instance/:rw
+    # The seita_ems plugin (provides the CommunityScheduler) and the client
+    # repo it imports (flexmeasures_client + examples/HEMS)
+    - ../ems/seita_ems:/app/plugins/seita_ems:rw
+    - ../flexmeasures-client:/app/flexmeasures-client:rw
+  entrypoint: ["/bin/sh", "-c"]
+  environment:
+    SQLALCHEMY_DATABASE_URI: "postgresql://fm-dev-db-user:fm-dev-db-pass@dev-db:5432/fm-dev-db"
+    FLEXMEASURES_REDIS_URL: queue-db
+    FLEXMEASURES_REDIS_PASSWORD: fm-redis-pass
+    SECRET_KEY: notsecret
+    SECURITY_TOTP_SECRETS: '{"1": "something-secret"}'
+    FLEXMEASURES_ENV: development
+    MAIL_SERVER: mailhog
+    MAIL_PORT: 1025
+    LOGGING_LEVEL: INFO
+    FLEXMEASURES_PLUGINS: /app/plugins/seita_ems
+
 services:
   dev-db:
     ports:
@@ -86,30 +130,35 @@ services:
         # can be mid-request at the same time. Bump both together when
         # scaling to more apartments (see the cem-* services' own comment).
         gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 5 --threads 1 --timeout 120 wsgi:application
+  # One RQ worker per concurrently-simulated apartment (see x-worker comment
+  # above). Add or remove instances alongside the cem-* services.
   worker:
-    # SYS_PTRACE: lets py-spy attach to the RQ worker subprocess for live debugging
-    # of slow/stuck scheduling jobs (py-spy itself isn't preinstalled here; install
-    # it ad hoc with `docker exec flexmeasures-worker-1 pip install --break-system-packages py-spy`).
-    cap_add:
-      - SYS_PTRACE
-    volumes:
-      # a place for config and plugin code, and custom requirements.txt
-      - ./flexmeasures-instance/:/usr/var/flexmeasures-instance/:rw
-      - ../flexmeasures/flexmeasures:/app/flexmeasures:rw
-      - ./flexmeasures-instance/:/app/instance/:rw
-      # The seita_ems plugin (provides the CommunityScheduler) and the client
-      # repo it imports (flexmeasures_client + examples/HEMS)
-      - ../ems/seita_ems:/app/plugins/seita_ems:rw
-      - ../flexmeasures-client:/app/flexmeasures-client:rw
-    environment:
-      FLEXMEASURES_PLUGINS: /app/plugins/seita_ems
+    <<: *worker
     command:
       - |
         pip install --break-system-packages -e /app
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         pip install --break-system-packages -e /app/flexmeasures-client[s2]
-        flexmeasures jobs run-worker --name flexmeasures-worker --queue scheduling\|forecasting
+        flexmeasures jobs run-worker --name flexmeasures-worker-1 --queue scheduling\|forecasting
+  worker-2:
+    <<: *worker
+    command:
+      - |
+        pip install --break-system-packages -e /app
+        pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
+        pip install timely-beliefs -U --break-system-packages
+        pip install --break-system-packages -e /app/flexmeasures-client[s2]
+        flexmeasures jobs run-worker --name flexmeasures-worker-2 --queue scheduling\|forecasting
+  worker-3:
+    <<: *worker
+    command:
+      - |
+        pip install --break-system-packages -e /app
+        pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
+        pip install timely-beliefs -U --break-system-packages
+        pip install --break-system-packages -e /app/flexmeasures-client[s2]
+        flexmeasures jobs run-worker --name flexmeasures-worker-3 --queue scheduling\|forecasting
   # One CEM per simulated household. Add or remove instances as needed;
   # scale by copying an entry and bumping the host port.
   cem:
