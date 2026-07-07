@@ -81,7 +81,11 @@ services:
         # starving unrelated concurrent requests until they hit client-side
         # timeouts. Separate OS processes aren't GIL-bound, so this isolates
         # a slow request to its own worker instead of blocking the others.
-        gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 4 --threads 1 --timeout 120 wsgi:application
+        # Worker count matches the number of CEM instances below (one per
+        # concurrently-simulated apartment), since each apartment's RM/CEM
+        # can be mid-request at the same time. Bump both together when
+        # scaling to more apartments (see the cem-* services' own comment).
+        gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 5 --threads 1 --timeout 120 wsgi:application
   worker:
     volumes:
       # a place for config and plugin code, and custom requirements.txt
