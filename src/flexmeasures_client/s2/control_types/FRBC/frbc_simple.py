@@ -232,12 +232,20 @@ class FRBCSimple(FRBC):
             "consumption-price": {"sensor": self._price_sensor_id},
             "production-price": {"sensor": self._production_price_sensor_id},
             "site-power-capacity": f"{3 * 25 * 230} VA",
-            # relax-constraints (not just relax-soc-constraints): also fills in a
-            # default site-consumption/production-breach-price when none is set, so
-            # a site-level capacity constraint (e.g. from community steering) becomes
-            # a soft, penalized violation instead of causing infeasibility that
-            # silently falls back to a scheduler which ignores the constraint entirely.
-            "relax-constraints": True,
+            "relax-soc-constraints": True,
+            # Also relax site-level capacity specifically (not the broader
+            # relax-constraints/relax-capacity-constraints, which additionally soften
+            # *device*-level capacity constraints): this fills in a default
+            # site-consumption/production-breach-price so a site-level capacity
+            # constraint (e.g. from community steering) becomes a soft, penalized
+            # violation instead of causing infeasibility that silently falls back to a
+            # scheduler which ignores the constraint entirely. The broader flag was
+            # tried and reverted: with this apartment model's large SOC magnitudes
+            # (hundreds of kWh of thermal storage against a sub-1kW power capacity),
+            # the extra device-capacity breach-price terms it adds pushed HiGHS from a
+            # ~10s solve into one that ran 10+ minutes without converging (confirmed
+            # via py-spy: time was spent inside the solver itself, not a Python hang).
+            "relax-site-capacity-constraints": True,
         }
         flex_model = {
             "soc-unit": energy_unit,
