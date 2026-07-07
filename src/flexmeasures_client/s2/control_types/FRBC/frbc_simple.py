@@ -109,16 +109,31 @@ class FRBCSimple(FRBC):
         return efficiency_map
 
     async def send_storage_status(self, status: FRBCStorageStatus):
+        # HANGDEBUG: this runs as a fire-and-forget asyncio.create_task (see
+        # handle_storage_status), so any exception here is normally silently
+        # dropped (only surfacing as "Task exception was never retrieved" once
+        # the task is garbage collected). Log explicitly so nothing is missed.
         now = self.now()
-        await self._fm_client.post_sensor_data(
-            self._soc_sensor_id,
-            start=now,
-            prior=now,
-            values=[status.present_fill_level * self._fill_level_scale],
-            unit=self.energy_unit,
-            duration=timedelta(minutes=1),
-        )
-        await self.trigger_schedule(now)
+        try:
+            self._logger.debug(
+                f"HANGDEBUG send_storage_status: posting SoC to sensor {self._soc_sensor_id}"
+            )
+            await self._fm_client.post_sensor_data(
+                self._soc_sensor_id,
+                start=now,
+                prior=now,
+                values=[status.present_fill_level * self._fill_level_scale],
+                unit=self.energy_unit,
+                duration=timedelta(minutes=1),
+            )
+            self._logger.debug(
+                "HANGDEBUG send_storage_status: SoC posted, calling trigger_schedule"
+            )
+            await self.trigger_schedule(now)
+            self._logger.debug("HANGDEBUG send_storage_status: trigger_schedule returned")
+        except Exception:
+            self._logger.exception("HANGDEBUG send_storage_status: raised")
+            raise
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
@@ -235,30 +250,55 @@ class FRBCSimple(FRBC):
         }
         self._logger.debug(f"flex_context: {flex_context}")
         self._logger.debug(f"flex_model: {flex_model}")
-        schedule = await self._fm_client.trigger_and_get_schedule(
-            start=start.replace(
-                minute=(start.minute // 15) * 15, second=0, microsecond=0
-            ),
-            prior=start,
-            sensor_id=self._power_sensor_id,
-            flex_context=flex_context,
-            flex_model=flex_model,
-            duration=self._schedule_duration,  # next 12 hours
-            # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
-            # this needs changes on the client
-            unit=self.power_unit,
+        self._logger.debug(
+            f"HANGDEBUG trigger_schedule: about to call trigger_and_get_schedule "
+            f"(power_sensor_id={self._power_sensor_id})"
+        )
+        try:
+            schedule = await self._fm_client.trigger_and_get_schedule(
+                start=start.replace(
+                    minute=(start.minute // 15) * 15, second=0, microsecond=0
+                ),
+                prior=start,
+                sensor_id=self._power_sensor_id,
+                flex_context=flex_context,
+                flex_model=flex_model,
+                duration=self._schedule_duration,  # next 12 hours
+                # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
+                # this needs changes on the client
+                unit=self.power_unit,
+            )
+        except Exception:
+            self._logger.exception(
+                "HANGDEBUG trigger_schedule: trigger_and_get_schedule raised"
+            )
+            raise
+        self._logger.debug(
+            f"HANGDEBUG trigger_schedule: got schedule back: {schedule}"
         )
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
-        instructions = fm_schedule_to_instructions(
-            schedule,
-            system_description,
-            initial_fill_level=soc_at_start / self._fill_level_scale,
+        try:
+            instructions = fm_schedule_to_instructions(
+                schedule,
+                system_description,
+                initial_fill_level=soc_at_start / self._fill_level_scale,
+            )
+        except Exception:
+            self._logger.exception(
+                "HANGDEBUG trigger_schedule: fm_schedule_to_instructions raised"
+            )
+            raise
+        self._logger.debug(
+            f"HANGDEBUG trigger_schedule: built {len(instructions)} instructions"
         )
 
         # put instructions to sending queue
         for instruction in instructions:
             await self.send_message(instruction)
+        self._logger.debug(
+            "HANGDEBUG trigger_schedule: all instructions queued for sending"
+        )
 
     async def send_fill_level_target_profile(
         self, fill_level_target_profile: FRBCFillLevelTargetProfile

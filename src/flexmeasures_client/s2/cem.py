@@ -157,7 +157,7 @@ class CEM(Handler):
         # skip registering if there's a handler already registered for
         # the same control type
         if control_type_handler._control_type in self._control_types_handlers:
-            self._logger.warning(
+            self._logger.debug(
                 "Control Type {control_type} already registered. Updating..."
             )
 
@@ -271,12 +271,12 @@ class CEM(Handler):
 
         # check if it's trying to activate the current control_type
         if control_type == self._control.control_type:
-            self._logger.warning(f"RM is already in `{control_type}` control type.")
+            self._logger.debug(f"RM is already in `{control_type}` control type.")
             return None
 
         # check if the RM supports the control type
         if control_type not in self._resource_manager_details.available_control_types:
-            self._logger.warning(f"RM does not support `{control_type}` control type.")
+            self._logger.debug(f"RM does not support `{control_type}` control type.")
             return None
 
         # RM initialization succeeded
@@ -370,6 +370,10 @@ class CEM(Handler):
                 if ast["name"] == message.name:
                     asset = ast
         if asset is None:
+            self._logger.debug(
+                f"HANGDEBUG map_resource_to_asset: no existing asset found for "
+                f"{message.name!r}, creating a new one"
+            )
             account = await self._fm_client.get_account()
             asset = await self._fm_client.add_asset(
                 name=message.name,
@@ -377,6 +381,14 @@ class CEM(Handler):
                 generic_asset_type_id=1,
                 # parent_asset_id=self._asset_id,
                 attributes=json.loads(message.to_json()),
+            )
+            self._logger.debug(
+                f"HANGDEBUG map_resource_to_asset: created asset id={asset['id']}"
+            )
+        else:
+            self._logger.debug(
+                f"HANGDEBUG map_resource_to_asset: reusing existing asset "
+                f"id={asset['id']} name={asset['name']!r} for {message.name!r}"
             )
         if asset["name"] != message.name:
             await self._fm_client.update_asset(
@@ -438,7 +450,7 @@ class CEM(Handler):
                     continue
                 sensor_id = s_id
             else:
-                self._logger.warning(
+                self._logger.debug(
                     f"No power sensor IDs set up. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
                 )
                 continue
@@ -489,7 +501,7 @@ class CEM(Handler):
                     unit=get_commodity_unit(commodity_quantity),
                 )
             except Exception as e:  # noqa: B902 - intentional safety net
-                self._logger.warning(
+                self._logger.debug(
                     f"POSTing power measurement failed with error: {e}"
                 )
 

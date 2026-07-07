@@ -36,11 +36,20 @@ async def configure_site(
     )
 
     if not site_asset:
+        LOGGER.debug(f"HANGDEBUG configure_site: creating new asset for {site_name!r}")
         site_asset = await fm_client.add_asset(
             name=site_name, account_id=account["id"], **site_asset_specs
         )
+    else:
+        LOGGER.debug(
+            f"HANGDEBUG configure_site: reusing existing asset id={site_asset['id']} "
+            f"for {site_name!r}, existing sensors: "
+            f"{[s['name'] for s in site_asset.get('sensors', [])]}"
+        )
     # Update site asset with the latest specs
+    LOGGER.debug(f"HANGDEBUG configure_site: updating asset {site_asset['id']} specs")
     await fm_client.update_asset(site_asset["id"], site_asset_specs)
+    LOGGER.debug(f"HANGDEBUG configure_site: asset {site_asset['id']} specs updated")
 
     sensors = site_asset.get("sensors", [])
     price_sensor = None
@@ -206,6 +215,7 @@ async def configure_site(
         asset_id=site_asset["id"],
         updates=dict(sensors_to_show=sensors_to_show),
     )
+    LOGGER.debug(f"HANGDEBUG configure_site: done, returning sensors for asset {site_asset['id']}")
     return (
         price_sensor,
         production_price_sensor,
