@@ -87,6 +87,11 @@ services:
         # scaling to more apartments (see the cem-* services' own comment).
         gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 5 --threads 1 --timeout 120 wsgi:application
   worker:
+    # SYS_PTRACE: lets py-spy attach to the RQ worker subprocess for live debugging
+    # of slow/stuck scheduling jobs (py-spy itself isn't preinstalled here; install
+    # it ad hoc with `docker exec flexmeasures-worker-1 pip install --break-system-packages py-spy`).
+    cap_add:
+      - SYS_PTRACE
     volumes:
       # a place for config and plugin code, and custom requirements.txt
       - ./flexmeasures-instance/:/usr/var/flexmeasures-instance/:rw
