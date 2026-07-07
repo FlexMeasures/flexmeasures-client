@@ -3,6 +3,7 @@ This control type is in a very EXPERIMENTAL stage.
 Used it at your own risk :)
 """
 
+import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -267,25 +268,46 @@ class FRBCSimple(FRBC):
             f"HANGDEBUG trigger_schedule: about to call trigger_and_get_schedule "
             f"(power_sensor_id={self._power_sensor_id})"
         )
-        try:
-            schedule = await self._fm_client.trigger_and_get_schedule(
-                start=start.replace(
-                    minute=(start.minute // 15) * 15, second=0, microsecond=0
-                ),
-                prior=start,
-                sensor_id=self._power_sensor_id,
-                flex_context=flex_context,
-                flex_model=flex_model,
-                duration=self._schedule_duration,  # next 12 hours
-                # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
-                # this needs changes on the client
-                unit=self.power_unit,
-            )
-        except Exception:
-            self._logger.exception(
-                "HANGDEBUG trigger_schedule: trigger_and_get_schedule raised"
-            )
-            raise
+        # A scheduling job can fail transiently server-side (e.g. a pandas
+        # "cannot reindex on an axis with duplicate labels" error observed with
+        # overlapping recurring schedule windows) and succeed cleanly when re-run
+        # moments later. Without a retry here, that single failure permanently stalls
+        # this timestep: the RM never gets an instruction and polls forever, since
+        # this whole call runs as a fire-and-forget task whose exception is otherwise
+        # just logged and dropped. Retry a few times before giving up for real.
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                schedule = await self._fm_client.trigger_and_get_schedule(
+                    start=start.replace(
+                        minute=(start.minute // 15) * 15, second=0, microsecond=0
+                    ),
+                    prior=start,
+                    sensor_id=self._power_sensor_id,
+                    flex_context=flex_context,
+                    flex_model=flex_model,
+                    duration=self._schedule_duration,  # next 12 hours
+                    # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
+                    # this needs changes on the client
+                    unit=self.power_unit,
+                )
+                break
+            except ValueError as exc:
+                if "Scheduling job failed" not in str(exc) or attempt == max_attempts:
+                    self._logger.exception(
+                        "HANGDEBUG trigger_schedule: trigger_and_get_schedule raised"
+                    )
+                    raise
+                self._logger.warning(
+                    f"HANGDEBUG trigger_schedule: scheduling job failed "
+                    f"(attempt {attempt}/{max_attempts}), retrying: {exc}"
+                )
+                await asyncio.sleep(1.0)
+            except Exception:
+                self._logger.exception(
+                    "HANGDEBUG trigger_schedule: trigger_and_get_schedule raised"
+                )
+                raise
         self._logger.debug(
             f"HANGDEBUG trigger_schedule: got schedule back: {schedule}"
         )
