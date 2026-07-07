@@ -232,7 +232,12 @@ class FRBCSimple(FRBC):
             "consumption-price": {"sensor": self._price_sensor_id},
             "production-price": {"sensor": self._production_price_sensor_id},
             "site-power-capacity": f"{3 * 25 * 230} VA",
-            "relax-soc-constraints": True,
+            # relax-constraints (not just relax-soc-constraints): also fills in a
+            # default site-consumption/production-breach-price when none is set, so
+            # a site-level capacity constraint (e.g. from community steering) becomes
+            # a soft, penalized violation instead of causing infeasibility that
+            # silently falls back to a scheduler which ignores the constraint entirely.
+            "relax-constraints": True,
         }
         flex_model = {
             "soc-unit": energy_unit,
