@@ -105,12 +105,25 @@ async def websocket_handler(request):
         fm_client=fm_client,
         logger=LOGGER,
     )
-    # create "parallel" tasks for the message producer and consumer
-    await asyncio.gather(
-        websocket_consumer(ws, cem),
-        websocket_producer(ws, cem),
-        rm_details_watchdog(ws, cem),
-    )
+    # Create "parallel" tasks for the message producer and consumer. The
+    # consumer ends when the websocket closes (RMs reconnect at every replan
+    # boundary); the producer and watchdog must then be torn down along with
+    # the CEM itself, or the old session lives on as a zombie - its periodic
+    # loops keep posting SoC and triggering FlexMeasures schedules for an
+    # asset the RM no longer implements, racing the RM's new session (seen as
+    # a parallel steering-less schedule stream in the community co-simulation).
+    consumer = asyncio.create_task(websocket_consumer(ws, cem))
+    side_tasks = [
+        asyncio.create_task(websocket_producer(ws, cem)),
+        asyncio.create_task(rm_details_watchdog(ws, cem)),
+    ]
+    try:
+        await consumer
+    finally:
+        await cem.close()
+        for task in side_tasks:
+            task.cancel()
+        await asyncio.gather(*side_tasks, return_exceptions=True)
 
     return ws
 
