@@ -65,9 +65,9 @@ x-worker: &worker
     - ./flexmeasures-instance/:/usr/var/flexmeasures-instance/:rw
     - ../flexmeasures/flexmeasures:/app/flexmeasures:rw
     - ./flexmeasures-instance/:/app/instance/:rw
-    # The seita_ems plugin (provides the CommunityScheduler) and the client
-    # repo it imports (flexmeasures_client + examples/HEMS)
-    - ../ems/seita_ems:/app/plugins/seita_ems:rw
+    # The client repo (flexmeasures_client + examples/HEMS). The seita_ems
+    # community plugin is mounted by the ems repo's docker-compose.community.yml
+    # overlay instead, so this stack also runs without access to that repo.
     - ../flexmeasures-client:/app/flexmeasures-client:rw
   entrypoint: ["/bin/sh", "-c"]
   environment:
@@ -80,7 +80,6 @@ x-worker: &worker
     MAIL_SERVER: mailhog
     MAIL_PORT: 1025
     LOGGING_LEVEL: INFO
-    FLEXMEASURES_PLUGINS: /app/plugins/seita_ems
 
 services:
   dev-db:
@@ -101,12 +100,10 @@ services:
       - ./flexmeasures-instance/:/usr/var/flexmeasures-instance/:rw
       - ./flexmeasures-instance/:/app/instance/:rw
       - ../flexmeasures/flexmeasures:/app/flexmeasures:rw
-      # The seita_ems plugin (provides the CommunityScheduler) and the client
-      # repo it imports (flexmeasures_client + examples/HEMS)
-      - ../ems/seita_ems:/app/plugins/seita_ems:rw
+      # The client repo (flexmeasures_client + examples/HEMS). The seita_ems
+      # community plugin is mounted by the ems repo's docker-compose.community.yml
+      # overlay instead, so this stack also runs without access to that repo.
       - ../flexmeasures-client:/app/flexmeasures-client:rw
-    environment:
-      FLEXMEASURES_PLUGINS: /app/plugins/seita_ems
     command:
       - |
         pip install --break-system-packages -e /app
