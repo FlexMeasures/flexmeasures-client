@@ -214,6 +214,29 @@ class FRBCSimple(FRBC):
                     else:
                         charging_capacity = max(charging_capacity, p_max)
 
+        # Translate the S2 operation modes into FM power bands (the flex-model's
+        # "operation-modes" field): one band per operation-mode element power
+        # range, so FlexMeasures only schedules power values the device can
+        # actually run at (e.g. {0 W} U {883.7 W} for an on/off heater, instead
+        # of a fractional power that the RM would have to round to a full-on
+        # block, overshooting site capacity limits). Only sent when the bands
+        # actually restrict the power range (more than one distinct band).
+        operation_mode_bands: list[dict] = []
+        for operation_mode in actuator.operation_modes:
+            for element in operation_mode.elements:
+                for power_range in element.power_ranges:
+                    band_min, band_max = sorted(
+                        (power_range.start_of_range, power_range.end_of_range)
+                    )
+                    band = {
+                        "power-range": [
+                            f"{band_min} {self.power_unit}",
+                            f"{band_max} {self.power_unit}",
+                        ]
+                    }
+                    if band not in operation_mode_bands:
+                        operation_mode_bands.append(band)
+
         soc_min, soc_max = get_soc_min_max(system_description, self._fill_level_scale)
 
         # Support for J energy unit (FM server scheduling trigger endpoint only accepts kWh and MWh)
@@ -262,6 +285,8 @@ class FRBCSimple(FRBC):
             "consumption-capacity": f"{charging_capacity} {self.power_unit}",
             "production-capacity": f"{discharging_capacity} {self.power_unit}",
         }
+        if len(operation_mode_bands) > 1:
+            flex_model["operation-modes"] = operation_mode_bands
         self._logger.debug(f"flex_context: {flex_context}")
         self._logger.debug(f"flex_model: {flex_model}")
         self._logger.debug(
