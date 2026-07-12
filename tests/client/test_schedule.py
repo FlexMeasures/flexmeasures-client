@@ -1003,3 +1003,65 @@ def test_convert_units_unsupported():
 
     with pytest.raises(NotImplementedError, match="Power conversion from MW to °C"):
         convert_units([1.0], "MW", "°C")
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_accepts_202_accepted() -> None:
+    """FlexMeasures API v3.0-32+ responds to trigger requests with
+    202 (Accepted) and job info, instead of 200 (PROCESSED)."""
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        flexmeasures_client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
+            status=202,
+            payload={
+                "schedule": "test_schedule_id",
+                "job_id": "test_schedule_id",
+                "job_monitor_url": "/api/v3_0/jobs/test_schedule_id",
+                "status": "ACCEPTED",
+                "message": "Request has been accepted for processing.",
+            },
+        )
+
+        schedule_id = await flexmeasures_client.trigger_schedule(
+            asset_id=5,
+            start="2023-03-26T10:00+02:00",
+            duration="PT12H",
+            flex_model=[{"sensor": 3, "soc-at-start": "50 kWh"}],
+        )
+
+        assert schedule_id == "test_schedule_id"
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_failed_job_raises() -> None:
+    """FlexMeasures API v3.0-32+ reports a failed scheduling job with
+    422 and a failure message (previously 400 UNKNOWN_SCHEDULE), which
+    should surface as an error rather than being polled forever."""
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid?duration=P0DT0H45M0S"  # noqa: E501
+    with aioresponses() as m:
+        m.get(
+            url=url,
+            status=422,
+            payload={
+                "status": "FAILED",
+                "message": "Scheduling job failed with ValueError: prices unknown",
+            },
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            request_timeout=2,
+            polling_interval=0.2,
+            access_token="skip-auth",
+        )
+
+        with pytest.raises(ValueError, match="prices unknown"):
+            await flexmeasures_client.get_schedule(
+                sensor_id=1, schedule_id="some-uuid", duration="PT45M"
+            )
+    await flexmeasures_client.close()
