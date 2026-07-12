@@ -300,7 +300,16 @@ class FRBCSimple(FRBC):
         # this timestep: the RM never gets an instruction and polls forever, since
         # this whole call runs as a fire-and-forget task whose exception is otherwise
         # just logged and dropped. Retry a few times before giving up for real.
-        max_attempts = 3
+        # "No recent state-of-charge value found" is the same class of transient:
+        # at startup, this trigger can race the controller's initial battery-SoC
+        # post (a separate client posting to the flex-model's SoC sensor), and
+        # FlexMeasures then rejects the trigger with a 422 that resolves itself
+        # once that post lands moments later.
+        max_attempts = 5
+        transient_errors = (
+            "Scheduling job failed",
+            "No recent state-of-charge value found",
+        )
         for attempt in range(1, max_attempts + 1):
             try:
                 schedule = await self._fm_client.trigger_and_get_schedule(
@@ -318,16 +327,19 @@ class FRBCSimple(FRBC):
                 )
                 break
             except ValueError as exc:
-                if "Scheduling job failed" not in str(exc) or attempt == max_attempts:
+                if (
+                    not any(marker in str(exc) for marker in transient_errors)
+                    or attempt == max_attempts
+                ):
                     self._logger.exception(
                         "HANGDEBUG trigger_schedule: trigger_and_get_schedule raised"
                     )
                     raise
                 self._logger.warning(
-                    f"HANGDEBUG trigger_schedule: scheduling job failed "
+                    f"HANGDEBUG trigger_schedule: transient trigger failure "
                     f"(attempt {attempt}/{max_attempts}), retrying: {exc}"
                 )
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(2.0)
             except Exception:
                 self._logger.exception(
                     "HANGDEBUG trigger_schedule: trigger_and_get_schedule raised"
