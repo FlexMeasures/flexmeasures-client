@@ -562,9 +562,7 @@ async def test_get_sensor_data() -> None:
 
         sensor_id = 2
         m.get(
-            re.compile(
-                rf"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data\?.*"
-            ),
+            re.compile(rf"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data\?.*"),
             status=200,
             payload={
                 "duration": "PT45M",
