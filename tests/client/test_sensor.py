@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import os
+import re
 from unittest.mock import patch
+from urllib.parse import unquote
 
+import pandas as pd
 import pytest
 from aioresponses import aioresponses
 
@@ -559,7 +562,9 @@ async def test_get_sensor_data() -> None:
 
         sensor_id = 2
         m.get(
-            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data?duration=P0DT0H45M0S&resolution=P0DT0H15M0S&start=2023-06-01T10%253A00%253A00%252B02%253A00&unit=MW",  # noqa: E501
+            re.compile(
+                rf"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data\?.*"
+            ),
             status=200,
             payload={
                 "duration": "PT45M",
@@ -585,6 +590,17 @@ async def test_get_sensor_data() -> None:
             resolution=resolution,
         )
         assert sensor_data["values"] == [8.5, 8.5, 8.5]
+
+        # Check the requested query params. Durations are compared as
+        # timedeltas, because pandas renders "PT45M" as "P0DT0H45M0S" on
+        # some versions, and both are valid ISO 8601. The start param is
+        # unquoted first, because yarl versions differ in requote behavior.
+        ((request_key, _),) = m.requests.items()
+        query = request_key[1].query
+        assert pd.Timedelta(query["duration"]) == pd.Timedelta(duration)
+        assert pd.Timedelta(query["resolution"]) == pd.Timedelta(resolution)
+        assert unquote(query["start"]) == start
+        assert query["unit"] == unit
         await flexmeasures_client.close()
 
 
