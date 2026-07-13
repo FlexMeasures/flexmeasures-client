@@ -16,7 +16,7 @@ LOGGER = logging.getLogger(__name__)
 
 async def configure_site(
     site_name: str, fm_client: FlexMeasuresClient
-) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict, dict]:
+) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict, dict, dict]:
     account = await fm_client.get_account()
     assets = await fm_client.get_assets(parse_json_fields=True)
 
@@ -55,6 +55,7 @@ async def configure_site(
     price_sensor = None
     production_price_sensor = None
     power_sensor = None
+    measured_power_sensor = None
     soc_sensor = None
     rm_discharge_sensor = None
     soc_minima_sensor = None
@@ -69,6 +70,8 @@ async def configure_site(
             production_price_sensor = sensor
         elif sensor["name"] == "power":
             power_sensor = sensor
+        elif sensor["name"] == "measured-power":
+            measured_power_sensor = sensor
         elif sensor["name"] == "state of charge":
             soc_sensor = sensor
         elif sensor["name"] == "RM discharge":
@@ -131,6 +134,18 @@ async def configure_site(
     if power_sensor is None:
         power_sensor = await fm_client.add_sensor(
             name="power",
+            event_resolution="PT15M",
+            unit="kW",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+            attributes={"consumption_is_positive": True},
+        )
+    if measured_power_sensor is None:
+        # Dedicated sensor for the REALIZED (measured) aggregated apartment power,
+        # kept separate from the "power" sensor which holds the StorageScheduler's
+        # device-power SCHEDULE. Never conflate schedule and measurement on one sensor.
+        measured_power_sensor = await fm_client.add_sensor(
+            name="measured-power",
             event_resolution="PT15M",
             unit="kW",
             generic_asset_id=site_asset["id"],
@@ -208,7 +223,7 @@ async def configure_site(
         },
         {
             "title": "Power",
-            "sensors": [power_sensor["id"]],
+            "sensors": [power_sensor["id"], measured_power_sensor["id"]],
         },
     ]
     await fm_client.update_asset(
@@ -227,4 +242,5 @@ async def configure_site(
         usage_forecast_sensor,
         leakage_behaviour_sensor,
         charging_efficiency_sensor,
+        measured_power_sensor,
     )

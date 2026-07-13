@@ -5,7 +5,7 @@ import json
 import logging
 import math
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from logging import Logger
 from typing import Dict, Optional
 
@@ -412,7 +412,16 @@ class CEM(Handler):
             usage_forecast_sensor,
             leakage_behaviour_sensor,
             charging_efficiency_sensor,
+            measured_power_sensor,
         ) = await configure_site(message.name, self._fm_client)
+
+        # Wire up the apartment's dedicated MEASUREMENT sensor (distinct from the
+        # "power" SCHEDULE sensor above) so incoming S2 PowerMeasurements land on
+        # their own sensor instead of a hardcoded/wrong one.
+        if self.power_sensor_id is None:
+            self.power_sensor_id = {}
+        self.power_sensor_id["ELECTRIC.POWER.L1"] = measured_power_sensor["id"]
+
         from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 
         frbc = FRBCSimple(
@@ -435,80 +444,57 @@ class CEM(Handler):
         for power_measurement in message.values:
             commodity_quantity = power_measurement.commodity_quantity.value
 
-            if (
-                self.power_sensor_id is None
-                and commodity_quantity == "ELECTRIC.POWER.L1"
-            ):
-                sensor_id = 357
-            elif self.power_sensor_id:
-                s_id = self.power_sensor_id.get(commodity_quantity)
-                if s_id is None:
+            if self.power_sensor_id:
+                sensor_id = self.power_sensor_id.get(commodity_quantity)
+                if sensor_id is None:
                     # TODO: create a new sensor or return ReceptionStatus
                     self._logger.debug(
                         f"No power sensor set up for {commodity_quantity}. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
                     )
                     continue
-                sensor_id = s_id
             else:
                 self._logger.debug(
                     f"No power sensor IDs set up. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
                 )
                 continue
 
-            # Store the value in the buffer
-            self._power_buffer[commodity_quantity].append(
-                (message.measurement_timestamp, power_measurement.value)
+            # Bin to the SIMULATED measurement timestamp (not wall-clock time):
+            # this co-sim runs on 2022 simulated time, so datetime.now() would bin
+            # measurements onto a meaningless (real-world) event_start.
+            measurement_ts = message.measurement_timestamp
+            if measurement_ts.tzinfo is None:
+                # This co-sim treats naive sim times as UTC.
+                measurement_ts = measurement_ts.replace(tzinfo=timezone.utc)
+            period = self._minimum_measurement_period
+            m = period // pd.Timedelta(minutes=1)
+            bin_start = measurement_ts.replace(
+                second=0, microsecond=0, minute=(measurement_ts.minute // m) * m
             )
 
-            # Compute bin
-            now = datetime.now(self._timezone)
-            m = self._minimum_measurement_period // pd.Timedelta(minutes=1)
-            bin_end = now.replace(
-                second=0, microsecond=0, minute=(now.minute // m) * m
-            )  # e.g. 10:15:00
-            bin_start = bin_end - self._minimum_measurement_period
-
-            # If timer not due, just collect values
-            if not self._is_timer_due(f"power_measurement_{commodity_quantity}"):
-                self._logger.debug(
-                    f"Collecting 5-minute average for {commodity_quantity} ({bin_start.isoformat()} – {bin_end.isoformat()})"
-                )
-                continue
-
-            # Compute average of all buffered values in last 5 minutes
-            buffer = self._power_buffer[commodity_quantity]
-            period_values = [v for (t, v) in buffer if bin_start <= t < bin_end]
-
-            if not period_values:
-                self._logger.debug(
-                    f"No samples found for {commodity_quantity} in {bin_start}–{bin_end}, skipping."
-                )
-                continue
-
-            avg_value = sum(period_values) / len(period_values)
-            self._logger.debug(
-                f"Posting 5-minute average for {commodity_quantity}: "
-                f"{avg_value} ({bin_start.isoformat()} – {bin_end.isoformat()})"
-            )
-
-            # Send measurement
+            # Post DIRECTLY, without the wall-clock _is_timer_due throttle or the
+            # 5-minute buffered-averaging that the original real-time streaming path
+            # used. In this co-simulation the RM sends exactly one already-aggregated
+            # apartment-power value per simulated step, and simulated time advances at
+            # its own (non-real-time) pace; gating on datetime.now() would suppress
+            # almost every post, and re-averaging a single value is a no-op. Each
+            # value is simply written at its own simulated event_start.
             try:
                 await self._fm_client.post_sensor_data(
                     sensor_id,
                     start=bin_start.isoformat(),
-                    duration=self._minimum_measurement_period.isoformat(),  # TODO: not specified in S2 Protocol
-                    values=[avg_value],
-                    unit=get_commodity_unit(commodity_quantity),
+                    duration=period.isoformat(),  # TODO: not specified in S2 Protocol
+                    values=[power_measurement.value],
+                    # S2 PowerMeasurement values are in Watts (unlike this codebase's
+                    # S2 power *ranges*, which carry kW-magnitude values that
+                    # get_commodity_unit labels "kW"). Post as W and let FlexMeasures
+                    # convert to the measured-power sensor's kW unit, so a ~5000 W
+                    # realized load is stored as 5 kW, not 5000.
+                    unit="W",
                 )
             except Exception as e:  # noqa: B902 - intentional safety net
                 self._logger.debug(
                     f"POSTing power measurement failed with error: {e}"
                 )
-
-            # Keep only samples newer than this bin (for next period)
-            self._power_buffer[commodity_quantity] = [
-                (t, v) for (t, v) in buffer if t >= bin_end
-            ]
 
         return get_reception_status(message)
 
