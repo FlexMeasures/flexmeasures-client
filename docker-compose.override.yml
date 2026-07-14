@@ -25,18 +25,25 @@ x-cem: &cem
     FLEXMEASURES_PASSWORD: toy-password
     LOGGING_LEVEL: DEBUG
     SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FLEXMEASURES_CLIENT: "0.0.0"
+    SETUPTOOLS_SCM_PRETEND_VERSION: "0.0.0"
   volumes:
     # If flexmeasures_client lives in your repo and you want live edits
     - ../flexmeasures-client:/app/flexmeasures-client:rw
   entrypoint: ["/bin/sh", "-c"]
   command:
   - |
-    # pip install --break-system-packages --no-cache-dir "git+https://github.com/FlexMeasures/flexmeasures-client.git@main#egg=flexmeasures-client[s2]"
-    pip install --break-system-packages -e /app/flexmeasures-client[s2]
-    pip install --break-system-packages aiohttp
-    pip install --break-system-packages pytz
-    pip install --break-system-packages s2-python==0.8.2
-    python3 /app/flexmeasures-client/src/flexmeasures_client/s2/script/websockets_server.py
+    # Install and run with the SAME interpreter (`python3 -m pip`, not bare `pip`).
+    # In images built from FlexMeasures' uv-based Dockerfile, `python3` resolves to
+    # the /app/.venv virtualenv (which ships without pip and cannot see system
+    # site-packages) while bare `pip` is the system one under /usr/local - so
+    # packages installed with `pip` are invisible at runtime (ModuleNotFoundError:
+    # aiohttp). Older cached images had a single system Python, masking this.
+    # The ensurepip guard bootstraps pip into the venv on fresh images and is a
+    # no-op wherever `python3 -m pip` already works.
+    python3 -m pip --version >/dev/null 2>&1 || python3 -m ensurepip --upgrade
+    python3 -m pip install --break-system-packages -e "/app/flexmeasures-client[s2]"
+    python3 -m pip install --break-system-packages aiohttp pytz s2-python==0.8.2
+    exec python3 /app/flexmeasures-client/src/flexmeasures_client/s2/script/websockets_server.py
 
 # Shared definition for all RQ worker instances. Scaled one-per-concurrently-
 # simulated-apartment, same as the cem-* services and the server's gunicorn
