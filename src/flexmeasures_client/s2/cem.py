@@ -5,8 +5,9 @@ import json
 import logging
 import math
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from logging import Logger
+from zoneinfo import ZoneInfo
 from typing import Dict, Optional
 
 import pandas as pd
@@ -93,6 +94,13 @@ class CEM(Handler):
         self._sending_queue = asyncio.Queue()
         self._power_sensors = dict()
         self.power_sensor_id = power_sensor_id
+        # The apartment's FlexMeasures asset id (set once mapped), and the id of its
+        # flex-context "aggregate-power" sensor (attached by the community runner AFTER
+        # this CEM connects, i.e. only resolvable from step 1 onward). Resolved lazily in
+        # handle_power_measurement so realized apartment power lands on the aggregate-power
+        # sensor too, not only on measured-power (defect 4a: live apartment realizations).
+        self._apartment_asset_id: int | None = None
+        self._aggregate_power_sensor_id: int | None = None
         self._control_types_handlers = dict()
         self._default_control_type = default_control_type
 
@@ -422,6 +430,13 @@ class CEM(Handler):
             self.power_sensor_id = {}
         self.power_sensor_id["ELECTRIC.POWER.L1"] = measured_power_sensor["id"]
 
+        # Remember the apartment asset so handle_power_measurement can lazily resolve its
+        # flex-context "aggregate-power" sensor (attached by the community runner only
+        # after this CEM has connected). Resetting the cached sensor id lets a
+        # reconnect/reconfigure pick up a freshly-attached aggregate-power sensor.
+        self._apartment_asset_id = asset["id"]
+        self._aggregate_power_sensor_id = None
+
         from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 
         frbc = FRBCSimple(
@@ -463,13 +478,34 @@ class CEM(Handler):
             # measurements onto a meaningless (real-world) event_start.
             measurement_ts = message.measurement_timestamp
             if measurement_ts.tzinfo is None:
-                # This co-sim treats naive sim times as UTC.
-                measurement_ts = measurement_ts.replace(tzinfo=timezone.utc)
+                # This co-sim treats naive sim times as Europe/Amsterdam (kept
+                # consistent with the community orchestrator, RM and controller,
+                # which all localize the same naive sim times as Europe/Amsterdam).
+                measurement_ts = measurement_ts.replace(
+                    tzinfo=ZoneInfo("Europe/Amsterdam")
+                )
             period = self._minimum_measurement_period
             m = period // pd.Timedelta(minutes=1)
             bin_start = measurement_ts.replace(
                 second=0, microsecond=0, minute=(measurement_ts.minute // m) * m
             )
+            # Belief time = the SIMULATED instant the measurement became known (just
+            # after its interval elapses). Without this, FlexMeasures stamps the belief
+            # time at wall-clock now (2026), so the UI's horizon view shows realized data
+            # "recorded in 2026" instead of at simulation time (defect 4b).
+            prior = (bin_start + period).isoformat()
+
+            # Resolve the apartment's flex-context "aggregate-power" sensor lazily: it is
+            # attached by the community runner AFTER this CEM connects, so it only exists
+            # from step 1 onward. When present, mirror the realized value onto it too, so
+            # advancing the sim produces live apartment realizations on the aggregate-power
+            # sensor (defect 4a) - not just on the dedicated measured-power sensor. That
+            # sensor also carries StorageScheduler SCHEDULE data natively; the realized
+            # posts stay distinguishable by their own (CEM/user) source and simulated
+            # belief time. Only mirror ELECTRIC.POWER.L1 (the aggregated apartment power).
+            aggregate_sensor_id = None
+            if commodity_quantity == "ELECTRIC.POWER.L1":
+                aggregate_sensor_id = await self._resolve_aggregate_power_sensor_id()
 
             # Post DIRECTLY, without the wall-clock _is_timer_due throttle or the
             # 5-minute buffered-averaging that the original real-time streaming path
@@ -478,25 +514,60 @@ class CEM(Handler):
             # its own (non-real-time) pace; gating on datetime.now() would suppress
             # almost every post, and re-averaging a single value is a no-op. Each
             # value is simply written at its own simulated event_start.
-            try:
-                await self._fm_client.post_sensor_data(
-                    sensor_id,
-                    start=bin_start.isoformat(),
-                    duration=period.isoformat(),  # TODO: not specified in S2 Protocol
-                    values=[power_measurement.value],
-                    # S2 PowerMeasurement values are in Watts (unlike this codebase's
-                    # S2 power *ranges*, which carry kW-magnitude values that
-                    # get_commodity_unit labels "kW"). Post as W and let FlexMeasures
-                    # convert to the measured-power sensor's kW unit, so a ~5000 W
-                    # realized load is stored as 5 kW, not 5000.
-                    unit="W",
-                )
-            except Exception as e:  # noqa: B902 - intentional safety net
-                self._logger.debug(
-                    f"POSTing power measurement failed with error: {e}"
-                )
+            target_sensor_ids = [sensor_id]
+            if aggregate_sensor_id is not None and aggregate_sensor_id != sensor_id:
+                target_sensor_ids.append(aggregate_sensor_id)
+            for target_sensor_id in target_sensor_ids:
+                try:
+                    await self._fm_client.post_sensor_data(
+                        target_sensor_id,
+                        start=bin_start.isoformat(),
+                        duration=period.isoformat(),  # TODO: not specified in S2 Protocol
+                        values=[power_measurement.value],
+                        # S2 PowerMeasurement values are in Watts (unlike this codebase's
+                        # S2 power *ranges*, which carry kW-magnitude values that
+                        # get_commodity_unit labels "kW"). Post as W and let FlexMeasures
+                        # convert to the sensor's kW unit, so a ~5000 W realized load is
+                        # stored as 5 kW, not 5000.
+                        unit="W",
+                        prior=prior,
+                    )
+                except Exception as e:  # noqa: B902 - intentional safety net
+                    self._logger.debug(
+                        f"POSTing power measurement failed with error: {e}"
+                    )
 
         return get_reception_status(message)
+
+    async def _resolve_aggregate_power_sensor_id(self) -> int | None:
+        """Lazily resolve the apartment's flex-context "aggregate-power" sensor id.
+
+        The community runner attaches this sensor (and the flex-context key) only after
+        the CEM has connected, so it is absent during step 0 and appears from step 1
+        onward. We re-read the apartment asset's flex_context until the key is present,
+        then cache the id. Returns None (and posts nothing extra) while it is absent.
+        """
+        if self._aggregate_power_sensor_id is not None:
+            return self._aggregate_power_sensor_id
+        if self._apartment_asset_id is None:
+            return None
+        try:
+            asset = await self._fm_client.get_asset(
+                self._apartment_asset_id, parse_json_fields=True
+            )
+            flex_context = asset.get("flex_context") or {}
+            entry = flex_context.get("aggregate-power")
+            if isinstance(entry, dict):
+                sensor_id = entry.get("sensor")
+                if sensor_id is not None:
+                    self._aggregate_power_sensor_id = int(sensor_id)
+                    return self._aggregate_power_sensor_id
+        except Exception as e:  # noqa: B902 - best-effort, never break measurement posting
+            self._logger.debug(
+                f"Could not resolve aggregate-power sensor for asset "
+                f"{self._apartment_asset_id}: {e}"
+            )
+        return None
 
     @register(RevokeObject)
     def handle_revoke_object(self, message: RevokeObject):
