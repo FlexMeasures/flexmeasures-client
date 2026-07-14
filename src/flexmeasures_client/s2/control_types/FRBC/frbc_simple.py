@@ -196,23 +196,25 @@ class FRBCSimple(FRBC):
         # Assume a single actuator
         actuator = system_description.actuators[0]
 
-        # Derive the overall power range
-        charging_capacity = None
-        discharging_capacity = None
+        # Derive the overall power range.
+        # NB an S2 PowerRange runs from start_of_range (lower bound) to
+        # end_of_range (upper bound). The device can only produce if some
+        # range extends below zero; a consumption-only device (e.g. a heat
+        # pump) must get a zero production-capacity, or the scheduler will
+        # happily "discharge" its thermal storage as if it were an electric
+        # battery.
+        overall_min = None
+        overall_max = None
         for operation_mode in actuator.operation_modes:
             for element in operation_mode.elements:
                 for power_range in element.power_ranges:
                     # todo: distinguish power range per commodity
-                    p_min = power_range.end_of_range
-                    if discharging_capacity is None:
-                        discharging_capacity = p_min
-                    else:
-                        discharging_capacity = min(discharging_capacity, p_min)
-                    p_max = power_range.start_of_range
-                    if charging_capacity is None:
-                        charging_capacity = p_max
-                    else:
-                        charging_capacity = max(charging_capacity, p_max)
+                    lo = power_range.start_of_range
+                    hi = power_range.end_of_range
+                    overall_min = lo if overall_min is None else min(overall_min, lo)
+                    overall_max = hi if overall_max is None else max(overall_max, hi)
+        charging_capacity = max(overall_max, 0)
+        discharging_capacity = max(-min(overall_min, 0), 0)
 
         # Translate the S2 operation modes into FM power bands (the flex-model's
         # "operation-modes" field): one band per operation-mode element power
