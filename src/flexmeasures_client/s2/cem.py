@@ -484,15 +484,21 @@ class CEM(Handler):
                 measurement_ts = measurement_ts.replace(
                     tzinfo=ZoneInfo("Europe/Amsterdam")
                 )
-            period = self._minimum_measurement_period
+            # Bin and stamp at the measured-power sensor's own 15-minute event
+            # resolution (the RM sends one value per 15-minute interval, stamped at
+            # the interval START). Using the 5-minute _minimum_measurement_period
+            # here made prior = bin_start + 5min, i.e. a belief 10 minutes BEFORE
+            # the event's end - an ex-ante horizon on what is a measurement. With
+            # the event resolution, prior = the interval's end: zero belief horizon.
+            period = pd.Timedelta(minutes=15)
             m = period // pd.Timedelta(minutes=1)
             bin_start = measurement_ts.replace(
                 second=0, microsecond=0, minute=(measurement_ts.minute // m) * m
             )
-            # Belief time = the SIMULATED instant the measurement became known (just
-            # after its interval elapses). Without this, FlexMeasures stamps the belief
-            # time at wall-clock now (2026), so the UI's horizon view shows realized data
-            # "recorded in 2026" instead of at simulation time (defect 4b).
+            # Belief time = the SIMULATED instant the measurement became known (the
+            # moment its interval elapses). Without this, FlexMeasures stamps the
+            # belief time at wall-clock now (2026), so the UI's horizon view shows
+            # realized data "recorded in 2026" instead of at simulation time.
             prior = (bin_start + period).isoformat()
 
             # Resolve the apartment's flex-context "aggregate-power" sensor lazily: it is
