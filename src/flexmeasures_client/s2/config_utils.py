@@ -138,7 +138,16 @@ async def configure_site(
             unit="kW",
             generic_asset_id=site_asset["id"],
             timezone="Europe/Amsterdam",
-            attributes={"consumption_is_positive": True},
+            # is_strictly_non_positive marks this FRBC device (a heat pump) as
+            # physically unable to produce: FlexMeasures then keeps production
+            # hard-bounded at zero even when relax-constraints turns directional
+            # capacities into soft, breach-priced constraints. Without it, a
+            # tight site capacity made the scheduler "produce" from the heat
+            # pump (cheap device breach vs expensive site breach).
+            attributes={
+                "consumption_is_positive": True,
+                "is_strictly_non_positive": True,
+            },
         )
     if measured_power_sensor is None:
         # Dedicated sensor for the REALIZED (measured) aggregated apartment power,
