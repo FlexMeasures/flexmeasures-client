@@ -10,7 +10,6 @@ from s2python.common import ControlType
 
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2.cem import CEM
-from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 
 log_level = os.getenv("LOGGING_LEVEL", "WARNING").upper()
 logging.basicConfig(
@@ -29,31 +28,34 @@ async def rm_details_watchdog(ws, cem: CEM):
     """
 
     # wait to get resource manager details
-    while cem._control_type is None:
+    while cem._control.control_type is None:
         await asyncio.sleep(1)
 
     await cem.activate_control_type(control_type=ControlType.FILL_RATE_BASED_CONTROL)
 
     # check/wait that the control type is set properly
-    while cem._control_type != ControlType.FILL_RATE_BASED_CONTROL:
+    while cem._control.control_type != ControlType.FILL_RATE_BASED_CONTROL:
         cem._logger.debug("waiting for the activation of the control type...")
         await asyncio.sleep(1)
 
-    cem._logger.debug(f"CONTROL TYPE: {cem._control_type}")
+    cem._logger.debug(f"CONTROL TYPE: {cem._control.control_type}")
 
-    # after this, schedule will be triggered on reception of a new system description
+    # after this, schedule will be triggered on reception of a new storage status
 
 
 async def websocket_producer(ws, cem: CEM):
     cem._logger.debug("start websocket message producer")
     cem._logger.debug(f"IS CLOSED? {cem.is_closed()}")
     while not cem.is_closed():
-        message = await cem.get_message()
-        cem._logger.debug("sending message")
+        message, fut = await cem.get_message()
         try:
+            cem._logger.debug("sending message")
             await ws.send_json(message)
-        except aiohttp.ClientConnectionResetError:
-            break
+            fut.set_result(True)
+        # except aiohttp.ClientConnectionResetError:
+        #     break
+        except Exception as exc:
+            fut.set_exception(exc)
     cem._logger.debug("cem closed")
 
 
@@ -75,6 +77,7 @@ async def websocket_consumer(ws, cem: CEM):
         elif msg.type == aiohttp.WSMsgType.ERROR:
             cem._logger.debug("close...")
             await cem.close()
+            await ws.close()
             cem._logger.error(f"ws connection closed with exception {ws.exception()}")
             # TODO: save cem state?
 
@@ -85,153 +88,46 @@ async def websocket_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
 
-    site_name = "My CEM"
-    base_url = os.getenv("FLEXMEASURES_BASE_URL", "http://localhost:5000")
+    base_url = os.getenv(
+        "FLEXMEASURES_BASE_URL", "http://localhost:5000"
+    )  # or "server:5000"
     parsed = urlparse(base_url)
     fm_client = FlexMeasuresClient(
         password=os.getenv("FLEXMEASURES_PASSWORD", "toy-password"),
         email=os.getenv("FLEXMEASURES_USER", "toy-user@flexmeasures.io"),
         host=parsed.netloc,
         ssl=parsed.scheme == "https",
-    )
-
-    price_sensor, power_sensor, soc_sensor, rm_discharge_sensor = await configure_site(
-        site_name, fm_client
+        polling_interval=0.5,
     )
 
     cem = CEM(
-        sensor_id=power_sensor["id"],
+        power_sensor_id=None,  # assign CEM a top-level asset directly
         fm_client=fm_client,
         logger=LOGGER,
     )
-    frbc = FRBCSimple(
-        power_sensor_id=power_sensor["id"],
-        price_sensor_id=price_sensor["id"],
-        soc_sensor_id=soc_sensor["id"],
-        rm_discharge_sensor_id=rm_discharge_sensor["id"],
-    )
-    cem.register_control_type(frbc)
-
-    # create "parallel" tasks for the message producer and consumer
-    await asyncio.gather(
-        websocket_consumer(ws, cem),
-        websocket_producer(ws, cem),
-        rm_details_watchdog(ws, cem),
-    )
+    # Create "parallel" tasks for the message producer and consumer. The
+    # consumer ends when the websocket closes (RMs reconnect at every replan
+    # boundary); the producer and watchdog must then be torn down along with
+    # the CEM itself, or the old session lives on as a zombie - its periodic
+    # loops keep posting SoC and triggering FlexMeasures schedules for an
+    # asset the RM no longer implements, racing the RM's new session (seen as
+    # a parallel steering-less schedule stream in the community co-simulation).
+    consumer = asyncio.create_task(websocket_consumer(ws, cem))
+    side_tasks = [
+        asyncio.create_task(websocket_producer(ws, cem)),
+        asyncio.create_task(rm_details_watchdog(ws, cem)),
+    ]
+    try:
+        await consumer
+    finally:
+        await cem.close()
+        for task in side_tasks:
+            task.cancel()
+        await asyncio.gather(*side_tasks, return_exceptions=True)
 
     return ws
 
 
-async def configure_site(
-    site_name: str, fm_client: FlexMeasuresClient
-) -> tuple[dict, dict, dict, dict]:
-    account = await fm_client.get_account()
-    assets = await fm_client.get_assets(parse_json_fields=True)
-
-    site_asset = None
-    for asset in assets:
-        if asset["name"] == site_name:
-            site_asset = asset
-            break
-
-    site_asset_specs = dict(
-        latitude=0,
-        longitude=0,
-        generic_asset_type_id=6,  # Building asset type
-        flex_model={
-            "power-capacity": f"{3 * 25 * 230} VA",
-        },
-    )
-
-    if not site_asset:
-        site_asset = await fm_client.add_asset(
-            name=site_name, account_id=account["id"], **site_asset_specs
-        )
-    # Update site asset with the latest specs
-    await fm_client.update_asset(site_asset["id"], site_asset_specs)
-
-    sensors = site_asset.get("sensors", [])
-    price_sensor = None
-    power_sensor = None
-    soc_sensor = None
-    rm_discharge_sensor = None
-    for sensor in sensors:
-        if sensor["name"] == "price":
-            price_sensor = sensor
-        elif sensor["name"] == "power":
-            power_sensor = sensor
-        elif sensor["name"] == "state of charge":
-            soc_sensor = sensor
-        elif sensor["name"] == "RM discharge":
-            rm_discharge_sensor = sensor
-
-    if price_sensor is None:
-        price_sensor = await fm_client.add_sensor(
-            name="price",
-            event_resolution="PT15M",
-            unit="EUR/kWh",
-            generic_asset_id=site_asset["id"],
-            timezone="Europe/Amsterdam",
-        )
-    await fm_client.post_sensor_data(
-        sensor_id=price_sensor["id"],
-        start="2026-01-15T00:00+01",  # 2026-01-01T00:00+01
-        duration="P3D",  # P1M
-        values=[
-            0.10,
-            0.11,
-            0.12,
-            0.15,
-            0.18,
-            0.17,
-            0.11,
-            0.09,
-            0.10,
-            0.09,
-            0.09,
-            0.10,
-            0.08,
-            0.05,
-            0.04,
-            0.04,
-            0.06,
-            0.08,
-            0.12,
-            0.13,
-            0.14,
-            0.13,
-            0.10,
-            0.07,
-        ],
-        unit="EUR/kWh",
-    )
-    if power_sensor is None:
-        power_sensor = await fm_client.add_sensor(
-            name="power",
-            event_resolution="PT15M",
-            unit="kW",
-            generic_asset_id=site_asset["id"],
-            timezone="Europe/Amsterdam",
-        )
-    if soc_sensor is None:
-        soc_sensor = await fm_client.add_sensor(
-            name="state of charge",
-            event_resolution="PT0M",
-            unit="kWh",
-            generic_asset_id=site_asset["id"],
-            timezone="Europe/Amsterdam",
-        )
-    if rm_discharge_sensor is None:
-        rm_discharge_sensor = await fm_client.add_sensor(
-            name="RM discharge",
-            event_resolution="PT15M",
-            unit="dimensionless",
-            generic_asset_id=site_asset["id"],
-            timezone="Europe/Amsterdam",
-        )
-    return price_sensor, power_sensor, soc_sensor, rm_discharge_sensor
-
-
 app = web.Application()
 app.add_routes([web.get("/ws", websocket_handler)])
-web.run_app(app)
+web.run_app(app, port=int(os.getenv("CEM_PORT", "8080")))

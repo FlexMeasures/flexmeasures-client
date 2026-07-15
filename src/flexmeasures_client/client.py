@@ -345,6 +345,7 @@ class FlexMeasuresClient:
                     f"FlexMeasures server version changed from {self.server_version} to {header_version}."
                 )
             self.server_version = header_version
+            self.server_version = "0.33.0"  # temp override until v0.33.0 is released
 
         polling_step, reauth_once, url = await check_response(
             self, response, polling_step, reauth_once, url, method=method
@@ -1131,9 +1132,9 @@ class FlexMeasuresClient:
         self,
         name: str,
         account_id: int,
-        latitude: float,
-        longitude: float,
         generic_asset_type_id: int,
+        latitude: float = None,
+        longitude: float = None,
         parent_asset_id: int | None = None,
         sensors_to_show: list | None = None,
         flex_context: dict | None = None,
@@ -1162,10 +1163,12 @@ class FlexMeasuresClient:
         asset = dict(
             name=name,
             account_id=account_id,
-            latitude=latitude,
-            longitude=longitude,
             generic_asset_type_id=generic_asset_type_id,
         )
+        if latitude is not None:
+            asset["latitude"] = str(latitude)
+        if longitude is not None:
+            asset["longitude"] = str(longitude)
         if parent_asset_id:
             asset["parent_asset_id"] = parent_asset_id
         if sensors_to_show:
@@ -1411,6 +1414,7 @@ class FlexMeasuresClient:
                     )
                     self._sensor_asset_id_cache[sensor_id] = sensor["generic_asset_id"]
                 asset_id = self._sensor_asset_id_cache[sensor_id]
+                flex_model["sensor"] = sensor_id
 
                 # Move sensor ID into the flex-model
                 if flex_model is None:
