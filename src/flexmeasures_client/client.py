@@ -38,8 +38,8 @@ LOGGER = logging.getLogger(__name__)
 # With each backoff sleep capped at MAX_POLLING_SLEEP, the number of steps is
 # what bounds total patience (~step count x 10s); keep it high enough that
 # polling_timeout (200s), not the step count, is the effective budget.
-MAX_POLLING_STEPS: int = 30
-POLLING_TIMEOUT = 200.0  # seconds
+MAX_POLLING_STEPS: int = 40
+POLLING_TIMEOUT = 360.0  # seconds
 REQUEST_TIMEOUT = 40.0  # seconds
 POLLING_INTERVAL = 10.0  # seconds
 API_VERSIONS_LIST = ["v3_0"]
