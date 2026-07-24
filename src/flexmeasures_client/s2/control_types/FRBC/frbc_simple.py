@@ -273,6 +273,16 @@ class FRBCSimple(FRBC):
             # via py-spy: time was spent inside the solver itself, not a Python hang).
             "relax-site-capacity-constraints": True,
         }
+        # The scalar soc-min/soc-max are HARD bounds server-side (only the
+        # soc-minima/maxima profiles are softened by relax-soc-constraints).
+        # The FRBC fill range they derive from is a comfort band, and the
+        # realized state can drift outside it (e.g. community steering keeps
+        # the heat pump off long enough to drain the buffer below the comfort
+        # floor). A start state outside hard bounds makes the whole problem
+        # infeasible, so widen the hard band to include the current state and
+        # leave comfort steering to the soft minima/maxima profiles.
+        soc_min = min(soc_min, soc_at_start)
+        soc_max = max(soc_max, soc_at_start)
         flex_model = {
             "soc-unit": energy_unit,
             "soc-at-start": soc_at_start,
