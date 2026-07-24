@@ -252,7 +252,10 @@ class FlexMeasuresClient:
                             if response.status < 300:
                                 break
                     except asyncio.TimeoutError:
-                        sleep_interval = self.polling_interval * (2**polling_step)
+                        sleep_interval = min(
+                            self.polling_interval * (2**polling_step),
+                            MAX_POLLING_SLEEP,
+                        )
                         message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {sleep_interval} seconds..."  # noqa: E501
                         self.logger.debug(message)
                         polling_step += 1
