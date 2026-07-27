@@ -115,6 +115,12 @@ class FRBCSimple(FRBC):
         # dropped (only surfacing as "Task exception was never retrieved" once
         # the task is garbage collected). Log explicitly so nothing is missed.
         now = self.now()
+        # Snapshot this request's generation: the schedule round trip below
+        # takes tens of seconds, during which a newer storage status (= a
+        # newer planning request) may arrive. The batch send re-checks this
+        # so a stale batch is dropped instead of being filed by the RM under
+        # its CURRENT request (see FRBC.send_instruction_batch).
+        generation = self._supersession_counters.get("storage_status", 0)
         try:
             self._logger.debug(
                 f"HANGDEBUG send_storage_status: posting SoC to sensor {self._soc_sensor_id}"
@@ -130,7 +136,7 @@ class FRBCSimple(FRBC):
             self._logger.debug(
                 "HANGDEBUG send_storage_status: SoC posted, calling trigger_schedule"
             )
-            await self.trigger_schedule(now)
+            await self.trigger_schedule(now, generation=generation)
             self._logger.debug("HANGDEBUG send_storage_status: trigger_schedule returned")
         except Exception:
             self._logger.exception("HANGDEBUG send_storage_status: raised")
@@ -158,7 +164,10 @@ class FRBCSimple(FRBC):
         )
 
     async def trigger_schedule(
-        self, start: datetime, system_description_id: str | None = None
+        self,
+        start: datetime,
+        system_description_id: str | None = None,
+        generation: int | None = None,
     ):
         """
         Ask FlexMeasures for a new schedule and create FRBC.Instructions to send back to the ResourceManager
@@ -361,6 +370,15 @@ class FRBCSimple(FRBC):
             f"HANGDEBUG trigger_schedule: got schedule back: {schedule}"
         )
 
+        if generation is not None and not self._is_current_generation(
+            "storage_status", generation
+        ):
+            self._logger.info(
+                "HANGDEBUG trigger_schedule: superseded while awaiting the "
+                "schedule; not building instructions."
+            )
+            return
+
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
         try:
             instructions = fm_schedule_to_instructions(
@@ -377,11 +395,15 @@ class FRBCSimple(FRBC):
             f"HANGDEBUG trigger_schedule: built {len(instructions)} instructions"
         )
 
-        # put instructions to sending queue
-        for instruction in instructions:
-            await self.send_message(instruction)
+        # Replace the outstanding batch (transition-filtered; supersession
+        # re-checked right before queueing - see FRBC.send_instruction_batch).
+        sent = await self.send_instruction_batch(
+            instructions,
+            supersession_key="storage_status" if generation is not None else None,
+            generation=generation,
+        )
         self._logger.debug(
-            "HANGDEBUG trigger_schedule: all instructions queued for sending"
+            f"HANGDEBUG trigger_schedule: {sent} instructions queued for sending"
         )
 
     async def send_fill_level_target_profile(
