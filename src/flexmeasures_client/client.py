@@ -1362,7 +1362,12 @@ class FlexMeasuresClient:
         asset_id: int | None = None,
         prior: datetime | None = None,
         scheduler: str | None = None,
+        metadata: dict | None = None,
     ) -> str:
+        """metadata: opaque orchestration metadata passed alongside the domain
+        payload (a sibling of flex-model/flex-context, mirroring the S2 wrapper
+        convention). Requires a server that accepts the trigger "metadata"
+        field; it is passed through verbatim to the Scheduler."""
         if (sensor_id is None) == (asset_id is None):
             raise ValueError("Pass either a sensor_id or an asset_id.")
         message = {
@@ -1375,6 +1380,8 @@ class FlexMeasuresClient:
             message["flex-model"] = flex_model
         if flex_context is not None:
             message["flex-context"] = flex_context
+        if metadata is not None:
+            message["metadata"] = metadata
 
         if prior is not None:
             message["prior"] = pd.Timestamp(prior).isoformat()
