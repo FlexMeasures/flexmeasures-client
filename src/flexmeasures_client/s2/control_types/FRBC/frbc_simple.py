@@ -331,6 +331,15 @@ class FRBCSimple(FRBC):
             "Scheduling job failed",
             "No recent state-of-charge value found",
         )
+        # Deterministic server-side failures re-fail identically on every
+        # retry; re-triggering them only multiplies failed jobs across the
+        # worker pool (observed with a scheduler bug that violated the
+        # timed_belief primary key on every attempt). Never retry these,
+        # even though their message carries a transient-looking marker.
+        deterministic_errors = (
+            "UniqueViolation",
+            "duplicate key value violates unique constraint",
+        )
         for attempt in range(1, max_attempts + 1):
             try:
                 schedule = await self._fm_client.trigger_and_get_schedule(
@@ -349,7 +358,8 @@ class FRBCSimple(FRBC):
                 break
             except ValueError as exc:
                 if (
-                    not any(marker in str(exc) for marker in transient_errors)
+                    any(marker in str(exc) for marker in deterministic_errors)
+                    or not any(marker in str(exc) for marker in transient_errors)
                     or attempt == max_attempts
                 ):
                     self._logger.exception(
