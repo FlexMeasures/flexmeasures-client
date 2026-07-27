@@ -173,6 +173,14 @@ class FRBCSimple(FRBC):
         Ask FlexMeasures for a new schedule and create FRBC.Instructions to send back to the ResourceManager
         """
 
+        # Barrier: realized-power posts run concurrently (see
+        # CEM.handle_power_measurement); the scheduler and the community
+        # compliance check it feeds must see the complete realized series
+        # before triggering, exactly as the old serial posting guaranteed.
+        cem = getattr(self, "_cem", None)
+        if cem is not None:
+            await cem.flush_measurement_posts()
+
         if system_description_id:
             system_description: FRBCSystemDescription = (
                 self._system_description_history[system_description_id]

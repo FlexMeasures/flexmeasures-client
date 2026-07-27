@@ -101,6 +101,10 @@ class CEM(Handler):
         # sensor too, not only on measured-power (defect 4a: live apartment realizations).
         self._apartment_asset_id: int | None = None
         self._aggregate_power_sensor_id: int | None = None
+        # In-flight measurement posts (see handle_power_measurement): posts run
+        # concurrently as tasks; flush_measurement_posts() is the barrier that
+        # schedule triggering awaits so FlexMeasures reads see all realized data.
+        self._pending_measurement_posts: set[asyncio.Task] = set()
         self._control_types_handlers = dict()
         self._default_control_type = default_control_type
 
@@ -171,6 +175,10 @@ class CEM(Handler):
 
         # add fm_client to control_type handler
         control_type_handler._fm_client = self._fm_client
+
+        # back-reference so handlers can await flush_measurement_posts() before
+        # triggering a schedule (realized-power posts run concurrently)
+        control_type_handler._cem = self
 
         # add send_message method so the handler can send messages
         control_type_handler.send_message = self.send_message
@@ -551,8 +559,15 @@ class CEM(Handler):
             if aggregate_sensor_id is not None and aggregate_sensor_id != sensor_id:
                 target_sensor_ids.append(aggregate_sensor_id)
             for target_sensor_id in target_sensor_ids:
-                try:
-                    await self._fm_client.post_sensor_data(
+                # Post CONCURRENTLY: the RM forwards realized power as one
+                # PowerMeasurement per 15-min interval, serially, and awaiting
+                # each post here serialized ~200 HTTP round-trips per house per
+                # simulated day on the co-sim critical path. Each post keeps its
+                # own event_start/prior exactly as before; the posts merely
+                # overlap in time. flush_measurement_posts() is the barrier for
+                # readers (awaited before any schedule trigger).
+                task = asyncio.create_task(
+                    self._post_measurement_safely(
                         target_sensor_id,
                         start=bin_start.isoformat(),
                         duration=period.isoformat(),  # TODO: not specified in S2 Protocol
@@ -565,12 +580,31 @@ class CEM(Handler):
                         unit="W",
                         prior=prior,
                     )
-                except Exception as e:  # noqa: B902 - intentional safety net
-                    self._logger.debug(
-                        f"POSTing power measurement failed with error: {e}"
-                    )
+                )
+                self._pending_measurement_posts.add(task)
+                task.add_done_callback(self._pending_measurement_posts.discard)
 
         return get_reception_status(message)
+
+    async def _post_measurement_safely(self, target_sensor_id, **kwargs) -> None:
+        """Post one measurement, swallowing errors exactly like the historical
+        inline try/except did (a lost measurement must not break the S2 session)."""
+        try:
+            await self._fm_client.post_sensor_data(target_sensor_id, **kwargs)
+        except Exception as e:  # noqa: B902 - intentional safety net
+            self._logger.debug(f"POSTing power measurement failed with error: {e}")
+
+    async def flush_measurement_posts(self) -> None:
+        """Barrier: wait until all in-flight realized-power posts have landed.
+
+        Called before triggering a FlexMeasures schedule so the scheduler (and the
+        community compliance check it feeds) sees the complete realized series -
+        the same guarantee the old serial awaits gave. Tasks never raise (see
+        _post_measurement_safely)."""
+        while self._pending_measurement_posts:
+            await asyncio.gather(
+                *list(self._pending_measurement_posts), return_exceptions=True
+            )
 
     async def _resolve_aggregate_power_sensor_id(self) -> int | None:
         """Lazily resolve the apartment's flex-context "aggregate-power" sensor id.
