@@ -105,6 +105,12 @@ class CEM(Handler):
         # concurrently as tasks; flush_measurement_posts() is the barrier that
         # schedule triggering awaits so FlexMeasures reads see all realized data.
         self._pending_measurement_posts: set[asyncio.Task] = set()
+        # Content keys of measurements already posted (or in flight): the RM
+        # re-sends the SAME realized-power series with every retrigger round's
+        # flexinput, so without this each round re-posted ~200 identical
+        # values per house. Keys are dropped again if a post fails, so a
+        # later re-send retries it.
+        self._posted_measurement_keys: set[tuple] = set()
         self._control_types_handlers = dict()
         self._default_control_type = default_control_type
 
@@ -559,6 +565,14 @@ class CEM(Handler):
             if aggregate_sensor_id is not None and aggregate_sensor_id != sensor_id:
                 target_sensor_ids.append(aggregate_sensor_id)
             for target_sensor_id in target_sensor_ids:
+                measurement_key = (
+                    target_sensor_id,
+                    bin_start.isoformat(),
+                    float(power_measurement.value),
+                )
+                if measurement_key in self._posted_measurement_keys:
+                    continue
+                self._posted_measurement_keys.add(measurement_key)
                 # Post CONCURRENTLY: the RM forwards realized power as one
                 # PowerMeasurement per 15-min interval, serially, and awaiting
                 # each post here serialized ~200 HTTP round-trips per house per
@@ -568,6 +582,7 @@ class CEM(Handler):
                 # readers (awaited before any schedule trigger).
                 task = asyncio.create_task(
                     self._post_measurement_safely(
+                        measurement_key,
                         target_sensor_id,
                         start=bin_start.isoformat(),
                         duration=period.isoformat(),  # TODO: not specified in S2 Protocol
@@ -586,12 +601,15 @@ class CEM(Handler):
 
         return get_reception_status(message)
 
-    async def _post_measurement_safely(self, target_sensor_id, **kwargs) -> None:
+    async def _post_measurement_safely(self, measurement_key, target_sensor_id, **kwargs) -> None:
         """Post one measurement, swallowing errors exactly like the historical
-        inline try/except did (a lost measurement must not break the S2 session)."""
+        inline try/except did (a lost measurement must not break the S2 session).
+        On failure the content key is released so the RM's next re-send of the
+        same series retries the post instead of being deduplicated away."""
         try:
             await self._fm_client.post_sensor_data(target_sensor_id, **kwargs)
         except Exception as e:  # noqa: B902 - intentional safety net
+            self._posted_measurement_keys.discard(measurement_key)
             self._logger.debug(f"POSTing power measurement failed with error: {e}")
 
     async def flush_measurement_posts(self) -> None:
