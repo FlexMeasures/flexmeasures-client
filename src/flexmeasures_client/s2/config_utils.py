@@ -220,6 +220,10 @@ async def configure_site(
     sensors_to_show = [
         {
             "title": "State of charge",
+            # Fit the y-axis to the data: SoC values (large thermal-storage
+            # fill levels) sit far from zero, so the default zero-including
+            # axis flattens all variation into a sliver at the top.
+            "y-axis": "data",
             "sensors": [
                 soc_minima_sensor["id"],
                 soc_maxima_sensor["id"],
