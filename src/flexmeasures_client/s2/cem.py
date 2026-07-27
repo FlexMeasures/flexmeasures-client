@@ -215,6 +215,33 @@ class CEM(Handler):
         else:
             self._logger.debug(f"Received: {message}")
 
+        # Implicit control-type activation: per the S2 protocol, an RM only
+        # sends control-type-specific messages (e.g. FRBC.*) AFTER it has
+        # accepted our SelectControlType - so such a message is itself proof
+        # that the control type is active on the RM side. Without this, a
+        # dropped/mis-routed ReceptionStatus for SelectControlType left the
+        # CEM stuck in NO_SELECTION forever: every FRBC.SystemDescription was
+        # answered with TEMPORARY_ERROR, the RM retried indefinitely, and the
+        # whole simulation hung at its first barrier (observed in vivo,
+        # 2026-07-26, house APP_4).
+        message_type = (
+            message.get("message_type", "") if isinstance(message, dict) else ""
+        )
+        if (
+            self._control.control_type in (None, ControlType.NO_SELECTION)
+            and isinstance(message_type, str)
+            and message_type.startswith("FRBC.")
+            and ControlType.FILL_RATE_BASED_CONTROL in self._control_types_handlers
+        ):
+            self._logger.warning(
+                "Received %s while no control type is active; the RM only "
+                "sends FRBC messages after accepting SelectControlType, so "
+                "activating FILL_RATE_BASED_CONTROL implicitly (the "
+                "SelectControlType confirmation was presumably lost).",
+                message_type,
+            )
+            self._control.control_type = ControlType.FILL_RATE_BASED_CONTROL
+
         # try to handle the message with the control_type handle
         ct = self._control.control_type
         handler = self._control_types_handlers.get(ct)

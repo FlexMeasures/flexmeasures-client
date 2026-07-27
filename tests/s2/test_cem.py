@@ -92,6 +92,60 @@ async def test_resource_manager_details(resource_manager_details, rm_handshake):
 
 
 @pytest.mark.asyncio
+async def test_frbc_message_implicitly_activates_frbc(
+    frbc_system_description, resource_manager_details, rm_handshake
+):
+    """A lost SelectControlType confirmation must not wedge the CEM.
+
+    Per the S2 protocol, an RM only sends control-type-specific messages
+    (FRBC.*) AFTER it has accepted the CEM's SelectControlType - so an
+    incoming FRBC message is itself proof of activation. Without implicit
+    activation, a dropped/mis-routed ReceptionStatus left the CEM in
+    NO_SELECTION forever, answering every FRBC.SystemDescription with
+    TEMPORARY_ERROR while the RM retried indefinitely (in-vivo simulation
+    hang, 2026-07-26)."""
+    cem = CEM(fm_client=None)
+    frbc = FRBCTest()
+    cem.register_control_type(frbc)
+
+    await cem.handle_message(rm_handshake)
+    await cem.get_message()  # ReceptionStatus for Handshake
+    await cem.get_message()  # HandshakeResponse
+    await cem.handle_message(resource_manager_details)
+    await cem.get_message()  # ReceptionStatus for ResourceManagerDetails
+
+    # The CEM requests FRBC, but the RM's OK confirmation never arrives.
+    await cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
+    await cem.get_message()  # the SelectControlType going out to the RM
+    assert cem.control_type == ControlType.NO_SELECTION
+
+    # The RM - which did activate FRBC on its side - sends its system
+    # description anyway.
+    await cem.handle_message(frbc_system_description)
+    response, _ = await cem.get_message()
+
+    assert (
+        cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
+    ), "an incoming FRBC message implies the RM accepted FRBC"
+    assert response["message_type"] == "ReceptionStatus"
+    assert response["status"] == "OK", (
+        "the system description must be accepted, not bounced with"
+        " TEMPORARY_ERROR"
+    )
+
+    # Cleanup: cancel any pending background tasks
+    for task in list(cem._handler_build_tasks.values()) + list(
+        frbc.background_tasks
+    ):
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+
+@pytest.mark.asyncio
 async def test_activate_control_type(
     frbc_system_description, resource_manager_details, rm_handshake
 ):
