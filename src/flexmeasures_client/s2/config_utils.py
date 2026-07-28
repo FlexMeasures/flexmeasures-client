@@ -13,6 +13,9 @@ logging.basicConfig(
 )
 LOGGER = logging.getLogger(__name__)
 
+# site_name -> asset id, per CEM server process (see configure_site)
+_SITE_ASSET_IDS: dict[str, int] = {}
+
 
 async def configure_site(
     site_name: str, fm_client: FlexMeasuresClient
@@ -26,22 +29,39 @@ async def configure_site(
     # profiled co-simulation day). Falls back to the full scan on servers
     # too old for the `fields` parameter (< 0.31).
     site_asset: dict | None = None
-    try:
-        asset_listing = await fm_client.get_assets(
-            fields=["id", "name"], parse_json_fields=False
-        )
-        for asset in asset_listing:
-            if asset.get("name") == site_name:
-                site_asset = await fm_client.get_asset(
-                    asset_id=asset["id"], parse_json_fields=True
-                )
-                break
-    except ValueError:
-        assets = await fm_client.get_assets(parse_json_fields=True)
-        for asset in assets:
-            if asset["name"] == site_name:
-                site_asset = asset
-                break
+    # Asset ids are stable for the lifetime of this CEM server process (one
+    # process per apartment; the RM reconnects every replan round, and even
+    # the lean listing costs seconds against a large database), so remember
+    # the resolved id and fetch it directly on reconnections. A stale id
+    # (asset deleted between runs never happens within a process lifetime,
+    # but be safe) falls through to a fresh lookup.
+    cached_id = _SITE_ASSET_IDS.get(site_name)
+    if cached_id is not None:
+        try:
+            candidate = await fm_client.get_asset(
+                asset_id=cached_id, parse_json_fields=True
+            )
+            if candidate.get("name") == site_name:
+                site_asset = candidate
+        except Exception:
+            _SITE_ASSET_IDS.pop(site_name, None)
+    if site_asset is None:
+        try:
+            asset_listing = await fm_client.get_assets(
+                fields=["id", "name"], parse_json_fields=False
+            )
+            for asset in asset_listing:
+                if asset.get("name") == site_name:
+                    site_asset = await fm_client.get_asset(
+                        asset_id=asset["id"], parse_json_fields=True
+                    )
+                    break
+        except ValueError:
+            assets = await fm_client.get_assets(parse_json_fields=True)
+            for asset in assets:
+                if asset["name"] == site_name:
+                    site_asset = asset
+                    break
 
     site_asset_specs = dict(
         latitude=0,
@@ -63,6 +83,8 @@ async def configure_site(
             f"for {site_name!r}, existing sensors: "
             f"{[s['name'] for s in site_asset.get('sensors', [])]}"
         )
+    _SITE_ASSET_IDS[site_name] = site_asset["id"]
+
     # Update site asset with the latest specs
     LOGGER.debug(f"HANGDEBUG configure_site: updating asset {site_asset['id']} specs")
     await fm_client.update_asset(site_asset["id"], site_asset_specs)
