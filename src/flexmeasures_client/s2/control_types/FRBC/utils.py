@@ -293,6 +293,41 @@ def get_soc_min_max(
     return soc_min, soc_max
 
 
+def clip_fill_level_target_profile(
+    soc_minima: pd.Series,
+    soc_maxima: pd.Series,
+    range_bottom: float,
+    range_top: float,
+) -> tuple[pd.Series, pd.Series, int]:
+    """Clip a translated fill-level target profile into the declared fill-level range.
+
+    The target profile steers comfort as breach-priced SOFT constraints
+    server-side, while the declared range itself is no longer declared as a
+    hard soc-min/soc-max (those became wide safety rails). A target outside
+    the declared range (e.g. a night setback dropping below the range bottom)
+    would therefore price the scheduler into states the RM declared out of
+    range, so:
+
+    - minima are clipped up to the range bottom,
+    - maxima are clipped down to the range top,
+    - where the clipped bounds cross (i.e. the target band lies entirely
+      outside the declared range), both collapse to the midpoint of the
+      clipped pair, keeping minima <= maxima pointwise.
+
+    Returns the clipped (minima, maxima) and the number of time steps on
+    which the bounds crossed (so the caller can log a warning).
+    """
+    soc_minima = soc_minima.clip(lower=range_bottom)
+    soc_maxima = soc_maxima.clip(upper=range_top)
+    crossed = soc_maxima < soc_minima
+    n_crossed = int(crossed.sum())
+    if n_crossed:
+        midpoint = (soc_minima + soc_maxima) / 2
+        soc_minima = soc_minima.mask(crossed, midpoint)
+        soc_maxima = soc_maxima.mask(crossed, midpoint)
+    return soc_minima, soc_maxima, n_crossed
+
+
 def power_to_fill_rate_with_metrics(
     operation_mode: FRBCOperationMode,
     power: float,

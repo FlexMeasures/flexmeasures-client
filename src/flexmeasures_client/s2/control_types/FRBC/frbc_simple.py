@@ -28,6 +28,7 @@ except ImportError:
 from flexmeasures_client.s2.control_types.FRBC import FRBC
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     fm_schedule_to_instructions,
+    clip_fill_level_target_profile,
     get_soc_min_max,
 )
 from flexmeasures_client.s2.control_types.translations import (
@@ -256,7 +257,20 @@ class FRBCSimple(FRBC):
                     if band not in operation_mode_bands:
                         operation_mode_bands.append(band)
 
-        soc_min, soc_max = get_soc_min_max(system_description, self._fill_level_scale)
+        # The RM's declared fill-level range is a comfort band, steered SOFTLY
+        # via the soc-minima/-maxima profiles (breach-priced server-side under
+        # relax-soc-constraints; see send_fill_level_target_profile, which
+        # clips those profiles into the declared range). The scalar
+        # soc-min/soc-max, by contrast, are HARD bounds server-side, and a
+        # hard bound at the declared range made physically-reachable states
+        # infeasible: free-float above "full", or a time-capped incumbent
+        # left below "empty" for the next day (a deterministically infeasible
+        # job). Declare wide safety rails instead; they only exist to keep
+        # the LP bounded (e.g. negative-price hours combined with a
+        # soc-value-at-end incentive).
+        _, range_top = get_soc_min_max(system_description, self._fill_level_scale)
+        soc_min = 0.0
+        soc_max = range_top * 1.5
 
         # Support for J energy unit (FM server scheduling trigger endpoint only accepts kWh and MWh)
         if self.energy_unit == "J":
@@ -290,14 +304,8 @@ class FRBCSimple(FRBC):
             # via py-spy: time was spent inside the solver itself, not a Python hang).
             "relax-site-capacity-constraints": True,
         }
-        # The scalar soc-min/soc-max are HARD bounds server-side (only the
-        # soc-minima/maxima profiles are softened by relax-soc-constraints).
-        # The FRBC fill range they derive from is a comfort band, and the
-        # realized state can drift outside it (e.g. community steering keeps
-        # the heat pump off long enough to drain the buffer below the comfort
-        # floor). A start state outside hard bounds makes the whole problem
-        # infeasible, so widen the hard band to include the current state and
-        # leave comfort steering to the soft minima/maxima profiles.
+        # Last-resort rail: a start state outside the hard bounds would make
+        # the whole problem infeasible, so widen them to include it.
         soc_min = min(soc_min, soc_at_start)
         soc_max = max(soc_max, soc_at_start)
         flex_model = {
@@ -465,6 +473,29 @@ class FRBCSimple(FRBC):
             resolution=self._resolution,
             fill_level_scale=self._fill_level_scale,
         )
+
+        # Clip the target profile into the RM's declared fill-level range:
+        # these profiles steer comfort as breach-priced SOFT constraints
+        # server-side, while the declared range is no longer sent as a hard
+        # soc-min/soc-max (see trigger_schedule), so an out-of-range target
+        # (e.g. a night setback dropping below the range bottom) would
+        # otherwise price the scheduler into states the RM declared out of
+        # range.
+        system_descriptions = list(self._system_description_history.values())
+        if system_descriptions:
+            range_bottom, range_top = get_soc_min_max(
+                system_descriptions[-1], self._fill_level_scale
+            )
+            soc_minima, soc_maxima, n_crossed = clip_fill_level_target_profile(
+                soc_minima, soc_maxima, range_bottom, range_top
+            )
+            if n_crossed:
+                self._logger.warning(
+                    "Fill-level target profile lies outside the declared "
+                    f"fill-level range [{range_bottom}, {range_top}] on "
+                    f"{n_crossed} of {len(soc_minima)} time steps; collapsed "
+                    "minima and maxima to their midpoint there."
+                )
 
         duration = str(pd.Timedelta(self._resolution) * len(soc_maxima))
 
