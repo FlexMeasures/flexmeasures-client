@@ -45,6 +45,16 @@ from flexmeasures_client.s2.utils import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Process-global measurement-post bookkeeping. The CEM object is rebuilt for
+# every RM websocket (re)connection - in co-simulation that is EVERY replan
+# round - so instance-level sets reset each round: the dedupe never held (a
+# profiled 1-day run re-posted each house's realized series ~3x, ~13k calls)
+# and a new instance's flush barrier could not await the old instance's still
+# in-flight posts. One CEM server process serves one apartment, so process
+# scope is the correct lifetime for both.
+_POSTED_MEASUREMENT_KEYS: set[tuple] = set()
+_PENDING_MEASUREMENT_POSTS: set = set()
+
 
 class CEM(Handler):
     __version__ = "0.0.2-beta"
@@ -104,13 +114,12 @@ class CEM(Handler):
         # In-flight measurement posts (see handle_power_measurement): posts run
         # concurrently as tasks; flush_measurement_posts() is the barrier that
         # schedule triggering awaits so FlexMeasures reads see all realized data.
-        self._pending_measurement_posts: set[asyncio.Task] = set()
-        # Content keys of measurements already posted (or in flight): the RM
-        # re-sends the SAME realized-power series with every retrigger round's
-        # flexinput, so without this each round re-posted ~200 identical
-        # values per house. Keys are dropped again if a post fails, so a
-        # later re-send retries it.
-        self._posted_measurement_keys: set[tuple] = set()
+        # Content keys dedupe the series the RM re-sends with every retrigger
+        # round's flexinput; a failed post drops its key so a later re-send
+        # retries it. Both live at PROCESS scope (see module globals): the CEM
+        # object itself is rebuilt on every RM reconnection.
+        self._pending_measurement_posts = _PENDING_MEASUREMENT_POSTS
+        self._posted_measurement_keys = _POSTED_MEASUREMENT_KEYS
         self._control_types_handlers = dict()
         self._default_control_type = default_control_type
 
