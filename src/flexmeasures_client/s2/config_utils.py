@@ -18,13 +18,30 @@ async def configure_site(
     site_name: str, fm_client: FlexMeasuresClient
 ) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict, dict, dict]:
     account = await fm_client.get_account()
-    assets = await fm_client.get_assets(parse_json_fields=True)
 
+    # Find the site asset with a lean id/name listing, then fetch only the
+    # match. This runs on EVERY RM (re)connection - in co-simulation that is
+    # every replan round - and the previous full-catalog get_assets scan cost
+    # ~5-7 s per call against a large database (about half the API time of a
+    # profiled co-simulation day). Falls back to the full scan on servers
+    # too old for the `fields` parameter (< 0.31).
     site_asset: dict | None = None
-    for asset in assets:
-        if asset["name"] == site_name:
-            site_asset = asset
-            break
+    try:
+        asset_listing = await fm_client.get_assets(
+            fields=["id", "name"], parse_json_fields=False
+        )
+        for asset in asset_listing:
+            if asset.get("name") == site_name:
+                site_asset = await fm_client.get_asset(
+                    asset_id=asset["id"], parse_json_fields=True
+                )
+                break
+    except ValueError:
+        assets = await fm_client.get_assets(parse_json_fields=True)
+        for asset in assets:
+            if asset["name"] == site_name:
+                site_asset = asset
+                break
 
     site_asset_specs = dict(
         latitude=0,
