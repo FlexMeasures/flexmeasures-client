@@ -388,6 +388,30 @@ class FRBCSimple(FRBC):
             f"HANGDEBUG trigger_schedule: got schedule back: {schedule}"
         )
 
+        # The server silently substitutes its fallback scheduler's result when
+        # the real scheduling problem is infeasible (the GET follows the
+        # fallback job unless FLEXMEASURES_FALLBACK_REDIRECT is set). That
+        # schedule is a coarse charging policy, not an optimum - and the
+        # fallback saves NO state-of-charge stream, so any device relying on
+        # scheduler-saved SoC (e.g. a follow-the-schedule battery) loses its
+        # SoC trail and later windows fail on soc-at-start resolution
+        # (observed as a mid-run house starvation in co-simulation). Surface
+        # it as an ERROR so it is never mistaken for a healthy schedule.
+        # NB the fallback scheduler is slated for removal in FlexMeasures v1.
+        scheduler_name = str(
+            (schedule.get("scheduler_info") or {}).get("scheduler", "")
+            if isinstance(schedule, dict)
+            else ""
+        )
+        if "fallback" in scheduler_name.lower():
+            self._logger.error(
+                f"FlexMeasures used its fallback scheduler ({scheduler_name}) "
+                f"for the window starting {start.isoformat()}: the real "
+                "scheduling problem was infeasible. The returned schedule is a "
+                "coarse charging policy and no state-of-charge stream was "
+                "saved server-side. Investigate the infeasibility."
+            )
+
         if generation is not None and not self._is_current_generation(
             "storage_status", generation
         ):
