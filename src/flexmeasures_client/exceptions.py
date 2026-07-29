@@ -44,3 +44,16 @@ class InsufficientServerVersionError(Exception):
     def __init__(self, message):
         self.message = message
         super().__init__(self.message)
+
+
+class IngestionFailedError(Exception):
+    """Raised when a server-side asynchronous sensor-data ingestion job fails.
+
+    Raised by post_sensor_data() (with await_ingestion=True, the default) when
+    the FlexMeasures server accepted a POST for background processing (202) and
+    the resulting ingestion job later reports status FAILED.
+    """
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
