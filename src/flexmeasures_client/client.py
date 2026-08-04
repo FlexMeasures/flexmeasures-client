@@ -452,11 +452,12 @@ class FlexMeasuresClient:
         self,
         sensor_id: int,
         *,
+        # Required for JSON data upload; optional for file upload
+        unit: str | None = None,
         # Parameters for JSON data upload
         start: str | datetime | None = None,
         duration: str | timedelta | None = None,
         values: list[float] | None = None,
-        unit: str | None = None,
         prior: str | datetime | None = None,
         # Parameters for file upload
         file_path: str | None = None,
@@ -467,32 +468,32 @@ class FlexMeasuresClient:
 
         This method supports two modes:
         1. JSON data upload: Provide start, duration, values, and unit parameters
-        2. File upload: Provide file_path parameter
+        2. File upload: Provide file_path and, optionally, unit parameters
 
         The method automatically chooses the appropriate API endpoint based on the provided parameters.
 
         This function raises a ValueError when an unhandled status code is returned.
         """
         # Check parameter combinations
-        json_params = [start, duration, values, unit]
+        json_params = [start, duration, values]
         has_json_params = any(param is not None for param in json_params)
         has_file_param = file_path is not None
 
         if not has_json_params and not has_file_param:
             raise ValueError(
-                "Either provide JSON data parameters (start, duration, values, unit) "
+                "Either provide JSON data parameters (start, duration, values) "
                 "or a file_path parameter, but not neither."
             )
 
         if has_json_params and has_file_param:
             raise ValueError(
-                "Either provide JSON data parameters (start, duration, values, unit) "
+                "Either provide JSON data parameters (start, duration, values) "
                 "or a file_path parameter, but not both."
             )
 
         if has_json_params:
             # Validate required JSON parameters
-            if any(param is None for param in json_params):
+            if any(param is None for param in [*json_params, unit]):
                 raise ValueError(
                     "When using JSON data upload, all parameters (start, duration, values, unit) "
                     "must be provided."
@@ -522,6 +523,7 @@ class FlexMeasuresClient:
                 sensor_id=sensor_id,
                 file_path=file_path,
                 belief_time_measured_instantly=belief_time_measured_instantly,
+                unit=unit,
             )
 
     async def _post_sensor_data_json(
@@ -561,6 +563,7 @@ class FlexMeasuresClient:
         sensor_id: int,
         file_path: str,
         belief_time_measured_instantly: bool = False,
+        unit: str | None = None,
     ):
         """
         Post sensor data using file upload.
@@ -595,6 +598,8 @@ class FlexMeasuresClient:
             "belief-time-measured-instantly",
             str(belief_time_measured_instantly),
         )
+        if unit is not None:
+            form_data.add_field("unit", unit)
         # Build URL for file upload endpoint
         url = self.build_url(f"sensors/{sensor_id}/data/upload")
 

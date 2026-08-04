@@ -376,7 +376,7 @@ async def test_post_sensor_data_no_params():
     client = FlexMeasuresClient(email="test@test.test", password="test")
     with pytest.raises(
         ValueError,
-        match="Either provide JSON data parameters \\(start, duration, values, unit\\) or a file_path parameter, but not neither\\.",
+        match="Either provide JSON data parameters \\(start, duration, values\\) or a file_path parameter, but not neither\\.",
     ):
         await client.post_sensor_data(sensor_id=1)
     await client.close()
@@ -388,7 +388,7 @@ async def test_post_sensor_data_both_params():
     client = FlexMeasuresClient(email="test@test.test", password="test")
     with pytest.raises(
         ValueError,
-        match="Either provide JSON data parameters \\(start, duration, values, unit\\) or a file_path parameter, but not both\\.",
+        match="Either provide JSON data parameters \\(start, duration, values\\) or a file_path parameter, but not both\\.",
     ):
         await client.post_sensor_data(
             sensor_id=1,
@@ -415,7 +415,7 @@ async def test_post_sensor_data_partial_params():
 
 @pytest.mark.asyncio
 async def test_post_sensor_data_with_file():
-    """file_path provided triggers file upload endpoint."""
+    """file_path provided triggers file upload endpoint and accepts a unit."""
     csv_path = "/tmp/test_sensor_data.csv"
     with open(csv_path, "w") as f:
         f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
@@ -432,8 +432,13 @@ async def test_post_sensor_data_with_file():
             response_data, status = await client.post_sensor_data(
                 sensor_id=1,
                 file_path=csv_path,
+                unit="kW",
             )
             assert status == 200
+            request = next(iter(m.requests.values()))[0]
+            form_data = request.kwargs["data"]
+            fields = {field[0]["name"]: field[2] for field in form_data._fields}
+            assert fields["unit"] == "kW"
             await client.close()
     finally:
         os.unlink(csv_path)
