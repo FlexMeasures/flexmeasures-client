@@ -532,6 +532,44 @@ async def test_post_sensor_data_file_without_unit_works_on_old_server():
 
 
 @pytest.mark.asyncio
+async def test_post_sensor_data_file_unit_when_server_version_unknown():
+    """A server that reports no version can't be shown to support the unit field.
+
+    Refusing is the safe reading: a server that does not honour the unit records
+    the file's values unconverted while still answering 200.
+    """
+    csv_path = "/tmp/test_sensor_data_unknown_version.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            m.get(
+                "http://localhost:5000/api/",
+                status=200,
+                payload={"versions": ["v3_0"]},  # no flexmeasures_version key
+                repeat=True,
+            )
+            client = FlexMeasuresClient(
+                email="test@test.test", password="test", access_token="skip-auth"
+            )
+            assert client.server_version is None
+            with pytest.raises(
+                InsufficientServerVersionError,
+                match="requires a FlexMeasures server of 0.30.0 or above",
+            ):
+                await client.post_sensor_data(
+                    sensor_id=1,
+                    file_path=csv_path,
+                    unit="kW",
+                )
+            assert [key for key in m.requests if key[0] == "POST"] == []
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
 async def test_post_sensor_data_file_unit_allowed_on_dev_build():
     """A 0.30.0 pre-release already exposes the unit field, so don't reject it."""
     csv_path = "/tmp/test_sensor_data_dev_server.csv"
