@@ -10,6 +10,7 @@ import pytest
 from aioresponses import aioresponses
 
 from flexmeasures_client.client import ContentTypeError, FlexMeasuresClient
+from flexmeasures_client.exceptions import InsufficientServerVersionError
 
 
 @pytest.mark.asyncio
@@ -376,7 +377,7 @@ async def test_post_sensor_data_no_params():
     client = FlexMeasuresClient(email="test@test.test", password="test")
     with pytest.raises(
         ValueError,
-        match="Either provide JSON data parameters \\(start, duration, values, unit\\) or a file_path parameter, but not neither\\.",
+        match="Either provide JSON data parameters \\(start, duration, values\\) or a file_path parameter, but not neither\\.",
     ):
         await client.post_sensor_data(sensor_id=1)
     await client.close()
@@ -388,7 +389,7 @@ async def test_post_sensor_data_both_params():
     client = FlexMeasuresClient(email="test@test.test", password="test")
     with pytest.raises(
         ValueError,
-        match="Either provide JSON data parameters \\(start, duration, values, unit\\) or a file_path parameter, but not both\\.",
+        match="Either provide JSON data parameters \\(start, duration, values\\) or a file_path parameter, but not both\\.",
     ):
         await client.post_sensor_data(
             sensor_id=1,
@@ -414,8 +415,29 @@ async def test_post_sensor_data_partial_params():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"unit": "MW"},
+        {"prior": "2023-01-01T00:00+00:00"},
+        {"unit": "MW", "prior": "2023-01-01T00:00+00:00"},
+    ],
+)
+async def test_post_sensor_data_only_unit_or_prior(kwargs):
+    """A lone unit/prior points at the missing params, not at "you passed nothing".
+
+    Neither counts towards has_json_params, but reporting that neither mode was
+    chosen is misleading when the caller clearly attempted a JSON upload.
+    """
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with pytest.raises(ValueError, match="all parameters .* must be provided"):
+        await client.post_sensor_data(sensor_id=1, **kwargs)
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_post_sensor_data_with_file():
-    """file_path provided triggers file upload endpoint."""
+    """file_path provided triggers file upload endpoint and accepts a unit."""
     csv_path = "/tmp/test_sensor_data.csv"
     with open(csv_path, "w") as f:
         f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
@@ -424,6 +446,7 @@ async def test_post_sensor_data_with_file():
         with aioresponses() as m:
             client = FlexMeasuresClient(email="test@test.test", password="test")
             client.access_token = "test-token"
+            client.server_version = "0.30.0"
             m.post(
                 "http://localhost:5000/api/v3_0/sensors/1/data/upload",
                 status=200,
@@ -432,6 +455,141 @@ async def test_post_sensor_data_with_file():
             response_data, status = await client.post_sensor_data(
                 sensor_id=1,
                 file_path=csv_path,
+                unit="kW",
+            )
+            assert status == 200
+            request = next(iter(m.requests.values()))[0]
+            form_data = request.kwargs["data"]
+            fields = {field[0]["name"]: field[2] for field in form_data._fields}
+            assert fields["unit"] == "kW"
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_file_unit_requires_server_0_30():
+    """Servers before v0.30.0 silently ignore the unit, so refuse to upload at all.
+
+    Such a server would answer 200 while storing the values unconverted, as if they
+    were already in the sensor's unit.
+    """
+    csv_path = "/tmp/test_sensor_data_old_server.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            client = FlexMeasuresClient(email="test@test.test", password="test")
+            client.access_token = "test-token"
+            client.server_version = "0.29.0"
+            with pytest.raises(
+                InsufficientServerVersionError,
+                match="requires a FlexMeasures server of 0.30.0 or above",
+            ):
+                await client.post_sensor_data(
+                    sensor_id=1,
+                    file_path=csv_path,
+                    unit="kW",
+                )
+            # The upload must not have been attempted.
+            assert m.requests == {}
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_file_without_unit_works_on_old_server():
+    """The version guard only applies when a unit is passed."""
+    csv_path = "/tmp/test_sensor_data_old_server_no_unit.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            client = FlexMeasuresClient(email="test@test.test", password="test")
+            client.access_token = "test-token"
+            client.server_version = "0.28.0"
+            m.post(
+                "http://localhost:5000/api/v3_0/sensors/1/data/upload",
+                status=200,
+                payload={"message": "Upload successful"},
+            )
+            _response_data, status = await client.post_sensor_data(
+                sensor_id=1,
+                file_path=csv_path,
+            )
+            assert status == 200
+            request = next(iter(m.requests.values()))[0]
+            fields = {
+                field[0]["name"]: field[2] for field in request.kwargs["data"]._fields
+            }
+            assert "unit" not in fields
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_file_unit_when_server_version_unknown():
+    """A server that reports no version can't be shown to support the unit field.
+
+    Refusing is the safe reading: a server that does not honour the unit records
+    the file's values unconverted while still answering 200.
+    """
+    csv_path = "/tmp/test_sensor_data_unknown_version.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            m.get(
+                "http://localhost:5000/api/",
+                status=200,
+                payload={"versions": ["v3_0"]},  # no flexmeasures_version key
+                repeat=True,
+            )
+            client = FlexMeasuresClient(
+                email="test@test.test", password="test", access_token="skip-auth"
+            )
+            assert client.server_version is None
+            with pytest.raises(
+                InsufficientServerVersionError,
+                match="requires a FlexMeasures server of 0.30.0 or above",
+            ):
+                await client.post_sensor_data(
+                    sensor_id=1,
+                    file_path=csv_path,
+                    unit="kW",
+                )
+            assert [key for key in m.requests if key[0] == "POST"] == []
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_file_unit_allowed_on_dev_build():
+    """A 0.30.0 pre-release already exposes the unit field, so don't reject it."""
+    csv_path = "/tmp/test_sensor_data_dev_server.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            client = FlexMeasuresClient(email="test@test.test", password="test")
+            client.access_token = "test-token"
+            client.server_version = "0.30.0.dev5"
+            m.post(
+                "http://localhost:5000/api/v3_0/sensors/1/data/upload",
+                status=200,
+                payload={"message": "Upload successful"},
+            )
+            _response_data, status = await client.post_sensor_data(
+                sensor_id=1,
+                file_path=csv_path,
+                unit="kW",
             )
             assert status == 200
             await client.close()

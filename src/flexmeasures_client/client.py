@@ -190,17 +190,22 @@ class FlexMeasuresClient:
         """Function to close FlexMeasuresClient session when all requests are done."""
         await cast(ClientSession, self.session).close()
 
+    async def _resolve_server_version(self) -> str | None:
+        """Return the server version, looking it up if it isn't known yet."""
+        if self.server_version is None:
+            # Fall back to explicit version lookup for older servers that don't
+            # send the FlexMeasures-Version response header.
+            version_info = await self.get_versions()
+            self.server_version = version_info["server_version"]
+        return self.server_version
+
     async def ensure_minimum_server_version(
         self,
         minimum_server_version: str,
         minimum_server_version_msg: str | None = None,
     ):
         """Ensure that the server version meets a minimum requirement."""
-        if self.server_version is None:
-            # Fall back to explicit version lookup for older servers that don't
-            # send the FlexMeasures-Version response header.
-            version_info = await self.get_versions()
-            self.server_version = version_info["server_version"]
+        await self._resolve_server_version()
         if Version(cast(str, self.server_version)) < Version(minimum_server_version):
             msg = (
                 "This functionality requires FlexMeasures server of "
@@ -452,11 +457,12 @@ class FlexMeasuresClient:
         self,
         sensor_id: int,
         *,
+        # Required for JSON data upload; optional for file upload
+        unit: str | None = None,
         # Parameters for JSON data upload
         start: str | datetime | None = None,
         duration: str | timedelta | None = None,
         values: list[float] | None = None,
-        unit: str | None = None,
         prior: str | datetime | None = None,
         # Parameters for file upload
         file_path: str | None = None,
@@ -467,32 +473,42 @@ class FlexMeasuresClient:
 
         This method supports two modes:
         1. JSON data upload: Provide start, duration, values, and unit parameters
-        2. File upload: Provide file_path parameter
+        2. File upload: Provide file_path and, optionally, unit parameters
+           (passing a unit here requires a FlexMeasures server of 0.30.0 or above,
+           as earlier servers ignore it and read the file in the sensor's own unit)
 
         The method automatically chooses the appropriate API endpoint based on the provided parameters.
 
         This function raises a ValueError when an unhandled status code is returned.
         """
         # Check parameter combinations
-        json_params = [start, duration, values, unit]
+        json_params = [start, duration, values]
         has_json_params = any(param is not None for param in json_params)
         has_file_param = file_path is not None
 
         if not has_json_params and not has_file_param:
+            if unit is not None or prior is not None:
+                # A unit or prior on its own only makes sense for a JSON upload, so
+                # name the parameters that are missing rather than claim that
+                # nothing was provided at all.
+                raise ValueError(
+                    "When using JSON data upload, all parameters (start, duration, values, unit) "
+                    "must be provided."
+                )
             raise ValueError(
-                "Either provide JSON data parameters (start, duration, values, unit) "
+                "Either provide JSON data parameters (start, duration, values) "
                 "or a file_path parameter, but not neither."
             )
 
         if has_json_params and has_file_param:
             raise ValueError(
-                "Either provide JSON data parameters (start, duration, values, unit) "
+                "Either provide JSON data parameters (start, duration, values) "
                 "or a file_path parameter, but not both."
             )
 
         if has_json_params:
             # Validate required JSON parameters
-            if any(param is None for param in json_params):
+            if any(param is None for param in [*json_params, unit]):
                 raise ValueError(
                     "When using JSON data upload, all parameters (start, duration, values, unit) "
                     "must be provided."
@@ -522,6 +538,7 @@ class FlexMeasuresClient:
                 sensor_id=sensor_id,
                 file_path=file_path,
                 belief_time_measured_instantly=belief_time_measured_instantly,
+                unit=unit,
             )
 
     async def _post_sensor_data_json(
@@ -561,6 +578,7 @@ class FlexMeasuresClient:
         sensor_id: int,
         file_path: str,
         belief_time_measured_instantly: bool = False,
+        unit: str | None = None,
     ):
         """
         Post sensor data using file upload.
@@ -569,6 +587,24 @@ class FlexMeasuresClient:
 
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
+
+        if unit is not None:
+            # Servers before v0.30.0 don't read a "unit" form field on this endpoint.
+            # They drop it silently and then ingest the file as if its values were
+            # already in the sensor's unit, returning 200 all the while. Refuse to
+            # upload rather than let unconverted values be recorded.
+            # Base versions are compared so that pre-release builds such as
+            # 0.30.0.dev5, which already expose the field, aren't rejected.
+            if not _server_version_at_least(
+                await self._resolve_server_version(), "0.30.0"
+            ):
+                raise InsufficientServerVersionError(
+                    "Uploading a file with an explicit unit requires a FlexMeasures "
+                    "server of 0.30.0 or above. Current server has version "
+                    f"{self.server_version}.\n"
+                    "Alternatively, convert the data to the sensor's unit before "
+                    "uploading, and omit the unit parameter."
+                )
 
         # Determine content type based on file extension
         file_extension = os.path.splitext(file_path)[1].lower()
@@ -595,6 +631,8 @@ class FlexMeasuresClient:
             "belief-time-measured-instantly",
             str(belief_time_measured_instantly),
         )
+        if unit is not None:
+            form_data.add_field("unit", unit)
         # Build URL for file upload endpoint
         url = self.build_url(f"sensors/{sensor_id}/data/upload")
 
