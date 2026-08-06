@@ -415,6 +415,27 @@ async def test_post_sensor_data_partial_params():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"unit": "MW"},
+        {"prior": "2023-01-01T00:00+00:00"},
+        {"unit": "MW", "prior": "2023-01-01T00:00+00:00"},
+    ],
+)
+async def test_post_sensor_data_only_unit_or_prior(kwargs):
+    """A lone unit/prior points at the missing params, not at "you passed nothing".
+
+    Neither counts towards has_json_params, but reporting that neither mode was
+    chosen is misleading when the caller clearly attempted a JSON upload.
+    """
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with pytest.raises(ValueError, match="all parameters .* must be provided"):
+        await client.post_sensor_data(sensor_id=1, **kwargs)
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_post_sensor_data_with_file():
     """file_path provided triggers file upload endpoint and accepts a unit."""
     csv_path = "/tmp/test_sensor_data.csv"

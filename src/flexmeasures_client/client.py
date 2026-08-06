@@ -487,6 +487,14 @@ class FlexMeasuresClient:
         has_file_param = file_path is not None
 
         if not has_json_params and not has_file_param:
+            if unit is not None or prior is not None:
+                # A unit or prior on its own only makes sense for a JSON upload, so
+                # name the parameters that are missing rather than claim that
+                # nothing was provided at all.
+                raise ValueError(
+                    "When using JSON data upload, all parameters (start, duration, values, unit) "
+                    "must be provided."
+                )
             raise ValueError(
                 "Either provide JSON data parameters (start, duration, values) "
                 "or a file_path parameter, but not neither."
