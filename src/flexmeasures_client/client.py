@@ -190,17 +190,22 @@ class FlexMeasuresClient:
         """Function to close FlexMeasuresClient session when all requests are done."""
         await cast(ClientSession, self.session).close()
 
+    async def _resolve_server_version(self) -> str | None:
+        """Return the server version, looking it up if it isn't known yet."""
+        if self.server_version is None:
+            # Fall back to explicit version lookup for older servers that don't
+            # send the FlexMeasures-Version response header.
+            version_info = await self.get_versions()
+            self.server_version = version_info["server_version"]
+        return self.server_version
+
     async def ensure_minimum_server_version(
         self,
         minimum_server_version: str,
         minimum_server_version_msg: str | None = None,
     ):
         """Ensure that the server version meets a minimum requirement."""
-        if self.server_version is None:
-            # Fall back to explicit version lookup for older servers that don't
-            # send the FlexMeasures-Version response header.
-            version_info = await self.get_versions()
-            self.server_version = version_info["server_version"]
+        await self._resolve_server_version()
         if Version(cast(str, self.server_version)) < Version(minimum_server_version):
             msg = (
                 "This functionality requires FlexMeasures server of "
@@ -469,6 +474,8 @@ class FlexMeasuresClient:
         This method supports two modes:
         1. JSON data upload: Provide start, duration, values, and unit parameters
         2. File upload: Provide file_path and, optionally, unit parameters
+           (passing a unit here requires a FlexMeasures server of 0.30.0 or above,
+           as earlier servers ignore it and read the file in the sensor's own unit)
 
         The method automatically chooses the appropriate API endpoint based on the provided parameters.
 
@@ -572,6 +579,24 @@ class FlexMeasuresClient:
 
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
+
+        if unit is not None:
+            # Servers before v0.30.0 don't read a "unit" form field on this endpoint.
+            # They drop it silently and then ingest the file as if its values were
+            # already in the sensor's unit, returning 200 all the while. Refuse to
+            # upload rather than let unconverted values be recorded.
+            # Base versions are compared so that pre-release builds such as
+            # 0.30.0.dev5, which already expose the field, aren't rejected.
+            if not _server_version_at_least(
+                await self._resolve_server_version(), "0.30.0"
+            ):
+                raise InsufficientServerVersionError(
+                    "Uploading a file with an explicit unit requires a FlexMeasures "
+                    "server of 0.30.0 or above. Current server has version "
+                    f"{self.server_version}.\n"
+                    "Alternatively, convert the data to the sensor's unit before "
+                    "uploading, and omit the unit parameter."
+                )
 
         # Determine content type based on file extension
         file_extension = os.path.splitext(file_path)[1].lower()
