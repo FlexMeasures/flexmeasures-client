@@ -2,14 +2,14 @@
 
 import asyncio
 
-from const import COMMUNITY_NAME, host, pwd, usr
+from const import COMMUNITY_NAME, host, pwd, ssl, usr
 from utils.asset_utils import delete_hems_assets
 
 from flexmeasures_client import FlexMeasuresClient
 
 
 async def main() -> None:
-    client = FlexMeasuresClient(email=usr, password=pwd, host=host)
+    client = FlexMeasuresClient(email=usr, password=pwd, host=host, ssl=ssl)
     try:
         account = await client.get_account()
         if not account:

@@ -8,7 +8,7 @@ import asyncio
 from typing import Callable
 
 from assets_setup import create_community_asset
-from const import COMMUNITY_NAME, SITE_NAMES, host, pwd, usr
+from const import COMMUNITY_NAME, SITE_NAMES, host, pwd, ssl, usr
 from forecasting import generate_forecasts
 from reporters import create_reports
 from scheduling import just_continue, run_scheduling_simulation
@@ -41,7 +41,7 @@ async def main(
     # flexmeasures add user --username hems-admin --email hems-admin@example.com \
     #     --account 2 --roles account-admin
 
-    client = FlexMeasuresClient(email=usr, password=pwd, host=host)
+    client = FlexMeasuresClient(email=usr, password=pwd, host=host, ssl=ssl)
 
     try:
         await client.ensure_minimum_server_version(
