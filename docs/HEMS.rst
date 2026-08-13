@@ -61,7 +61,16 @@ public assets, so a site-wide ``admin`` role is not required.
 Run the tutorial script
 =======================
 
-Before running the tutorial, make sure to update the connection details and other relevant settings (e.g., host, port, credentials) in examples/HEMS/const.py to match your local FlexMeasures setup.
+Before running the tutorial, update the connection details and other relevant
+settings in ``examples/HEMS/const.py``. Specify the host without an ``http://``
+or ``https://`` prefix, and set ``ssl = True`` when connecting over HTTPS. For
+example:
+
+.. code-block:: python
+
+    host = "ems.example.com"
+    ssl = True
+
 Open three terminals. In the first terminal, run the server:
 
 .. code-block:: bash
