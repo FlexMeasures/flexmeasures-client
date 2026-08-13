@@ -12,7 +12,7 @@ from const import COMMUNITY_NAME, SITE_NAMES, host, pwd, usr
 from forecasting import generate_forecasts
 from reporters import create_reports
 from scheduling import just_continue, run_scheduling_simulation
-from utils.asset_utils import cleanup_existing_assets, upload_data_for_first_two_weeks
+from utils.asset_utils import delete_hems_assets, upload_data_for_first_two_weeks
 
 from flexmeasures_client import FlexMeasuresClient
 
@@ -24,7 +24,7 @@ async def main(
     Complete HEMS setup using FlexMeasures client.
 
     Creates a comprehensive home energy management structure including:
-    - Public price sensor for electricity costs
+    - Price sensor for electricity costs
     - Building asset with consumption and energy cost KPI sensors
     - PV asset (child of building) with production sensor
     - Battery asset (child of building) with power and SoC sensors + settings
@@ -36,9 +36,10 @@ async def main(
     print("Starting FlexMeasures HEMS")
     print("=" * 50)
 
-    # NOTE: Account and admin user creation must be done via FlexMeasures CLI first:
+    # NOTE: Create the account and account-admin user via FlexMeasures CLI first:
     # flexmeasures add account --name "MyCompany"
-    # flexmeasures add user --username admin --email admin@admin.com --account-id 2 --roles admin
+    # flexmeasures add user --username hems-admin --email hems-admin@example.com \
+    #     --account 2 --roles account-admin
 
     client = FlexMeasuresClient(email=usr, password=pwd, host=host)
 
@@ -73,10 +74,11 @@ async def main(
         else:
             answer = input(f"Asset '{community_name}' already exists. Re-create?")
             if answer.lower() in ["y", "yes"]:
-                await cleanup_existing_assets(
+                await delete_hems_assets(
                     client=client,
                     account_id=account["id"],
-                    site_names=[community_name],
+                    community_name=community_name,
+                    confirm_first=False,
                 )
                 await create_community_asset(
                     client,

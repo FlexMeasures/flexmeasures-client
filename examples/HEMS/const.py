@@ -4,8 +4,8 @@ import random
 Settings for the HEMS example script.
 """
 # Connection details - UPDATE THESE FOR YOUR SETUP
-usr = "admin@admin.com"  # Admin user email
-pwd = "admin"  # Admin password
+usr = "hems-admin@example.com"  # Account-admin user email
+pwd = "change-me"  # Account-admin user password
 host = "127.0.0.1:5000"  # FlexMeasures host
 
 # Asset and sensor names

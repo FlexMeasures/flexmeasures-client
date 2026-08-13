@@ -1,4 +1,3 @@
-import asyncio
 import os
 from pathlib import Path
 
@@ -157,66 +156,55 @@ async def upload_data_for_first_two_weeks(
     return True
 
 
-async def cleanup_existing_assets(
-    client: FlexMeasuresClient, account_id: int, site_names: list[str]
-):
-    """Clean up existing HEMS assets to avoid naming conflicts."""
-    print("Cleaning up existing assets...")
+async def delete_hems_assets(
+    client: FlexMeasuresClient,
+    account_id: int,
+    community_name: str,
+    confirm_first: bool = True,
+) -> int:
+    """Delete the top-level assets belonging to this HEMS example.
 
-    for site_name in site_names:
-        # Asset names to clean up
-        asset_names_to_clean = [
-            site_name,  # Deleting this asset also deletes child assets (battery, PV, EVSEs)
-            weather_station_name,
-            price_market_name,
-        ]
+    Deleting the community asset also deletes all child assets, sensors, and data.
+    The price market and weather station are separate top-level assets, so they
+    are deleted explicitly.
+    """
+    asset_names_to_delete = {
+        community_name,
+        weather_station_name,
+        price_market_name,
+    }
+    top_level_assets = await client.get_assets(
+        depth=0,
+        fields=["id", "name", "account_id"],
+        parse_json_fields=False,
+    )
+    assets_to_delete = [
+        asset
+        for asset in top_level_assets
+        if asset["name"] in asset_names_to_delete
+        and asset.get("account_id") == account_id
+    ]
 
-        try:
-            # Get all existing assets
-            assets = await client.get_assets(parse_json_fields=True)
+    if not assets_to_delete:
+        print("No HEMS assets found in the current account.")
+        return 0
 
-            # Find and delete assets that match our names
-            deleted_count = 0
-            for asset in assets:
-                if asset["name"] in asset_names_to_clean:
-                    print(
-                        f"Deleting existing asset: {asset['name']} (ID: {asset['id']})"
-                    )
-                    try:
-                        if asset.get("account_id") != account_id:
-                            print(
-                                f"Warning: Asset {asset['name']} (ID: {asset['id']}) does not belong to the current account."
-                            )
-                            raise
-                        await client.delete_asset(
-                            asset_id=asset["id"], confirm_first=False
-                        )
-                        deleted_count += 1
-                    except Exception as delete_error:
-                        # Check if it's a 404 error (asset not found)
-                        if "404" in str(delete_error) or "NOT FOUND" in str(
-                            delete_error
-                        ):
-                            print(
-                                f"Asset {asset['name']} (ID: {asset['id']}) no longer exists, skipping..."
-                            )
-                        else:
-                            print(
-                                f"Warning: Could not delete asset {asset['name']}: {delete_error}"
-                            )
-                        # Continue with other assets
+    print("The following top-level HEMS assets will be deleted:")
+    for asset in assets_to_delete:
+        print(f"- {asset['name']} (ID: {asset['id']})")
+    print("Their child assets, sensors, and time-series data will also be deleted.")
 
-            if deleted_count > 0:
-                print(f"Cleaned up {deleted_count} existing assets")
-            else:
-                print("No existing assets to clean up")
+    if confirm_first:
+        answer = input("Permanently delete these assets and all their data? [yN] ")
+        if answer.lower() not in ["y", "yes"]:
+            print("Aborting ...")
+            return 0
 
-            # Wait a moment for deletions to complete
-            await asyncio.sleep(1)
+    for asset in assets_to_delete:
+        await client.delete_asset(asset_id=asset["id"], confirm_first=False)
 
-        except Exception as e:
-            print(f"Warning: Error during cleanup: {e}")
-            print("Continuing with setup...")
+    print(f"Deleted {len(assets_to_delete)} top-level HEMS assets.")
+    return len(assets_to_delete)
 
 
 def load_and_align_csv_data(

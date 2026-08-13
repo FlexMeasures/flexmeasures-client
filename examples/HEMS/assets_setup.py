@@ -17,20 +17,19 @@ from utils.asset_utils import get_first_asset_by_name
 from flexmeasures_client import FlexMeasuresClient
 
 
-async def create_public_price_sensor(client: FlexMeasuresClient):
-    """Create a public price sensor (1h, EUR/kWh).
+async def get_or_create_price_sensor(client: FlexMeasuresClient):
+    """Get or create an account-owned price sensor (1h, EUR/kWh).
 
     Returns the price sensor for use in flex-context.
     """
-    print("Creating public price sensor...")
+    print("Getting or creating price sensor...")
     # Get the client account id
     account = await client.get_account()
     account_id = account["id"]
     print(f"Account ID: {account_id}")
-    # Create top-level market asset (not public, but still under the toy account)
+    # Create a top-level market asset in the current account.
     # Generic asset type 8 is typically used for market/price assets
     all_top_level_assets = await client.get_assets(
-        include_public=True,
         depth=0,
         fields=["id", "name", "account_id", "sensors"],
     )
@@ -57,22 +56,21 @@ async def create_public_price_sensor(client: FlexMeasuresClient):
     else:
         price_sensor = price_market_asset["sensors"][0]
 
-    print(f"Created public price sensor with ID: {price_sensor['id']}")
+    print(f"Price sensor ID: {price_sensor['id']}")
     return price_sensor
 
 
-async def create_weather_station(client: FlexMeasuresClient):
-    """Create a public weather station with irradiation and cloud coverage sensors."""
-    print("Creating weather station...")
+async def get_or_create_weather_station(client: FlexMeasuresClient):
+    """Get or create an account-owned weather station and its sensors."""
+    print("Getting or creating weather station...")
     # Get the client account id
     account = await client.get_account()
     account_id = account["id"]
     print(f"Account ID: {account_id}")
-    # Create top-level weather station asset (not public, but still under the toy account)
+    # Create a top-level weather station asset in the current account.
     # Generic asset type 7 (process) used for weather stations since no dedicated type exists
     # TODO: remove hard-coded ID, we should actually create a weather station type somehow
     all_top_level_assets = await client.get_assets(
-        include_public=True,
         depth=0,
         fields=["id", "name", "account_id", "sensors"],
     )
@@ -85,7 +83,7 @@ async def create_weather_station(client: FlexMeasuresClient):
             latitude=latitude,
             longitude=longitude,
             generic_asset_type_id=7,  # Process asset type (for weather station)
-            account_id=account_id,  # Public account ID
+            account_id=account_id,
         )
 
         # Create irradiation sensor (1H, W/m²)
@@ -934,12 +932,12 @@ async def create_community_asset(
     """Create an asset representing a community, which will serve as the parent asset for all sites in the community."""
     # Get account id
     account_id = account["id"]
-    print("Creating price market asset and associated price sensor")
-    price_sensor = await create_public_price_sensor(client=client)
+    print("Getting or creating price market asset and associated price sensor")
+    price_sensor = await get_or_create_price_sensor(client=client)
 
-    print("Creating weather station with irradiation and cloud coverage sensors")
+    print("Getting or creating weather station and its sensors")
     weather_asset, irradiation_sensor, cloud_coverage_sensor = (
-        await create_weather_station(client=client)
+        await get_or_create_weather_station(client=client)
     )
     print(f"Weather station asset ID: {weather_asset['id']}")
     print(f"Irradiation sensor ID: {irradiation_sensor['id']}")

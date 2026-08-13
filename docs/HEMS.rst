@@ -43,12 +43,17 @@ Or, alternatively, to install released versions into a fresh project:
 Next steps:
 
 - Follow instructions to set up flexmeasures (fresh database, etc).
-- Create an organisation account and an admin with:
+- Create an organisation account and a user with the ``account-admin`` role:
 
 .. code-block:: bash
 
-    flexmeasures add account
-    flexmeasures add user --roles admin
+    flexmeasures add account --name "HEMS tutorial"
+    flexmeasures add user --username hems-admin --email hems-admin@example.com \
+        --account 2 --roles account-admin
+
+Replace ``2`` with the account ID printed by the first command. The tutorial
+creates all assets and sensors in this organisation account. It does not create
+public assets, so a site-wide ``admin`` role is not required.
 
 - Update the credentials in the ``examples/HEMS/const.py`` script accordingly.
 
@@ -83,3 +88,23 @@ In the third terminal, run the client script using the `/examples/HEMS` folder a
 
    - ``FLEXMEASURES_CLI_CMD``: the command used to invoke the CLI, e.g. ``"docker compose exec -T server flexmeasures"``.
    - ``FLEXMEASURES_CLI_CONFIG_DIR``: the directory the CLI process sees the ``examples/HEMS/configs/`` files at, if different from their local path (e.g. because that directory is bind-mounted into a container at a different path).
+
+
+Delete the tutorial assets and data
+===================================
+
+To remove the HEMS setup from the configured account, run the cleanup script
+from the same directory:
+
+.. code-block:: bash
+
+    python3 HEMS_cleanup.py
+
+The script shows the matching top-level assets and asks for confirmation. It
+deletes the community asset, the energy market, and the weather station. Asset
+deletion also removes their child assets, sensors, and time-series data.
+
+.. warning::
+   Deletion is permanent. The energy market and weather station are separate
+   top-level assets; do not continue if other systems in the account share them.
+   The configured user needs the ``account-admin`` role to delete assets.
