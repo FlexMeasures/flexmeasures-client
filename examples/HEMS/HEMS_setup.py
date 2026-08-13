@@ -72,7 +72,10 @@ async def main(
                 client, account, community_name=community_name, site_names=site_names
             )
         else:
-            answer = input(f"Asset '{community_name}' already exists. Re-create?")
+            answer = input(
+                f"Asset '{community_name}' already exists in account "
+                f"'{account['name']}' (ID: {account['id']}). Re-create it? [y/N] "
+            )
             if answer.lower() in ["y", "yes"]:
                 await delete_hems_assets(
                     client=client,

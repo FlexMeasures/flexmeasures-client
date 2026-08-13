@@ -4,13 +4,13 @@ import random
 Settings for the HEMS example script.
 """
 # Connection details - UPDATE THESE FOR YOUR SETUP
-usr = "hems-admin@example.com"  # Account-admin user email
-pwd = "change-me"  # Account-admin user password
+usr = "toy-user@flexmeasures.io"  # Account-admin user email
+pwd = "toy-password"  # Account-admin user password
 host = "127.0.0.1:5000"  # FlexMeasures host
 
 # Asset and sensor names
-COMMUNITY_NAME = "Community Site"
-SITE_NAMES = ["My Home 1", "My Home 2"]
+COMMUNITY_NAME = "Campus Site"
+SITE_NAMES = ["Building A", "Building B"]
 
 pv_name = "Rooftop PV"
 battery_name = "Home Battery"
