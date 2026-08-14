@@ -96,14 +96,14 @@ In the third terminal, go to the HEMS directory:
 
    - ``FLEXMEASURES_CLI_CMD``: the command used to invoke the CLI
    - ``FLEXMEASURES_CLI_CONFIG_DIR``: the directory the CLI process sees the ``examples/HEMS/configs/`` files at, if different from their local path
-   
+
    Here are steps if you use FlexMeasures' docker-compose:
    - ``export FLEXMEASURES_CLI_CMD="docker compose -f full/path/to/docker-compose.yml exec -T server flexmeasures"``.
    - Add this mount in docker-compose.yml under server.volumes, and restart it: ``- /full/path/to/flexmeasures-client/examples/HEMS/configs:/app/hems-configs:ro``
    - ``export FLEXMEASURES_CLI_CONFIG_DIR="/app/hems-configs"``
 
 Another caveat is rate-limiting. Since v1.0, FlexMeasures only allows a limited number of schedule and forecasts per 5 minute interval.
-Either give your account a generous plan (see the docs), or simply set ``FLEXMEASURES_MODE="play"`` and restart the server. 
+Either give your account a generous plan (see the docs), or simply set ``FLEXMEASURES_MODE="play"`` and restart the server.
 If you use docker-compose, you could do that like this:
 
 .. code-block:: bash
@@ -115,7 +115,7 @@ If you use docker-compose, you could do that like this:
 Now run the client script using the `/examples/HEMS` folder as the current working directory:
 
 .. code-block:: bash
-    
+
     python3 HEMS_setup.py
 
 Rerunning or resuming the tutorial
