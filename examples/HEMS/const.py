@@ -7,7 +7,7 @@ Settings for the HEMS example script.
 usr = "hems-admin@example.com"  # Account-admin user email
 pwd = "change-me"  # Account-admin user password
 host = "127.0.0.1:5000"  # FlexMeasures host, without http:// or https://
-ssl = True  # Use HTTPS (and port 443 unless host specifies another port)
+ssl = False  # Use HTTPS (and port 443 unless host specifies another port)
 
 # Asset and sensor names
 COMMUNITY_NAME = "Community Site"
@@ -29,7 +29,7 @@ longitude = 4.9041
 TUTORIAL_START_DATE = "2030-01-01T00:00:00+01:00"
 FORECASTING_START = "2030-01-15T00:00:00+01:00"
 SCHEDULING_START = "2030-01-15T00:00:00+01:00"
-SCHEDULING_END = "2030-01-16T00:00:00+01:00"
+SCHEDULING_END = "2030-01-17T00:00:00+01:00"
 SIMULATION_STEP_HOURS = 4
 FORECAST_HORIZON_HOURS = 24
 MAX_RESCHEDULING_ITERATIONS = 2
