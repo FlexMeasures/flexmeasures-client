@@ -125,11 +125,13 @@ The setup script records completed phases in a namespaced attribute on the
 community asset. If the community already exists, the script shows which phases
 are complete and offers three choices:
 
-- ``y`` recreates the HEMS assets. This deletes their sensors, IDs, and data.
+- ``y`` recreates the HEMS assets. This deletes their sensors, IDs, and data,
+  including the HEMS energy market and weather station, before creating
+  replacements with new IDs. You must confirm this by typing ``RECREATE``.
 - ``w`` preserves the asset and sensor structure and IDs, but permanently
   deletes all HEMS time-series data before restarting at data upload. This
   includes uploads, forecasts, schedules, simulated measurements, and report
-  outputs. A second confirmation is required.
+  outputs. You must confirm this by typing ``WIPE``.
 - ``n`` (the default) preserves everything and resumes at the first unfinished
   phase. Completed phases are skipped.
 

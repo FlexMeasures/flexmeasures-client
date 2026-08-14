@@ -58,9 +58,11 @@ def prompt_for_existing_setup(account: dict, community_name: str, state: dict) -
         answer = (
             input(
                 "\nChoose how to continue:\n"
-                "  [y] Recreate assets — delete assets, sensors, IDs, and data.\n"
+                "  [y] Recreate assets — delete assets, sensors, IDs, and data "
+                "(requires typing RECREATE).\n"
                 "  [w] Wipe data — preserve the asset and sensor structure and IDs, "
-                "delete all HEMS time-series data, then restart at data upload.\n"
+                "delete all HEMS time-series data, then restart at data upload "
+                "(requires typing WIPE).\n"
                 "  [n] Resume — preserve everything and continue from the first "
                 "unfinished phase.\n"
                 "Choice [y/w/N]: "
@@ -88,6 +90,19 @@ def prompt_for_existing_setup(account: dict, community_name: str, state: dict) -
                 continue
             return "resume"
         print("Please choose 'y', 'w', or 'n'.")
+
+
+def confirm_recreation(account: dict, community_name: str) -> bool:
+    """Require explicit confirmation before replacing the HEMS structure."""
+    answer = input(
+        f"This permanently deletes the HEMS setup '{community_name}' from account "
+        f"'{account['name']}' (ID: {account['id']}), including its assets, sensors, "
+        "IDs, and all time-series data. The replacement assets and sensors will "
+        "receive new IDs. The HEMS energy market and weather station in this "
+        "account will also be replaced.\n"
+        "Type RECREATE to continue: "
+    )
+    return answer == "RECREATE"
 
 
 def confirm_data_wipe(state: dict) -> bool:
@@ -129,18 +144,22 @@ async def main(
     client = FlexMeasuresClient(email=usr, password=pwd, host=host, ssl=ssl)
 
     try:
+        print(
+            f"Checking server is up and on supported version ... connecting to {host} (ssl: {ssl})"
+        )
         await client.ensure_minimum_server_version(
             "0.31.0",
             "The HEMS example requires a FlexMeasures server of v0.31.0 or above.",
         )
 
         # Get user account information
+        print(f"Logging in as {usr} ...")
         account = await client.get_account()
         if not account:
             raise Exception("No account found. Please create an account first.")
 
         account_id = account["id"]
-        print(f" Connected to account: {account['name']} (ID: {account_id})")
+        print(f"Connected to account: {account['name']} (ID: {account_id})")
 
         asset = None
         assets = await client.get_assets(parse_json_fields=True)
@@ -161,6 +180,9 @@ async def main(
             state = await ensure_workflow_state(client, asset, account_id)
             action = prompt_for_existing_setup(account, community_name, state)
             if action == "recreate":
+                if not confirm_recreation(account, community_name):
+                    print("Recreation cancelled. No assets or data were deleted.")
+                    return
                 await delete_hems_assets(
                     client=client,
                     account_id=account["id"],
