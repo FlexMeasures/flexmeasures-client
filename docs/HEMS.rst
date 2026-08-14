@@ -118,6 +118,27 @@ Now run the client script using the `/examples/HEMS` folder as the current worki
     
     python3 HEMS_setup.py
 
+Rerunning or resuming the tutorial
+==================================
+
+The setup script records completed phases in a namespaced attribute on the
+community asset. If the community already exists, the script shows which phases
+are complete and offers three choices:
+
+- ``y`` recreates the HEMS assets. This deletes their sensors, IDs, and data.
+- ``w`` preserves the asset and sensor structure and IDs, but permanently
+  deletes all HEMS time-series data before restarting at data upload. This
+  includes uploads, forecasts, schedules, simulated measurements, and report
+  outputs. A second confirmation is required.
+- ``n`` (the default) preserves everything and resumes at the first unfinished
+  phase. Completed phases are skipped.
+
+The workflow marker stores the exact sensor IDs created for the tutorial, so a
+data wipe remains limited to that recorded set. If an existing setup predates
+workflow markers, safe resume is unavailable because its completed phases are
+unknown. Choose ``w`` to keep its IDs while refreshing its data, or ``y`` to
+recreate it fully.
+
 
 Delete the tutorial assets and data
 ===================================

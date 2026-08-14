@@ -1,5 +1,7 @@
+import asyncio
 import os
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from const import heating_name, price_market_name, pv_name, weather_station_name
@@ -7,6 +9,86 @@ from const import heating_name, price_market_name, pv_name, weather_station_name
 from flexmeasures_client import FlexMeasuresClient
 
 BASE_DIR = Path(__file__).parent.parent
+
+
+async def post_sensor_data_and_track_ingestion(
+    client: FlexMeasuresClient,
+    pending_ingestion_jobs: list[str],
+    **kwargs: Any,
+) -> None:
+    """Post sensor data and remember asynchronous ingestion jobs."""
+    result = await client.post_sensor_data(**kwargs)
+    if not isinstance(result, tuple) or len(result) != 2:
+        raise RuntimeError(
+            "This HEMS example requires a FlexMeasures client whose "
+            "post_sensor_data() method returns the server response and status."
+        )
+    response, status = result
+
+    if status != 202:
+        return
+
+    job_id = None
+    if isinstance(response, dict):
+        # ``job`` is the canonical field. ``job_id`` was used by older
+        # FlexMeasures servers and is retained here for compatibility.
+        job_id = response.get("job") or response.get("job_id")
+    if not job_id:
+        raise RuntimeError(
+            "The server accepted sensor data for asynchronous ingestion "
+            "but did not return a job ID."
+        )
+    pending_ingestion_jobs.append(job_id)
+
+
+async def wait_for_ingestion_jobs(
+    client: FlexMeasuresClient, pending_ingestion_jobs: list[str]
+) -> None:
+    """Wait until all tracked sensor-data ingestion jobs have finished."""
+    if not pending_ingestion_jobs:
+        return
+
+    print(f"Waiting for {len(pending_ingestion_jobs)} ingestion job(s)...")
+    for job_id in pending_ingestion_jobs:
+        deadline = asyncio.get_running_loop().time() + client.polling_timeout
+        polling_step = 0
+
+        while True:
+            # FlexMeasures 0.33 returns HTTP 200 even while a job is in
+            # progress. Newer versions return 202, which client.request polls
+            # internally. Inspecting the status field supports both versions.
+            job, _ = await client.request(
+                uri=f"jobs/{job_id}",
+                method="GET",
+            )
+            job_status = (
+                str(job.get("status", "")).upper() if isinstance(job, dict) else ""
+            )
+            if job_status == "FINISHED":
+                break
+            if job_status not in {"QUEUED", "STARTED", "DEFERRED", "SCHEDULED"}:
+                raise RuntimeError(
+                    f"Ingestion job {job_id} did not finish successfully: {job}"
+                )
+
+            polling_step += 1
+            if polling_step >= client.max_polling_steps:
+                raise ConnectionError(
+                    f"Max polling steps reached while waiting for ingestion job "
+                    f"{job_id}. Last status: {job_status}"
+                )
+
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise ConnectionError(
+                    f"Client polling timeout while waiting for ingestion job "
+                    f"{job_id}. Last status: {job_status}"
+                )
+            sleep_interval = min(
+                client.polling_interval * (2 ** (polling_step - 1)), remaining
+            )
+            await asyncio.sleep(sleep_interval)
+    pending_ingestion_jobs.clear()
 
 
 async def find_sensor_by_name_and_asset(
@@ -44,20 +126,23 @@ async def upload_csv_file_to_sensor(
     sensor_id: int,
     file_path: str,
     belief_time_measured_instantly: bool,
+    pending_ingestion_jobs: list[str],
 ):
-    """Upload CSV file directly to a sensor using file upload."""
+    """Upload a CSV file and track asynchronous ingestion."""
     try:
         full_path = os.path.join(BASE_DIR, file_path)
-        await client.post_sensor_data(
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
             sensor_id=sensor_id,
             file_path=full_path,
             belief_time_measured_instantly=belief_time_measured_instantly,  # Set belief_time immediately after event ends
         )
-        print(f"Uploaded {file_path} to sensor {sensor_id}")
+        print(f"Submitted {file_path} to sensor {sensor_id}")
         return True
     except Exception as e:
         print(f"Failed to upload {file_path} to sensor {sensor_id}: {e}")
-        return False
+        raise
 
 
 async def find_top_level_asset_id(
@@ -101,6 +186,7 @@ async def upload_data_for_first_two_weeks(
 ):
     """Upload historical data for the first two weeks."""
     print("Uploading data for first two weeks...")
+    pending_ingestion_jobs: list[str] = []
 
     for i, site_name in enumerate(site_names, start=1):
         # Find all required sensors
@@ -146,12 +232,17 @@ async def upload_data_for_first_two_weeks(
                 sensor_id=sensors[sensor_key]["id"],
                 file_path=file_path,
                 belief_time_measured_instantly=belief_time_measured_instantly,
+                pending_ingestion_jobs=pending_ingestion_jobs,
             )
 
             if success:
                 print(f"Successfully uploaded {sensor_key} data")
             else:
                 print(f"Failed to upload {sensor_key} data")
+
+    # File uploads may only have been accepted (HTTP 202), not processed yet.
+    # Forecasting must not start until all historical data is available.
+    await wait_for_ingestion_jobs(client, pending_ingestion_jobs)
 
     return True
 

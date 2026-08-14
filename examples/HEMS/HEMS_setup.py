@@ -13,8 +13,93 @@ from forecasting import generate_forecasts
 from reporters import create_reports
 from scheduling import just_continue, run_scheduling_simulation
 from utils.asset_utils import delete_hems_assets, upload_data_for_first_two_weeks
+from utils.workflow_utils import (
+    DATA_UPLOAD_PHASE,
+    FORECASTING_PHASE,
+    PHASE_LABELS,
+    REPORTING_PHASE,
+    SCHEDULING_PHASE,
+    ensure_workflow_state,
+    initialize_workflow_state,
+    mark_phase_complete,
+    phase_is_complete,
+    wipe_hems_sensor_data,
+)
 
 from flexmeasures_client import FlexMeasuresClient
+
+
+def print_workflow_summary(state: dict) -> None:
+    """Show which phases resume mode will skip and run."""
+    completed = set(state["completed-phases"])
+    print("\nCompleted phases:")
+    for phase, label in PHASE_LABELS.items():
+        if phase in completed:
+            print(f"- {label}")
+    print("Still to run:")
+    remaining = [
+        label for phase, label in PHASE_LABELS.items() if phase not in completed
+    ]
+    if remaining:
+        for label in remaining:
+            print(f"- {label}")
+    else:
+        print("- Nothing; the tutorial is already complete.")
+
+
+def prompt_for_existing_setup(account: dict, community_name: str, state: dict) -> str:
+    """Ask whether to recreate, wipe data, or resume an existing setup."""
+    print(
+        f"Asset '{community_name}' already exists in account "
+        f"'{account['name']}' (ID: {account['id']})."
+    )
+    print_workflow_summary(state)
+    while True:
+        answer = (
+            input(
+                "\nChoose how to continue:\n"
+                "  [y] Recreate assets — delete assets, sensors, IDs, and data.\n"
+                "  [w] Wipe data — preserve the asset and sensor structure and IDs, "
+                "delete all HEMS time-series data, then restart at data upload.\n"
+                "  [n] Resume — preserve everything and continue from the first "
+                "unfinished phase.\n"
+                "Choice [y/w/N]: "
+            )
+            .strip()
+            .lower()
+        )
+        if answer in {"y", "yes"}:
+            return "recreate"
+        if answer in {"w", "wipe"}:
+            return "wipe"
+        if answer in {"", "n", "no"}:
+            if state.get("status") == "wiping":
+                print(
+                    "A previous data wipe was interrupted. Choose 'w' to resume "
+                    "the wipe or 'y' to recreate the assets."
+                )
+                continue
+            if state.get("status") == "untracked":
+                print(
+                    "This setup predates HEMS phase markers, so its completed "
+                    "phases cannot be determined safely. Choose 'w' for fresh "
+                    "data with the same IDs, or 'y' to recreate everything."
+                )
+                continue
+            return "resume"
+        print("Please choose 'y', 'w', or 'n'.")
+
+
+def confirm_data_wipe(state: dict) -> bool:
+    """Require explicit confirmation before deleting HEMS sensor data."""
+    sensor_count = len(state["sensor-ids"])
+    answer = input(
+        f"This permanently deletes all time-series data from {sensor_count} "
+        "HEMS sensors, including uploads, forecasts, schedules, simulated "
+        "measurements, and report outputs. Asset and sensor IDs are preserved.\n"
+        "Type WIPE to continue: "
+    )
+    return answer == "WIPE"
 
 
 async def main(
@@ -57,10 +142,10 @@ async def main(
         account_id = account["id"]
         print(f" Connected to account: {account['name']} (ID: {account_id})")
 
-        asset = None  # Initialize asset variable
+        asset = None
         assets = await client.get_assets(parse_json_fields=True)
         for sst in assets:
-            if sst["name"] == community_name:
+            if sst["name"] == community_name and sst.get("account_id") == account_id:
                 asset = sst
                 break
 
@@ -68,61 +153,94 @@ async def main(
             print(
                 "Creating community Site asset with 2 building assets, each with PV and battery sensors, and weather station"
             )
-            await create_community_asset(
+            asset = await create_community_asset(
                 client, account, community_name=community_name, site_names=site_names
             )
+            state = await initialize_workflow_state(client, asset, account_id)
         else:
-            answer = input(
-                f"Asset '{community_name}' already exists in account "
-                f"'{account['name']}' (ID: {account['id']}). Re-create it? [y/N] "
-            )
-            if answer.lower() in ["y", "yes"]:
+            state = await ensure_workflow_state(client, asset, account_id)
+            action = prompt_for_existing_setup(account, community_name, state)
+            if action == "recreate":
                 await delete_hems_assets(
                     client=client,
                     account_id=account["id"],
                     community_name=community_name,
                     confirm_first=False,
                 )
-                await create_community_asset(
+                asset = await create_community_asset(
                     client,
                     account,
                     community_name=community_name,
                     site_names=site_names,
                 )
+                state = await initialize_workflow_state(client, asset, account_id)
+            elif action == "wipe":
+                if not confirm_data_wipe(state):
+                    print("Data wipe cancelled. No sensor data was deleted.")
+                    return
+                state = await wipe_hems_sensor_data(client, asset["id"], state)
             else:
-                print("Assets already exist, skipping to data upload")
+                print("Resuming the existing HEMS setup.")
 
         # Part 2: Upload data for first two weeks
         print("\n" + "=" * 50)
-        print("PART 2: UPLOADING DATA")
-        await upload_data_for_first_two_weeks(
-            client, community_name=community_name, site_names=site_names
-        )
+        if phase_is_complete(state, DATA_UPLOAD_PHASE):
+            print("PART 2: UPLOADING DATA (already complete; skipping)")
+        else:
+            print("PART 2: UPLOADING DATA")
+            await upload_data_for_first_two_weeks(
+                client, community_name=community_name, site_names=site_names
+            )
+            state = await mark_phase_complete(
+                client, asset["id"], state, DATA_UPLOAD_PHASE
+            )
 
         # Part 3: Generate PV forecasts for second week
         print("\n" + "=" * 50)
-        print("PART 3: GENERATING PV FORECASTS")
-        await generate_forecasts(
-            client, community_name=community_name, site_names=site_names
-        )
+        if phase_is_complete(state, FORECASTING_PHASE):
+            print("PART 3: GENERATING PV FORECASTS (already complete; skipping)")
+        else:
+            print("PART 3: GENERATING PV FORECASTS")
+            await generate_forecasts(
+                client, community_name=community_name, site_names=site_names
+            )
+            state = await mark_phase_complete(
+                client, asset["id"], state, FORECASTING_PHASE
+            )
 
         # Part 4: Run scheduling simulation for third week
         print("\n" + "=" * 50)
-        print("PART 4: SCHEDULING SIMULATION")
-        await run_scheduling_simulation(
-            client,
-            community_name=community_name,
-            site_names=site_names,
-            callback=callback,
-        )
+        if phase_is_complete(state, SCHEDULING_PHASE):
+            print("PART 4: SCHEDULING SIMULATION (already complete; skipping)")
+        else:
+            print("PART 4: SCHEDULING SIMULATION")
+            scheduling_succeeded = await run_scheduling_simulation(
+                client,
+                community_name=community_name,
+                site_names=site_names,
+                callback=callback,
+            )
+            if not scheduling_succeeded:
+                raise RuntimeError("Scheduling simulation did not complete.")
+            state = await mark_phase_complete(
+                client, asset["id"], state, SCHEDULING_PHASE
+            )
 
         # Part 5 : Create reports
         print("\n" + "=" * 50)
-        print("PART 5: CREATING REPORTS")
-        # todo B2: compute aggregate power flow for the community asset's power sensor
-        await create_reports(
-            client, community_name=community_name, site_names=site_names
-        )
+        if phase_is_complete(state, REPORTING_PHASE):
+            print("PART 5: CREATING REPORTS (already complete; skipping)")
+        else:
+            print("PART 5: CREATING REPORTS")
+            # todo B2: compute aggregate power flow for the community asset's power sensor
+            reports_succeeded = await create_reports(
+                client, community_name=community_name, site_names=site_names
+            )
+            if not reports_succeeded:
+                raise RuntimeError("Report generation did not complete.")
+            state = await mark_phase_complete(
+                client, asset["id"], state, REPORTING_PHASE
+            )
         print("\n" + "=" * 50)
         print("HEMS Tutorial completed successfully!")
 

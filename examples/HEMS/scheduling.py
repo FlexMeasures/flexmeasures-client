@@ -25,6 +25,8 @@ from utils.asset_utils import (
     find_sensor_by_name_and_asset,
     find_top_level_asset_id,
     load_and_align_csv_data,
+    post_sensor_data_and_track_ingestion,
+    wait_for_ingestion_jobs,
 )
 from utils.ev_utils import (
     calculate_ev_soc_targets_and_constraints,
@@ -179,6 +181,7 @@ async def run_scheduling_simulation(
                 # Stop rescheduling
                 break
 
+        pending_ingestion_jobs: list[str] = []
         for index, site_name in enumerate(site_names, start=1):
             # Extract scheduled power for all devices for the next 4 hours
             # Update SoC for next step based on retrieved SoC schedules
@@ -201,20 +204,29 @@ async def run_scheduling_simulation(
                 heating_soc_schedule=heating_soc_schedules[index - 1],
                 evse1_flex_model=evse1_flex_models[index - 1],
                 evse2_flex_model=evse2_flex_models[index - 1],
+                pending_ingestion_jobs=pending_ingestion_jobs,
             )
             next_current_soc_dict[site_name]["battery"] = battery_next_current_soc
             next_current_soc_dict[site_name]["evse1"] = evse1_next_current_soc
             next_current_soc_dict[site_name]["evse2"] = evse2_next_current_soc
             next_current_soc_dict[site_name]["heating"] = heating_next_current_soc
 
+        # Reporters read the measurements submitted above. Wait until the server
+        # has actually ingested them instead of treating HTTP 202 as completion.
+        await wait_for_ingestion_jobs(client, pending_ingestion_jobs)
+
         # Run reporter to log community site aggregate power consumption each scheduling step
-        run_community_aggregate(
+        aggregate_reports_succeeded = run_community_aggregate(
             sensors=sensors,
             current_time=current_time,
             step_end_time=step_end_time,
             community_asset=community_asset,
             site_names=site_names,
         )
+        if not aggregate_reports_succeeded:
+            raise RuntimeError(
+                f"Aggregate report generation failed for simulation step {step_num}."
+            )
 
         # Move to next simulation step
         current_time = step_end_time
@@ -482,6 +494,7 @@ async def compute_site_measurements(
     evse1_flex_model: dict,
     evse2_flex_model: dict,
     index: int,
+    pending_ingestion_jobs: list[str],
 ):
 
     # Initialize power schedules
@@ -533,7 +546,9 @@ async def compute_site_measurements(
 
     # Upload battery power measurements
     battery_power_duration = timedelta(hours=SIMULATION_STEP_HOURS)
-    await client.post_sensor_data(
+    await post_sensor_data_and_track_ingestion(
+        client=client,
+        pending_ingestion_jobs=pending_ingestion_jobs,
         sensor_id=sensors[f"battery-power-{index}"]["id"],
         start=current_time,
         duration=battery_power_duration,
@@ -559,7 +574,9 @@ async def compute_site_measurements(
         min(raw, scheduled) for raw, scheduled in zip(pv_raw_power, pv_scheduled_power)
     ]
 
-    await client.post_sensor_data(
+    await post_sensor_data_and_track_ingestion(
+        client=client,
+        pending_ingestion_jobs=pending_ingestion_jobs,
         sensor_id=sensors[f"pv-power-{index}"][
             "id"
         ],  # use power sensor to store realized data
@@ -571,7 +588,9 @@ async def compute_site_measurements(
     )
 
     # Upload EVSE 1 power measurements
-    await client.post_sensor_data(
+    await post_sensor_data_and_track_ingestion(
+        client=client,
+        pending_ingestion_jobs=pending_ingestion_jobs,
         sensor_id=sensors[f"evse1-power-{index}"]["id"],
         start=current_time,
         duration=battery_power_duration,
@@ -581,7 +600,9 @@ async def compute_site_measurements(
     )
 
     # Upload EVSE 2 power measurements
-    await client.post_sensor_data(
+    await post_sensor_data_and_track_ingestion(
+        client=client,
+        pending_ingestion_jobs=pending_ingestion_jobs,
         sensor_id=sensors[f"evse2-power-{index}"]["id"],
         start=current_time,
         duration=battery_power_duration,
@@ -591,7 +612,9 @@ async def compute_site_measurements(
     )
 
     # Upload heating power measurements
-    await client.post_sensor_data(
+    await post_sensor_data_and_track_ingestion(
+        client=client,
+        pending_ingestion_jobs=pending_ingestion_jobs,
         sensor_id=sensors[f"heating-power-{index}"]["id"],
         start=current_time,
         duration=battery_power_duration,
@@ -614,7 +637,9 @@ async def compute_site_measurements(
             )
             + pd.Timedelta(minutes=15)
         )
-        await client.post_sensor_data(
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
             sensor_id=sensors[f"building-consumption-{index}"]["id"],
             start=building_data_step["event_start"].iloc[0],
             duration=step_duration,
@@ -688,7 +713,9 @@ async def compute_site_measurements(
 
     # Upload battery SoC measurements (FlexMeasures computed)
     if battery_soc_values:
-        await client.post_sensor_data(
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
             sensor_id=sensors[f"battery-soc-{index}"]["id"],
             start=current_time,
             duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
@@ -702,7 +729,9 @@ async def compute_site_measurements(
 
     # Upload EVSE 1 SoC measurements (FlexMeasures computed)
     if evse1_soc_values:
-        await client.post_sensor_data(
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
             sensor_id=sensors[f"evse1-soc-{index}"]["id"],
             start=current_time,
             duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
@@ -716,7 +745,9 @@ async def compute_site_measurements(
 
     # Upload EVSE 2 SoC measurements (FlexMeasures computed)
     if evse2_soc_values:
-        await client.post_sensor_data(
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
             sensor_id=sensors[f"evse2-soc-{index}"]["id"],
             start=current_time,
             duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
@@ -729,7 +760,9 @@ async def compute_site_measurements(
         )
     # Upload heating SoC measurements (FlexMeasures computed)
     if heating_soc_values:
-        await client.post_sensor_data(
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
             sensor_id=sensors[f"heating-soc-{index}"]["id"],
             start=current_time,
             duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
@@ -919,6 +952,7 @@ def run_community_aggregate(
             community_power_sensor = x
             break
     # Run each site's aggregate reporter
+    all_reports_succeeded = True
     for index, site_name in enumerate(site_names, start=1):
         # Fill reporter parameters for each site
         fill_reporter_params(
@@ -936,11 +970,12 @@ def run_community_aggregate(
             reporter_type="aggregate",
         )
         # Run AggregatorReporter
-        run_report_cmd(
+        report_succeeded = run_report_cmd(
             reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
             start=current_time.isoformat(),
             end=step_end_time.isoformat(),
         )
+        all_reports_succeeded = report_succeeded and all_reports_succeeded
 
     fill_reporter_params(
         input_sensors=[
@@ -953,8 +988,9 @@ def run_community_aggregate(
         reporter_type="aggregate",
     )
     # Run AggregatorReporter
-    run_report_cmd(
+    community_report_succeeded = run_report_cmd(
         reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
         start=current_time.isoformat(),
         end=step_end_time.isoformat(),
     )
+    return community_report_succeeded and all_reports_succeeded

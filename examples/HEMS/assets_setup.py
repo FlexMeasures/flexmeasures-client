@@ -992,3 +992,4 @@ async def create_community_asset(
             site_names=site_names,
             price_sensor=price_sensor,
         )
+    return site_asset
