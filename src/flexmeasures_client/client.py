@@ -564,7 +564,7 @@ class FlexMeasuresClient:
         if prior:
             json_payload["prior"] = pd.Timestamp(prior).isoformat()
 
-        _response, status = await self.request(
+        response, status = await self.request(
             uri=f"sensors/{sensor_id}/data",
             json_payload=json_payload,
             minimum_server_version="0.28.0",
@@ -572,6 +572,7 @@ class FlexMeasuresClient:
         )
         check_for_status(status, 200)
         self.logger.info("Sensor data sent successfully via JSON.")
+        return response, status
 
     async def _post_sensor_data_file(
         self,
@@ -1402,6 +1403,29 @@ class FlexMeasuresClient:
                 return
         uri = f"sensors/{sensor_id}"
         _, status = await self.request(uri=uri, method="DELETE")
+        check_for_status(status, 204)
+
+    async def delete_sensor_data(
+        self, sensor_id: int, confirm_first: bool = True
+    ) -> None:
+        """Delete all data from a sensor while preserving the sensor itself."""
+        if confirm_first:
+            answer = input(
+                f"Permanently delete all data from sensor {sensor_id}? [y/N] "
+            )
+            if answer.lower() not in ["y", "yes"]:
+                print("Aborting ...")
+                return
+        _, status = await self.request(
+            uri=f"sensors/{sensor_id}/data",
+            json_payload={},
+            method="DELETE",
+            minimum_server_version="0.33.0",
+            minimum_server_version_msg=(
+                "Deleting sensor data without deleting the sensor requires "
+                "FlexMeasures server v0.33.0 or above."
+            ),
+        )
         check_for_status(status, 204)
 
     async def trigger_schedule(

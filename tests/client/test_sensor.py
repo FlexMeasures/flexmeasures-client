@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from urllib.parse import unquote
 
 import pandas as pd
@@ -328,6 +328,48 @@ async def test_delete_sensor_confirm_no():
 
 
 @pytest.mark.asyncio
+async def test_delete_sensor_data_preserves_sensor():
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.33.0"
+        m.delete(
+            "http://localhost:5000/api/v3_0/sensors/7/data",
+            status=204,
+            payload={},
+        )
+
+        await client.delete_sensor_data(sensor_id=7, confirm_first=False)
+
+        m.assert_called_once_with(
+            "http://localhost:5000/api/v3_0/sensors/7/data",
+            method="DELETE",
+            json={},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "test-token",
+            },
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_data_confirmation_declined():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.access_token = "test-token"
+    with (
+        patch("builtins.input", return_value="n"),
+        patch.object(client, "request", new_callable=AsyncMock) as request,
+    ):
+        await client.delete_sensor_data(sensor_id=7)
+    request.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_post_sensor_data() -> None:
     with aioresponses() as m:
         flexmeasures_client = FlexMeasuresClient(
@@ -347,13 +389,15 @@ async def test_post_sensor_data() -> None:
         values = "test"
         unit = "test"
 
-        await flexmeasures_client.post_sensor_data(
+        response, status = await flexmeasures_client.post_sensor_data(
             sensor_id=sensor_id,
             start=start,
             duration=duration,
             values=values,
             unit=unit,
         )
+        assert response == {"test": "test"}
+        assert status == 200
         m.assert_called_once_with(
             f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
             method="POST",
@@ -369,6 +413,33 @@ async def test_post_sensor_data() -> None:
             allow_redirects=False,
         )
         await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_json_accepted_returns_ingestion_job() -> None:
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/5/data",
+            status=202,
+            payload={
+                "job": "ingestion-job-id",
+                "status": "ACCEPTED",
+            },
+        )
+
+        response, status = await client.post_sensor_data(
+            sensor_id=5,
+            start="2023-03-26T10:00+02:00",
+            duration="PT1H",
+            values=[1.0],
+            unit="kW",
+        )
+
+        assert response["job"] == "ingestion-job-id"
+        assert status == 202
+        await client.close()
 
 
 @pytest.mark.asyncio
