@@ -38,13 +38,14 @@ random.seed(42)
 
 # Configuration constants
 EV_CONFIG = {
-    "default_capacity_kwh": 60.0,
+    "default_capacity_kwh": 40.0,
     "default_power_capacity_kw": 11.0,
     "min_soc_percent": 0.20,  # 20% minimum SoC
     "roundtrip_efficiency": 0.85,  # 85% efficiency
     "random_trip_probability": 0.10,  # 10% chance per step
     "random_trip_consumption_range": (0.10, 0.20),  # 10-20% consumption
     "driving_consumption_kwh_per_hour": 7.5,  # 15 kWh/100km at 50 km/h average
+    "one_way_commute_duration_hours": 0.5,
 }
 
 BATTERY_CONFIG = {
@@ -60,10 +61,10 @@ BATTERY_CONFIG = {
 # Each entry represents: (needs_charging_overnight, departure_time, return_time, target_soc_percent)
 # Index 0 = Monday, 1 = Tuesday, ..., 6 = Sunday
 EV_WEEKLY_PATTERNS = [
-    (False, None, None, 40),  # Monday - Free day, keep at moderate charge
-    (True, "07:00", "13:00", 80),  # Tuesday - Work day, need 80% by 7am
-    (True, "08:00", "13:00", 80),  # Wednesday - Work day, need 80% by 8am
-    (True, "07:00", "13:00", 80),  # Thursday - Work day, need 80% by 7am
+    (True, "07:00", "13:00", 60),  # Monday - Work day, need 60% by 7am
+    (True, "07:00", "13:00", 60),  # Tuesday - Work day, need 60% by 7am
+    (True, "08:00", "13:00", 60),  # Wednesday - Work day, need 60% by 8am
+    (True, "07:00", "13:00", 60),  # Thursday - Work day, need 60% by 7am
     (False, None, None, 60),  # Friday - Free day, charge to 60% for weekend
     (False, None, None, 40),  # Saturday - Free day
     (False, None, None, 40),  # Sunday - Free day

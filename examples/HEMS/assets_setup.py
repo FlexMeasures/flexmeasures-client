@@ -425,6 +425,7 @@ async def create_evse_asset(
     capacity = EV_CONFIG["default_capacity_kwh"]
     attributes_flex_model = {
         "soc_at_start": capacity * EV_CONFIG["min_soc_percent"],  # Start at minimum SoC
+        "capacity_kwh": capacity,
     }
 
     flex_model = {
@@ -676,7 +677,9 @@ async def configure_site_dashboard(
     battery_power_sensor,
     battery_soc_sensor,
     evse1_power_sensor,
+    evse1_soc_sensor,
     evse2_power_sensor,
+    evse2_soc_sensor,
     heating_power_sensor,
     heating_soc_sensor,
     aggregate_sensor,
@@ -726,7 +729,12 @@ async def configure_site_dashboard(
         },
         {
             "title": "Storages SoC",
-            "sensors": [battery_soc_sensor["id"], heating_soc_sensor["id"]],
+            "sensors": [
+                battery_soc_sensor["id"],
+                evse1_soc_sensor["id"],
+                evse2_soc_sensor["id"],
+                heating_soc_sensor["id"],
+            ],
         },
         {
             "title": "Site capacity",
@@ -909,7 +917,9 @@ async def create_sites_assets_and_sensors(
         battery_power_sensor=battery_power_sensor,
         battery_soc_sensor=battery_soc_sensor,
         evse1_power_sensor=evse1_power_sensor,
+        evse1_soc_sensor=evse1_soc_sensor,
         evse2_power_sensor=evse2_power_sensor,
+        evse2_soc_sensor=evse2_soc_sensor,
         heating_power_sensor=heating_power_sensor,
         heating_soc_sensor=heating_soc_sensor,
         aggregate_sensor=aggregate_sensor,

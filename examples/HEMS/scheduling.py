@@ -302,33 +302,29 @@ async def compute_site_schedules(
     evse2_constraints = calculate_ev_soc_targets_and_constraints(
         current_time_ts, evse2_capacity, evse2_has_trip
     )
-    if not evse1_constraints.get("unavailable"):
-
-        # Create flex models for EVSE 1
-        if evse1_next_current_soc is None:
-            # Use initial SoC for first step
-            evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)
-        else:
-            evse1_current_soc = evse1_next_current_soc
-        # Create dynamic flex model for EVSE 1 (Current SoC updated each step)
-        evse1_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
-            current_soc=evse1_current_soc,
-            constraints=evse1_constraints,
+    # Keep EVs in the model while they are away. Their zero consumption-capacity
+    # prevents charging, while soc-usage continues to account for driving.
+    if evse1_next_current_soc is None:
+        evse1_current_soc = evse1_flex_model.get(
+            "soc_at_start", EV_CONFIG["min_soc_percent"] * evse1_capacity
         )
+    else:
+        evse1_current_soc = evse1_next_current_soc
+    evse1_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
+        current_soc=evse1_current_soc,
+        constraints=evse1_constraints,
+    )
 
-    if not evse2_constraints.get("unavailable"):
-
-        # Create flex models for EVSE 2 (similar pattern, could be different car)
-        if evse2_next_current_soc is None:
-            # Use initial SoC for first step
-            evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
-        else:
-            evse2_current_soc = evse2_next_current_soc
-        # Create dynamic flex model for EVSE 2 (Current SoC updated each step)
-        evse2_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
-            current_soc=evse2_current_soc,
-            constraints=evse2_constraints,
+    if evse2_next_current_soc is None:
+        evse2_current_soc = evse2_flex_model.get(
+            "soc_at_start", EV_CONFIG["min_soc_percent"] * evse2_capacity
         )
+    else:
+        evse2_current_soc = evse2_next_current_soc
+    evse2_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
+        current_soc=evse2_current_soc,
+        constraints=evse2_constraints,
+    )
 
     if heating_next_current_soc is None:
         # Use initial SoC for first step
@@ -365,26 +361,18 @@ async def compute_site_schedules(
         },
     ]
 
-    # Conditionally add EVSE flex models if they are not on a trip
-    if not evse1_constraints.get("unavailable"):
-        final_flex_models.append(
+    final_flex_models.extend(
+        [
             {
                 "sensor": sensors[f"evse1-power-{index}"]["id"],
                 **evse1_scheduling_dynamic_flex_model,
-            }
-        )
-    else:
-        print("EVSE 1 is on a trip, skipping scheduling.")
-
-    if not evse2_constraints.get("unavailable"):
-        final_flex_models.append(
+            },
             {
                 "sensor": sensors[f"evse2-power-{index}"]["id"],
                 **evse2_scheduling_dynamic_flex_model,
-            }
-        )
-    else:
-        print("EVSE 2 is on a trip, skipping scheduling.")
+            },
+        ]
+    )
 
     print("[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
     for i, model in enumerate(final_flex_models):
