@@ -370,6 +370,45 @@ async def test_delete_sensor_data_confirmation_declined():
 
 
 @pytest.mark.asyncio
+async def test_delete_sensor_data_with_filters():
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.33.0"
+        m.delete(
+            "http://localhost:5000/api/v3_0/sensors/7/data",
+            status=204,
+            payload={},
+        )
+
+        await client.delete_sensor_data(
+            sensor_id=7,
+            confirm_first=False,
+            source=3,
+            start="2030-01-01T00:00:00+00:00",
+            until="2030-01-02T00:00:00+00:00",
+        )
+
+        m.assert_called_once_with(
+            "http://localhost:5000/api/v3_0/sensors/7/data",
+            method="DELETE",
+            json={
+                "source": 3,
+                "start": "2030-01-01T00:00:00+00:00",
+                "until": "2030-01-02T00:00:00+00:00",
+            },
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "test-token",
+            },
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_post_sensor_data() -> None:
     with aioresponses() as m:
         flexmeasures_client = FlexMeasuresClient(
