@@ -19,10 +19,12 @@ from utils.workflow_utils import (
     PHASE_LABELS,
     REPORTING_PHASE,
     SCHEDULING_PHASE,
-    ensure_workflow_state,
+    get_site_assets,
+    get_workflow_state,
     initialize_workflow_state,
     mark_phase_complete,
     phase_is_complete,
+    rename_site_assets,
     wipe_hems_sensor_data,
 )
 
@@ -65,7 +67,8 @@ def prompt_for_existing_setup(account: dict, community_name: str, state: dict) -
                 "(requires typing WIPE).\n"
                 "  [n] Resume — preserve everything and continue from the first "
                 "unfinished phase.\n"
-                "Choice [y/w/N]: "
+                "  [q] Exit without making changes.\n"
+                "Choice [y/w/N/q]: "
             )
             .strip()
             .lower()
@@ -74,22 +77,100 @@ def prompt_for_existing_setup(account: dict, community_name: str, state: dict) -
             return "recreate"
         if answer in {"w", "wipe"}:
             return "wipe"
+        if answer in {"q", "quit", "exit"}:
+            return "exit"
         if answer in {"", "n", "no"}:
-            if state.get("status") == "wiping":
-                print(
-                    "A previous data wipe was interrupted. Choose 'w' to resume "
-                    "the wipe or 'y' to recreate the assets."
-                )
-                continue
-            if state.get("status") == "untracked":
-                print(
-                    "This setup predates HEMS phase markers, so its completed "
-                    "phases cannot be determined safely. Choose 'w' for fresh "
-                    "data with the same IDs, or 'y' to recreate everything."
-                )
-                continue
             return "resume"
-        print("Please choose 'y', 'w', or 'n'.")
+        print("Please choose 'y', 'w', 'n', or 'q'.")
+
+
+def prompt_for_interrupted_wipe() -> str:
+    """Require an explicit recovery choice after a partial data wipe."""
+    print(
+        "A previous data wipe was interrupted. Some sensor data may already "
+        "be deleted, so normal resume is not safe."
+    )
+    while True:
+        answer = (
+            input(
+                "\nChoose how to recover:\n"
+                "  [c] Continue the interrupted wipe and preserve all IDs.\n"
+                "  [y] Recreate assets, sensors, IDs, and data "
+                "(requires typing RECREATE).\n"
+                "  [q] Exit without deleting anything else.\n"
+                "Choice [c/y/Q]: "
+            )
+            .strip()
+            .lower()
+        )
+        if answer in {"c", "continue"}:
+            return "continue-wipe"
+        if answer in {"y", "yes", "recreate"}:
+            return "recreate"
+        if answer in {"", "q", "quit", "exit", "n", "no"}:
+            return "exit"
+        print("Please choose 'c', 'y', or 'q'.")
+
+
+def prompt_for_untracked_setup(
+    existing_site_names: list[str], configured_site_names: list[str]
+) -> str:
+    """Choose how to recover a setup whose asset phase was not recorded."""
+    legacy_names = any(
+        name not in configured_site_names for name in existing_site_names
+    )
+    if legacy_names:
+        print(
+            "This setup uses different site names than the current tutorial:\n"
+            f"- Existing: {existing_site_names}\n"
+            f"- Configured: {configured_site_names}"
+        )
+        while True:
+            answer = (
+                input(
+                    "\nChoose how to recover the asset structure:\n"
+                    "  [k] Keep the existing site names and complete missing items.\n"
+                    "  [m] Rename existing sites to the configured names and "
+                    "complete missing items.\n"
+                    "  [y] Recreate the complete setup with new IDs "
+                    "(requires typing RECREATE).\n"
+                    "  [q] Exit without making changes.\n"
+                    "Choice [k/m/y/Q]: "
+                )
+                .strip()
+                .lower()
+            )
+            if answer in {"k", "keep"}:
+                return "keep-names"
+            if answer in {"m", "migrate", "rename"}:
+                return "rename-sites"
+            if answer in {"y", "yes", "recreate"}:
+                return "recreate"
+            if answer in {"", "q", "quit", "exit"}:
+                return "exit"
+            print("Please choose 'k', 'm', 'y', or 'q'.")
+
+    while True:
+        answer = (
+            input(
+                "The existing setup has no completed asset-setup marker and may "
+                "be incomplete.\n"
+                "  [c] Complete missing assets and sensors, preserving existing IDs.\n"
+                "  [y] Recreate the complete setup with new IDs "
+                "(requires typing RECREATE).\n"
+                "  [q] Exit without making changes.\n"
+                "Choice [c/y/Q]: "
+            )
+            .strip()
+            .lower()
+        )
+        if answer in {"c", "continue", "complete", "repair"}:
+            return "repair"
+        if answer in {"y", "yes", "recreate"}:
+            return "recreate"
+        if answer in {"", "q", "quit", "exit"}:
+            return "exit"
+        print("Please choose 'c', 'y', or 'q'.")
 
 
 def confirm_recreation(account: dict, community_name: str) -> bool:
@@ -148,8 +229,8 @@ async def main(
             f"Checking server is up and on supported version ... connecting to {host} (ssl: {ssl})"
         )
         await client.ensure_minimum_server_version(
-            "0.31.0",
-            "The HEMS example requires a FlexMeasures server of v0.31.0 or above.",
+            "0.33.0",
+            "The HEMS example requires a FlexMeasures server of v0.33.0 or above.",
         )
 
         # Get user account information
@@ -161,48 +242,126 @@ async def main(
         account_id = account["id"]
         print(f"Connected to account: {account['name']} (ID: {account_id})")
 
-        asset = None
-        assets = await client.get_assets(parse_json_fields=True)
-        for sst in assets:
-            if sst["name"] == community_name and sst.get("account_id") == account_id:
-                asset = sst
-                break
+        active_site_names = list(site_names)
+        top_level_assets = await client.get_assets(
+            account_id=account_id,
+            depth=0,
+            fields=["id", "name", "account_id", "parent_asset_id", "attributes"],
+            parse_json_fields=True,
+        )
+        matching_communities = [
+            candidate
+            for candidate in top_level_assets
+            if candidate.get("name") == community_name
+            and candidate.get("account_id") == account_id
+        ]
+        if len(matching_communities) > 1:
+            raise LookupError(
+                f"Expected at most one top-level asset named '{community_name}', "
+                f"found {len(matching_communities)}."
+            )
+        asset = matching_communities[0] if matching_communities else None
 
         if not asset:
             print(
                 "Creating community Site asset with 2 building assets, each with PV and battery sensors, and weather station"
             )
             asset = await create_community_asset(
-                client, account, community_name=community_name, site_names=site_names
+                client,
+                account,
+                community_name=community_name,
+                site_names=active_site_names,
             )
-            state = await initialize_workflow_state(client, asset, account_id)
+            state = await initialize_workflow_state(
+                client, asset, account_id, active_site_names
+            )
         else:
-            state = await ensure_workflow_state(client, asset, account_id)
-            action = prompt_for_existing_setup(account, community_name, state)
-            if action == "recreate":
-                if not confirm_recreation(account, community_name):
-                    print("Recreation cancelled. No assets or data were deleted.")
+            existing_site_assets = await get_site_assets(
+                client, asset["id"], account_id
+            )
+            existing_site_names = [site["name"] for site in existing_site_assets]
+            state = get_workflow_state(asset)
+
+            if state is None or state.get("status") == "untracked":
+                action = prompt_for_untracked_setup(existing_site_names, site_names)
+                if action == "exit":
+                    print("Exiting without making changes.")
                     return
-                await delete_hems_assets(
-                    client=client,
-                    account_id=account["id"],
-                    community_name=community_name,
-                    confirm_first=False,
+                if action == "recreate":
+                    if not confirm_recreation(account, community_name):
+                        print("Recreation cancelled. No assets or data were deleted.")
+                        return
+                    await delete_hems_assets(
+                        client=client,
+                        account_id=account["id"],
+                        community_name=community_name,
+                        confirm_first=False,
+                    )
+                    asset = await create_community_asset(
+                        client,
+                        account,
+                        community_name=community_name,
+                        site_names=active_site_names,
+                    )
+                else:
+                    if action == "keep-names":
+                        active_site_names = existing_site_names
+                    elif action == "rename-sites":
+                        await rename_site_assets(
+                            client, existing_site_assets, active_site_names
+                        )
+                    asset = await create_community_asset(
+                        client,
+                        account,
+                        community_name=community_name,
+                        site_names=active_site_names,
+                        community_asset=asset,
+                    )
+                state = await initialize_workflow_state(
+                    client, asset, account_id, active_site_names
                 )
-                asset = await create_community_asset(
-                    client,
-                    account,
-                    community_name=community_name,
-                    site_names=site_names,
-                )
-                state = await initialize_workflow_state(client, asset, account_id)
-            elif action == "wipe":
-                if not confirm_data_wipe(state):
-                    print("Data wipe cancelled. No sensor data was deleted.")
-                    return
-                state = await wipe_hems_sensor_data(client, asset["id"], state)
             else:
-                print("Resuming the existing HEMS setup.")
+                active_site_names = list(
+                    state.get("site-names") or existing_site_names or site_names
+                )
+                if "site-names" not in state:
+                    state = {**state, "site-names": active_site_names}
+
+                if state.get("status") == "wiping":
+                    action = prompt_for_interrupted_wipe()
+                else:
+                    action = prompt_for_existing_setup(account, community_name, state)
+
+                if action == "exit":
+                    print("Exiting without making changes.")
+                    return
+                if action == "recreate":
+                    if not confirm_recreation(account, community_name):
+                        print("Recreation cancelled. No assets or data were deleted.")
+                        return
+                    active_site_names = list(site_names)
+                    await delete_hems_assets(
+                        client=client,
+                        account_id=account["id"],
+                        community_name=community_name,
+                        confirm_first=False,
+                    )
+                    asset = await create_community_asset(
+                        client,
+                        account,
+                        community_name=community_name,
+                        site_names=active_site_names,
+                    )
+                    state = await initialize_workflow_state(
+                        client, asset, account_id, active_site_names
+                    )
+                elif action in {"wipe", "continue-wipe"}:
+                    if not confirm_data_wipe(state):
+                        print("Data wipe cancelled. No additional data was deleted.")
+                        return
+                    state = await wipe_hems_sensor_data(client, asset["id"], state)
+                else:
+                    print("Resuming the existing HEMS setup.")
 
         # Part 2: Upload data for first two weeks
         print("\n" + "=" * 50)
@@ -211,7 +370,7 @@ async def main(
         else:
             print("PART 2: UPLOADING DATA")
             await upload_data_for_first_two_weeks(
-                client, community_name=community_name, site_names=site_names
+                client, community_name=community_name, site_names=active_site_names
             )
             state = await mark_phase_complete(
                 client, asset["id"], state, DATA_UPLOAD_PHASE
@@ -224,7 +383,7 @@ async def main(
         else:
             print("PART 3: GENERATING PV FORECASTS")
             await generate_forecasts(
-                client, community_name=community_name, site_names=site_names
+                client, community_name=community_name, site_names=active_site_names
             )
             state = await mark_phase_complete(
                 client, asset["id"], state, FORECASTING_PHASE
@@ -239,7 +398,7 @@ async def main(
             scheduling_succeeded = await run_scheduling_simulation(
                 client,
                 community_name=community_name,
-                site_names=site_names,
+                site_names=active_site_names,
                 callback=callback,
             )
             if not scheduling_succeeded:
@@ -256,7 +415,7 @@ async def main(
             print("PART 5: CREATING REPORTS")
             # todo B2: compute aggregate power flow for the community asset's power sensor
             reports_succeeded = await create_reports(
-                client, community_name=community_name, site_names=site_names
+                client, community_name=community_name, site_names=active_site_names
             )
             if not reports_succeeded:
                 raise RuntimeError("Report generation did not complete.")

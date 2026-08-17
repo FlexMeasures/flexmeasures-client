@@ -7,7 +7,7 @@ Settings for the HEMS example script.
 usr = "hems-admin@example.com"  # Account-admin user email
 pwd = "change-me"  # Account-admin user password
 host = "127.0.0.1:5000"  # FlexMeasures host, without http:// or https://
-ssl = False  # Use HTTPS (and port 443 unless host specifies another port)
+ssl = False  # Local development server uses HTTP; set True for HTTPS deployments
 
 # Asset and sensor names
 COMMUNITY_NAME = "Community Site"

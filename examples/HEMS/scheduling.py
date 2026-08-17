@@ -860,12 +860,22 @@ async def get_site_assets(
     index: int,
 ):
     """Get all assets in a site's child building."""
+    community_asset_id = await find_top_level_asset_id(client, community_name)
+    community_asset = await client.get_asset(community_asset_id, parse_json_fields=True)
     assets = await client.get_assets(
-        fields=["id", "name", "attributes", "sensors"], parse_json_fields=True
+        root=community_asset_id,
+        fields=["id", "name", "attributes", "sensors", "parent_asset_id"],
+        parse_json_fields=True,
     )
-    assets_by_name = {a["name"]: a for a in assets}
+    assets_by_name: dict[str, dict] = {community_name: community_asset}
+    for asset in assets:
+        if asset["name"] in assets_by_name:
+            raise LookupError(
+                f"Asset name '{asset['name']}' is ambiguous in community "
+                f"'{community_name}'."
+            )
+        assets_by_name[asset["name"]] = asset
 
-    community_asset = assets_by_name.get(community_name)
     site_asset = assets_by_name.get(site_name)
     battery_asset = assets_by_name.get(f"{battery_name} {index}")
     evse1_asset = assets_by_name.get(f"{evse1_name} {index}")
@@ -928,14 +938,13 @@ async def map_site_sensors(
 
         for sensor_key, asset_name, sensor_name in sensor_mappings:
             sensor = await find_sensor_by_name_and_asset(
-                client, sensor_name, asset_name, top_level_asset_id=top_level_asset_id
+                client,
+                sensor_name,
+                asset_name,
+                top_level_asset_id=top_level_asset_id,
+                allow_top_level_asset=asset_name == price_market_name,
             )
-            if sensor:
-                sensors[sensor_key] = sensor
-            else:
-                raise LookupError(
-                    f"Could not find sensor '{sensor_name}' in asset '{asset_name}'"
-                )
+            sensors[sensor_key] = sensor
     return sensors
 
 
