@@ -52,6 +52,9 @@ JOB_POLLING_TIMEOUT = 600.0  # seconds, total budget for a job to finish
 JOB_STATUS_FINISHED = "FINISHED"
 JOB_STATUS_UNSUCCESSFUL = frozenset({"FAILED", "STOPPED", "CANCELED"})
 
+# The asset report trigger endpoint landed in FlexMeasures v1.1.0
+REPORT_TRIGGER_MIN_SERVER_VERSION = "1.1.0"
+
 
 def _parse_json_field(data: dict, field_name: str) -> None:
     """Parse a JSON string field in-place if it exists and is a string."""
@@ -1811,6 +1814,101 @@ class FlexMeasuresClient:
             await asyncio.sleep(min(interval, remaining))
             interval = min(interval * 2, max_polling_interval)
             job = await self.get_job_status(job_id)
+
+    async def trigger_report(
+        self,
+        asset_id: int,
+        reporter: str,
+        parameters: dict,
+        config: dict | None = None,
+    ) -> str:
+        """Trigger a one-off reporting job for the given asset.
+
+        The report runs on the server's ``reporting`` queue, so the server
+        needs a worker listening on that queue:
+
+            flexmeasures jobs run-worker --queue reporting
+
+        The caller needs to be able to read every input and configuration
+        sensor, and to record data on every output sensor. Each output sensor
+        must belong to the given asset or one of its descendants.
+
+        :param asset_id: ID of the asset to report on. Output sensors must sit
+                         in this asset's subtree.
+        :param reporter: name of the reporter class, e.g. "PandasReporter".
+        :param parameters: reporter parameters, holding at least the ``input``
+                           and ``output`` sensors and the ``start`` and ``end``
+                           of the reporting period.
+        :param config: reporter configuration. Defaults to an empty config.
+
+        :returns: job UUID (string), to be passed to :func:`wait_for_job`.
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        json_payload: dict[str, Any] = {
+            "reporter": reporter,
+            "parameters": parameters,
+        }
+        if config is not None:
+            json_payload["config"] = config
+
+        response, status = await self.request(
+            uri=f"assets/{asset_id}/reports/trigger",
+            json_payload=json_payload,
+            method="POST",
+            minimum_server_version=REPORT_TRIGGER_MIN_SERVER_VERSION,
+            minimum_server_version_msg=(
+                "Reports can only be triggered over the API from this version on. "
+                "On older servers, use the `flexmeasures add report` CLI command."
+            ),
+        )
+        check_for_status(status, 202)
+
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected a dictionary, but got {type(response)}",
+            )
+
+        if not isinstance(response.get("job"), str):
+            raise ContentTypeError(
+                f"Expected a job ID, but got {type(response.get('job'))}",
+            )
+        job_id = response["job"]
+        self.logger.info(f"Report triggered successfully. Job ID: {job_id}")
+        return job_id
+
+    async def trigger_and_await_report(
+        self,
+        asset_id: int,
+        reporter: str,
+        parameters: dict,
+        config: dict | None = None,
+        timeout: float = JOB_POLLING_TIMEOUT,
+        polling_interval: float = JOB_POLLING_INTERVAL,
+        max_polling_interval: float = JOB_POLLING_MAX_INTERVAL,
+    ) -> dict:
+        """Trigger a one-off reporting job and wait for it to finish.
+
+        Reports write their result to their output sensors rather than
+        returning it, so use :func:`get_sensor_data` to read the values back.
+
+        :returns: the final job status dictionary (see :func:`get_job_status`).
+
+        :raises JobFailedError: if the report job ended as FAILED, STOPPED or CANCELED.
+        :raises JobTimeoutError: if the report job did not finish within ``timeout``.
+        """
+        job_id = await self.trigger_report(
+            asset_id=asset_id,
+            reporter=reporter,
+            parameters=parameters,
+            config=config,
+        )
+        return await self.wait_for_job(
+            job_id=job_id,
+            timeout=timeout,
+            polling_interval=polling_interval,
+            max_polling_interval=max_polling_interval,
+        )
 
     @staticmethod
     def create_storage_flex_model(
