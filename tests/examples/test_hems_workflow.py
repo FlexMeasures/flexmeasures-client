@@ -9,14 +9,14 @@ import pytest
 HEMS_DIR = Path(__file__).parents[2] / "examples" / "HEMS"
 sys.path.insert(0, str(HEMS_DIR))
 
-from HEMS_setup import (  # noqa: E402
-    prompt_for_interrupted_wipe,
-    prompt_for_untracked_setup,
-)
 from assets_setup import (  # noqa: E402
     create_community_asset,
     get_or_create_asset,
     get_or_create_sensor,
+)
+from HEMS_setup import (  # noqa: E402
+    prompt_for_interrupted_wipe,
+    prompt_for_untracked_setup,
 )
 from scheduling import get_site_assets as get_scheduling_site_assets  # noqa: E402
 from utils.asset_utils import (  # noqa: E402
