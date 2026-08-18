@@ -22,7 +22,10 @@ async def post_sensor_data_and_track_ingestion(
     if status != 202:
         return
 
-    job_id = response.get("job") if isinstance(response, dict) else None
+    # FlexMeasures 0.33 calls this field ``job_id``; newer servers use ``job``.
+    job_id = None
+    if isinstance(response, dict):
+        job_id = response.get("job") or response.get("job_id")
     if not job_id:
         raise RuntimeError(
             "The server accepted sensor data for asynchronous ingestion "
@@ -123,7 +126,12 @@ async def find_sensor_by_name_and_asset(
     sensors = await client.get_sensors(
         asset_id=target_asset["id"], parse_json_fields=True
     )
-    matches = [sensor for sensor in sensors if sensor.get("name") == sensor_name]
+    matches = [
+        sensor
+        for sensor in sensors
+        if sensor.get("name") == sensor_name
+        and sensor.get("generic_asset_id") == target_asset["id"]
+    ]
     if not matches:
         raise LookupError(f"Sensor '{sensor_name}' not found in asset '{asset_name}'")
     if len(matches) > 1:
@@ -328,20 +336,3 @@ def load_and_align_csv_data(
 
     print(f"Aligned {len(df)} records from {file_path}")
     return aligned_df
-
-
-def get_first_asset_by_name(
-    assets: list[dict], name: str, account_id: int | None = 0
-) -> dict | None:
-    """
-    :param assets:      List of dictionaries describing assets, each with at least a "name".
-    :param name:        The asset name to find the first occurrence for.
-    :param account_id:  Optionally, filter by account_id (a positive integer, or None for a public account).
-                        To use this filter, each dictionary in `assets` should contain the "account_id", too.
-                        NB the 0 default is used to signal the argument is missing (real IDs are strictly positive).
-    """
-    for asset in assets:
-        if asset["name"] == name:
-            if account_id != 0 and asset["account_id"] != account_id:
-                continue
-            return asset

@@ -867,9 +867,10 @@ async def get_site_assets(
         fields=["id", "name", "attributes", "sensors", "parent_asset_id"],
         parse_json_fields=True,
     )
-    assets_by_name: dict[str, dict] = {community_name: community_asset}
-    for asset in assets:
-        if asset["name"] in assets_by_name:
+    assets_by_name: dict[str, dict] = {}
+    for asset in [community_asset, *assets]:
+        existing_asset = assets_by_name.get(asset["name"])
+        if existing_asset is not None and existing_asset["id"] != asset["id"]:
             raise LookupError(
                 f"Asset name '{asset['name']}' is ambiguous in community "
                 f"'{community_name}'."

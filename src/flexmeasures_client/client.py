@@ -1418,8 +1418,14 @@ class FlexMeasuresClient:
         Optionally limit deletion to one source and/or an event-time range.
         """
         if confirm_first:
+            deletion_scope = (
+                "all data"
+                if source is None and start is None and until is None
+                else "matching data"
+            )
             answer = input(
-                f"Permanently delete all data from sensor {sensor_id}? [y/N] "
+                f"Permanently delete {deletion_scope} from sensor "
+                f"{sensor_id}? [y/N] "
             )
             if answer.lower() not in ["y", "yes"]:
                 print("Aborting ...")

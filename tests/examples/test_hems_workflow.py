@@ -18,7 +18,11 @@ from assets_setup import (  # noqa: E402
     get_or_create_asset,
     get_or_create_sensor,
 )
-from utils.asset_utils import find_sensor_by_name_and_asset  # noqa: E402
+from scheduling import get_site_assets as get_scheduling_site_assets  # noqa: E402
+from utils.asset_utils import (  # noqa: E402
+    find_sensor_by_name_and_asset,
+    post_sensor_data_and_track_ingestion,
+)
 from utils.workflow_utils import (  # noqa: E402
     ASSET_SETUP_PHASE,
     get_site_assets,
@@ -184,6 +188,56 @@ async def test_get_or_create_sensor_only_creates_missing_sensor():
 
 
 @pytest.mark.asyncio
+async def test_get_or_create_sensor_ignores_same_name_on_descendant_assets():
+    client = AsyncMock()
+    client.get_sensors.return_value = [
+        {"id": 10, "name": "power", "generic_asset_id": 2},
+        {"id": 11, "name": "power", "generic_asset_id": 1},
+    ]
+
+    sensor = await get_or_create_sensor(
+        client,
+        name="power",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=1,
+    )
+
+    assert sensor["id"] == 11
+    client.add_sensor.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_sensor_rejects_duplicates_on_same_asset():
+    client = AsyncMock()
+    client.get_sensors.return_value = [
+        {"id": 10, "name": "power", "generic_asset_id": 1},
+        {"id": 11, "name": "power", "generic_asset_id": 1},
+    ]
+
+    with pytest.raises(LookupError, match="found 2"):
+        await get_or_create_sensor(
+            client,
+            name="power",
+            event_resolution="PT15M",
+            unit="kW",
+            generic_asset_id=1,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("job_field", ["job", "job_id"])
+async def test_async_sensor_data_ingestion_tracks_supported_job_fields(job_field):
+    client = AsyncMock()
+    client.post_sensor_data.return_value = ({job_field: "job-123"}, 202)
+    pending_jobs = []
+
+    await post_sensor_data_and_track_ingestion(client, pending_jobs, sensor_id=1)
+
+    assert pending_jobs == ["job-123"]
+
+
+@pytest.mark.asyncio
 async def test_repair_completes_structure_without_replacing_existing_ids():
     client = InMemoryClient()
     existing_community = client.assets[0]
@@ -233,7 +287,10 @@ async def test_sensor_lookup_stays_inside_community_by_default():
         "account_id": 9,
     }
     client.get_assets.return_value = [{"id": 2, "name": "Building A"}]
-    client.get_sensors.return_value = [{"id": 20, "name": "power"}]
+    client.get_sensors.return_value = [
+        {"id": 19, "name": "power", "generic_asset_id": 3},
+        {"id": 20, "name": "power", "generic_asset_id": 2},
+    ]
 
     sensor = await find_sensor_by_name_and_asset(
         client,
@@ -258,7 +315,9 @@ async def test_explicit_top_level_sensor_lookup_stays_in_community_account():
         [{"id": 2, "name": "Building A", "account_id": 9}],
         [{"id": 3, "name": "Price Market", "account_id": 9}],
     ]
-    client.get_sensors.return_value = [{"id": 30, "name": "electricity-price"}]
+    client.get_sensors.return_value = [
+        {"id": 30, "name": "electricity-price", "generic_asset_id": 3}
+    ]
 
     sensor = await find_sensor_by_name_and_asset(
         client,
@@ -287,6 +346,39 @@ async def test_get_site_assets_only_returns_direct_children():
     sites = await get_site_assets(client, community_asset_id=1, account_id=9)
 
     assert [site["id"] for site in sites] == [2, 4]
+
+
+@pytest.mark.asyncio
+async def test_scheduling_assets_accept_root_repeated_by_server():
+    client = AsyncMock()
+    community = {"id": 1, "name": "Community Site"}
+    client.get_asset.return_value = community
+    client.get_assets.return_value = [
+        community,
+        {"id": 2, "name": "Building A"},
+        {"id": 3, "name": "Home Battery 1"},
+        {"id": 4, "name": "EV Connector 1 1"},
+        {"id": 5, "name": "EV Connector 2 1"},
+        {"id": 6, "name": "Heat Pump 1"},
+    ]
+
+    with patch("scheduling.find_top_level_asset_id", AsyncMock(return_value=1)):
+        assets = await get_scheduling_site_assets(
+            client, "Building A", "Community Site", 1
+        )
+
+    assert [asset["id"] for asset in assets] == [1, 2, 3, 4, 5, 6]
+
+
+@pytest.mark.asyncio
+async def test_scheduling_assets_reject_different_assets_with_same_name():
+    client = AsyncMock()
+    client.get_asset.return_value = {"id": 1, "name": "Community Site"}
+    client.get_assets.return_value = [{"id": 99, "name": "Community Site"}]
+
+    with patch("scheduling.find_top_level_asset_id", AsyncMock(return_value=1)):
+        with pytest.raises(LookupError, match="ambiguous"):
+            await get_scheduling_site_assets(client, "Building A", "Community Site", 1)
 
 
 @pytest.mark.asyncio

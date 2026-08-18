@@ -68,7 +68,13 @@ async def get_or_create_sensor(
     sensors = await client.get_sensors(
         asset_id=generic_asset_id, parse_json_fields=False
     )
-    matches = [sensor for sensor in sensors if sensor.get("name") == name]
+    # FlexMeasures 0.33 may include sensors on descendant assets here.
+    matches = [
+        sensor
+        for sensor in sensors
+        if sensor.get("name") == name
+        and sensor.get("generic_asset_id") == generic_asset_id
+    ]
     if len(matches) > 1:
         raise LookupError(
             f"Expected at most one sensor named '{name}' on asset "

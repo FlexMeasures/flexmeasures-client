@@ -361,10 +361,27 @@ async def test_delete_sensor_data_confirmation_declined():
     client = FlexMeasuresClient(email="test@test.test", password="test")
     client.access_token = "test-token"
     with (
-        patch("builtins.input", return_value="n"),
+        patch("builtins.input", return_value="n") as prompt,
         patch.object(client, "request", new_callable=AsyncMock) as request,
     ):
         await client.delete_sensor_data(sensor_id=7)
+    prompt.assert_called_once_with("Permanently delete all data from sensor 7? [y/N] ")
+    request.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_filtered_sensor_data_confirmation_is_scoped():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.access_token = "test-token"
+    with (
+        patch("builtins.input", return_value="n") as prompt,
+        patch.object(client, "request", new_callable=AsyncMock) as request,
+    ):
+        await client.delete_sensor_data(sensor_id=7, source=3)
+    prompt.assert_called_once_with(
+        "Permanently delete matching data from sensor 7? [y/N] "
+    )
     request.assert_not_awaited()
     await client.close()
 

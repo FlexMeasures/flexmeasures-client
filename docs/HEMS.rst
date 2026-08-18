@@ -129,8 +129,8 @@ Rerunning or resuming the tutorial
 ==================================
 
 The setup script records completed phases in a namespaced attribute on the
-community asset. If the community already exists, the script shows which phases
-are complete and offers three choices:
+community asset. If a tracked community already exists, the script shows which
+phases are complete and offers four choices:
 
 - ``y`` recreates the HEMS assets. This deletes their sensors, IDs, and data,
   including the HEMS energy market and weather station, before creating
@@ -153,11 +153,11 @@ IDs, recreate the setup, or exit. For an older setup with different site names,
 it also offers to keep those names or rename the sites to the names configured
 in ``const.py``.
 
-The workflow marker stores the exact sensor IDs created for the tutorial, so a
-data wipe remains limited to that recorded set. If an existing setup predates
-workflow markers, safe resume is unavailable because its completed phases are
-unknown. Choose ``w`` to keep its IDs while refreshing its data, or ``y`` to
-recreate it fully.
+The workflow marker stores the sensor IDs in the HEMS structure when the marker
+is created, so a data wipe remains limited to that recorded set. If an existing
+setup predates workflow markers, safe resume is unavailable because its
+completed phases are unknown. Choose the offered repair option to preserve IDs
+and complete missing structure, or choose recreation to replace the setup.
 
 
 Delete the tutorial assets and data
