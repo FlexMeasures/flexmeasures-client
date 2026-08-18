@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import socket
+import time
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -24,6 +25,8 @@ from flexmeasures_client.exceptions import (
     EmailValidationError,
     EmptyPasswordError,
     InsufficientServerVersionError,
+    JobFailedError,
+    JobTimeoutError,
     WrongAPIVersionError,
     WrongHostError,
 )
@@ -40,6 +43,14 @@ POLLING_TIMEOUT = 200.0  # seconds
 REQUEST_TIMEOUT = 40.0  # seconds
 POLLING_INTERVAL = 10.0  # seconds
 API_VERSIONS_LIST = ["v3_0"]
+
+JOB_POLLING_INTERVAL = 2.0  # seconds, first wait between job status polls
+JOB_POLLING_MAX_INTERVAL = 30.0  # seconds, cap on the backing-off wait
+JOB_POLLING_TIMEOUT = 600.0  # seconds, total budget for a job to finish
+
+# Terminal job states, as reported by GET /api/v3_0/jobs/<uuid>
+JOB_STATUS_FINISHED = "FINISHED"
+JOB_STATUS_UNSUCCESSFUL = frozenset({"FAILED", "STOPPED", "CANCELED"})
 
 
 def _parse_json_field(data: dict, field_name: str) -> None:
@@ -112,6 +123,18 @@ def convert_units(
             f"Power conversion from {from_unit} to {to_unit} is not supported."
         )
     return values
+
+
+def _describe_failed_job(job_id: str, job: dict) -> str:
+    """Build an error message for a job that ended in a non-successful state."""
+    msg = f"Job {job_id} ended with status {job['status']}."
+    job_message = job.get("message")
+    if job_message:
+        msg += f" {job_message}"
+    exc_info = job.get("exc-info") or job.get("exc_info")
+    if exc_info:
+        msg += f"\nServer traceback:\n{exc_info}"
+    return msg
 
 
 @dataclass
@@ -1700,6 +1723,94 @@ class FlexMeasuresClient:
             sensor_id=sensor_id,
             forecast_id=forecast_id,
         )
+
+    async def get_job_status(self, job_id: str) -> dict:
+        """Get the status of a background job.
+
+        :param job_id: UUID of the job, as returned by a trigger endpoint.
+
+        :returns: job status as a dictionary, for example:
+                {
+                    'status': 'FINISHED',
+                    'message': 'Report job finished.',
+                    'result': None,
+                    'origin': 'flexmeasures:reporting',
+                    'func-name': 'flexmeasures.data.services.reporting.run_report_job',
+                    'enqueued-at': '2026-08-18T09:00:00+00:00',
+                    'started-at': '2026-08-18T09:00:01+00:00',
+                    'ended-at': '2026-08-18T09:00:04+00:00',
+                    'exc-info': None,
+                }
+
+        The ``status`` field is one of QUEUED, STARTED, FINISHED, FAILED,
+        DEFERRED, SCHEDULED, STOPPED or CANCELED.
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        response, status = await self.request(
+            uri=f"jobs/{job_id}",
+            method="GET",
+        )
+        check_for_status(status, 200)
+
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected a dictionary, but got {type(response)}",
+            )
+
+        if not isinstance(response.get("status"), str):
+            raise ContentTypeError(
+                f"Expected a job status string, but got {type(response.get('status'))}",
+            )
+        return response
+
+    async def wait_for_job(
+        self,
+        job_id: str,
+        timeout: float = JOB_POLLING_TIMEOUT,
+        polling_interval: float = JOB_POLLING_INTERVAL,
+        max_polling_interval: float = JOB_POLLING_MAX_INTERVAL,
+    ) -> dict:
+        """Poll a background job until it reaches a terminal state.
+
+        Waits are backed off exponentially, from ``polling_interval`` up to
+        ``max_polling_interval``, so that short jobs are picked up quickly
+        without hammering the server on long ones.
+
+        :param job_id: UUID of the job, as returned by a trigger endpoint.
+        :param timeout: total number of seconds to wait for the job to finish.
+        :param polling_interval: seconds to wait before the first status poll.
+        :param max_polling_interval: upper bound on the wait between polls.
+
+        :returns: the final job status dictionary (see :func:`get_job_status`).
+
+        :raises JobFailedError: if the job ended as FAILED, STOPPED or CANCELED.
+        :raises JobTimeoutError: if the job did not finish within ``timeout``.
+        """
+        deadline = time.monotonic() + timeout
+        interval = polling_interval
+        job = await self.get_job_status(job_id)
+        while True:
+            status = job["status"]
+            if status == JOB_STATUS_FINISHED:
+                self.logger.info(f"Job {job_id} finished.")
+                return job
+            if status in JOB_STATUS_UNSUCCESSFUL:
+                raise JobFailedError(_describe_failed_job(job_id, job))
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise JobTimeoutError(
+                    f"Job {job_id} did not finish within {timeout} seconds. "
+                    f"Last known status: {status}."
+                )
+            self.logger.debug(
+                f"Job {job_id} has status {status}. "
+                f"Checking again in {interval} seconds..."
+            )
+            await asyncio.sleep(min(interval, remaining))
+            interval = min(interval * 2, max_polling_interval)
+            job = await self.get_job_status(job_id)
 
     @staticmethod
     def create_storage_flex_model(
