@@ -87,6 +87,13 @@ def asset_id_for_outputs(output_sensors: list[dict] | dict) -> int:
     report on community sensors against the community.
     """
     sensors = [output_sensors] if isinstance(output_sensors, dict) else output_sensors
+    if any("generic_asset_id" not in sensor for sensor in sensors):
+        # Sensors nested in an asset listing are dumped with only id and name,
+        # so their asset has to be passed to run_report() explicitly.
+        raise ValueError(
+            "Output sensors carry no generic_asset_id. "
+            "Pass asset_id to run_report() instead."
+        )
     asset_ids = {sensor["generic_asset_id"] for sensor in sensors}
     if len(asset_ids) != 1:
         raise ValueError(
@@ -104,6 +111,7 @@ async def run_report(
     output_sensors: list[dict] | dict,
     start: str,
     end: str,
+    asset_id: int | None = None,
 ) -> bool:
     """
     Run a single report through the API and wait for its job to finish.
@@ -115,10 +123,14 @@ async def run_report(
     :param reporter: FlexMeasures reporter class name, e.g. "PandasReporter".
     :param reporter_type: name of the reporter in this example, used to find its
                           configuration file, e.g. "self-consumption".
+    :param asset_id: asset to trigger the report against. Defaults to the asset
+                     owning the output sensors, which needs those sensors to
+                     carry a generic_asset_id.
 
     :returns: True if the report finished, False if it failed or timed out.
     """
-    asset_id = asset_id_for_outputs(output_sensors)
+    if asset_id is None:
+        asset_id = asset_id_for_outputs(output_sensors)
     parameters = build_reporter_parameters(
         input_sensors=input_sensors,
         output_sensors=output_sensors,
