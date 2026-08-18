@@ -15,7 +15,7 @@ This is the resulting dashboard:
     :align: center
 |
 
-.. note:: The tutorial still uses the CLI for reporting. In future versions, we might make reporting available via the API, as well.
+.. note:: The tutorial talks to FlexMeasures over the API only, including for reporting. That requires a FlexMeasures server of version 1.1.0 or above, and a worker listening on the ``reporting`` queue.
 
 
 Set up your environment
@@ -63,11 +63,11 @@ Open three terminals. In the first terminal, run the server:
 
     flexmeasures run
 
-In the second terminal, run a flexmeasures worker that listens to both the scheduling and forecasting queues:
+In the second terminal, run a flexmeasures worker that listens to the scheduling, forecasting and reporting queues:
 
 .. code-block:: bash
 
-    flexmeasures jobs run-worker --queue "forecasting|scheduling"
+    flexmeasures jobs run-worker --queue "forecasting|scheduling|reporting"
 
 Note: you can run the same command in two terminals (2 workers), to speed up the computation!
 
@@ -79,7 +79,4 @@ In the third terminal, run the client script using the `/examples/HEMS` folder a
     python3 HEMS_setup.py
 
 .. note::
-   Report generation (see :ref:`hems-tutorial` note above) shells out to a ``flexmeasures`` CLI process, which by default is expected on ``PATH`` and configured against the same database as the server. If your FlexMeasures server runs elsewhere (e.g. inside a Docker Compose service), point report generation at it instead via two environment variables:
-
-   - ``FLEXMEASURES_CLI_CMD``: the command used to invoke the CLI, e.g. ``"docker compose exec -T server flexmeasures"``.
-   - ``FLEXMEASURES_CLI_CONFIG_DIR``: the directory the CLI process sees the ``examples/HEMS/configs/`` files at, if different from their local path (e.g. because that directory is bind-mounted into a container at a different path).
+   Reports are triggered over the API, so the client script needs nothing beyond its API credentials: no local CLI, no database access, and no bind-mount of ``examples/HEMS/configs/`` into the server. Those configuration files are read by the client and posted along with each report request. The server does need a worker on the ``reporting`` queue, as above, or reports will stay queued until the client gives up on them.
