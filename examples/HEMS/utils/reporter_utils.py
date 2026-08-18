@@ -1,63 +1,66 @@
 import json
 import os
-import shlex
-import subprocess
 from pathlib import Path
+
+from flexmeasures_client import FlexMeasuresClient
+from flexmeasures_client.exceptions import (
+    ContentTypeError,
+    InsufficientServerVersionError,
+    JobFailedError,
+    JobTimeoutError,
+)
 
 BASE_DIR = Path(__file__).parent.parent
 
+# Errors that mean "this report did not happen", as opposed to a bug in the example.
+REPORT_ERRORS = (
+    JobFailedError,
+    JobTimeoutError,
+    InsufficientServerVersionError,
+    ContentTypeError,
+    ConnectionError,
+    ValueError,
+)
 
-def cli_command_prefix() -> list[str]:
+
+def load_reporter_config(reporter_type: str) -> dict:
     """
-    The command used to invoke the FlexMeasures CLI, split into argv tokens.
+    Load a reporter configuration from the `configs/` directory.
 
-    Defaults to a plain ``flexmeasures`` on PATH, which requires the CLI to be
-    installed locally and configured to talk to the same database as the
-    server the client is scripting against (see the "Running the Tutorial"
-    instructions in docs/HEMS.rst).
+    Configurations are static, hand-written data, kept as JSON for readability:
 
-    Override via the ``FLEXMEASURES_CLI_CMD`` environment variable to run the
-    CLI elsewhere, e.g. inside a Docker Compose service:
+        configs/{reporter_type}_reporter_config.json
 
-        FLEXMEASURES_CLI_CMD="docker compose -f /path/to/docker-compose.yml exec -T server flexmeasures"
+    They are read here on the client side and posted to the API as part of the
+    report request, so the server never needs access to these files.
     """
-    return shlex.split(os.environ.get("FLEXMEASURES_CLI_CMD", "flexmeasures"))
+    full_path = os.path.join(BASE_DIR, f"configs/{reporter_type}_reporter_config.json")
+    with open(full_path) as f:
+        return json.load(f)
 
 
-def _cli_config_path(local_path: str) -> str:
-    """
-    Translate a local config/parameter file path to the path the CLI process
-    will see it at, when that process runs somewhere other than this host
-    (e.g. inside a container with the ``configs/`` directory bind-mounted
-    elsewhere). Controlled via ``FLEXMEASURES_CLI_CONFIG_DIR``; a no-op if unset.
-    """
-    remote_dir = os.environ.get("FLEXMEASURES_CLI_CONFIG_DIR")
-    if not remote_dir:
-        return local_path
-    return os.path.join(remote_dir, os.path.basename(local_path))
-
-
-def fill_reporter_params(
+def build_reporter_parameters(
     input_sensors: list[dict],
     output_sensors: list[dict] | dict,
     start: str,
     end: str,
     reporter_type: str,
-):
+) -> dict:
     """
-    Fill reporter parameters and save them to a JSON configuration file.
+    Build the reporter parameters for a single report.
 
-    The file is saved inside the `configs/` directory, with the name
-    derived from the given `reporter_type`, e.g.: configs/{reporter_type}_config.json
+    :param input_sensors: list of single-entry dicts, mapping the input name the
+                          reporter config expects to a sensor ID.
+    :param output_sensors: list of sensors to write to. The aggregate reporter
+                           takes a single sensor instead, written without a name.
     """
-
     if reporter_type == "aggregate":
-        # For the aggregate reporter, output_sensors is a single sensor ID
+        # For the aggregate reporter, output_sensors is a single sensor
         output = [{"sensor": output_sensors["id"]}]
     else:
         output = [{"name": s["name"], "sensor": s["id"]} for s in output_sensors]
 
-    params = {
+    return {
         "input": [
             {
                 "name": name,
@@ -74,65 +77,65 @@ def fill_reporter_params(
         "check_output_resolution": False,
     }
 
-    # overwrite the file (creates it if not exists)
-    file_path = f"configs/{reporter_type}_reporter_param.json"
-    full_path = os.path.join(BASE_DIR, file_path)
-    with open(full_path, "w") as f:
-        json.dump(params, f, indent=4)
 
-
-def run_report_cmd(reporter_map: dict, start: str, end: str) -> bool:
+def asset_id_for_outputs(output_sensors: list[dict] | dict) -> int:
     """
-    Run the FlexMeasures CLI command to generate a report for a given reporter.
+    The asset to trigger a report against: the one owning its output sensors.
 
-    This function expects the reporter configuration and parameter files
-    to already exist in the `configs/` directory, following the naming pattern
-    created by `fill_reporter_params()`:
-
-        configs/{reporter_name}_reporter_config.json
-        configs/{reporter_name}_reporter_param.json
-
-    Args:
-        reporter_map (dict): A dictionary describing the reporter to run.
-            Must contain:
-                - "name": str  → name of the reporter, used in file paths
-                - "reporter": str  → FlexMeasures reporter class name
-            Example:
-                reporter_map = {
-                    "name": "aggregate",
-                    "reporter": "AggregatorReporter",
-                }
-
-        start (str): Start time of the report period (ISO 8601 format).
-        end (str): End time of the report period (ISO 8601 format).
+    The API requires every output sensor to sit in the subtree of the asset in
+    the URL, so a report on site sensors is triggered against that site, and a
+    report on community sensors against the community.
     """
-    config_path = os.path.join(
-        BASE_DIR, f"configs/{reporter_map['name']}_reporter_config.json"
-    )
-    param_path = os.path.join(
-        BASE_DIR, f"configs/{reporter_map['name']}_reporter_param.json"
-    )
-    cmd = [
-        *cli_command_prefix(),
-        "add",
-        "report",
-        "--reporter",
-        reporter_map["reporter"],
-        "--config",
-        _cli_config_path(config_path),
-        "--parameters",
-        _cli_config_path(param_path),
-        "--start",
-        start,
-        "--end",
-        end,
-    ]
+    sensors = [output_sensors] if isinstance(output_sensors, dict) else output_sensors
+    asset_ids = {sensor["generic_asset_id"] for sensor in sensors}
+    if len(asset_ids) != 1:
+        raise ValueError(
+            f"Expected all output sensors to belong to one asset, but got {asset_ids}. "
+            "Split this into one report per asset."
+        )
+    return asset_ids.pop()
 
-    print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=3000)
-    if result.returncode == 0:
-        print(f"{reporter_map['name']} reporters generated successfully")
-        return True
-    else:
-        print(f"{reporter_map['name']} reporter generation failed: {result.stderr}")
+
+async def run_report(
+    client: FlexMeasuresClient,
+    reporter: str,
+    reporter_type: str,
+    input_sensors: list[dict],
+    output_sensors: list[dict] | dict,
+    start: str,
+    end: str,
+) -> bool:
+    """
+    Run a single report through the API and wait for its job to finish.
+
+    Requires the server to run a worker on the `reporting` queue:
+
+        flexmeasures jobs run-worker --queue reporting
+
+    :param reporter: FlexMeasures reporter class name, e.g. "PandasReporter".
+    :param reporter_type: name of the reporter in this example, used to find its
+                          configuration file, e.g. "self-consumption".
+
+    :returns: True if the report finished, False if it failed or timed out.
+    """
+    asset_id = asset_id_for_outputs(output_sensors)
+    parameters = build_reporter_parameters(
+        input_sensors=input_sensors,
+        output_sensors=output_sensors,
+        start=start,
+        end=end,
+        reporter_type=reporter_type,
+    )
+    print(f"Running {reporter_type} report on asset {asset_id}...")
+    try:
+        await client.trigger_and_await_report(
+            asset_id=asset_id,
+            reporter=reporter,
+            parameters=parameters,
+            config=load_reporter_config(reporter_type),
+        )
+    except REPORT_ERRORS as exception:
+        print(f"{reporter_type} report failed: {exception}")
         return False
+    print(f"{reporter_type} report generated successfully")
+    return True
