@@ -44,8 +44,6 @@ Or, alternatively, to install released versions into a fresh project:
 Next steps:
 
 - Follow instructions to set up flexmeasures (fresh database, etc).
-- Use FlexMeasures 0.33.0 or newer. The tutorial's data-preserving wipe uses
-  the sensor-data deletion endpoint introduced in that version.
 - Create an organisation account and a user with the ``account-admin`` role:
 
 .. code-block:: bash
