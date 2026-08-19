@@ -343,7 +343,8 @@ async def create_pv_asset(
         attributes=dict(consumption_is_positive=False),
     )
 
-    pv_feed_in_sensor = await client.add_sensor(
+    pv_feed_in_sensor = await get_or_create_sensor(
+        client,
         name="solar-feed-in",
         event_resolution="PT15M",
         unit="kW",
@@ -352,7 +353,8 @@ async def create_pv_asset(
         attributes=dict(consumption_is_positive=False),
     )
 
-    pv_curtailment_sensor = await client.add_sensor(
+    pv_curtailment_sensor = await get_or_create_sensor(
+        client,
         name="solar-curtailment",
         event_resolution="PT15M",
         unit="kW",
