@@ -7,7 +7,10 @@ from const import price_market_name, weather_station_name
 from flexmeasures_client import FlexMeasuresClient
 
 WORKFLOW_ATTRIBUTE = "hems_tutorial"
-WORKFLOW_VERSION = 1
+#: Bump whenever the tutorial changes the asset/sensor structure, the site
+#: flex-context or the dashboard, so that setups created by an older version
+#: are upgraded in place instead of silently keeping the old structure.
+WORKFLOW_VERSION = 2
 
 ASSET_SETUP_PHASE = "asset-setup"
 DATA_UPLOAD_PHASE = "historical-data-upload"
@@ -36,7 +39,15 @@ def get_workflow_state(community_asset: dict) -> dict | None:
         return None
 
     state = attributes.get(WORKFLOW_ATTRIBUTE)
-    if not isinstance(state, dict) or state.get("workflow-version") != WORKFLOW_VERSION:
+    if not isinstance(state, dict):
+        return None
+    # Older markers stay valid: they are upgraded in place, which preserves both
+    # the existing asset and sensor IDs and any interrupted-wipe status. Newer
+    # markers are rejected, since this script cannot know what they describe.
+    version = state.get("workflow-version")
+    if isinstance(version, bool) or not isinstance(version, int):
+        return None
+    if not 1 <= version <= WORKFLOW_VERSION:
         return None
     if not isinstance(state.get("completed-phases"), list):
         return None
@@ -186,6 +197,49 @@ async def initialize_workflow_state(
         "top-level-asset-ids": top_level_asset_ids,
         "sensor-ids": sensor_ids,
         "site-names": list(site_names),
+    }
+    return await save_workflow_state(client, community_asset["id"], state)
+
+
+def state_needs_upgrade(state: dict) -> bool:
+    """Tell whether a valid marker was written by an older tutorial version."""
+    return state["workflow-version"] < WORKFLOW_VERSION
+
+
+async def upgrade_workflow_state(
+    client: FlexMeasuresClient,
+    community_asset: dict,
+    account_id: int,
+    state: dict,
+    phases_to_rerun: tuple[str, ...] = (),
+) -> dict:
+    """Re-record an upgraded setup without discarding unaffected progress.
+
+    Call this only after the idempotent asset setup has run again, so that the
+    structure on the server already matches the current tutorial version. The
+    asset and sensor IDs are re-collected as they are now, which is what makes a
+    later data wipe cover sensors that the upgrade added.
+
+    Everything the upgrade does not invalidate is preserved: the recorded site
+    names, the ``status`` (so an interrupted wipe stays recoverable) and every
+    completed phase except those the caller asks to re-run.
+    """
+    top_level_asset_ids, sensor_ids = await collect_hems_structure_ids(
+        client=client,
+        community_asset=community_asset,
+        account_id=account_id,
+    )
+    completed_phases = [
+        phase for phase in state["completed-phases"] if phase not in phases_to_rerun
+    ]
+    if ASSET_SETUP_PHASE not in completed_phases:
+        completed_phases.insert(0, ASSET_SETUP_PHASE)
+    state = {
+        **state,
+        "workflow-version": WORKFLOW_VERSION,
+        "completed-phases": completed_phases,
+        "top-level-asset-ids": top_level_asset_ids,
+        "sensor-ids": sensor_ids,
     }
     return await save_workflow_state(client, community_asset["id"], state)
 

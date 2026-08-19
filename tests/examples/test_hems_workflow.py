@@ -25,9 +25,16 @@ from utils.asset_utils import (  # noqa: E402
 )
 from utils.workflow_utils import (  # noqa: E402
     ASSET_SETUP_PHASE,
+    DATA_UPLOAD_PHASE,
+    FORECASTING_PHASE,
+    REPORTING_PHASE,
+    SCHEDULING_PHASE,
+    WORKFLOW_VERSION,
     get_site_assets,
     get_workflow_state,
     rename_site_assets,
+    state_needs_upgrade,
+    upgrade_workflow_state,
     wipe_hems_sensor_data,
 )
 
@@ -415,3 +422,122 @@ async def test_wipe_can_be_repeated_and_finishes_ready():
         call(11, confirm_first=False),
     ]
     assert client.update_asset.await_count == 2
+
+
+def _state(**overrides) -> dict:
+    """A valid workflow marker, by default written by the current version."""
+    return {
+        "workflow-version": WORKFLOW_VERSION,
+        "status": "ready",
+        "completed-phases": [ASSET_SETUP_PHASE],
+        "top-level-asset-ids": [1, 2, 3],
+        "sensor-ids": [10, 11],
+        "site-names": ["Building A", "Building B"],
+        **overrides,
+    }
+
+
+def test_older_workflow_state_stays_valid_so_it_can_be_upgraded():
+    """A setup from an older tutorial version must not be discarded.
+
+    Rejecting it would leave resume and wipe unable to add newly introduced
+    sensors, and recreation (losing every ID and all data) the only way out.
+    """
+    older = _state(**{"workflow-version": 1})
+
+    assert get_workflow_state({"attributes": {"hems_tutorial": older}}) == older
+    assert state_needs_upgrade(older) is True
+    assert state_needs_upgrade(_state()) is False
+
+
+def test_workflow_state_from_a_newer_version_is_rejected():
+    newer = _state(**{"workflow-version": WORKFLOW_VERSION + 1})
+
+    assert get_workflow_state({"attributes": {"hems_tutorial": newer}}) is None
+
+
+def test_workflow_state_rejects_a_non_integer_version():
+    for version in ("1", 1.5, True, None):
+        state = _state(**{"workflow-version": version})
+        assert get_workflow_state({"attributes": {"hems_tutorial": state}}) is None
+
+
+@pytest.mark.asyncio
+async def test_upgrade_preserves_ids_status_and_unaffected_phases():
+    """Upgrading must cost the user only the phases it actually invalidates."""
+    client = AsyncMock()
+    client.get_asset.return_value = {"id": 1, "attributes": {}}
+    client.get_assets.return_value = [
+        {"id": 1, "name": "Community Site", "account_id": 9, "parent_asset_id": None},
+        {"id": 2, "name": "Energy Market", "account_id": 9, "parent_asset_id": None},
+        {
+            "id": 3,
+            "name": "Local Weather Station",
+            "account_id": 9,
+            "parent_asset_id": None,
+        },
+    ]
+    # sensor 12 is new: added by the asset setup that the upgrade re-ran
+    client.get_sensors.return_value = [{"id": 10}, {"id": 11}, {"id": 12}]
+    state = _state(
+        **{
+            "workflow-version": 1,
+            "status": "wiping",
+            "completed-phases": [
+                ASSET_SETUP_PHASE,
+                DATA_UPLOAD_PHASE,
+                FORECASTING_PHASE,
+                SCHEDULING_PHASE,
+                REPORTING_PHASE,
+            ],
+        }
+    )
+
+    upgraded = await upgrade_workflow_state(
+        client=client,
+        community_asset={"id": 1},
+        account_id=9,
+        state=state,
+        phases_to_rerun=(REPORTING_PHASE,),
+    )
+
+    assert upgraded["workflow-version"] == WORKFLOW_VERSION
+    # only reporting is dropped; the slow phases are not re-run
+    assert upgraded["completed-phases"] == [
+        ASSET_SETUP_PHASE,
+        DATA_UPLOAD_PHASE,
+        FORECASTING_PHASE,
+        SCHEDULING_PHASE,
+    ]
+    # a newly added sensor joins the list, so a later wipe also covers it
+    assert upgraded["sensor-ids"] == [10, 11, 12]
+    # an interrupted wipe stays recoverable, and site names survive
+    assert upgraded["status"] == "wiping"
+    assert upgraded["site-names"] == ["Building A", "Building B"]
+
+
+@pytest.mark.asyncio
+async def test_upgrade_always_records_asset_setup_as_complete():
+    client = AsyncMock()
+    client.get_asset.return_value = {"id": 1, "attributes": {}}
+    client.get_assets.return_value = [
+        {"id": 1, "name": "Community Site", "account_id": 9, "parent_asset_id": None},
+        {"id": 2, "name": "Energy Market", "account_id": 9, "parent_asset_id": None},
+        {
+            "id": 3,
+            "name": "Local Weather Station",
+            "account_id": 9,
+            "parent_asset_id": None,
+        },
+    ]
+    client.get_sensors.return_value = [{"id": 10}]
+
+    upgraded = await upgrade_workflow_state(
+        client=client,
+        community_asset={"id": 1},
+        account_id=9,
+        state=_state(**{"workflow-version": 1, "completed-phases": []}),
+        phases_to_rerun=(REPORTING_PHASE,),
+    )
+
+    assert upgraded["completed-phases"] == [ASSET_SETUP_PHASE]

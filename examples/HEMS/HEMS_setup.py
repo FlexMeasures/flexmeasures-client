@@ -19,12 +19,15 @@ from utils.workflow_utils import (
     PHASE_LABELS,
     REPORTING_PHASE,
     SCHEDULING_PHASE,
+    WORKFLOW_VERSION,
     get_site_assets,
     get_workflow_state,
     initialize_workflow_state,
     mark_phase_complete,
     phase_is_complete,
     rename_site_assets,
+    state_needs_upgrade,
+    upgrade_workflow_state,
     wipe_hems_sensor_data,
 )
 
@@ -196,6 +199,48 @@ def confirm_data_wipe(state: dict) -> bool:
         "Type WIPE to continue: "
     )
     return answer == "WIPE"
+
+
+async def upgrade_existing_setup(
+    client: FlexMeasuresClient,
+    account: dict,
+    community_asset: dict,
+    community_name: str,
+    site_names: list[str],
+    state: dict,
+) -> dict:
+    """Bring an older setup up to the current tutorial version, in place.
+
+    Asset setup is idempotent, so re-running it adds whatever the newer tutorial
+    version introduced (sensors, flex-context fields, dashboard panels) while
+    every existing asset and sensor keeps its ID and its data.
+
+    Only report generation is re-run afterwards: the reports are what write the
+    sensors an upgrade is most likely to have added, while the uploaded data,
+    forecasts and schedules remain valid.
+    """
+    print(
+        f"Upgrading this setup from tutorial version {state['workflow-version']} "
+        f"to {WORKFLOW_VERSION}."
+    )
+    print(
+        "Existing assets, sensors and data are preserved; missing structure is "
+        "added and reports are regenerated."
+    )
+    community_asset = await create_community_asset(
+        client,
+        account,
+        community_name=community_name,
+        site_names=site_names,
+        community_asset=community_asset,
+    )
+    return await upgrade_workflow_state(
+        client=client,
+        community_asset=community_asset,
+        account_id=account["id"],
+        state=state,
+        phases_to_rerun=(REPORTING_PHASE,),
+    )
 
 
 async def main(
@@ -371,6 +416,18 @@ async def main(
                     state = await wipe_hems_sensor_data(client, asset["id"], state)
                 else:
                     print("Resuming the existing HEMS setup.")
+
+                # Run last, so that an interrupted wipe is recovered first and
+                # a recreation has already rebuilt the structure from scratch.
+                if state_needs_upgrade(state):
+                    state = await upgrade_existing_setup(
+                        client=client,
+                        account=account,
+                        community_asset=asset,
+                        community_name=community_name,
+                        site_names=active_site_names,
+                        state=state,
+                    )
 
         # Part 2: Upload data for first two weeks
         print("\n" + "=" * 50)
