@@ -17,21 +17,14 @@ async def post_sensor_data_and_track_ingestion(
     **kwargs: Any,
 ) -> None:
     """Post sensor data and remember asynchronous ingestion jobs."""
-    result = await client.post_sensor_data(**kwargs)
-    if not isinstance(result, tuple) or len(result) != 2:
-        raise RuntimeError(
-            "This HEMS example requires a FlexMeasures client whose "
-            "post_sensor_data() method returns the server response and status."
-        )
-    response, status = result
+    response, status = await client.post_sensor_data(**kwargs)
 
     if status != 202:
         return
 
+    # FlexMeasures 0.33 calls this field ``job_id``; newer servers use ``job``.
     job_id = None
     if isinstance(response, dict):
-        # ``job`` is the canonical field. ``job_id`` was used by older
-        # FlexMeasures servers and is retained here for compatibility.
         job_id = response.get("job") or response.get("job_id")
     if not job_id:
         raise RuntimeError(
@@ -96,29 +89,56 @@ async def find_sensor_by_name_and_asset(
     sensor_name: str,
     asset_name: str,
     top_level_asset_id: int | None = None,
+    allow_top_level_asset: bool = False,
 ):
-    """Find a sensor by name within a specific asset."""
-    assets = await client.get_assets(
-        root=top_level_asset_id
-    )  # first list those that are part of the community
-    assets += await client.get_assets(
-        parse_json_fields=True
-    )  # then list all accessible assets
-    target_asset = None
-    for asset in assets:
-        if asset["name"] == asset_name:
-            target_asset = asset
-            break
+    """Find one sensor in the community tree or an explicitly allowed root."""
+    if top_level_asset_id is None:
+        raise ValueError("top_level_asset_id is required for scoped sensor lookup")
 
-    if not target_asset:
+    community_asset = await client.get_asset(top_level_asset_id, parse_json_fields=True)
+    account_id = community_asset.get("account_id")
+    if not isinstance(account_id, int):
+        account = await client.get_account()
+        account_id = account["id"]
+    assets = [community_asset]
+    assets.extend(
+        await client.get_assets(root=top_level_asset_id, parse_json_fields=True)
+    )
+    if allow_top_level_asset:
+        assets.extend(
+            await client.get_assets(
+                account_id=account_id, depth=0, parse_json_fields=True
+            )
+        )
+
+    assets_by_id = {asset["id"]: asset for asset in assets}
+    matches = [
+        asset for asset in assets_by_id.values() if asset.get("name") == asset_name
+    ]
+    if not matches:
         raise LookupError(f"Asset '{asset_name}' not found")
+    if len(matches) > 1:
+        raise LookupError(
+            f"Asset name '{asset_name}' is ambiguous in the allowed HEMS scope."
+        )
+    target_asset = matches[0]
 
-    sensors = await client.get_sensors(asset_id=target_asset["id"])
-    for sensor in sensors:
-        if sensor["name"] == sensor_name:
-            return sensor
-
-    raise LookupError(f"Sensor '{sensor_name}' not found in asset '{asset_name}'")
+    sensors = await client.get_sensors(
+        asset_id=target_asset["id"], parse_json_fields=True
+    )
+    matches = [
+        sensor
+        for sensor in sensors
+        if sensor.get("name") == sensor_name
+        and sensor.get("generic_asset_id") == target_asset["id"]
+    ]
+    if not matches:
+        raise LookupError(f"Sensor '{sensor_name}' not found in asset '{asset_name}'")
+    if len(matches) > 1:
+        raise LookupError(
+            f"Sensor name '{sensor_name}' is ambiguous on asset '{asset_name}'."
+        )
+    return matches[0]
 
 
 async def upload_csv_file_to_sensor(
@@ -139,7 +159,6 @@ async def upload_csv_file_to_sensor(
             belief_time_measured_instantly=belief_time_measured_instantly,  # Set belief_time immediately after event ends
         )
         print(f"Submitted {file_path} to sensor {sensor_id}")
-        return True
     except Exception as e:
         print(f"Failed to upload {file_path} to sensor {sensor_id}: {e}")
         raise
@@ -149,12 +168,19 @@ async def find_top_level_asset_id(
     client: FlexMeasuresClient,
     name: str,
 ) -> int:
+    account = await client.get_account()
     top_level_assets = await client.get_assets(
-        depth=0, fields=["id", "name"], parse_json_fields=True
+        account_id=account["id"],
+        depth=0,
+        fields=["id", "name"],
+        parse_json_fields=True,
     )
-    for asset in top_level_assets:
-        if asset["name"] == name:
-            return asset["id"]
+    matches = [asset for asset in top_level_assets if asset["name"] == name]
+    if len(matches) != 1:
+        raise LookupError(
+            f"Expected one top-level asset named '{name}', found {len(matches)}."
+        )
+    return matches[0]["id"]
 
 
 async def find_sensors_by_asset(
@@ -170,14 +196,14 @@ async def find_sensors_by_asset(
     sensors = {}
     for key, sensor_name, asset_name in sensor_mappings:
         sensor = await find_sensor_by_name_and_asset(
-            client, sensor_name, asset_name, top_level_asset_id
+            client,
+            sensor_name,
+            asset_name,
+            top_level_asset_id,
+            allow_top_level_asset=asset_name
+            in {price_market_name, weather_station_name},
         )
-        if sensor:
-            sensors[key] = sensor
-        else:
-            raise LookupError(
-                f"Could not find sensor '{sensor_name}' in asset '{asset_name}'"
-            )
+        sensors[key] = sensor
     return sensors
 
 
@@ -220,14 +246,10 @@ async def upload_data_for_first_two_weeks(
                 2:
             ]  # Remove site power capacity and price datafiles to not fill them more than once
         for file_path, sensor_key, belief_time_measured_instantly in data_files:
-            if sensor_key not in sensors:
-                print(f"Skipping {file_path} - sensor not found")
-                continue
-
             print(f"Processing {file_path}...")
 
             # Upload CSV file directly
-            success = await upload_csv_file_to_sensor(
+            await upload_csv_file_to_sensor(
                 client=client,
                 sensor_id=sensors[sensor_key]["id"],
                 file_path=file_path,
@@ -235,10 +257,7 @@ async def upload_data_for_first_two_weeks(
                 pending_ingestion_jobs=pending_ingestion_jobs,
             )
 
-            if success:
-                print(f"Successfully uploaded {sensor_key} data")
-            else:
-                print(f"Failed to upload {sensor_key} data")
+            print(f"Submitted {sensor_key} data for ingestion")
 
     # File uploads may only have been accepted (HTTP 202), not processed yet.
     # Forecasting must not start until all historical data is available.
@@ -317,20 +336,3 @@ def load_and_align_csv_data(
 
     print(f"Aligned {len(df)} records from {file_path}")
     return aligned_df
-
-
-def get_first_asset_by_name(
-    assets: list[dict], name: str, account_id: int | None = 0
-) -> dict | None:
-    """
-    :param assets:      List of dictionaries describing assets, each with at least a "name".
-    :param name:        The asset name to find the first occurrence for.
-    :param account_id:  Optionally, filter by account_id (a positive integer, or None for a public account).
-                        To use this filter, each dictionary in `assets` should contain the "account_id", too.
-                        NB the 0 default is used to signal the argument is missing (real IDs are strictly positive).
-    """
-    for asset in assets:
-        if asset["name"] == name:
-            if account_id != 0 and asset["account_id"] != account_id:
-                continue
-            return asset

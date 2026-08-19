@@ -885,7 +885,7 @@ class FlexMeasuresClient:
         if account_id and isinstance(account_id, int):
             uri += f"&account_id={account_id}"
 
-        if root or depth or fields:
+        if root is not None or depth is not None or fields:
             if self.server_version is not None and Version(
                 self.server_version
             ) < Version("0.31.0"):
@@ -893,9 +893,9 @@ class FlexMeasuresClient:
                     "get_assets(): The 'root', 'depth' and 'fields' parameters require FlexMeasures server version 0.31.0 or above. "
                     f"These parameters will be ignored for server version {self.server_version}."
                 )
-            if root and isinstance(root, int):
+            if root is not None and isinstance(root, int):
                 uri += f"&root={root}"
-            if depth and isinstance(depth, int):
+            if depth is not None and isinstance(depth, int):
                 uri += f"&depth={depth}"
             if fields and isinstance(fields, list):
                 fields_str = "|".join(fields)
@@ -1406,19 +1406,41 @@ class FlexMeasuresClient:
         check_for_status(status, 204)
 
     async def delete_sensor_data(
-        self, sensor_id: int, confirm_first: bool = True
+        self,
+        sensor_id: int,
+        confirm_first: bool = True,
+        source: int | None = None,
+        start: str | datetime | None = None,
+        until: str | datetime | None = None,
     ) -> None:
-        """Delete all data from a sensor while preserving the sensor itself."""
+        """Delete sensor data while preserving the sensor itself.
+
+        Optionally limit deletion to one source and/or an event-time range.
+        """
         if confirm_first:
+            deletion_scope = (
+                "all data"
+                if source is None and start is None and until is None
+                else "matching data"
+            )
             answer = input(
-                f"Permanently delete all data from sensor {sensor_id}? [y/N] "
+                f"Permanently delete {deletion_scope} from sensor "
+                f"{sensor_id}? [y/N] "
             )
             if answer.lower() not in ["y", "yes"]:
                 print("Aborting ...")
                 return
+        json_payload = {}
+        if source is not None:
+            json_payload["source"] = source
+        if start is not None:
+            json_payload["start"] = pd.Timestamp(start).isoformat()
+        if until is not None:
+            json_payload["until"] = pd.Timestamp(until).isoformat()
+
         _, status = await self.request(
             uri=f"sensors/{sensor_id}/data",
-            json_payload={},
+            json_payload=json_payload,
             method="DELETE",
             minimum_server_version="0.33.0",
             minimum_server_version_msg=(

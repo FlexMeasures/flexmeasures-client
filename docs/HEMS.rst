@@ -44,6 +44,8 @@ Or, alternatively, to install released versions into a fresh project:
 Next steps:
 
 - Follow instructions to set up flexmeasures (fresh database, etc).
+- Use FlexMeasures 0.33.0 or newer. The tutorial's data-preserving wipe uses
+  the sensor-data deletion endpoint introduced in that version.
 - Create an organisation account and a user with the ``account-admin`` role:
 
 .. code-block:: bash
@@ -69,8 +71,10 @@ example:
 
 .. code-block:: python
 
-    host = "ems.example.com"
-    ssl = True
+    host = "127.0.0.1:5000"
+    ssl = False
+
+For an HTTPS deployment, use its host name and set ``ssl = True``.
 
 PV is inflexible by default: all available production is delivered and any
 surplus is treated as grid feed-in. Set ``PV_MODE = "curtailable"`` when the PV
@@ -93,11 +97,12 @@ Open three terminals. In the first terminal, run the server:
 
     flexmeasures run
 
-In the second terminal, run a flexmeasures worker that listens to both the scheduling and forecasting queues:
+In the second terminal, run a flexmeasures worker that listens to the
+forecasting, scheduling, and ingestion queues:
 
 .. code-block:: bash
 
-    flexmeasures jobs run-worker --queue "forecasting|scheduling"
+    flexmeasures jobs run-worker --queue "forecasting|scheduling|ingestion"
 
 Note: you can run the same command in two terminals (2 workers), to speed up the computation!
 
@@ -122,10 +127,12 @@ Another caveat is rate-limiting. Since v1.0, FlexMeasures only allows a limited 
 Either give your account a generous plan (see the docs), or simply set ``FLEXMEASURES_MODE="play"`` and restart the server.
 If you use docker-compose, you could do that like this:
 
+Add ``FLEXMEASURES_MODE = "play"`` to the existing
+``/full/path/to/flexmeasures-instance/flexmeasures.cfg`` file without replacing
+its other settings, then restart the server container:
+
 .. code-block:: bash
 
-    sudo chown -R "$(id -u):$(id -g)" /full/path/to/flexmeasures-instance
-    printf 'FLEXMEASURES_MODE = "play"\n' > /full/path/to/flexmeasures-instance/flexmeasures.cfg
     docker compose restart name-of-flexmeasures-server-container
 
 Now run the client script using the `/examples/HEMS` folder as the current working directory:
@@ -138,8 +145,8 @@ Rerunning or resuming the tutorial
 ==================================
 
 The setup script records completed phases in a namespaced attribute on the
-community asset. If the community already exists, the script shows which phases
-are complete and offers three choices:
+community asset. If a tracked community already exists, the script shows which
+phases are complete and offers four choices:
 
 - ``y`` recreates the HEMS assets. This deletes their sensors, IDs, and data,
   including the HEMS energy market and weather station, before creating
@@ -150,12 +157,23 @@ are complete and offers three choices:
   outputs. You must confirm this by typing ``WIPE``.
 - ``n`` (the default) preserves everything and resumes at the first unfinished
   phase. Completed phases are skipped.
+- ``q`` exits without changing the setup.
 
-The workflow marker stores the exact sensor IDs created for the tutorial, so a
-data wipe remains limited to that recorded set. If an existing setup predates
-workflow markers, safe resume is unavailable because its completed phases are
-unknown. Choose ``w`` to keep its IDs while refreshing its data, or ``y`` to
-recreate it fully.
+If an earlier data wipe was interrupted, normal resume is disabled because
+some sensors may already be empty while others still contain old data. The
+script instead offers to continue the wipe, recreate the setup, or exit.
+
+If asset creation was interrupted before the setup marker was saved, the
+script offers to complete missing assets and sensors while preserving existing
+IDs, recreate the setup, or exit. For an older setup with different site names,
+it also offers to keep those names or rename the sites to the names configured
+in ``const.py``.
+
+The workflow marker stores the sensor IDs in the HEMS structure when the marker
+is created, so a data wipe remains limited to that recorded set. If an existing
+setup predates workflow markers, safe resume is unavailable because its
+completed phases are unknown. Choose the offered repair option to preserve IDs
+and complete missing structure, or choose recreation to replace the setup.
 
 
 Delete the tutorial assets and data
