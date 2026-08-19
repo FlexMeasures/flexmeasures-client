@@ -10,6 +10,7 @@ from const import (
     FORECAST_HORIZON_HOURS,
     HEATING_CONFIG,
     MAX_RESCHEDULING_ITERATIONS,
+    PV_MODE,
     SCHEDULING_END,
     SCHEDULING_START,
     SIMULATION_STEP_HOURS,
@@ -42,6 +43,28 @@ BASE_DIR = Path(__file__).parent
 
 async def just_continue(*args, **kwargs):
     return True
+
+
+def realize_pv_power(
+    available_power: list[float],
+    scheduled_power: list[float],
+    pv_mode: str,
+) -> list[float]:
+    """Return delivered PV power for the configured operating mode."""
+    if pv_mode == "inflexible":
+        return list(available_power)
+    if pv_mode != "curtailable":
+        raise ValueError(
+            f"Unsupported PV_MODE {pv_mode!r}; choose 'inflexible' or 'curtailable'."
+        )
+    if len(available_power) != len(scheduled_power):
+        raise ValueError(
+            "Available and scheduled PV power must contain the same number of values."
+        )
+    return [
+        max(min(available, scheduled), 0)
+        for available, scheduled in zip(available_power, scheduled_power)
+    ]
 
 
 async def run_scheduling_simulation(
@@ -338,7 +361,10 @@ async def compute_site_schedules(
         current_soc=heating_current_soc,
     )
 
-    # Start with the battery and PV flex models
+    # Curtailable PV is modeled as production which the scheduler may reduce,
+    # but never increase above the available-production forecast. Be careful
+    # when using its realized schedule in reports: a forecast underestimate can
+    # look like deliberate curtailment if the schedule is treated as a hard cap.
     curtailable_pv_flex_model = {
         "power-capacity": "12 kW",
         "consumption-capacity": "0 kW",
@@ -350,16 +376,22 @@ async def compute_site_schedules(
             **battery_scheduling_dynamic_flex_model,
         },
         {
-            "sensor": sensors[f"pv-power-{index}"][
-                "id"
-            ],  # use power sensor to store realized data
-            **curtailable_pv_flex_model,
-        },
-        {
             "sensor": sensors[f"heating-power-{index}"]["id"],
             **heating_scheduling_dynamic_flex_model,
         },
     ]
+    if PV_MODE == "curtailable":
+        final_flex_models.insert(
+            1,
+            {
+                "sensor": sensors[f"pv-power-{index}"]["id"],
+                **curtailable_pv_flex_model,
+            },
+        )
+    elif PV_MODE != "inflexible":
+        raise ValueError(
+            f"Unsupported PV_MODE {PV_MODE!r}; choose 'inflexible' or 'curtailable'."
+        )
 
     final_flex_models.extend(
         [
@@ -375,8 +407,15 @@ async def compute_site_schedules(
     )
 
     print("[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
-    for i, model in enumerate(final_flex_models):
-        device_name = ["Battery", "PV", "Heating", "EVSE-1", "EVSE-2"][i]
+    device_names_by_sensor_id = {
+        sensors[f"battery-power-{index}"]["id"]: "Battery",
+        sensors[f"pv-power-{index}"]["id"]: "PV",
+        sensors[f"heating-power-{index}"]["id"]: "Heating",
+        sensors[f"evse1-power-{index}"]["id"]: "EVSE-1",
+        sensors[f"evse2-power-{index}"]["id"]: "EVSE-2",
+    }
+    for model in final_flex_models:
+        device_name = device_names_by_sensor_id[model["sensor"]]
         print(f"[FLEX-MODEL] {device_name}: {model}")
     print()
 
@@ -558,9 +597,11 @@ async def compute_site_measurements(
             f"Failed to fetch PV raw power from sensor {sensors[f'pv-production-{index}']['id']}"
         )
 
-    pv_realized_power = [
-        min(raw, scheduled) for raw, scheduled in zip(pv_raw_power, pv_scheduled_power)
-    ]
+    # In curtailable mode this emulates a gateway which can lower PV output to
+    # the scheduled setpoint. It cannot produce more power than is available.
+    pv_realized_power = realize_pv_power(
+        pv_raw_power, pv_scheduled_power, pv_mode=PV_MODE
+    )
 
     await post_sensor_data_and_track_ingestion(
         client=client,

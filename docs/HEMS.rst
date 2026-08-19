@@ -22,6 +22,7 @@ Set up your environment
 ========================
 
 To run the HEMS example (``HEMS_setup.py``), you'll need an environment in which both ``flexmeasures`` (the server) and ``flexmeasures-client`` is installed.
+The example requires FlexMeasures 1.0 or newer.
 
 We use `uv <https://docs.astral.sh/uv/>`_ to manage dependencies. First, `install uv <https://docs.astral.sh/uv/getting-started/installation/>`_.
 
@@ -70,6 +71,21 @@ example:
 
     host = "ems.example.com"
     ssl = True
+
+PV is inflexible by default: all available production is delivered and any
+surplus is treated as grid feed-in. Set ``PV_MODE = "curtailable"`` when the PV
+gateway can reduce production, for example at a site whose grid-production
+capacity is zero. In that mode the simulated gateway treats the PV schedule as
+a maximum setpoint; it can reduce available production but cannot increase it.
+Recreate an existing tutorial structure after changing this setting so its flex
+context and PV sensors match the selected mode.
+
+The PV chart distinguishes available production, delivered production,
+self-consumption, grid feed-in, and curtailment. The reporter calculates the
+latter two after realization as ``max(delivered PV - local load, 0)`` and
+``max(available PV - delivered PV, 0)``. Consequently, the daily
+self-consumption percentage uses delivered rather than merely available PV as
+its denominator.
 
 Open three terminals. In the first terminal, run the server:
 

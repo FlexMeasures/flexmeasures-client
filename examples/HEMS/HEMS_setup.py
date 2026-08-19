@@ -8,7 +8,7 @@ import asyncio
 from typing import Callable
 
 from assets_setup import create_community_asset
-from const import COMMUNITY_NAME, SITE_NAMES, host, pwd, ssl, usr
+from const import COMMUNITY_NAME, PV_MODE, SITE_NAMES, host, pwd, ssl, usr
 from forecasting import generate_forecasts
 from reporters import create_reports
 from scheduling import just_continue, run_scheduling_simulation
@@ -136,6 +136,11 @@ async def main(
     print("Starting FlexMeasures HEMS")
     print("=" * 50)
 
+    if PV_MODE not in {"inflexible", "curtailable"}:
+        raise ValueError(
+            f"Unsupported PV_MODE {PV_MODE!r}; choose 'inflexible' or 'curtailable'."
+        )
+
     # NOTE: Create the account and account-admin user via FlexMeasures CLI first:
     # flexmeasures add account --name "MyCompany"
     # flexmeasures add user --username hems-admin --email hems-admin@example.com \
@@ -147,9 +152,13 @@ async def main(
         print(
             f"Checking server is up and on supported version ... connecting to {host} (ssl: {ssl})"
         )
+        # The sign-explicit ``inflexible-consumption`` and
+        # ``inflexible-production`` flex-context fields were introduced for
+        # FlexMeasures 1.0. Accept its development releases for testing, too.
         await client.ensure_minimum_server_version(
-            "0.31.0",
-            "The HEMS example requires a FlexMeasures server of v0.31.0 or above.",
+            "1.0.0.dev0",
+            "The HEMS example requires a FlexMeasures server from the v1.0 "
+            "series or above.",
         )
 
         # Get user account information

@@ -41,6 +41,8 @@ async def create_reports(
         sensor_mappings = [
             ("electricity-production", "electricity-production", f"{pv_name} {i}"),
             ("pv-power", "electricity-power", f"{pv_name} {i}"),
+            ("solar-feed-in", "solar-feed-in", f"{pv_name} {i}"),
+            ("solar-curtailment", "solar-curtailment", f"{pv_name} {i}"),
             ("electricity-consumption", "electricity-consumption", site_name),
             ("electricity-power", "electricity-power", f"{battery_name} {i}"),
             ("evse1-power", "electricity-power", f"{evse1_name} {i}"),
@@ -74,6 +76,8 @@ async def create_reports(
             ],
             output_sensors=[
                 sensors["self-consumption"],
+                sensors["solar-feed-in"],
+                sensors["solar-curtailment"],
                 sensors["daily-share-of-self-consumption"],
             ],
             start=SCHEDULING_START,

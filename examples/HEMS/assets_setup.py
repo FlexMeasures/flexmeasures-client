@@ -2,6 +2,7 @@ from const import (
     BATTERY_CONFIG,
     EV_CONFIG,
     HEATING_CONFIG,
+    PV_MODE,
     battery_name,
     evse1_name,
     evse2_name,
@@ -285,6 +286,7 @@ async def create_pv_asset(
         unit="kW",
         generic_asset_id=pv_asset["id"],
         timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=False),
     )
 
     # Create power sensor (15min, kW)
@@ -294,10 +296,35 @@ async def create_pv_asset(
         unit="kW",
         generic_asset_id=pv_asset["id"],
         timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=False),
+    )
+
+    pv_feed_in_sensor = await client.add_sensor(
+        name="solar-feed-in",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=pv_asset["id"],
+        timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=False),
+    )
+
+    pv_curtailment_sensor = await client.add_sensor(
+        name="solar-curtailment",
+        event_resolution="PT15M",
+        unit="kW",
+        generic_asset_id=pv_asset["id"],
+        timezone="Europe/Amsterdam",
+        attributes=dict(consumption_is_positive=False),
     )
 
     print(f"Created PV asset with ID: {pv_asset['id']}")
-    return pv_asset, pv_production_sensor, pv_power_sensor
+    return (
+        pv_asset,
+        pv_production_sensor,
+        pv_power_sensor,
+        pv_feed_in_sensor,
+        pv_curtailment_sensor,
+    )
 
 
 async def create_battery_asset(
@@ -653,12 +680,15 @@ async def configure_site_flex_context(
         # "site-production-breach-price": "10000000 EUR/MW",
         # "consumption-breach-price": "1000 EUR/MW",
         # "production-breach-price": "1000 EUR/MW",
-        # Add inflexible devices as requested
-        "inflexible-device-sensors": [
-            consumption_sensor["id"],  # General consumption
-        ],
+        "inflexible-consumption": [{"sensor": consumption_sensor["id"]}],
         "aggregate-power": {"sensor": aggregate_sensor["id"]},
     }
+    if PV_MODE == "inflexible":
+        flex_context["inflexible-production"] = [{"sensor": pv_production_sensor["id"]}]
+    elif PV_MODE != "curtailable":
+        raise ValueError(
+            f"Unsupported PV_MODE {PV_MODE!r}; choose 'inflexible' or 'curtailable'."
+        )
 
     # Update site asset with flex-context
     await client.update_asset(
@@ -674,6 +704,8 @@ async def configure_site_dashboard(
     consumption_sensor,
     pv_production_sensor,
     pv_power_sensor,
+    pv_feed_in_sensor,
+    pv_curtailment_sensor,
     battery_power_sensor,
     battery_soc_sensor,
     evse1_power_sensor,
@@ -708,11 +740,13 @@ async def configure_site_dashboard(
             ],
         },
         {
-            "title": "Solar self-consumption",
+            "title": "PV production and use",
             "sensors": [
                 self_consumption_sensor["id"],
                 pv_production_sensor["id"],
                 pv_power_sensor["id"],
+                pv_feed_in_sensor["id"],
+                pv_curtailment_sensor["id"],
             ],
         },
         {
@@ -814,7 +848,13 @@ async def create_sites_assets_and_sensors(
     print(f"Max consumption sensor ID: {max_consumption_sensor['id']}")
     print(f"Self-consumption sensor ID: {self_consumption_sensor['id']}")
     print("Creating PV asset with production sensor")
-    pv_asset, pv_production_sensor, pv_power_sensor = await create_pv_asset(
+    (
+        pv_asset,
+        pv_production_sensor,
+        pv_power_sensor,
+        pv_feed_in_sensor,
+        pv_curtailment_sensor,
+    ) = await create_pv_asset(
         client, account_id, site_asset["id"], pv_name=f"{pv_name} {site_index}"
     )
     print(f"PV asset ID: {pv_asset['id']}")
@@ -914,6 +954,8 @@ async def create_sites_assets_and_sensors(
         consumption_sensor=consumption_sensor,
         pv_production_sensor=pv_production_sensor,
         pv_power_sensor=pv_power_sensor,
+        pv_feed_in_sensor=pv_feed_in_sensor,
+        pv_curtailment_sensor=pv_curtailment_sensor,
         battery_power_sensor=battery_power_sensor,
         battery_soc_sensor=battery_soc_sensor,
         evse1_power_sensor=evse1_power_sensor,
