@@ -34,12 +34,15 @@ async def create_reports(
     if check_result.returncode != 0:
         print("FlexMeasures CLI not found. Skipping report generation.")
         return False
+    all_reports_succeeded = True
     for i, site_name in enumerate(site_names, start=1):
 
         # Find all required sensors
         sensor_mappings = [
             ("electricity-production", "electricity-production", f"{pv_name} {i}"),
             ("pv-power", "electricity-power", f"{pv_name} {i}"),
+            ("solar-feed-in", "solar-feed-in", f"{pv_name} {i}"),
+            ("solar-curtailment", "solar-curtailment", f"{pv_name} {i}"),
             ("electricity-consumption", "electricity-consumption", site_name),
             ("electricity-power", "electricity-power", f"{battery_name} {i}"),
             ("evse1-power", "electricity-power", f"{evse1_name} {i}"),
@@ -73,6 +76,8 @@ async def create_reports(
             ],
             output_sensors=[
                 sensors["self-consumption"],
+                sensors["solar-feed-in"],
+                sensors["solar-curtailment"],
                 sensors["daily-share-of-self-consumption"],
             ],
             start=SCHEDULING_START,
@@ -109,5 +114,10 @@ async def create_reports(
             start=SCHEDULING_START,
             end=SCHEDULING_END,
         )
+        all_reports_succeeded = (
+            self_consumption_result
+            and total_energy_costs_result
+            and all_reports_succeeded
+        )
 
-    return self_consumption_result and total_energy_costs_result
+    return all_reports_succeeded

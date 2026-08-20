@@ -10,6 +10,7 @@ from const import (
     FORECAST_HORIZON_HOURS,
     HEATING_CONFIG,
     MAX_RESCHEDULING_ITERATIONS,
+    PV_MODE,
     SCHEDULING_END,
     SCHEDULING_START,
     SIMULATION_STEP_HOURS,
@@ -25,6 +26,8 @@ from utils.asset_utils import (
     find_sensor_by_name_and_asset,
     find_top_level_asset_id,
     load_and_align_csv_data,
+    post_sensor_data_and_track_ingestion,
+    wait_for_ingestion_jobs,
 )
 from utils.ev_utils import (
     calculate_ev_soc_targets_and_constraints,
@@ -40,6 +43,28 @@ BASE_DIR = Path(__file__).parent
 
 async def just_continue(*args, **kwargs):
     return True
+
+
+def realize_pv_power(
+    available_power: list[float],
+    scheduled_power: list[float],
+    pv_mode: str,
+) -> list[float]:
+    """Return delivered PV power for the configured operating mode."""
+    if pv_mode == "inflexible":
+        return list(available_power)
+    if pv_mode != "curtailable":
+        raise ValueError(
+            f"Unsupported PV_MODE {pv_mode!r}; choose 'inflexible' or 'curtailable'."
+        )
+    if len(available_power) != len(scheduled_power):
+        raise ValueError(
+            "Available and scheduled PV power must contain the same number of values."
+        )
+    return [
+        max(min(available, scheduled), 0)
+        for available, scheduled in zip(available_power, scheduled_power)
+    ]
 
 
 async def run_scheduling_simulation(
@@ -179,6 +204,7 @@ async def run_scheduling_simulation(
                 # Stop rescheduling
                 break
 
+        pending_ingestion_jobs: list[str] = []
         for index, site_name in enumerate(site_names, start=1):
             # Extract scheduled power for all devices for the next 4 hours
             # Update SoC for next step based on retrieved SoC schedules
@@ -201,20 +227,29 @@ async def run_scheduling_simulation(
                 heating_soc_schedule=heating_soc_schedules[index - 1],
                 evse1_flex_model=evse1_flex_models[index - 1],
                 evse2_flex_model=evse2_flex_models[index - 1],
+                pending_ingestion_jobs=pending_ingestion_jobs,
             )
             next_current_soc_dict[site_name]["battery"] = battery_next_current_soc
             next_current_soc_dict[site_name]["evse1"] = evse1_next_current_soc
             next_current_soc_dict[site_name]["evse2"] = evse2_next_current_soc
             next_current_soc_dict[site_name]["heating"] = heating_next_current_soc
 
+        # Reporters read the measurements submitted above. Wait until the server
+        # has actually ingested them instead of treating HTTP 202 as completion.
+        await wait_for_ingestion_jobs(client, pending_ingestion_jobs)
+
         # Run reporter to log community site aggregate power consumption each scheduling step
-        run_community_aggregate(
+        aggregate_reports_succeeded = run_community_aggregate(
             sensors=sensors,
             current_time=current_time,
             step_end_time=step_end_time,
             community_asset=community_asset,
             site_names=site_names,
         )
+        if not aggregate_reports_succeeded:
+            raise RuntimeError(
+                f"Aggregate report generation failed for simulation step {step_num}."
+            )
 
         # Move to next simulation step
         current_time = step_end_time
@@ -290,33 +325,29 @@ async def compute_site_schedules(
     evse2_constraints = calculate_ev_soc_targets_and_constraints(
         current_time_ts, evse2_capacity, evse2_has_trip
     )
-    if not evse1_constraints.get("unavailable"):
-
-        # Create flex models for EVSE 1
-        if evse1_next_current_soc is None:
-            # Use initial SoC for first step
-            evse1_current_soc = evse1_flex_model.get("soc_at_start", 12.0)
-        else:
-            evse1_current_soc = evse1_next_current_soc
-        # Create dynamic flex model for EVSE 1 (Current SoC updated each step)
-        evse1_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
-            current_soc=evse1_current_soc,
-            constraints=evse1_constraints,
+    # Keep EVs in the model while they are away. Their zero consumption-capacity
+    # prevents charging, while soc-usage continues to account for driving.
+    if evse1_next_current_soc is None:
+        evse1_current_soc = evse1_flex_model.get(
+            "soc_at_start", EV_CONFIG["min_soc_percent"] * evse1_capacity
         )
+    else:
+        evse1_current_soc = evse1_next_current_soc
+    evse1_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
+        current_soc=evse1_current_soc,
+        constraints=evse1_constraints,
+    )
 
-    if not evse2_constraints.get("unavailable"):
-
-        # Create flex models for EVSE 2 (similar pattern, could be different car)
-        if evse2_next_current_soc is None:
-            # Use initial SoC for first step
-            evse2_current_soc = evse2_flex_model.get("soc_at_start", 12.0)
-        else:
-            evse2_current_soc = evse2_next_current_soc
-        # Create dynamic flex model for EVSE 2 (Current SoC updated each step)
-        evse2_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
-            current_soc=evse2_current_soc,
-            constraints=evse2_constraints,
+    if evse2_next_current_soc is None:
+        evse2_current_soc = evse2_flex_model.get(
+            "soc_at_start", EV_CONFIG["min_soc_percent"] * evse2_capacity
         )
+    else:
+        evse2_current_soc = evse2_next_current_soc
+    evse2_scheduling_dynamic_flex_model = create_dynamic_storage_flex_model(
+        current_soc=evse2_current_soc,
+        constraints=evse2_constraints,
+    )
 
     if heating_next_current_soc is None:
         # Use initial SoC for first step
@@ -330,7 +361,10 @@ async def compute_site_schedules(
         current_soc=heating_current_soc,
     )
 
-    # Start with the battery and PV flex models
+    # Curtailable PV is modeled as production which the scheduler may reduce,
+    # but never increase above the available-production forecast. Be careful
+    # when using its realized schedule in reports: a forecast underestimate can
+    # look like deliberate curtailment if the schedule is treated as a hard cap.
     curtailable_pv_flex_model = {
         "power-capacity": "12 kW",
         "consumption-capacity": "0 kW",
@@ -342,41 +376,46 @@ async def compute_site_schedules(
             **battery_scheduling_dynamic_flex_model,
         },
         {
-            "sensor": sensors[f"pv-power-{index}"][
-                "id"
-            ],  # use power sensor to store realized data
-            **curtailable_pv_flex_model,
-        },
-        {
             "sensor": sensors[f"heating-power-{index}"]["id"],
             **heating_scheduling_dynamic_flex_model,
         },
     ]
+    if PV_MODE == "curtailable":
+        final_flex_models.insert(
+            1,
+            {
+                "sensor": sensors[f"pv-power-{index}"]["id"],
+                **curtailable_pv_flex_model,
+            },
+        )
+    elif PV_MODE != "inflexible":
+        raise ValueError(
+            f"Unsupported PV_MODE {PV_MODE!r}; choose 'inflexible' or 'curtailable'."
+        )
 
-    # Conditionally add EVSE flex models if they are not on a trip
-    if not evse1_constraints.get("unavailable"):
-        final_flex_models.append(
+    final_flex_models.extend(
+        [
             {
                 "sensor": sensors[f"evse1-power-{index}"]["id"],
                 **evse1_scheduling_dynamic_flex_model,
-            }
-        )
-    else:
-        print("EVSE 1 is on a trip, skipping scheduling.")
-
-    if not evse2_constraints.get("unavailable"):
-        final_flex_models.append(
+            },
             {
                 "sensor": sensors[f"evse2-power-{index}"]["id"],
                 **evse2_scheduling_dynamic_flex_model,
-            }
-        )
-    else:
-        print("EVSE 2 is on a trip, skipping scheduling.")
+            },
+        ]
+    )
 
     print("[FLEX-MODEL-DEBUG] === FLEX MODELS SENT TO SCHEDULER ===")
-    for i, model in enumerate(final_flex_models):
-        device_name = ["Battery", "PV", "Heating", "EVSE-1", "EVSE-2"][i]
+    device_names_by_sensor_id = {
+        sensors[f"battery-power-{index}"]["id"]: "Battery",
+        sensors[f"pv-power-{index}"]["id"]: "PV",
+        sensors[f"heating-power-{index}"]["id"]: "Heating",
+        sensors[f"evse1-power-{index}"]["id"]: "EVSE-1",
+        sensors[f"evse2-power-{index}"]["id"]: "EVSE-2",
+    }
+    for model in final_flex_models:
+        device_name = device_names_by_sensor_id[model["sensor"]]
         print(f"[FLEX-MODEL] {device_name}: {model}")
     print()
 
@@ -482,6 +521,7 @@ async def compute_site_measurements(
     evse1_flex_model: dict,
     evse2_flex_model: dict,
     index: int,
+    pending_ingestion_jobs: list[str],
 ):
 
     # Initialize power schedules
@@ -533,7 +573,9 @@ async def compute_site_measurements(
 
     # Upload battery power measurements
     battery_power_duration = timedelta(hours=SIMULATION_STEP_HOURS)
-    await client.post_sensor_data(
+    await post_sensor_data_and_track_ingestion(
+        client=client,
+        pending_ingestion_jobs=pending_ingestion_jobs,
         sensor_id=sensors[f"battery-power-{index}"]["id"],
         start=current_time,
         duration=battery_power_duration,
@@ -555,11 +597,15 @@ async def compute_site_measurements(
             f"Failed to fetch PV raw power from sensor {sensors[f'pv-production-{index}']['id']}"
         )
 
-    pv_realized_power = [
-        min(raw, scheduled) for raw, scheduled in zip(pv_raw_power, pv_scheduled_power)
-    ]
+    # In curtailable mode this emulates a gateway which can lower PV output to
+    # the scheduled setpoint. It cannot produce more power than is available.
+    pv_realized_power = realize_pv_power(
+        pv_raw_power, pv_scheduled_power, pv_mode=PV_MODE
+    )
 
-    await client.post_sensor_data(
+    await post_sensor_data_and_track_ingestion(
+        client=client,
+        pending_ingestion_jobs=pending_ingestion_jobs,
         sensor_id=sensors[f"pv-power-{index}"][
             "id"
         ],  # use power sensor to store realized data
@@ -571,7 +617,9 @@ async def compute_site_measurements(
     )
 
     # Upload EVSE 1 power measurements
-    await client.post_sensor_data(
+    await post_sensor_data_and_track_ingestion(
+        client=client,
+        pending_ingestion_jobs=pending_ingestion_jobs,
         sensor_id=sensors[f"evse1-power-{index}"]["id"],
         start=current_time,
         duration=battery_power_duration,
@@ -581,7 +629,9 @@ async def compute_site_measurements(
     )
 
     # Upload EVSE 2 power measurements
-    await client.post_sensor_data(
+    await post_sensor_data_and_track_ingestion(
+        client=client,
+        pending_ingestion_jobs=pending_ingestion_jobs,
         sensor_id=sensors[f"evse2-power-{index}"]["id"],
         start=current_time,
         duration=battery_power_duration,
@@ -591,7 +641,9 @@ async def compute_site_measurements(
     )
 
     # Upload heating power measurements
-    await client.post_sensor_data(
+    await post_sensor_data_and_track_ingestion(
+        client=client,
+        pending_ingestion_jobs=pending_ingestion_jobs,
         sensor_id=sensors[f"heating-power-{index}"]["id"],
         start=current_time,
         duration=battery_power_duration,
@@ -614,7 +666,9 @@ async def compute_site_measurements(
             )
             + pd.Timedelta(minutes=15)
         )
-        await client.post_sensor_data(
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
             sensor_id=sensors[f"building-consumption-{index}"]["id"],
             start=building_data_step["event_start"].iloc[0],
             duration=step_duration,
@@ -688,7 +742,9 @@ async def compute_site_measurements(
 
     # Upload battery SoC measurements (FlexMeasures computed)
     if battery_soc_values:
-        await client.post_sensor_data(
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
             sensor_id=sensors[f"battery-soc-{index}"]["id"],
             start=current_time,
             duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
@@ -702,7 +758,9 @@ async def compute_site_measurements(
 
     # Upload EVSE 1 SoC measurements (FlexMeasures computed)
     if evse1_soc_values:
-        await client.post_sensor_data(
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
             sensor_id=sensors[f"evse1-soc-{index}"]["id"],
             start=current_time,
             duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
@@ -716,7 +774,9 @@ async def compute_site_measurements(
 
     # Upload EVSE 2 SoC measurements (FlexMeasures computed)
     if evse2_soc_values:
-        await client.post_sensor_data(
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
             sensor_id=sensors[f"evse2-soc-{index}"]["id"],
             start=current_time,
             duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
@@ -729,7 +789,9 @@ async def compute_site_measurements(
         )
     # Upload heating SoC measurements (FlexMeasures computed)
     if heating_soc_values:
-        await client.post_sensor_data(
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
             sensor_id=sensors[f"heating-soc-{index}"]["id"],
             start=current_time,
             duration=pd.Timedelta(hours=SIMULATION_STEP_HOURS).isoformat(),
@@ -827,12 +889,23 @@ async def get_site_assets(
     index: int,
 ):
     """Get all assets in a site's child building."""
+    community_asset_id = await find_top_level_asset_id(client, community_name)
+    community_asset = await client.get_asset(community_asset_id, parse_json_fields=True)
     assets = await client.get_assets(
-        fields=["id", "name", "attributes", "sensors"], parse_json_fields=True
+        root=community_asset_id,
+        fields=["id", "name", "attributes", "sensors", "parent_asset_id"],
+        parse_json_fields=True,
     )
-    assets_by_name = {a["name"]: a for a in assets}
+    assets_by_name: dict[str, dict] = {}
+    for asset in [community_asset, *assets]:
+        existing_asset = assets_by_name.get(asset["name"])
+        if existing_asset is not None and existing_asset["id"] != asset["id"]:
+            raise LookupError(
+                f"Asset name '{asset['name']}' is ambiguous in community "
+                f"'{community_name}'."
+            )
+        assets_by_name[asset["name"]] = asset
 
-    community_asset = assets_by_name.get(community_name)
     site_asset = assets_by_name.get(site_name)
     battery_asset = assets_by_name.get(f"{battery_name} {index}")
     evse1_asset = assets_by_name.get(f"{evse1_name} {index}")
@@ -895,14 +968,13 @@ async def map_site_sensors(
 
         for sensor_key, asset_name, sensor_name in sensor_mappings:
             sensor = await find_sensor_by_name_and_asset(
-                client, sensor_name, asset_name, top_level_asset_id=top_level_asset_id
+                client,
+                sensor_name,
+                asset_name,
+                top_level_asset_id=top_level_asset_id,
+                allow_top_level_asset=asset_name == price_market_name,
             )
-            if sensor:
-                sensors[sensor_key] = sensor
-            else:
-                raise LookupError(
-                    f"Could not find sensor '{sensor_name}' in asset '{asset_name}'"
-                )
+            sensors[sensor_key] = sensor
     return sensors
 
 
@@ -919,6 +991,7 @@ def run_community_aggregate(
             community_power_sensor = x
             break
     # Run each site's aggregate reporter
+    all_reports_succeeded = True
     for index, site_name in enumerate(site_names, start=1):
         # Fill reporter parameters for each site
         fill_reporter_params(
@@ -936,11 +1009,12 @@ def run_community_aggregate(
             reporter_type="aggregate",
         )
         # Run AggregatorReporter
-        run_report_cmd(
+        report_succeeded = run_report_cmd(
             reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
             start=current_time.isoformat(),
             end=step_end_time.isoformat(),
         )
+        all_reports_succeeded = report_succeeded and all_reports_succeeded
 
     fill_reporter_params(
         input_sensors=[
@@ -953,8 +1027,9 @@ def run_community_aggregate(
         reporter_type="aggregate",
     )
     # Run AggregatorReporter
-    run_report_cmd(
+    community_report_succeeded = run_report_cmd(
         reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
         start=current_time.isoformat(),
         end=step_end_time.isoformat(),
     )
+    return community_report_succeeded and all_reports_succeeded
