@@ -44,7 +44,26 @@ Or, alternatively, to install released versions into a fresh project:
 Next steps:
 
 - Follow instructions to set up flexmeasures (fresh database, etc).
-- Create an organisation account and a user with the ``account-admin`` role:
+- Create an account and a user with the ``account-admin`` role. The quickest way
+  is FlexMeasures' toy account, which creates both in one step:
+
+.. code-block:: bash
+
+    flexmeasures add toy-account
+
+This is what ``examples/HEMS/const.py`` expects out of the box, so you can run
+the tutorial without editing it:
+
+.. code-block:: python
+
+    usr = "toy-user@flexmeasures.io"
+    pwd = "toy-password"
+
+The toy account also adds a few unrelated demo assets (``toy-building`` and its
+children). The tutorial ignores them and never deletes them.
+
+To use your own account instead, create it and give its user the
+``account-admin`` role:
 
 .. code-block:: bash
 
@@ -52,11 +71,11 @@ Next steps:
     flexmeasures add user --username hems-admin --email hems-admin@example.com \
         --account 2 --roles account-admin
 
-Replace ``2`` with the account ID printed by the first command. The tutorial
-creates all assets and sensors in this organisation account. It does not create
-public assets, so a site-wide ``admin`` role is not required.
+Replace ``2`` with the account ID printed by the first command, and update
+``usr`` and ``pwd`` in ``examples/HEMS/const.py`` to match.
 
-- Update the credentials in the ``examples/HEMS/const.py`` script accordingly.
+Either way, the tutorial creates all assets and sensors in that one account. It
+does not create public assets, so a site-wide ``admin`` role is not required.
 
 
 Run the tutorial script

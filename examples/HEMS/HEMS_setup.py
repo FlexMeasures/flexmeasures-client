@@ -267,7 +267,10 @@ async def main(
             f"Unsupported PV_MODE {PV_MODE!r}; choose 'inflexible' or 'curtailable'."
         )
 
-    # NOTE: Create the account and account-admin user via FlexMeasures CLI first:
+    # NOTE: Create an account and an account-admin user via the FlexMeasures CLI
+    # first. The credentials in const.py default to FlexMeasures' toy account:
+    # flexmeasures add toy-account
+    # To use your own account instead, create it and update const.py to match:
     # flexmeasures add account --name "MyCompany"
     # flexmeasures add user --username hems-admin --email hems-admin@example.com \
     #     --account 2 --roles account-admin
