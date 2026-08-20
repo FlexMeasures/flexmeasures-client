@@ -1,6 +1,6 @@
 {
     "required_input" :[{"name":"production","unit": "kW"}, {"name":"pv-power","unit": "kW"}, {"name":"heating-power","unit": "kW"}, {"name":"evse1-consumption","unit": "kW"}, {"name":"evse2-consumption","unit": "kW"}, {"name":"building-consumption","unit": "kW"}, {"name":"battery-power","unit": "kW"}],
-    "required_output" :[{"name":"self-consumption","unit": "kW"}, {"name":"daily-share-of-self-consumption", "unit": "%"}],
+    "required_output" :[{"name":"self-consumption","unit": "kW"}, {"name":"solar-feed-in","unit": "kW"}, {"name":"solar-curtailment","unit": "kW"}, {"name":"daily-share-of-self-consumption", "unit": "%"}],
     "droplevels": true,
     "transformations" : [
         {
@@ -39,7 +39,7 @@
         },
         {
             "df_input": "excess-pv",
-            "df_output": "excess-pv",
+            "df_output": "solar-feed-in",
             "method": "clip",
             "kwargs": {"lower": 0}
         },
@@ -47,7 +47,19 @@
             "df_input": "pv-power",
             "df_output": "self-consumption",
             "method": "sub",
-            "args": ["@excess-pv"]
+            "args": ["@solar-feed-in"]
+        },
+        {
+            "df_input": "production",
+            "df_output": "solar-curtailment",
+            "method": "sub",
+            "args": ["@pv-power"]
+        },
+        {
+            "df_input": "solar-curtailment",
+            "df_output": "solar-curtailment",
+            "method": "clip",
+            "kwargs": {"lower": 0}
         },
         {
             "df_input": "self-consumption",
@@ -59,8 +71,8 @@
             "method": "sum"
         },
         {
-            "df_input": "production",
-            "df_output": "daily solar production",
+            "df_input": "pv-power",
+            "df_output": "daily delivered solar production",
             "method": "resample",
             "args": ["1D"]
         },
@@ -71,7 +83,7 @@
             "df_input": "daily self-consumption",
             "df_output": "daily-share-of-self-consumption",
             "method": "divide",
-            "args": ["@daily solar production"]
+            "args": ["@daily delivered solar production"]
         },
         {
             "method": "multiply",

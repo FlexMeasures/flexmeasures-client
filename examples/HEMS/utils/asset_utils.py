@@ -1,6 +1,7 @@
 import asyncio
 import os
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from const import heating_name, price_market_name, pv_name, weather_station_name
@@ -10,34 +11,134 @@ from flexmeasures_client import FlexMeasuresClient
 BASE_DIR = Path(__file__).parent.parent
 
 
+async def post_sensor_data_and_track_ingestion(
+    client: FlexMeasuresClient,
+    pending_ingestion_jobs: list[str],
+    **kwargs: Any,
+) -> None:
+    """Post sensor data and remember asynchronous ingestion jobs."""
+    response, status = await client.post_sensor_data(**kwargs)
+
+    if status != 202:
+        return
+
+    # FlexMeasures 0.33 calls this field ``job_id``; newer servers use ``job``.
+    job_id = None
+    if isinstance(response, dict):
+        job_id = response.get("job") or response.get("job_id")
+    if not job_id:
+        raise RuntimeError(
+            "The server accepted sensor data for asynchronous ingestion "
+            "but did not return a job ID."
+        )
+    pending_ingestion_jobs.append(job_id)
+
+
+async def wait_for_ingestion_jobs(
+    client: FlexMeasuresClient, pending_ingestion_jobs: list[str]
+) -> None:
+    """Wait until all tracked sensor-data ingestion jobs have finished."""
+    if not pending_ingestion_jobs:
+        return
+
+    print(f"Waiting for {len(pending_ingestion_jobs)} ingestion job(s)...")
+    for job_id in pending_ingestion_jobs:
+        deadline = asyncio.get_running_loop().time() + client.polling_timeout
+        polling_step = 0
+
+        while True:
+            # FlexMeasures 0.33 returns HTTP 200 even while a job is in
+            # progress. Newer versions return 202, which client.request polls
+            # internally. Inspecting the status field supports both versions.
+            job, _ = await client.request(
+                uri=f"jobs/{job_id}",
+                method="GET",
+            )
+            job_status = (
+                str(job.get("status", "")).upper() if isinstance(job, dict) else ""
+            )
+            if job_status == "FINISHED":
+                break
+            if job_status not in {"QUEUED", "STARTED", "DEFERRED", "SCHEDULED"}:
+                raise RuntimeError(
+                    f"Ingestion job {job_id} did not finish successfully: {job}"
+                )
+
+            polling_step += 1
+            if polling_step >= client.max_polling_steps:
+                raise ConnectionError(
+                    f"Max polling steps reached while waiting for ingestion job "
+                    f"{job_id}. Last status: {job_status}"
+                )
+
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise ConnectionError(
+                    f"Client polling timeout while waiting for ingestion job "
+                    f"{job_id}. Last status: {job_status}"
+                )
+            sleep_interval = min(
+                client.polling_interval * (2 ** (polling_step - 1)), remaining
+            )
+            await asyncio.sleep(sleep_interval)
+    pending_ingestion_jobs.clear()
+
+
 async def find_sensor_by_name_and_asset(
     client: FlexMeasuresClient,
     sensor_name: str,
     asset_name: str,
     top_level_asset_id: int | None = None,
+    allow_top_level_asset: bool = False,
 ):
-    """Find a sensor by name within a specific asset."""
-    assets = await client.get_assets(
-        root=top_level_asset_id
-    )  # first list those that are part of the community
-    assets += await client.get_assets(
-        parse_json_fields=True
-    )  # then list all accessible assets
-    target_asset = None
-    for asset in assets:
-        if asset["name"] == asset_name:
-            target_asset = asset
-            break
+    """Find one sensor in the community tree or an explicitly allowed root."""
+    if top_level_asset_id is None:
+        raise ValueError("top_level_asset_id is required for scoped sensor lookup")
 
-    if not target_asset:
+    community_asset = await client.get_asset(top_level_asset_id, parse_json_fields=True)
+    account_id = community_asset.get("account_id")
+    if not isinstance(account_id, int):
+        account = await client.get_account()
+        account_id = account["id"]
+    assets = [community_asset]
+    assets.extend(
+        await client.get_assets(root=top_level_asset_id, parse_json_fields=True)
+    )
+    if allow_top_level_asset:
+        assets.extend(
+            await client.get_assets(
+                account_id=account_id, depth=0, parse_json_fields=True
+            )
+        )
+
+    assets_by_id = {asset["id"]: asset for asset in assets}
+    matches = [
+        asset for asset in assets_by_id.values() if asset.get("name") == asset_name
+    ]
+    if not matches:
         raise LookupError(f"Asset '{asset_name}' not found")
+    if len(matches) > 1:
+        raise LookupError(
+            f"Asset name '{asset_name}' is ambiguous in the allowed HEMS scope."
+        )
+    target_asset = matches[0]
 
-    sensors = await client.get_sensors(asset_id=target_asset["id"])
-    for sensor in sensors:
-        if sensor["name"] == sensor_name:
-            return sensor
-
-    raise LookupError(f"Sensor '{sensor_name}' not found in asset '{asset_name}'")
+    sensors = await client.get_sensors(
+        asset_id=target_asset["id"], parse_json_fields=True
+    )
+    matches = [
+        sensor
+        for sensor in sensors
+        if sensor.get("name") == sensor_name
+        and sensor.get("generic_asset_id") == target_asset["id"]
+    ]
+    if not matches:
+        raise LookupError(f"Sensor '{sensor_name}' not found in asset '{asset_name}'")
+    if len(matches) > 1:
+        raise LookupError(
+            f"Sensor name '{sensor_name}' is ambiguous on asset '{asset_name}'."
+        )
+    return matches[0]
 
 
 async def upload_csv_file_to_sensor(
@@ -45,32 +146,41 @@ async def upload_csv_file_to_sensor(
     sensor_id: int,
     file_path: str,
     belief_time_measured_instantly: bool,
+    pending_ingestion_jobs: list[str],
 ):
-    """Upload CSV file directly to a sensor using file upload."""
+    """Upload a CSV file and track asynchronous ingestion."""
     try:
         full_path = os.path.join(BASE_DIR, file_path)
-        await client.post_sensor_data(
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
             sensor_id=sensor_id,
             file_path=full_path,
             belief_time_measured_instantly=belief_time_measured_instantly,  # Set belief_time immediately after event ends
         )
-        print(f"Uploaded {file_path} to sensor {sensor_id}")
-        return True
+        print(f"Submitted {file_path} to sensor {sensor_id}")
     except Exception as e:
         print(f"Failed to upload {file_path} to sensor {sensor_id}: {e}")
-        return False
+        raise
 
 
 async def find_top_level_asset_id(
     client: FlexMeasuresClient,
     name: str,
 ) -> int:
+    account = await client.get_account()
     top_level_assets = await client.get_assets(
-        depth=0, fields=["id", "name"], parse_json_fields=True
+        account_id=account["id"],
+        depth=0,
+        fields=["id", "name"],
+        parse_json_fields=True,
     )
-    for asset in top_level_assets:
-        if asset["name"] == name:
-            return asset["id"]
+    matches = [asset for asset in top_level_assets if asset["name"] == name]
+    if len(matches) != 1:
+        raise LookupError(
+            f"Expected one top-level asset named '{name}', found {len(matches)}."
+        )
+    return matches[0]["id"]
 
 
 async def find_sensors_by_asset(
@@ -86,14 +196,14 @@ async def find_sensors_by_asset(
     sensors = {}
     for key, sensor_name, asset_name in sensor_mappings:
         sensor = await find_sensor_by_name_and_asset(
-            client, sensor_name, asset_name, top_level_asset_id
+            client,
+            sensor_name,
+            asset_name,
+            top_level_asset_id,
+            allow_top_level_asset=asset_name
+            in {price_market_name, weather_station_name},
         )
-        if sensor:
-            sensors[key] = sensor
-        else:
-            raise LookupError(
-                f"Could not find sensor '{sensor_name}' in asset '{asset_name}'"
-            )
+        sensors[key] = sensor
     return sensors
 
 
@@ -102,6 +212,7 @@ async def upload_data_for_first_two_weeks(
 ):
     """Upload historical data for the first two weeks."""
     print("Uploading data for first two weeks...")
+    pending_ingestion_jobs: list[str] = []
 
     for i, site_name in enumerate(site_names, start=1):
         # Find all required sensors
@@ -135,88 +246,75 @@ async def upload_data_for_first_two_weeks(
                 2:
             ]  # Remove site power capacity and price datafiles to not fill them more than once
         for file_path, sensor_key, belief_time_measured_instantly in data_files:
-            if sensor_key not in sensors:
-                print(f"Skipping {file_path} - sensor not found")
-                continue
-
             print(f"Processing {file_path}...")
 
             # Upload CSV file directly
-            success = await upload_csv_file_to_sensor(
+            await upload_csv_file_to_sensor(
                 client=client,
                 sensor_id=sensors[sensor_key]["id"],
                 file_path=file_path,
                 belief_time_measured_instantly=belief_time_measured_instantly,
+                pending_ingestion_jobs=pending_ingestion_jobs,
             )
 
-            if success:
-                print(f"Successfully uploaded {sensor_key} data")
-            else:
-                print(f"Failed to upload {sensor_key} data")
+            print(f"Submitted {sensor_key} data for ingestion")
+
+    # File uploads may only have been accepted (HTTP 202), not processed yet.
+    # Forecasting must not start until all historical data is available.
+    await wait_for_ingestion_jobs(client, pending_ingestion_jobs)
 
     return True
 
 
-async def cleanup_existing_assets(
-    client: FlexMeasuresClient, account_id: int, site_names: list[str]
-):
-    """Clean up existing HEMS assets to avoid naming conflicts."""
-    print("Cleaning up existing assets...")
+async def delete_hems_assets(
+    client: FlexMeasuresClient,
+    account_id: int,
+    community_name: str,
+    confirm_first: bool = True,
+) -> int:
+    """Delete the top-level assets belonging to this HEMS example.
 
-    for site_name in site_names:
-        # Asset names to clean up
-        asset_names_to_clean = [
-            site_name,  # Deleting this asset also deletes child assets (battery, PV, EVSEs)
-            weather_station_name,
-            price_market_name,
-        ]
+    Deleting the community asset also deletes all child assets, sensors, and data.
+    The price market and weather station are separate top-level assets, so they
+    are deleted explicitly.
+    """
+    asset_names_to_delete = {
+        community_name,
+        weather_station_name,
+        price_market_name,
+    }
+    top_level_assets = await client.get_assets(
+        depth=0,
+        fields=["id", "name", "account_id"],
+        parse_json_fields=False,
+    )
+    assets_to_delete = [
+        asset
+        for asset in top_level_assets
+        if asset["name"] in asset_names_to_delete
+        and asset.get("account_id") == account_id
+    ]
 
-        try:
-            # Get all existing assets
-            assets = await client.get_assets(parse_json_fields=True)
+    if not assets_to_delete:
+        print("No HEMS assets found in the current account.")
+        return 0
 
-            # Find and delete assets that match our names
-            deleted_count = 0
-            for asset in assets:
-                if asset["name"] in asset_names_to_clean:
-                    print(
-                        f"Deleting existing asset: {asset['name']} (ID: {asset['id']})"
-                    )
-                    try:
-                        if asset.get("account_id") != account_id:
-                            print(
-                                f"Warning: Asset {asset['name']} (ID: {asset['id']}) does not belong to the current account."
-                            )
-                            raise
-                        await client.delete_asset(
-                            asset_id=asset["id"], confirm_first=False
-                        )
-                        deleted_count += 1
-                    except Exception as delete_error:
-                        # Check if it's a 404 error (asset not found)
-                        if "404" in str(delete_error) or "NOT FOUND" in str(
-                            delete_error
-                        ):
-                            print(
-                                f"Asset {asset['name']} (ID: {asset['id']}) no longer exists, skipping..."
-                            )
-                        else:
-                            print(
-                                f"Warning: Could not delete asset {asset['name']}: {delete_error}"
-                            )
-                        # Continue with other assets
+    print("The following top-level HEMS assets will be deleted:")
+    for asset in assets_to_delete:
+        print(f"- {asset['name']} (ID: {asset['id']})")
+    print("Their child assets, sensors, and time-series data will also be deleted.")
 
-            if deleted_count > 0:
-                print(f"Cleaned up {deleted_count} existing assets")
-            else:
-                print("No existing assets to clean up")
+    if confirm_first:
+        answer = input("Permanently delete these assets and all their data? [yN] ")
+        if answer.lower() not in ["y", "yes"]:
+            print("Aborting ...")
+            return 0
 
-            # Wait a moment for deletions to complete
-            await asyncio.sleep(1)
+    for asset in assets_to_delete:
+        await client.delete_asset(asset_id=asset["id"], confirm_first=False)
 
-        except Exception as e:
-            print(f"Warning: Error during cleanup: {e}")
-            print("Continuing with setup...")
+    print(f"Deleted {len(assets_to_delete)} top-level HEMS assets.")
+    return len(assets_to_delete)
 
 
 def load_and_align_csv_data(
@@ -238,20 +336,3 @@ def load_and_align_csv_data(
 
     print(f"Aligned {len(df)} records from {file_path}")
     return aligned_df
-
-
-def get_first_asset_by_name(
-    assets: list[dict], name: str, account_id: int | None = 0
-) -> dict | None:
-    """
-    :param assets:      List of dictionaries describing assets, each with at least a "name".
-    :param name:        The asset name to find the first occurrence for.
-    :param account_id:  Optionally, filter by account_id (a positive integer, or None for a public account).
-                        To use this filter, each dictionary in `assets` should contain the "account_id", too.
-                        NB the 0 default is used to signal the argument is missing (real IDs are strictly positive).
-    """
-    for asset in assets:
-        if asset["name"] == name:
-            if account_id != 0 and asset["account_id"] != account_id:
-                continue
-            return asset
