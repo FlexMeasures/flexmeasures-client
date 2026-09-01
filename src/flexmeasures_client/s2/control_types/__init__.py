@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from asyncio import Queue
 from logging import Logger
-from typing import cast
+from typing import Callable, cast
 
 from pydantic import BaseModel
 from s2python.common import (
@@ -22,7 +21,7 @@ class ControlTypeHandler(Handler):
     _instruction_history: SizeLimitOrderedDict[str, BaseModel]
     _instruction_status_history: SizeLimitOrderedDict[str, InstructionStatus]
     _fm_client: FlexMeasuresClient
-    _sending_queue: Queue
+    send_message: Callable
     _logger: Logger
 
     def __init__(self, max_size: int = 100) -> None:
@@ -30,6 +29,17 @@ class ControlTypeHandler(Handler):
 
         self._instruction_history = SizeLimitOrderedDict(max_size=max_size)
         self._instruction_status_history = SizeLimitOrderedDict(max_size=max_size)
+
+    async def close(self):
+        """Release any resources / stop recurring tasks for this handler.
+
+        Default no-op so CEM.close() (which calls close() on every registered
+        handler when a websocket tears down) works for any control-type handler.
+        Subclasses that own recurring tasks override this. Previously FRBCSimple
+        had no close(), so a websocket teardown raised AttributeError inside
+        CEM.close(), killing the CEM's request handler and hanging the RM.
+        """
+        self._logger.debug(f"Closing {self.__class__.__name__} handler")
 
     @register(InstructionStatusUpdate)
     def handle_instruction_status_update(self, message: InstructionStatusUpdate):

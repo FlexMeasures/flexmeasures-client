@@ -35,8 +35,11 @@ from flexmeasures_client.response_handling import (
 
 LOGGER = logging.getLogger(__name__)
 
-MAX_POLLING_STEPS: int = 10  # seconds
-POLLING_TIMEOUT = 200.0  # seconds
+# With each backoff sleep capped at MAX_POLLING_SLEEP, the number of steps is
+# what bounds total patience (~step count x 10s); keep it high enough that
+# polling_timeout (200s), not the step count, is the effective budget.
+MAX_POLLING_STEPS: int = 40
+POLLING_TIMEOUT = 360.0  # seconds
 REQUEST_TIMEOUT = 40.0  # seconds
 POLLING_INTERVAL = 10.0  # seconds
 API_VERSIONS_LIST = ["v3_0"]
@@ -273,7 +276,10 @@ class FlexMeasuresClient:
                             ):
                                 break
                     except asyncio.TimeoutError:
-                        sleep_interval = self.polling_interval * (2**polling_step)
+                        sleep_interval = min(
+                            self.polling_interval * (2**polling_step),
+                            MAX_POLLING_SLEEP,
+                        )
                         message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {sleep_interval} seconds..."  # noqa: E501
                         self.logger.debug(message)
                         polling_step += 1
@@ -362,6 +368,7 @@ class FlexMeasuresClient:
                     f"FlexMeasures server version changed from {self.server_version} to {header_version}."
                 )
             self.server_version = header_version
+            self.server_version = "0.33.0"  # temp override until v0.33.0 is released
 
         polling_step, reauth_once, url = await check_response(
             self, response, polling_step, reauth_once, url, method=method
@@ -1182,9 +1189,9 @@ class FlexMeasuresClient:
         self,
         name: str,
         account_id: int,
-        latitude: float,
-        longitude: float,
         generic_asset_type_id: int,
+        latitude: float = None,
+        longitude: float = None,
         parent_asset_id: int | None = None,
         sensors_to_show: list | None = None,
         flex_context: dict | None = None,
@@ -1213,10 +1220,12 @@ class FlexMeasuresClient:
         asset = dict(
             name=name,
             account_id=account_id,
-            latitude=latitude,
-            longitude=longitude,
             generic_asset_type_id=generic_asset_type_id,
         )
+        if latitude is not None:
+            asset["latitude"] = str(latitude)
+        if longitude is not None:
+            asset["longitude"] = str(longitude)
         if parent_asset_id:
             asset["parent_asset_id"] = parent_asset_id
         if sensors_to_show:
@@ -1460,7 +1469,12 @@ class FlexMeasuresClient:
         asset_id: int | None = None,
         prior: datetime | None = None,
         scheduler: str | None = None,
+        metadata: dict | None = None,
     ) -> str:
+        """metadata: opaque orchestration metadata passed alongside the domain
+        payload (a sibling of flex-model/flex-context, mirroring the S2 wrapper
+        convention). Requires a server that accepts the trigger "metadata"
+        field; it is passed through verbatim to the Scheduler."""
         if (sensor_id is None) == (asset_id is None):
             raise ValueError("Pass either a sensor_id or an asset_id.")
         message = {
@@ -1473,6 +1487,8 @@ class FlexMeasuresClient:
             message["flex-model"] = flex_model
         if flex_context is not None:
             message["flex-context"] = flex_context
+        if metadata is not None:
+            message["metadata"] = metadata
 
         force_new_job_creation_requested = False
         if prior is not None:
@@ -1503,6 +1519,7 @@ class FlexMeasuresClient:
                     )
                     self._sensor_asset_id_cache[sensor_id] = sensor["generic_asset_id"]
                 asset_id = self._sensor_asset_id_cache[sensor_id]
+                flex_model["sensor"] = sensor_id
 
                 # Move sensor ID into the flex-model
                 if flex_model is None:

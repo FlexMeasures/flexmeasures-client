@@ -1,0 +1,187 @@
+# ------------------------------------------------------------------
+# This allow to run the S2 CEM from your local FlexMeasures Client code in a docker compose stack.
+# Assuming you have flexmeasures the repo next to your flexmeasures-client repo,
+# run this from the flexmeasures folder (which contains the Dockerfile):
+# docker compose \
+#  -f docker-compose.yml \
+#  -f ../flexmeasures-client/docker-compose.override.yml \
+#  up
+# ------------------------------------------------------------------
+
+# Shared definition for all CEM instances. Each instance keeps listening on
+# port 8080 inside its own container; only the host port mapping differs,
+# so RMs connect to ws://localhost:8080/ws, ws://localhost:8081/ws, etc.
+x-cem: &cem
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: flexmeasures-client-cem
+  depends_on:
+    - server
+  restart: always
+  environment:
+    FLEXMEASURES_BASE_URL: http://server:5000
+    FLEXMEASURES_USER: toy-user@flexmeasures.io
+    FLEXMEASURES_PASSWORD: toy-password
+    LOGGING_LEVEL: DEBUG
+    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FLEXMEASURES_CLIENT: "0.0.0"
+    SETUPTOOLS_SCM_PRETEND_VERSION: "0.0.0"
+  volumes:
+    # If flexmeasures_client lives in your repo and you want live edits
+    - ../flexmeasures-client:/app/flexmeasures-client:rw
+  entrypoint: ["/bin/sh", "-c"]
+  command:
+  - |
+    # Install and run with the SAME interpreter (`python3 -m pip`, not bare `pip`).
+    # In images built from FlexMeasures' uv-based Dockerfile, `python3` resolves to
+    # the /app/.venv virtualenv (which ships without pip and cannot see system
+    # site-packages) while bare `pip` is the system one under /usr/local - so
+    # packages installed with `pip` are invisible at runtime (ModuleNotFoundError:
+    # aiohttp). Older cached images had a single system Python, masking this.
+    # The ensurepip guard bootstraps pip into the venv on fresh images and is a
+    # no-op wherever `python3 -m pip` already works.
+    python3 -m pip --version >/dev/null 2>&1 || python3 -m ensurepip --upgrade
+    python3 -m pip install --break-system-packages -e "/app/flexmeasures-client[s2]"
+    python3 -m pip install --break-system-packages aiohttp pytz s2-python==0.8.2
+    exec python3 /app/flexmeasures-client/src/flexmeasures_client/s2/script/websockets_server.py
+
+# Shared definition for all RQ worker instances. Scaled one-per-concurrently-
+# simulated-apartment, same as the cem-* services and the server's gunicorn
+# worker count below, since otherwise every apartment's scheduling jobs funnel
+# through a single worker process and serialize even though gunicorn/CEM are
+# already scaled per apartment. Bump alongside those when scaling further.
+x-worker: &worker
+  # worker-2/worker-3 are new services (not present in the base docker-compose.yml,
+  # unlike "worker" itself), so this anchor must be self-contained rather than
+  # relying on a base-file merge for build/depends_on/restart/base environment.
+  build:
+    context: .
+    dockerfile: Dockerfile
+  depends_on:
+    - dev-db
+    - queue-db
+    - mailhog
+  restart: on-failure
+  cap_add:
+    # SYS_PTRACE: lets py-spy attach to the RQ worker subprocess for live debugging
+    # of slow/stuck scheduling jobs (py-spy itself isn't preinstalled here; install
+    # it ad hoc with `docker exec <container> pip install --break-system-packages py-spy`).
+    - SYS_PTRACE
+  volumes:
+    # a place for config and plugin code, and custom requirements.txt
+    - ./flexmeasures-instance/:/usr/var/flexmeasures-instance/:rw
+    - ../flexmeasures/flexmeasures:/app/flexmeasures:rw
+    - ./flexmeasures-instance/:/app/instance/:rw
+    # The client repo (flexmeasures_client + examples/HEMS). The seita_ems
+    # community plugin is mounted by the ems repo's docker-compose.community.yml
+    # overlay instead, so this stack also runs without access to that repo.
+    - ../flexmeasures-client:/app/flexmeasures-client:rw
+  entrypoint: ["/bin/sh", "-c"]
+  environment:
+    SQLALCHEMY_DATABASE_URI: "postgresql://fm-dev-db-user:fm-dev-db-pass@dev-db:5432/fm-dev-db"
+    FLEXMEASURES_REDIS_URL: queue-db
+    FLEXMEASURES_REDIS_PASSWORD: fm-redis-pass
+    SECRET_KEY: notsecret
+    SECURITY_TOTP_SECRETS: '{"1": "something-secret"}'
+    FLEXMEASURES_ENV: development
+    MAIL_SERVER: mailhog
+    MAIL_PORT: 1025
+    LOGGING_LEVEL: INFO
+
+services:
+  dev-db:
+    ports:
+      - "5433:5432"
+  queue-db:
+    ports:
+      - "6380:6379"
+  server:
+    # SYS_PTRACE: lets py-spy attach to the gunicorn workers for live debugging
+    # of the CEM-asset-reuse hang (see projects/009 HANDOFF.md in pps_flexed).
+    cap_add:
+      - SYS_PTRACE
+    volumes:
+      # A place for config and plugin code, and custom requirements.txt
+      # The 1st mount point is for running the FlexMeasures CLI, the 2nd for gunicorn
+      # We use :rw so flexmeasures CLI commands can write log files
+      - ./flexmeasures-instance/:/usr/var/flexmeasures-instance/:rw
+      - ./flexmeasures-instance/:/app/instance/:rw
+      - ../flexmeasures/flexmeasures:/app/flexmeasures:rw
+      # The client repo (flexmeasures_client + examples/HEMS). The seita_ems
+      # community plugin is mounted by the ems repo's docker-compose.community.yml
+      # overlay instead, so this stack also runs without access to that repo.
+      - ../flexmeasures-client:/app/flexmeasures-client:rw
+    command:
+      - |
+        pip install --break-system-packages -e /app
+        pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
+        pip install timely-beliefs -U --break-system-packages
+        pip install --break-system-packages -e /app/flexmeasures-client[s2]
+        pip install --break-system-packages py-spy
+        flexmeasures db upgrade
+        if ! flexmeasures show accounts | grep -q "Docker Toy Account"; then
+            flexmeasures add toy-account --name 'Docker Toy Account'
+        fi
+        # More worker PROCESSES, fewer threads per worker: a slow CPU-bound
+        # request (see projects/009 HANDOFF.md - belief-dedup in
+        # flexmeasures/data/services/time_series.py can be slow) previously
+        # monopolized the GIL of its gunicorn worker under --threads 4,
+        # starving unrelated concurrent requests until they hit client-side
+        # timeouts. Separate OS processes aren't GIL-bound, so this isolates
+        # a slow request to its own worker instead of blocking the others.
+        # Worker count matches the number of CEM instances below (one per
+        # concurrently-simulated apartment), since each apartment's RM/CEM
+        # can be mid-request at the same time. Bump both together when
+        # scaling to more apartments (see the cem-* services' own comment).
+        gunicorn --bind 0.0.0.0:5000 --worker-tmp-dir /dev/shm --workers 5 --threads 1 --timeout 120 wsgi:application
+  # One RQ worker per concurrently-simulated apartment (see x-worker comment
+  # above). Add or remove instances alongside the cem-* services.
+  worker:
+    <<: *worker
+    command:
+      - |
+        pip install --break-system-packages -e /app
+        pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
+        pip install timely-beliefs -U --break-system-packages
+        pip install --break-system-packages -e /app/flexmeasures-client[s2]
+        flexmeasures jobs run-worker --name flexmeasures-worker-1 --queue scheduling\|forecasting
+  worker-2:
+    <<: *worker
+    command:
+      - |
+        pip install --break-system-packages -e /app
+        pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
+        pip install timely-beliefs -U --break-system-packages
+        pip install --break-system-packages -e /app/flexmeasures-client[s2]
+        flexmeasures jobs run-worker --name flexmeasures-worker-2 --queue scheduling\|forecasting
+  worker-3:
+    <<: *worker
+    command:
+      - |
+        pip install --break-system-packages -e /app
+        pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
+        pip install timely-beliefs -U --break-system-packages
+        pip install --break-system-packages -e /app/flexmeasures-client[s2]
+        flexmeasures jobs run-worker --name flexmeasures-worker-3 --queue scheduling\|forecasting
+  # One CEM per simulated household. Add or remove instances as needed;
+  # scale by copying an entry and bumping the host port.
+  cem:
+    <<: *cem
+    ports:
+      - "8080:8080"
+  cem-2:
+    <<: *cem
+    ports:
+      - "8081:8080"
+  cem-3:
+    <<: *cem
+    ports:
+      - "8082:8080"
+  cem-4:
+    <<: *cem
+    ports:
+      - "8083:8080"
+  cem-5:
+    <<: *cem
+    ports:
+      - "8084:8080"

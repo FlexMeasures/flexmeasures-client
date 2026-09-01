@@ -78,21 +78,21 @@ async def setup_cem(resource_manager_details, rm_handshake):
     #############
 
     await cem.handle_message(rm_handshake)
-    response = await cem.get_message()  # ReceptionStatus for Handshake
-    response = await cem.get_message()  # HandshakeResponse
+    response, _ = await cem.get_message()  # ReceptionStatus for Handshake
+    response, _ = await cem.get_message()  # HandshakeResponse
 
     ##########################
     # ResourceManagerDetails #
     ##########################
     await cem.handle_message(resource_manager_details)
-    response = await cem.get_message()
+    response, _ = await cem.get_message()
 
     #########################
     # Activate control type #
     #########################
 
     await cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
-    message = await cem.get_message()
+    message, _ = await cem.get_message()
 
     response = ReceptionStatus(
         subject_message_id=message.get("message_id"), status=ReceptionStatusValues.OK
@@ -112,7 +112,7 @@ async def cem_in_frbc_control_type(setup_cem, frbc_system_description):
     ########
 
     await cem.handle_message(frbc_system_description)
-    await cem.get_message()
+    _, _ = await cem.get_message()
 
     return cem, fm_client, frbc_system_description
 

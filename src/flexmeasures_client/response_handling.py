@@ -8,6 +8,7 @@ from aiohttp import ContentTypeError
 from yarl import URL
 
 from flexmeasures_client.constants import CONTENT_TYPE
+from flexmeasures_client.constants import MAX_POLLING_SLEEP
 
 if TYPE_CHECKING:  # Only imports the below statements during type checking
     from flexmeasures_client.client import FlexMeasuresClient
@@ -64,7 +65,9 @@ async def check_response(
         or "Scheduling job has an unknown status" in payload.get("message", "")
     ):
         # can be removed in a later version GH issue #645 of the FlexMeasures repo
-        sleep_interval = self.polling_interval * (2**polling_step)
+        sleep_interval = min(
+            self.polling_interval * (2**polling_step), MAX_POLLING_SLEEP
+        )
         message = f"Server indicated to try again later. Retrying in {sleep_interval} seconds..."  # noqa: E501
         self.logger.debug(message)
         polling_step += 1
@@ -79,7 +82,9 @@ async def check_response(
         await self.get_access_token()
         reauth_once = False
     elif status == 503 and "Retry-After" in headers:
-        sleep_interval = self.polling_interval * (2**polling_step)
+        sleep_interval = min(
+            self.polling_interval * (2**polling_step), MAX_POLLING_SLEEP
+        )
         polling_step += 1
         await asyncio.sleep(sleep_interval)
     elif payload.get("errors"):

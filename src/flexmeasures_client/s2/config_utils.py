@@ -1,0 +1,298 @@
+import asyncio
+import logging
+import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from flexmeasures_client.client import FlexMeasuresClient
+
+log_level = os.getenv("LOGGING_LEVEL", "WARNING").upper()
+logging.basicConfig(
+    level=log_level,
+    format="[CEM][%(asctime)s] %(levelname)s:  %(name)s | %(message)s",
+)
+LOGGER = logging.getLogger(__name__)
+
+# site_name -> asset id, per CEM server process (see configure_site)
+_SITE_ASSET_IDS: dict[str, int] = {}
+
+
+async def configure_site(
+    site_name: str, fm_client: FlexMeasuresClient
+) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict, dict, dict]:
+    account = await fm_client.get_account()
+
+    # Find the site asset with a lean id/name listing, then fetch only the
+    # match. This runs on EVERY RM (re)connection - in co-simulation that is
+    # every replan round - and the previous full-catalog get_assets scan cost
+    # ~5-7 s per call against a large database (about half the API time of a
+    # profiled co-simulation day). Falls back to the full scan on servers
+    # too old for the `fields` parameter (< 0.31).
+    site_asset: dict | None = None
+    # Asset ids are stable for the lifetime of this CEM server process (one
+    # process per apartment; the RM reconnects every replan round, and even
+    # the lean listing costs seconds against a large database), so remember
+    # the resolved id and fetch it directly on reconnections. A stale id
+    # (asset deleted between runs never happens within a process lifetime,
+    # but be safe) falls through to a fresh lookup.
+    cached_id = _SITE_ASSET_IDS.get(site_name)
+    if cached_id is not None:
+        try:
+            candidate = await fm_client.get_asset(
+                asset_id=cached_id, parse_json_fields=True
+            )
+            if candidate.get("name") == site_name:
+                site_asset = candidate
+        except Exception:
+            _SITE_ASSET_IDS.pop(site_name, None)
+    if site_asset is None:
+        try:
+            asset_listing = await fm_client.get_assets(
+                fields=["id", "name"], parse_json_fields=False
+            )
+            for asset in asset_listing:
+                if asset.get("name") == site_name:
+                    site_asset = await fm_client.get_asset(
+                        asset_id=asset["id"], parse_json_fields=True
+                    )
+                    break
+        except ValueError:
+            assets = await fm_client.get_assets(parse_json_fields=True)
+            for asset in assets:
+                if asset["name"] == site_name:
+                    site_asset = asset
+                    break
+
+    site_asset_specs = dict(
+        latitude=0,
+        longitude=0,
+        generic_asset_type_id=6,  # Building asset type
+        flex_model={
+            "power-capacity": f"{3 * 25 * 230} VA",
+        },
+    )
+
+    if not site_asset:
+        LOGGER.debug(f"HANGDEBUG configure_site: creating new asset for {site_name!r}")
+        site_asset = await fm_client.add_asset(
+            name=site_name, account_id=account["id"], **site_asset_specs
+        )
+    else:
+        LOGGER.debug(
+            f"HANGDEBUG configure_site: reusing existing asset id={site_asset['id']} "
+            f"for {site_name!r}, existing sensors: "
+            f"{[s['name'] for s in site_asset.get('sensors', [])]}"
+        )
+    _SITE_ASSET_IDS[site_name] = site_asset["id"]
+
+    # Update site asset with the latest specs
+    LOGGER.debug(f"HANGDEBUG configure_site: updating asset {site_asset['id']} specs")
+    await fm_client.update_asset(site_asset["id"], site_asset_specs)
+    LOGGER.debug(f"HANGDEBUG configure_site: asset {site_asset['id']} specs updated")
+
+    sensors = site_asset.get("sensors", [])
+    price_sensor = None
+    production_price_sensor = None
+    power_sensor = None
+    measured_power_sensor = None
+    soc_sensor = None
+    rm_discharge_sensor = None
+    soc_minima_sensor = None
+    soc_maxima_sensor = None
+    usage_forecast_sensor = None
+    leakage_behaviour_sensor = None
+    charging_efficiency_sensor = None
+    for sensor in sensors:
+        if sensor["name"] == "price":
+            price_sensor = sensor
+        if sensor["name"] == "production price":
+            production_price_sensor = sensor
+        elif sensor["name"] == "power":
+            power_sensor = sensor
+        elif sensor["name"] == "measured-power":
+            measured_power_sensor = sensor
+        elif sensor["name"] == "state of charge":
+            soc_sensor = sensor
+        elif sensor["name"] == "RM discharge":
+            rm_discharge_sensor = sensor
+        elif sensor["name"] == "soc-minima":
+            soc_minima_sensor = sensor
+        elif sensor["name"] == "soc-maxima":
+            soc_maxima_sensor = sensor
+        elif sensor["name"] == "usage-forecast":
+            usage_forecast_sensor = sensor
+        elif sensor["name"] == "leakage-behaviour":
+            leakage_behaviour_sensor = sensor
+        elif sensor["name"] == "charging-efficiency":
+            charging_efficiency_sensor = sensor
+
+    if price_sensor is None:
+        price_sensor = await fm_client.add_sensor(
+            name="price",
+            event_resolution="PT15M",
+            unit="EUR/kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if production_price_sensor is None:
+        production_price_sensor = await fm_client.add_sensor(
+            name="production price",
+            event_resolution="PT15M",
+            unit="EUR/kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+
+    # Continue immediately without awaiting
+    LOGGER.debug("Posting 3 days of prices in a background task..")
+    start_of_today = (
+        datetime.now(ZoneInfo("Europe/Amsterdam"))
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+        .isoformat()
+    )
+    asyncio.create_task(
+        fm_client.post_sensor_data(
+            sensor_id=price_sensor["id"],
+            start=start_of_today,
+            prior="2026-01-01T00:00+01",  # 2026-01-01T00:00+01
+            duration="P3D",  # P1M
+            values=[0.3],
+            unit="EUR/kWh",
+        )
+    )
+    asyncio.create_task(
+        fm_client.post_sensor_data(
+            sensor_id=production_price_sensor["id"],
+            start=start_of_today,
+            prior="2026-01-01T00:00+01",  # 2026-01-01T00:00+01
+            duration="P3D",  # P1M
+            values=[0.2],
+            unit="EUR/kWh",
+        )
+    )
+    if power_sensor is None:
+        power_sensor = await fm_client.add_sensor(
+            name="power",
+            event_resolution="PT15M",
+            unit="kW",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+            # is_strictly_non_positive marks this FRBC device (a heat pump) as
+            # physically unable to produce: FlexMeasures then keeps production
+            # hard-bounded at zero even when relax-constraints turns directional
+            # capacities into soft, breach-priced constraints. Without it, a
+            # tight site capacity made the scheduler "produce" from the heat
+            # pump (cheap device breach vs expensive site breach).
+            attributes={
+                "consumption_is_positive": True,
+                "is_strictly_non_positive": True,
+            },
+        )
+    if measured_power_sensor is None:
+        # Dedicated sensor for the REALIZED (measured) aggregated apartment power,
+        # kept separate from the "power" sensor which holds the StorageScheduler's
+        # device-power SCHEDULE. Never conflate schedule and measurement on one sensor.
+        measured_power_sensor = await fm_client.add_sensor(
+            name="measured-power",
+            event_resolution="PT15M",
+            unit="kW",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+            attributes={"consumption_is_positive": True},
+        )
+    if soc_sensor is None:
+        soc_sensor = await fm_client.add_sensor(
+            name="state of charge",
+            event_resolution="PT0M",
+            unit="kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if rm_discharge_sensor is None:
+        rm_discharge_sensor = await fm_client.add_sensor(
+            name="RM discharge",
+            event_resolution="PT15M",
+            unit="dimensionless",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if soc_minima_sensor is None:
+        soc_minima_sensor = await fm_client.add_sensor(
+            name="soc-minima",
+            event_resolution="PT15M",
+            unit="kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if soc_maxima_sensor is None:
+        soc_maxima_sensor = await fm_client.add_sensor(
+            name="soc-maxima",
+            event_resolution="PT15M",
+            unit="kWh",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if usage_forecast_sensor is None:
+        usage_forecast_sensor = await fm_client.add_sensor(
+            name="usage-forecast",
+            event_resolution="PT15M",
+            unit="kW",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if leakage_behaviour_sensor is None:
+        leakage_behaviour_sensor = await fm_client.add_sensor(
+            name="leakage-behaviour",
+            event_resolution="PT15M",
+            unit="%",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    if charging_efficiency_sensor is None:
+        charging_efficiency_sensor = await fm_client.add_sensor(
+            name="charging-efficiency",
+            event_resolution="PT15M",
+            unit="%",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
+        )
+    sensors_to_show = [
+        {
+            "title": "State of charge",
+            # Fit the y-axis to the data: SoC values (large thermal-storage
+            # fill levels) sit far from zero, so the default zero-including
+            # axis flattens all variation into a sliver at the top.
+            "y-axis": "data",
+            "sensors": [
+                soc_minima_sensor["id"],
+                soc_maxima_sensor["id"],
+                soc_sensor["id"],
+            ],
+        },
+        {
+            "title": "Prices",
+            "sensors": [price_sensor["id"], production_price_sensor["id"]],
+        },
+        {
+            "title": "Power",
+            "sensors": [power_sensor["id"], measured_power_sensor["id"]],
+        },
+    ]
+    await fm_client.update_asset(
+        asset_id=site_asset["id"],
+        updates=dict(sensors_to_show=sensors_to_show),
+    )
+    LOGGER.debug(f"HANGDEBUG configure_site: done, returning sensors for asset {site_asset['id']}")
+    return (
+        price_sensor,
+        production_price_sensor,
+        power_sensor,
+        soc_sensor,
+        rm_discharge_sensor,
+        soc_minima_sensor,
+        soc_maxima_sensor,
+        usage_forecast_sensor,
+        leakage_behaviour_sensor,
+        charging_efficiency_sensor,
+        measured_power_sensor,
+    )
