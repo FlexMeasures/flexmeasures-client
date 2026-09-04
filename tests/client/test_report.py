@@ -131,10 +131,10 @@ async def test_trigger_report_without_job_id() -> None:
 
 @pytest.mark.asyncio
 async def test_get_job_status() -> None:
-    """Test a single job status lookup."""
+    """A pending job's HTTP 202 response is returned after one lookup."""
     with aioresponses() as m:
         client = make_client()
-        m.get(JOB_URL, status=200, payload=job_payload("STARTED"))
+        m.get(JOB_URL, status=202, payload=job_payload("STARTED"))
 
         job = await client.get_job_status(JOB_ID)
 
@@ -151,6 +151,21 @@ async def test_get_job_status() -> None:
             ssl=False,
             allow_redirects=False,
         )
+
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_job_status_returns_failed_job() -> None:
+    """A failed job's HTTP 422 response remains available to the caller."""
+    with aioresponses() as m:
+        client = make_client()
+        m.get(JOB_URL, status=422, payload=job_payload("FAILED"))
+
+        job = await client.get_job_status(JOB_ID)
+
+        assert job["status"] == "FAILED"
+        assert len(m.requests[("GET", URL(JOB_URL))]) == 1
 
         await client.close()
 
@@ -173,9 +188,9 @@ async def test_wait_for_job_polls_until_finished() -> None:
     """Test that polling continues through the non-terminal states."""
     with aioresponses() as m:
         client = make_client()
-        m.get(JOB_URL, status=200, payload=job_payload("QUEUED"))
-        m.get(JOB_URL, status=200, payload=job_payload("DEFERRED"))
-        m.get(JOB_URL, status=200, payload=job_payload("STARTED"))
+        m.get(JOB_URL, status=202, payload=job_payload("QUEUED"))
+        m.get(JOB_URL, status=202, payload=job_payload("DEFERRED"))
+        m.get(JOB_URL, status=202, payload=job_payload("STARTED"))
         m.get(JOB_URL, status=200, payload=job_payload("FINISHED"))
 
         job = await client.wait_for_job(JOB_ID, polling_interval=0.01)
@@ -193,7 +208,7 @@ async def test_wait_for_job_raises_on_failed_job() -> None:
         client = make_client()
         m.get(
             JOB_URL,
-            status=200,
+            status=422,
             payload=job_payload(
                 "FAILED",
                 message="Report job failed.",
@@ -218,7 +233,7 @@ async def test_wait_for_job_raises_on_unsuccessful_job(status: str) -> None:
     """Test that jobs stopped or canceled by an operator also raise."""
     with aioresponses() as m:
         client = make_client()
-        m.get(JOB_URL, status=200, payload=job_payload(status))
+        m.get(JOB_URL, status=202, payload=job_payload(status))
 
         with pytest.raises(JobFailedError):
             await client.wait_for_job(JOB_ID, polling_interval=0.01)
@@ -231,7 +246,7 @@ async def test_wait_for_job_times_out() -> None:
     """Test that a job that never finishes hits the timeout budget."""
     with aioresponses() as m:
         client = make_client()
-        m.get(JOB_URL, status=200, payload=job_payload("QUEUED"), repeat=True)
+        m.get(JOB_URL, status=202, payload=job_payload("QUEUED"), repeat=True)
 
         with pytest.raises(JobTimeoutError) as exc_info:
             await client.wait_for_job(JOB_ID, timeout=0.05, polling_interval=0.01)

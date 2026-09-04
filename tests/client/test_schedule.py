@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from aioresponses import aioresponses
+from yarl import URL
 
 from flexmeasures_client.client import ContentTypeError, FlexMeasuresClient
 
@@ -485,6 +486,59 @@ async def test_trigger_and_get_schedule_asset_id_flex_model_list():
         assert len(schedules) == 1
         assert schedules[0]["values"] == [1.0, 2.0]
         assert schedules[0]["sensor"] == 10
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_and_get_schedule_waits_once_via_jobs_api():
+    """A modern multi-device schedule waits once, then fetches each result."""
+    schedule_id = "sched-uuid"
+    trigger_url = "http://localhost:5000/api/v3_0/assets/1/schedules/trigger"
+    job_url = f"http://localhost:5000/api/v3_0/jobs/{schedule_id}"
+    result_urls = [
+        f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/schedules/"
+        f"{schedule_id}?duration=P0DT0H45M0S"
+        for sensor_id in (10, 11)
+    ]
+
+    with aioresponses() as m:
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+        )
+        m.post(
+            trigger_url,
+            status=202,
+            payload={"job": schedule_id, "status": "ACCEPTED"},
+            headers={"FlexMeasures-Version": "0.33.0"},
+        )
+        m.get(job_url, status=202, payload={"status": "STARTED"})
+        m.get(job_url, status=200, payload={"status": "FINISHED"})
+        for sensor_id, result_url in zip((10, 11), result_urls):
+            m.get(
+                result_url,
+                status=200,
+                payload={
+                    "values": [float(sensor_id)],
+                    "start": "2023-01-01T00:00:00+00:00",
+                    "duration": "PT45M",
+                    "unit": "MW",
+                },
+            )
+
+        schedules = await client.trigger_and_get_schedule(
+            asset_id=1,
+            start="2023-01-01T00:00:00+00:00",
+            duration="PT45M",
+            flex_model=[{"sensor": 10}, {"sensor": 11}],
+            polling_interval=0,
+        )
+
+        assert [schedule["sensor"] for schedule in schedules] == [10, 11]
+        assert len(m.requests[("GET", URL(job_url))]) == 2
+        for result_url in result_urls:
+            assert len(m.requests[("GET", URL(result_url))]) == 1
         await client.close()
 
 

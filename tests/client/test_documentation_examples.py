@@ -1,4 +1,4 @@
-"""Compile API-guided Python blocks and verify the examples' client calls run without error."""
+"""Check documented Python syntax plus basic-guide calls, arguments, and cleanup."""
 
 from __future__ import annotations
 
@@ -12,7 +12,12 @@ import pytest
 import flexmeasures_client
 
 DOCS_DIR = Path(__file__).parents[2] / "docs"
+PROJECT_DIR = DOCS_DIR.parent
 GUIDES = ("forecasting.rst", "scheduling.rst", "reporting.rst")
+PYTHON_DOCUMENTS = (
+    *(DOCS_DIR / guide for guide in GUIDES),
+    PROJECT_DIR / "README.rst",
+)
 REAL_CLIENT = flexmeasures_client.FlexMeasuresClient
 
 
@@ -33,15 +38,15 @@ def python_blocks(path: Path) -> list[str]:
     ]
 
 
-@pytest.mark.parametrize("guide", GUIDES)
-def test_python_blocks_compile(guide: str) -> None:
+@pytest.mark.parametrize("path", PYTHON_DOCUMENTS, ids=lambda path: path.name)
+def test_python_blocks_compile(path: Path) -> None:
     """Catch invalid Python in both complete examples and shorter snippets."""
-    blocks = python_blocks(DOCS_DIR / guide)
+    blocks = python_blocks(path)
     assert blocks
     for block_number, source in enumerate(blocks, start=1):
         compile(
             source,
-            f"{guide}:code-block-{block_number}",
+            f"{path.name}:code-block-{block_number}",
             "exec",
             flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
         )

@@ -110,7 +110,7 @@ Polling behaviour
 state.  Waits back off exponentially, so short jobs are picked up quickly
 without hammering the server on long ones:
 
-- ``polling_interval`` (default 2 s)      — wait before the first poll
+- ``polling_interval`` (default 2 s)      — delay before a repeated status check
 - ``max_polling_interval`` (default 30 s) — cap on the backing-off wait
 - ``timeout`` (default 600 s)             — total budget for the job to finish
 
@@ -149,3 +149,8 @@ Jobs that end badly raise rather than returning a status:
 A request the server rejects outright — unknown reporter, malformed
 parameters, an output sensor outside the asset's subtree — raises ``ValueError``
 from :meth:`trigger_report`, before any job is queued.
+
+The job endpoint uses HTTP 202 for jobs still in progress and HTTP 422 for a
+failed job. :meth:`get_job_status` returns both responses as status dictionaries
+after one request; :meth:`wait_for_job` is responsible for polling and turning
+unsuccessful terminal states into :class:`JobFailedError`.

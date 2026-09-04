@@ -52,6 +52,9 @@ JOB_POLLING_TIMEOUT = 600.0  # seconds, total budget for a job to finish
 JOB_STATUS_FINISHED = "FINISHED"
 JOB_STATUS_UNSUCCESSFUL = frozenset({"FAILED", "STOPPED", "CANCELED"})
 
+# The generic job status endpoint landed in FlexMeasures v0.33.0
+JOB_STATUS_MIN_SERVER_VERSION = "0.33.0"
+
 # The asset report trigger endpoint landed in FlexMeasures v1.1.0
 REPORT_TRIGGER_MIN_SERVER_VERSION = "1.1.0"
 
@@ -253,6 +256,7 @@ class FlexMeasuresClient:
         include_auth: bool = True,
         minimum_server_version: str | None = None,
         minimum_server_version_msg: str | None = None,
+        pass_through_statuses: frozenset[int] = frozenset(),
     ) -> tuple[dict | list, int]:
         """Send a request to FlexMeasures.
 
@@ -264,6 +268,10 @@ class FlexMeasuresClient:
         Fails if:
         - the server response indicated a status code of 400 or higher
         - the client polling timed out (as indicated by the client's self.polling_timeout)
+
+        ``pass_through_statuses`` is for callers that interpret particular HTTP
+        statuses themselves. Such responses are returned without generic
+        polling or error handling.
         """  # noqa: E501
         url = self.build_url(uri, path=path)
 
@@ -292,11 +300,12 @@ class FlexMeasuresClient:
                                 json_payload=json_payload,
                                 polling_step=polling_step,
                                 reauth_once=reauth_once,
+                                pass_through_statuses=pass_through_statuses,
                             )
                             if (
                                 response.status < 300
-                                and polling_step == previous_polling_step
-                            ):
+                                or response.status in pass_through_statuses
+                            ) and polling_step == previous_polling_step:
                                 break
                     except asyncio.TimeoutError:
                         sleep_interval = self.polling_interval * (2**polling_step)
@@ -341,6 +350,7 @@ class FlexMeasuresClient:
         json_payload: dict | None = None,
         polling_step: int = 0,
         reauth_once: bool = True,
+        pass_through_statuses: frozenset[int] = frozenset(),
     ) -> tuple[ClientResponse, int, bool, URL]:
         url_msg = f"url: {url}"
         json_msg = f"payload: {json_payload}"
@@ -390,9 +400,22 @@ class FlexMeasuresClient:
             self.server_version = header_version
 
         polling_step, reauth_once, url = await check_response(
-            self, response, polling_step, reauth_once, url, method=method
+            self,
+            response,
+            polling_step,
+            reauth_once,
+            url,
+            method=method,
+            pass_through_statuses=pass_through_statuses,
         )
         return response, polling_step, reauth_once, url
+
+    def _supports_job_status_api(self) -> bool:
+        """Return whether the connected server exposes the generic jobs API."""
+        return _server_version_at_least(
+            self.server_version,
+            JOB_STATUS_MIN_SERVER_VERSION,
+        )
 
     def ensure_session(self):
         """If there is no session, start one."""
@@ -1003,8 +1026,15 @@ class FlexMeasuresClient:
         prior: datetime | None = None,
         scheduler: str | None = None,
         unit: str | None = None,
+        timeout: float = JOB_POLLING_TIMEOUT,
+        polling_interval: float = JOB_POLLING_INTERVAL,
+        max_polling_interval: float = JOB_POLLING_MAX_INTERVAL,
     ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
+
+        On FlexMeasures v0.33.0 and newer, wait for the scheduling job through
+        the generic jobs endpoint before fetching sensor results. Older servers
+        retain result-endpoint polling.
 
         To schedule a single flexible device, use the sensor ID of its power sensor.
         To schedule a collection of flexible devices, use the asset ID of the asset
@@ -1014,6 +1044,9 @@ class FlexMeasuresClient:
 
         :param unit: desired unit for the schedule values (e.g. "W", "kW", "MW").
                      Passed through to get_schedule(); see its docstring for details.
+        :param timeout: total seconds to wait through the jobs endpoint.
+        :param polling_interval: seconds before the first repeated status lookup.
+        :param max_polling_interval: maximum delay between status lookups.
         :returns: For a single device, returns the schedule as a dictionary.
                   For example:
                   {
@@ -1036,6 +1069,14 @@ class FlexMeasuresClient:
             prior=prior,
             scheduler=scheduler,
         )
+
+        if self._supports_job_status_api():
+            await self.wait_for_job(
+                job_id=schedule_id,
+                timeout=timeout,
+                polling_interval=polling_interval,
+                max_polling_interval=max_polling_interval,
+            )
 
         if sensor_id is not None:
             # Get the schedule for a single device
@@ -1584,11 +1625,11 @@ class FlexMeasuresClient:
                 f"Expected a dictionary, but got {type(response)}",
             )
 
-        if not isinstance(response.get("schedule"), str):
+        schedule_id = response.get("job") or response.get("schedule")
+        if not isinstance(schedule_id, str):
             raise ContentTypeError(
-                f"Expected a schedule ID, but got {type(response.get('schedule'))}",
+                f"Expected a schedule job ID, but got {type(schedule_id)}",
             )
-        schedule_id = response["schedule"]
         self.logger.info(f"Schedule triggered successfully. Schedule ID: {schedule_id}")
         return schedule_id
 
@@ -1684,11 +1725,11 @@ class FlexMeasuresClient:
                 f"Expected a dictionary, but got {type(response)}",
             )
 
-        if not isinstance(response.get("forecast"), str):
+        forecast_id = response.get("job") or response.get("forecast")
+        if not isinstance(forecast_id, str):
             raise ContentTypeError(
-                f"Expected a forecast ID, but got {type(response.get('forecast'))}",
+                f"Expected a forecast job ID, but got {type(forecast_id)}",
             )
-        forecast_id = response["forecast"]
         self.logger.info(f"Forecast triggered successfully. Forecast ID: {forecast_id}")
         return forecast_id
 
@@ -1739,8 +1780,19 @@ class FlexMeasuresClient:
         max_forecast_horizon: str | timedelta | None = None,
         forecast_frequency: str | timedelta | None = None,
         probabilistic: bool | None = None,
+        timeout: float = JOB_POLLING_TIMEOUT,
+        polling_interval: float = JOB_POLLING_INTERVAL,
+        max_polling_interval: float = JOB_POLLING_MAX_INTERVAL,
     ) -> dict:
         """Trigger a forecasting job and then fetch the result.
+
+        On FlexMeasures v0.33.0 and newer, wait for the forecasting job through
+        the generic jobs endpoint before fetching its values. Older servers
+        retain result-endpoint polling.
+
+        :param timeout: total seconds to wait through the jobs endpoint.
+        :param polling_interval: seconds before the first repeated status lookup.
+        :param max_polling_interval: maximum delay between status lookups.
 
         :returns: forecast as dictionary, for example:
                 {
@@ -1768,6 +1820,13 @@ class FlexMeasuresClient:
             forecast_frequency=forecast_frequency,
             probabilistic=probabilistic,
         )
+        if self._supports_job_status_api():
+            await self.wait_for_job(
+                job_id=forecast_id,
+                timeout=timeout,
+                polling_interval=polling_interval,
+                max_polling_interval=max_polling_interval,
+            )
         return await self.get_forecast(
             sensor_id=sensor_id,
             forecast_id=forecast_id,
@@ -1794,13 +1853,18 @@ class FlexMeasuresClient:
         The ``status`` field is one of QUEUED, STARTED, FINISHED, FAILED,
         DEFERRED, SCHEDULED, STOPPED or CANCELED.
 
+        This method performs exactly one HTTP request. Pending (HTTP 202) and
+        failed (HTTP 422) job responses are returned for the caller to inspect.
+
         This function raises a ValueError when an unhandled status code is returned.
         """
         response, status = await self.request(
             uri=f"jobs/{job_id}",
             method="GET",
+            pass_through_statuses=frozenset({202, 422}),
         )
-        check_for_status(status, 200)
+        if status not in {200, 202, 422}:
+            raise ValueError(f"Request failed with status code {status}")
 
         if not isinstance(response, dict):
             raise ContentTypeError(

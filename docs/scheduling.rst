@@ -6,17 +6,20 @@ Scheduling
 The FlexMeasures Client supports the scheduling API endpoints:
 
 - ``POST /assets/<id>/schedules/trigger`` — queue a scheduling job
-- ``GET  /sensors/<id>/schedules/<uuid>`` — poll for a sensor's schedule
+- ``GET  /jobs/<uuid>``                   — inspect the job (v0.33.0+)
+- ``GET  /sensors/<id>/schedules/<uuid>`` — retrieve a sensor's schedule
 
 These are exposed through three client methods:
 
 - :meth:`trigger_schedule` — trigger and return the schedule UUID
-- :meth:`get_schedule` — poll until a sensor's schedule is ready
-- :meth:`trigger_and_get_schedule` — convenience wrapper for both
+- :meth:`get_schedule` — retrieve one sensor's result, with legacy polling
+- :meth:`trigger_and_get_schedule` — trigger, wait, and retrieve
 
 .. note::
 
     The asset trigger endpoint requires FlexMeasures **v0.27.0** or above and
+    the generic job status endpoint is available from **v0.33.0**. Scheduling
+    also needs
     a worker listening on the ``scheduling`` queue::
 
         flexmeasures jobs run-worker --queue scheduling
@@ -144,7 +147,10 @@ output sensors, such as both power and state of charge:
     )
     print(f"Job queued: {schedule_id}")
 
-    # Step 2 – retrieve a result for each relevant sensor
+    # Step 2 – wait once for the joint job (FlexMeasures v0.33.0+)
+    await client.wait_for_job(schedule_id)
+
+    # Step 3 – retrieve a result for each relevant sensor
     battery_power = await client.get_schedule(
         sensor_id=8,
         schedule_id=schedule_id,
@@ -209,11 +215,30 @@ conversion server-side.  For older servers, the client converts between
 ``NotImplementedError``.
 
 
-Polling and errors
-------------------
+Waiting, legacy polling, and errors
+-----------------------------------
 
-``get_schedule`` polls the sensor schedule endpoint until the result is ready.
-Polling uses exponential backoff and is controlled by these client settings:
+On FlexMeasures v0.33.0 and newer, ``trigger_and_get_schedule`` waits through
+``GET /jobs/<uuid>`` once, then retrieves the requested sensor result or
+results.  Its job wait is controlled by method arguments:
+
+- ``polling_interval`` (default 2 s) — delay before a repeated status check
+- ``max_polling_interval`` (default 30 s) — maximum delay between checks
+- ``timeout`` (default 600 s) — total job wait budget
+
+.. code-block:: python
+
+    schedule = await client.trigger_and_get_schedule(
+        sensor_id=8,
+        start="2026-09-05T08:00:00+02:00",
+        duration="PT12H",
+        timeout=1800.0,
+        max_polling_interval=60.0,
+    )
+
+``get_schedule`` still polls the sensor result endpoint when called directly,
+and ``trigger_and_get_schedule`` retains that behaviour for servers older than
+v0.33.0.  This legacy polling is controlled by client settings:
 
 - ``polling_interval`` (default 10 s) — initial wait between attempts
 - ``polling_timeout`` (default 200 s) — maximum total wait
@@ -230,9 +255,11 @@ Override them when constructing the client:
         max_polling_steps=12,
     )
 
-A scheduling job rejected or reported as failed by the server raises
-``ValueError`` with the server's message.  Connection and polling timeouts
-raise ``ConnectionError``.
+With the jobs API, a job that ends as ``FAILED``, ``STOPPED``, or ``CANCELED``
+raises :class:`JobFailedError`; exceeding the job wait budget raises
+:class:`JobTimeoutError`. A trigger rejected before a job is queued raises
+``ValueError``. Direct and legacy result polling can raise ``ValueError`` or
+``ConnectionError``.
 
 Schedule, forecast and report triggers share the server's computation rate
 limit.  A server running simulations should use ``FLEXMEASURES_MODE = "play"``;
