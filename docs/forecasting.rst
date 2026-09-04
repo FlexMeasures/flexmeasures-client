@@ -129,10 +129,10 @@ Polling behaviour
 -----------------
 
 ``get_forecast`` polls the server with a ``GET`` request and returns when the
-server responds with HTTP 200.  The polling respects the same client-level
-settings as scheduling:
+server responds with HTTP 200.  Polling uses exponential backoff and respects
+the same client-level settings as scheduling:
 
-- ``polling_interval`` (default 10 s) — time between retries
+- ``polling_interval`` (default 10 s) — initial wait between retries
 - ``polling_timeout`` (default 200 s) — maximum total wait time
 - ``max_polling_steps`` (default 10)  — maximum number of poll attempts
 
