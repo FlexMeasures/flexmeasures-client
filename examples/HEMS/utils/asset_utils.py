@@ -1,4 +1,3 @@
-import asyncio
 import os
 from pathlib import Path
 from typing import Any
@@ -43,44 +42,7 @@ async def wait_for_ingestion_jobs(
 
     print(f"Waiting for {len(pending_ingestion_jobs)} ingestion job(s)...")
     for job_id in pending_ingestion_jobs:
-        deadline = asyncio.get_running_loop().time() + client.polling_timeout
-        polling_step = 0
-
-        while True:
-            # FlexMeasures 0.33 returns HTTP 200 even while a job is in
-            # progress. Newer versions return 202, which client.request polls
-            # internally. Inspecting the status field supports both versions.
-            job, _ = await client.request(
-                uri=f"jobs/{job_id}",
-                method="GET",
-            )
-            job_status = (
-                str(job.get("status", "")).upper() if isinstance(job, dict) else ""
-            )
-            if job_status == "FINISHED":
-                break
-            if job_status not in {"QUEUED", "STARTED", "DEFERRED", "SCHEDULED"}:
-                raise RuntimeError(
-                    f"Ingestion job {job_id} did not finish successfully: {job}"
-                )
-
-            polling_step += 1
-            if polling_step >= client.max_polling_steps:
-                raise ConnectionError(
-                    f"Max polling steps reached while waiting for ingestion job "
-                    f"{job_id}. Last status: {job_status}"
-                )
-
-            remaining = deadline - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                raise ConnectionError(
-                    f"Client polling timeout while waiting for ingestion job "
-                    f"{job_id}. Last status: {job_status}"
-                )
-            sleep_interval = min(
-                client.polling_interval * (2 ** (polling_step - 1)), remaining
-            )
-            await asyncio.sleep(sleep_interval)
+        await client.wait_for_job(job_id)
     pending_ingestion_jobs.clear()
 
 

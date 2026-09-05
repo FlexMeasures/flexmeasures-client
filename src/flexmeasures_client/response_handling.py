@@ -22,6 +22,7 @@ async def check_response(
     reauth_once: bool,
     url: URL,
     method: str = "GET",
+    pass_through_statuses: frozenset[int] = frozenset(),
 ) -> tuple[int, bool, URL]:
     """
     <300: passes
@@ -42,8 +43,10 @@ async def check_response(
     if payload is None:
         payload = {}
     headers = response.headers
-    if status == 202 and method.upper() == "GET":
-        sleep_interval = self.polling_interval * (2**polling_step)
+    if status in pass_through_statuses:
+        pass
+    elif status == 202 and method.upper() == "GET":
+        sleep_interval = self.request_retry_interval * (2**polling_step)
         job_status = payload.get("status")
         message = "Server accepted the request but the result is not ready yet."
         if job_status:
@@ -64,7 +67,7 @@ async def check_response(
         or "Scheduling job has an unknown status" in payload.get("message", "")
     ):
         # can be removed in a later version GH issue #645 of the FlexMeasures repo
-        sleep_interval = self.polling_interval * (2**polling_step)
+        sleep_interval = self.request_retry_interval * (2**polling_step)
         message = f"Server indicated to try again later. Retrying in {sleep_interval} seconds..."  # noqa: E501
         self.logger.debug(message)
         polling_step += 1
@@ -79,7 +82,7 @@ async def check_response(
         await self.get_access_token()
         reauth_once = False
     elif status == 503 and "Retry-After" in headers:
-        sleep_interval = self.polling_interval * (2**polling_step)
+        sleep_interval = self.request_retry_interval * (2**polling_step)
         polling_step += 1
         await asyncio.sleep(sleep_interval)
     elif payload.get("errors"):

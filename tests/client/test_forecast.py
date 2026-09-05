@@ -1,7 +1,9 @@
 import pytest
 from aioresponses import aioresponses
+from yarl import URL
 
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.exceptions import JobFailedError
 
 
 @pytest.mark.asyncio
@@ -128,7 +130,7 @@ async def test_get_forecast_polling() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
 
@@ -164,7 +166,7 @@ async def test_get_forecast_failed_job() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
 
@@ -198,14 +200,14 @@ async def test_get_forecast_polling_max_steps() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0,
-            max_polling_steps=2,
+            request_retry_interval=0,
+            max_request_attempts=2,
             access_token="skip-auth",
         )
 
         with pytest.raises(
             ConnectionError,
-            match="Max polling steps reached while waiting for the API response.",
+            match="Maximum request attempts reached while waiting for the API response.",
         ):
             await flexmeasures_client.get_forecast(
                 sensor_id=sensor_id, forecast_id=forecast_id
@@ -222,7 +224,7 @@ async def test_trigger_and_get_forecast() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
         )
         flexmeasures_client.access_token = "test-token"
 
@@ -261,3 +263,91 @@ async def test_trigger_and_get_forecast() -> None:
         assert forecast["unit"] == "kW"
 
         await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_and_get_forecast_waits_via_jobs_api() -> None:
+    """Modern servers are polled through /jobs before results are fetched."""
+    sensor_id = 1
+    forecast_id = "test-forecast-uuid"
+    trigger_url = (
+        f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/forecasts/trigger"
+    )
+    job_url = f"http://localhost:5000/api/v3_0/jobs/{forecast_id}"
+    result_url = (
+        f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/forecasts/{forecast_id}"
+    )
+
+    with aioresponses() as m:
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+        )
+        m.post(
+            trigger_url,
+            status=202,
+            payload={"job": forecast_id, "status": "ACCEPTED"},
+            headers={"FlexMeasures-Version": "0.33.0"},
+        )
+        m.get(job_url, status=202, payload={"status": "STARTED"})
+        m.get(job_url, status=200, payload={"status": "FINISHED"})
+        m.get(
+            result_url,
+            status=200,
+            payload={
+                "values": [1.2, 1.5],
+                "start": "2025-01-05T00:00:00+00:00",
+                "duration": "PT2H",
+                "unit": "kW",
+            },
+        )
+
+        forecast = await client.trigger_and_get_forecast(
+            sensor_id=sensor_id,
+            duration="PT2H",
+            polling_interval=0,
+        )
+
+        assert forecast["values"] == [1.2, 1.5]
+        assert len(m.requests[("GET", URL(job_url))]) == 2
+        assert len(m.requests[("GET", URL(result_url))]) == 1
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_and_get_forecast_surfaces_job_failure() -> None:
+    """A failed modern forecasting job raises before fetching result data."""
+    sensor_id = 1
+    forecast_id = "failed-forecast-uuid"
+    trigger_url = (
+        f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/forecasts/trigger"
+    )
+    job_url = f"http://localhost:5000/api/v3_0/jobs/{forecast_id}"
+
+    with aioresponses() as m:
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+        )
+        m.post(
+            trigger_url,
+            status=202,
+            payload={"job": forecast_id, "status": "ACCEPTED"},
+            headers={"FlexMeasures-Version": "0.33.0"},
+        )
+        m.get(
+            job_url,
+            status=422,
+            payload={"status": "FAILED", "message": "Training data is incomplete."},
+        )
+
+        with pytest.raises(JobFailedError, match="Training data is incomplete"):
+            await client.trigger_and_get_forecast(
+                sensor_id=sensor_id,
+                duration="PT2H",
+                polling_interval=0,
+            )
+
+        await client.close()

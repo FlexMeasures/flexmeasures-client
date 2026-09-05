@@ -44,3 +44,19 @@ class InsufficientServerVersionError(Exception):
     def __init__(self, message):
         self.message = message
         super().__init__(self.message)
+
+
+class JobFailedError(Exception):
+    """Raised when a background job ends in a non-successful terminal state"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class JobTimeoutError(Exception):
+    """Raised when a background job does not reach a terminal state in time"""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)

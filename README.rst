@@ -110,7 +110,7 @@ Post a measurement from a sensor:
 .. code-block:: python
 
     await client.post_sensor_data(
-        sensor_id=<sensor_id>,  # integer
+        sensor_id=1,
         start="2023-03-26T10:00+02:00",  # ISO datetime
         duration="PT6H",  # ISO duration
         values=[1, 2, 3, 4],  # list
@@ -162,38 +162,41 @@ Scheduling
 
 With FlexMeasures a schedule can be requested to optimize at what time the flexible assets can be activated to optimize for price of energy or emissions.
 
-The calculation of the schedule can take some time depending on the complexity of the calculations. A polling function is used to check if a schedule is available after triggering the schedule.
+The calculation of a schedule can take some time. On FlexMeasures v0.33.0 and
+newer, the convenience method waits on the generic job-status endpoint before
+retrieving the schedule values. It falls back to result-endpoint polling on
+older servers.
 
 Trigger and retrieve a schedule for multiple devices:
 
 .. code-block:: python
 
-    schedule = await flexmeasures_client.trigger_and_get_schedule(
-        asset_id=<asset_id>,  # the asset ID (int) of the asset that all relevant power sensors belong to (or live under, in case of a tree-like asset structure)
-        start="2023-03-26T10:00+02:00",  # ISO datetime
+    schedules = await client.trigger_and_get_schedule(
+        asset_id=3,
+        start="2026-09-05T08:00+02:00",
         duration="PT12H",  # ISO duration
         flex_context={
-            "consumption-price": {"sensor": <consumption_price_sensor_id>},  # int
+            "consumption-price": {"sensor": 7},
         },
-        flex-model=[
+        flex_model=[
             # Example flex-model for an electric truck at a regular Charge Point
             {
-                "sensor": <power_sensor_id>,  # int
+                "sensor": 8,
                 "power-capacity": "22 kVA",
                 "production-capacity": "0 kW",
                 "soc-at-start": "50 kWh",
                 "soc-max": "400 kWh",
                 "soc-min": "20 kWh",
                 "soc-targets": [
-                    {"value": "100 kWh", "datetime": "2023-03-03T11:00+02:00"},
+                    {"value": "100 kWh", "datetime": "2026-09-05T18:00+02:00"},
                 ],
             },
             # Example flex-model for curtailable solar panels
             {
-                "sensor": <another_power_sensor_id>,  # int
+                "sensor": 9,
                 "power-capacity": "20 kVA",
                 "consumption-capacity": "0 kW",
-                "production-capacity": {"sensor": <another_power_sensor_id>},  # int
+                "production-capacity": {"sensor": 9},
             },
         ],
     )
@@ -203,19 +206,19 @@ Alternatively, use a single-device flex-model (no list) and move the device's po
 
 .. code-block:: python
 
-    schedule = await flexmeasures_client.trigger_and_get_schedule(
-        sensor_id=<sensor_id>,  # int
-        start="2023-03-26T10:00+02:00",  # ISO datetime
+    schedule = await client.trigger_and_get_schedule(
+        sensor_id=8,
+        start="2026-09-05T08:00+02:00",
         duration="PT12H",  # ISO duration
         flex_context={
-            "consumption-price": {"sensor": <consumption_price_sensor_id>},  # int
+            "consumption-price": {"sensor": 7},
         },
-        flex-model={
+        flex_model={
             "soc-at-start": "50 kWh",
             "soc-max": "400 kWh",
             "soc-min": "20 kWh",
             "soc-targets": [
-                {"value": "100 kWh", "datetime": "2023-03-03T11:00+02:00"},
+                {"value": "100 kWh", "datetime": "2026-09-05T18:00+02:00"},
             ],
         },
     )
@@ -226,22 +229,26 @@ Trigger a schedule:
 
 .. code-block:: python
 
-    schedule_uuid = await flexmeasures_client.trigger_schedule(
+    schedule_uuid = await client.trigger_schedule(
         **kwargs,  # same kwargs as previous example
     )
 
 The ``trigger_schedule`` method returns a ``schedule_uuid``.
-This can be used to retrieve the schedule, using:
+On FlexMeasures v0.33.0 and newer, wait for the job once before retrieving one
+or more sensor results:
 
 .. code-block:: python
 
-    schedule = await flexmeasures_client.get_schedule(
-        sensor_id=<sensor_id>,  # int
-        schedule_id="<schedule_uuid>",  # uuid
+    await client.wait_for_job(schedule_uuid)
+
+    schedule = await client.get_schedule(
+        sensor_id=8,
+        schedule_id=schedule_uuid,
         duration="PT45M",  # ISO duration
     )
 
-The client will re-try until the schedule is available or the ``MAX_POLLING_STEPS`` of ``10`` is reached.
+For the complete scheduling API, including multi-device results, job timeouts,
+and compatibility with older servers, see :doc:`scheduling`.
 
 
 Forecasting
@@ -252,13 +259,15 @@ Trigger a forecast for a sensor and wait for the result:
 .. code-block:: python
 
     forecast = await client.trigger_and_get_forecast(
-        sensor_id=<sensor_id>,  # int
+        sensor_id=1,
         duration="PT24H",  # ISO duration – how far ahead to forecast
     )
     # Returns e.g. {"values": [1.2, 1.5, ...], "start": "...", "duration": "PT24H", "unit": "kW"}
 
-The client polls until the forecasting job is complete.  For more advanced options
-(training window, regressors, forecast frequency, etc.) see :doc:`forecasting`.
+On FlexMeasures v0.33.0 and newer, the client polls the generic job endpoint
+until the forecasting job is complete, then retrieves its values. For more
+advanced options (training window, regressors, forecast frequency, etc.) see
+:doc:`forecasting`.
 
 
 Development

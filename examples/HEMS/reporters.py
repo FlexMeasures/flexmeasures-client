@@ -1,5 +1,3 @@
-import subprocess
-
 from const import (
     SCHEDULING_END,
     SCHEDULING_START,
@@ -11,11 +9,7 @@ from const import (
     pv_name,
 )
 from utils.asset_utils import find_sensors_by_asset
-from utils.reporter_utils import (
-    cli_command_prefix,
-    fill_reporter_params,
-    run_report_cmd,
-)
+from utils.reporter_utils import run_report
 
 from flexmeasures_client import FlexMeasuresClient
 
@@ -23,17 +17,14 @@ from flexmeasures_client import FlexMeasuresClient
 async def create_reports(
     client: FlexMeasuresClient, community_name: str, site_names: list[str]
 ):
-    """Generate reports using FlexMeasures CLI."""
+    """Generate reports through the FlexMeasures API.
+
+    Each site gets a self-consumption report and a total energy costs report,
+    triggered against that site's asset. The latter reads the aggregate power
+    written by the aggregate reporter, so it has to run after those.
+    """
     print("Generating reports...")
 
-    # Check if the configured FlexMeasures CLI command is available
-    # (only meaningful to check the first token, e.g. "flexmeasures" or "docker")
-    check_cmd = ["which", cli_command_prefix()[0]]
-    check_result = subprocess.run(check_cmd, capture_output=True, text=True)
-
-    if check_result.returncode != 0:
-        print("FlexMeasures CLI not found. Skipping report generation.")
-        return False
     all_reports_succeeded = True
     for i, site_name in enumerate(site_names, start=1):
 
@@ -63,8 +54,11 @@ async def create_reports(
             client, sensor_mappings, top_level_asset_name=community_name
         )
 
-        # Prepare parameters for self-consumption reporter
-        fill_reporter_params(
+        # Run SelfConsumptionReporter
+        self_consumption_result = await run_report(
+            client=client,
+            reporter="PandasReporter",
+            reporter_type="self-consumption",
             input_sensors=[
                 {"production": sensors["electricity-production"]["id"]},
                 {"pv-power": sensors["pv-power"]["id"]},
@@ -82,11 +76,16 @@ async def create_reports(
             ],
             start=SCHEDULING_START,
             end=SCHEDULING_END,
-            reporter_type="self-consumption",
+            # The solar sensors sit on the PV asset and the rest on the site,
+            # so name the site, which holds both in its subtree.
+            asset_id=sensors["self-consumption"]["generic_asset_id"],
         )
 
-        # Prepare parameters for the total energy costs reporter
-        fill_reporter_params(
+        # Run TotalEnergyCostsReporter
+        total_energy_costs_result = await run_report(
+            client=client,
+            reporter="PandasReporter",
+            reporter_type="total-energy-costs",
             input_sensors=[
                 {"aggregate-power": sensors["electricity-aggregate"]["id"]},
                 {"consumption-production-price": sensors["electricity-price"]["id"]},
@@ -98,22 +97,8 @@ async def create_reports(
             ],
             start=SCHEDULING_START,
             end=SCHEDULING_END,
-            reporter_type="total-energy-costs",
         )
 
-        # Run SelfConsumptionReporter
-        self_consumption_result = run_report_cmd(
-            reporter_map={"name": "self-consumption", "reporter": "PandasReporter"},
-            start=SCHEDULING_START,
-            end=SCHEDULING_END,
-        )
-
-        # Run TotalEnergyCostsReporter
-        total_energy_costs_result = run_report_cmd(
-            reporter_map={"name": "total-energy-costs", "reporter": "PandasReporter"},
-            start=SCHEDULING_START,
-            end=SCHEDULING_END,
-        )
         all_reports_succeeded = (
             self_consumption_result
             and total_energy_costs_result

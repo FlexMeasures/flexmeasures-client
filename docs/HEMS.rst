@@ -15,14 +15,14 @@ This is the resulting dashboard:
     :align: center
 |
 
-.. note:: The tutorial still uses the CLI for reporting. In future versions, we might make reporting available via the API, as well.
+.. note:: The tutorial talks to FlexMeasures over the API only, including for reporting. That requires a FlexMeasures server of version 1.1.0 or above, and a worker listening on the ``reporting`` queue.
 
 
 Set up your environment
 ========================
 
 To run the HEMS example (``HEMS_setup.py``), you'll need an environment in which both ``flexmeasures`` (the server) and ``flexmeasures-client`` is installed.
-The example requires FlexMeasures 1.0 or newer.
+The example requires FlexMeasures 1.1.0 or newer, since it triggers reports over the API.
 
 We use `uv <https://docs.astral.sh/uv/>`_ to manage dependencies. First, `install uv <https://docs.astral.sh/uv/getting-started/installation/>`_.
 
@@ -115,11 +115,11 @@ Open three terminals. In the first terminal, run the server:
     flexmeasures run
 
 In the second terminal, run a flexmeasures worker that listens to the
-forecasting, scheduling, and ingestion queues:
+forecasting, scheduling, ingestion, and reporting queues:
 
 .. code-block:: bash
 
-    flexmeasures jobs run-worker --queue "forecasting|scheduling|ingestion"
+    flexmeasures jobs run-worker --queue "forecasting|scheduling|ingestion|reporting"
 
 Note: you can run the same command in two terminals (2 workers), to speed up the computation!
 
@@ -130,17 +130,9 @@ In the third terminal, go to the HEMS directory:
     cd examples/HEMS
 
 .. note::
-   For the time being, report generation (see :ref:`hems-tutorial` note above) shells out to a ``flexmeasures`` CLI process, which by default is expected on ``PATH`` and configured against the same database as the server. If your FlexMeasures server runs elsewhere (e.g. inside a Docker Compose service), point report generation at it instead via two environment variables:
+   Reports are triggered over the API, so the client script needs nothing beyond its API credentials: no local CLI, no database access, and no bind-mount of ``examples/HEMS/configs/`` into the server. Those configuration files are read by the client and posted along with each report request. The server does need a worker on the ``reporting`` queue, as above, or reports will stay queued until the client gives up on them.
 
-   - ``FLEXMEASURES_CLI_CMD``: the command used to invoke the CLI
-   - ``FLEXMEASURES_CLI_CONFIG_DIR``: the directory the CLI process sees the ``examples/HEMS/configs/`` files at, if different from their local path
-
-   Here are steps if you use FlexMeasures' docker-compose:
-   - ``export FLEXMEASURES_CLI_CMD="docker compose -f full/path/to/docker-compose.yml exec -T server flexmeasures"``.
-   - Add this mount in docker-compose.yml under server.volumes, and restart it: ``- /full/path/to/flexmeasures-client/examples/HEMS/configs:/app/hems-configs:ro``
-   - ``export FLEXMEASURES_CLI_CONFIG_DIR="/app/hems-configs"``
-
-Another caveat is rate-limiting. Since v1.0, FlexMeasures only allows a limited number of schedule and forecasts per 5 minute interval.
+Another caveat is rate-limiting. Since v1.0, FlexMeasures only allows a limited number of schedule, forecast and report triggers per 5 minute interval.
 Either give your account a generous plan (see the docs), or simply set ``FLEXMEASURES_MODE="play"`` and restart the server.
 If you use docker-compose, you could do that like this:
 

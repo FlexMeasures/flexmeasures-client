@@ -33,7 +33,7 @@ from utils.ev_utils import (
     calculate_ev_soc_targets_and_constraints,
     simulate_random_trip,
 )
-from utils.reporter_utils import fill_reporter_params, run_report_cmd
+from utils.reporter_utils import run_report
 from utils.scheduling_utils import create_dynamic_storage_flex_model
 
 from flexmeasures_client.client import FlexMeasuresClient
@@ -239,7 +239,8 @@ async def run_scheduling_simulation(
         await wait_for_ingestion_jobs(client, pending_ingestion_jobs)
 
         # Run reporter to log community site aggregate power consumption each scheduling step
-        aggregate_reports_succeeded = run_community_aggregate(
+        aggregate_reports_succeeded = await run_community_aggregate(
+            client=client,
             sensors=sensors,
             current_time=current_time,
             step_end_time=step_end_time,
@@ -978,23 +979,32 @@ async def map_site_sensors(
     return sensors
 
 
-def run_community_aggregate(
+async def run_community_aggregate(
+    client: FlexMeasuresClient,
     sensors: dict,
     current_time: pd.Timestamp,
     step_end_time: pd.Timestamp,
     community_asset: dict,
     site_names: list[str],
-):
+) -> bool:
+    """Aggregate power per site, then aggregate those into community power.
+
+    The community report reads the sites' aggregate sensors, so the site
+    reports have to finish first. Awaiting each job in turn keeps that order.
+    """
     community_power_sensor = None
     for x in community_asset["sensors"]:
         if x["name"] == "power":
             community_power_sensor = x
             break
-    # Run each site's aggregate reporter
-    all_reports_succeeded = True
+
+    # Run each site's aggregate reporter, against that site's asset
+    all_aggregates_succeeded = True
     for index, site_name in enumerate(site_names, start=1):
-        # Fill reporter parameters for each site
-        fill_reporter_params(
+        site_aggregate_succeeded = await run_report(
+            client=client,
+            reporter="AggregatorReporter",
+            reporter_type="aggregate",
             input_sensors=[
                 {"pv": sensors[f"pv-power-{index}"]["id"]},
                 {"consumption": sensors[f"building-consumption-{index}"]["id"]},
@@ -1006,17 +1016,21 @@ def run_community_aggregate(
             output_sensors=sensors[f"electricity-aggregate-{index}"],
             start=current_time.isoformat(),
             end=step_end_time.isoformat(),
-            reporter_type="aggregate",
         )
-        # Run AggregatorReporter
-        report_succeeded = run_report_cmd(
-            reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
-            start=current_time.isoformat(),
-            end=step_end_time.isoformat(),
-        )
-        all_reports_succeeded = report_succeeded and all_reports_succeeded
+        all_aggregates_succeeded = site_aggregate_succeeded and all_aggregates_succeeded
 
-    fill_reporter_params(
+    if not all_aggregates_succeeded:
+        print(
+            "Skipping the community aggregate report, "
+            "because not every site aggregate is available."
+        )
+        return False
+
+    # Run the community aggregate reporter, against the community asset
+    return await run_report(
+        client=client,
+        reporter="AggregatorReporter",
+        reporter_type="aggregate",
         input_sensors=[
             {f"aggregate-{index}": sensors[f"electricity-aggregate-{index}"]["id"]}
             for index, _ in enumerate(site_names, start=1)
@@ -1024,12 +1038,7 @@ def run_community_aggregate(
         output_sensors=community_power_sensor,
         start=current_time.isoformat(),
         end=step_end_time.isoformat(),
-        reporter_type="aggregate",
+        # community_asset comes from an asset listing, whose nested sensors
+        # carry no generic_asset_id, so name the asset explicitly
+        asset_id=community_asset["id"],
     )
-    # Run AggregatorReporter
-    community_report_succeeded = run_report_cmd(
-        reporter_map={"name": "aggregate", "reporter": "AggregatorReporter"},
-        start=current_time.isoformat(),
-        end=step_end_time.isoformat(),
-    )
-    return community_report_succeeded and all_reports_succeeded
