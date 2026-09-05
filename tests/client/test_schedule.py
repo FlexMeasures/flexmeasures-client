@@ -107,7 +107,7 @@ async def test_get_schedule_polling() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
 
@@ -146,7 +146,7 @@ async def test_get_schedule_polling_accepted(caplog) -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
 
@@ -186,7 +186,7 @@ async def test_get_schedule_polling_exponential_backoff() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=1.0,
+            request_retry_interval=1.0,
             access_token="skip-auth",
         )
 
@@ -239,7 +239,7 @@ async def test_trigger_and_get_schedule() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
 
@@ -304,7 +304,7 @@ async def test_get_fallback_schedule():
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
 
@@ -457,7 +457,7 @@ async def test_trigger_and_get_schedule_asset_id_flex_model_list():
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.1,
+            request_retry_interval=0.1,
         )
         client.access_token = "test-token"
         m.post(
@@ -550,7 +550,7 @@ async def test_trigger_and_get_schedule_asset_id_no_flex_model():
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.1,
+            request_retry_interval=0.1,
         )
         client.access_token = "test-token"
         m.post(
@@ -1081,7 +1081,7 @@ async def test_trigger_and_get_schedule_with_unit():
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
         # Older server: client-side conversion
@@ -1182,7 +1182,7 @@ async def test_get_schedule_failed_job_raises() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
 

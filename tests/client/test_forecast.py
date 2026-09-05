@@ -130,7 +130,7 @@ async def test_get_forecast_polling() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
 
@@ -166,7 +166,7 @@ async def test_get_forecast_failed_job() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
 
@@ -200,14 +200,14 @@ async def test_get_forecast_polling_max_steps() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0,
-            max_polling_steps=2,
+            request_retry_interval=0,
+            max_request_attempts=2,
             access_token="skip-auth",
         )
 
         with pytest.raises(
             ConnectionError,
-            match="Max polling steps reached while waiting for the API response.",
+            match="Maximum request attempts reached while waiting for the API response.",
         ):
             await flexmeasures_client.get_forecast(
                 sensor_id=sensor_id, forecast_id=forecast_id
@@ -224,7 +224,7 @@ async def test_trigger_and_get_forecast() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
         )
         flexmeasures_client.access_token = "test-token"
 

@@ -8,7 +8,7 @@ import re
 import socket
 import time
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from datetime import datetime, timedelta
 from logging import Logger
 from typing import Any, cast
@@ -35,13 +35,18 @@ from flexmeasures_client.response_handling import (
     check_for_status,
     check_response,
 )
+from flexmeasures_client.utils import apply_deprecated_parameter_aliases
 
 LOGGER = logging.getLogger(__name__)
 
-MAX_POLLING_STEPS: int = 10  # seconds
-POLLING_TIMEOUT = 200.0  # seconds
+MAX_REQUEST_ATTEMPTS: int = 10
+REQUEST_RETRY_TIMEOUT = 200.0  # seconds, total request/retry budget
 REQUEST_TIMEOUT = 40.0  # seconds
-POLLING_INTERVAL = 10.0  # seconds
+REQUEST_RETRY_INTERVAL = 10.0  # seconds
+# Backward-compatible module-level aliases; use the REQUEST_* names instead.
+MAX_POLLING_STEPS = MAX_REQUEST_ATTEMPTS
+POLLING_TIMEOUT = REQUEST_RETRY_TIMEOUT
+POLLING_INTERVAL = REQUEST_RETRY_INTERVAL
 API_VERSIONS_LIST = ["v3_0"]
 
 JOB_POLLING_INTERVAL = 2.0  # seconds, first wait between job status polls
@@ -156,18 +161,57 @@ class FlexMeasuresClient:
     path: str = f"/api/{api_version}/"
     access_token: str | None = None
 
-    max_polling_steps: int = MAX_POLLING_STEPS
-    polling_timeout: float = POLLING_TIMEOUT  # seconds
+    # These govern the HTTP request/retry loop used throughout the client: auth,
+    # version discovery, assets and sensors, data I/O, trigger requests, result
+    # retrieval, and each individual job-status lookup. They do not control how
+    # often or how long a background job is polled; the job_polling_* fields do.
+    max_request_attempts: int = MAX_REQUEST_ATTEMPTS
+    request_retry_timeout: float = REQUEST_RETRY_TIMEOUT  # total loop budget
     request_timeout: float = REQUEST_TIMEOUT  # seconds
-    polling_interval: float = POLLING_INTERVAL  # seconds
+    request_retry_interval: float = REQUEST_RETRY_INTERVAL  # seconds
     session: ClientSession | None = None
     server_version: str | None = None
     logger: Logger = LOGGER
+    job_polling_interval: float = JOB_POLLING_INTERVAL  # seconds
+    job_polling_max_interval: float = JOB_POLLING_MAX_INTERVAL  # seconds
+    job_polling_timeout: float = JOB_POLLING_TIMEOUT  # seconds
+    max_polling_steps: InitVar[int | None] = None
+    polling_timeout: InitVar[float | None] = None
+    polling_interval: InitVar[float | None] = None
     _sensor_asset_id_cache: dict[int, int] = field(
         default_factory=dict, init=False, repr=False
     )
 
-    def __post_init__(self):
+    def __post_init__(
+        self,
+        max_polling_steps: int | None,
+        polling_timeout: float | None,
+        polling_interval: float | None,
+    ):
+        apply_deprecated_parameter_aliases(
+            self,
+            (
+                (
+                    "max_polling_steps",
+                    max_polling_steps,
+                    "max_request_attempts",
+                    MAX_REQUEST_ATTEMPTS,
+                ),
+                (
+                    "polling_timeout",
+                    polling_timeout,
+                    "request_retry_timeout",
+                    REQUEST_RETRY_TIMEOUT,
+                ),
+                (
+                    "polling_interval",
+                    polling_interval,
+                    "request_retry_interval",
+                    REQUEST_RETRY_INTERVAL,
+                ),
+            ),
+        )
+
         if self.session is None:
             self.session = ClientSession()
 
@@ -260,14 +304,20 @@ class FlexMeasuresClient:
     ) -> tuple[dict | list, int]:
         """Send a request to FlexMeasures.
 
+        The request-level settings apply to all HTTP calls made by the client,
+        including each individual job-status lookup. ``request_timeout`` limits
+        one HTTP attempt; ``request_retry_interval``, ``request_retry_timeout``,
+        and ``max_request_attempts`` govern the surrounding retry loop. The
+        separate ``job_polling_*`` settings govern repeated job-status lookups.
+
         Retries if:
-        - the client request timed out (as indicated by the client's self.request_timeout)
+        - the client request timed out (as indicated by ``request_timeout``)
         - the server response indicates a 408 (Request Timeout) status
         - the server response indicates a 503 (Service Unavailable) status with a Retry-After response header.
 
         Fails if:
         - the server response indicated a status code of 400 or higher
-        - the client polling timed out (as indicated by the client's self.polling_timeout)
+        - the request/retry loop exceeded ``request_retry_timeout``
 
         ``pass_through_statuses`` is for callers that interpret particular HTTP
         statuses themselves. Such responses are returned without generic
@@ -281,8 +331,8 @@ class FlexMeasuresClient:
         # we allow retrying once if we include authentication headers
         reauth_once = True if include_auth else False
         try:
-            async with async_timeout.timeout(self.polling_timeout):
-                while polling_step < self.max_polling_steps:
+            async with async_timeout.timeout(self.request_retry_timeout):
+                while polling_step < self.max_request_attempts:
                     headers = await self.get_headers(include_auth=include_auth)
                     try:
                         async with async_timeout.timeout(self.request_timeout):
@@ -308,7 +358,7 @@ class FlexMeasuresClient:
                             ) and polling_step == previous_polling_step:
                                 break
                     except asyncio.TimeoutError:
-                        sleep_interval = self.polling_interval * (2**polling_step)
+                        sleep_interval = self.request_retry_interval * (2**polling_step)
                         message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {sleep_interval} seconds..."  # noqa: E501
                         self.logger.debug(message)
                         polling_step += 1
@@ -329,12 +379,12 @@ class FlexMeasuresClient:
                         ) from exception
                 else:
                     raise ConnectionError(
-                        "Max polling steps reached while waiting for the API response."
+                        "Maximum request attempts reached while waiting for the API response."
                     )
 
         except asyncio.TimeoutError as exception:
             raise ConnectionError(
-                "Client polling timeout while connection to the API."
+                "Request retry timeout while connecting to the API."
             ) from exception
 
         check_content_type(response)
@@ -1026,9 +1076,9 @@ class FlexMeasuresClient:
         prior: datetime | None = None,
         scheduler: str | None = None,
         unit: str | None = None,
-        timeout: float = JOB_POLLING_TIMEOUT,
-        polling_interval: float = JOB_POLLING_INTERVAL,
-        max_polling_interval: float = JOB_POLLING_MAX_INTERVAL,
+        timeout: float | None = None,
+        polling_interval: float | None = None,
+        max_polling_interval: float | None = None,
     ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
 
@@ -1045,8 +1095,11 @@ class FlexMeasuresClient:
         :param unit: desired unit for the schedule values (e.g. "W", "kW", "MW").
                      Passed through to get_schedule(); see its docstring for details.
         :param timeout: total seconds to wait through the jobs endpoint.
+                        Defaults to ``self.job_polling_timeout``.
         :param polling_interval: seconds before the first repeated status lookup.
+                                 Defaults to ``self.job_polling_interval``.
         :param max_polling_interval: maximum delay between status lookups.
+                                     Defaults to ``self.job_polling_max_interval``.
         :returns: For a single device, returns the schedule as a dictionary.
                   For example:
                   {
@@ -1780,9 +1833,9 @@ class FlexMeasuresClient:
         max_forecast_horizon: str | timedelta | None = None,
         forecast_frequency: str | timedelta | None = None,
         probabilistic: bool | None = None,
-        timeout: float = JOB_POLLING_TIMEOUT,
-        polling_interval: float = JOB_POLLING_INTERVAL,
-        max_polling_interval: float = JOB_POLLING_MAX_INTERVAL,
+        timeout: float | None = None,
+        polling_interval: float | None = None,
+        max_polling_interval: float | None = None,
     ) -> dict:
         """Trigger a forecasting job and then fetch the result.
 
@@ -1791,8 +1844,11 @@ class FlexMeasuresClient:
         retain result-endpoint polling.
 
         :param timeout: total seconds to wait through the jobs endpoint.
+                        Defaults to ``self.job_polling_timeout``.
         :param polling_interval: seconds before the first repeated status lookup.
+                                 Defaults to ``self.job_polling_interval``.
         :param max_polling_interval: maximum delay between status lookups.
+                                     Defaults to ``self.job_polling_max_interval``.
 
         :returns: forecast as dictionary, for example:
                 {
@@ -1880,9 +1936,9 @@ class FlexMeasuresClient:
     async def wait_for_job(
         self,
         job_id: str,
-        timeout: float = JOB_POLLING_TIMEOUT,
-        polling_interval: float = JOB_POLLING_INTERVAL,
-        max_polling_interval: float = JOB_POLLING_MAX_INTERVAL,
+        timeout: float | None = None,
+        polling_interval: float | None = None,
+        max_polling_interval: float | None = None,
     ) -> dict:
         """Poll a background job until it reaches a terminal state.
 
@@ -1892,14 +1948,27 @@ class FlexMeasuresClient:
 
         :param job_id: UUID of the job, as returned by a trigger endpoint.
         :param timeout: total number of seconds to wait for the job to finish.
-        :param polling_interval: seconds to wait before the first status poll.
+                        Defaults to ``self.job_polling_timeout``.
+        :param polling_interval: seconds to wait before a repeated status lookup.
+                                 Defaults to ``self.job_polling_interval``.
         :param max_polling_interval: upper bound on the wait between polls.
+                                     Defaults to ``self.job_polling_max_interval``.
 
         :returns: the final job status dictionary (see :func:`get_job_status`).
 
         :raises JobFailedError: if the job ended as FAILED, STOPPED or CANCELED.
         :raises JobTimeoutError: if the job did not finish within ``timeout``.
         """
+        timeout = self.job_polling_timeout if timeout is None else timeout
+        polling_interval = (
+            self.job_polling_interval if polling_interval is None else polling_interval
+        )
+        max_polling_interval = (
+            self.job_polling_max_interval
+            if max_polling_interval is None
+            else max_polling_interval
+        )
+
         deadline = time.monotonic() + timeout
         interval = polling_interval
         job = await self.get_job_status(job_id)
@@ -1993,14 +2062,21 @@ class FlexMeasuresClient:
         reporter: str,
         parameters: dict,
         config: dict | None = None,
-        timeout: float = JOB_POLLING_TIMEOUT,
-        polling_interval: float = JOB_POLLING_INTERVAL,
-        max_polling_interval: float = JOB_POLLING_MAX_INTERVAL,
+        timeout: float | None = None,
+        polling_interval: float | None = None,
+        max_polling_interval: float | None = None,
     ) -> dict:
         """Trigger a one-off reporting job and wait for it to finish.
 
         Reports write their result to their output sensors rather than
         returning it, so use :func:`get_sensor_data` to read the values back.
+
+        :param timeout: total seconds to wait for the report job.
+                        Defaults to ``self.job_polling_timeout``.
+        :param polling_interval: seconds before a repeated status lookup.
+                                 Defaults to ``self.job_polling_interval``.
+        :param max_polling_interval: maximum delay between status lookups.
+                                     Defaults to ``self.job_polling_max_interval``.
 
         :returns: the final job status dictionary (see :func:`get_job_status`).
 

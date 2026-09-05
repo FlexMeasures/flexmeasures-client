@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from aioresponses import aioresponses
 from yarl import URL
@@ -197,6 +199,50 @@ async def test_wait_for_job_polls_until_finished() -> None:
 
         assert job["status"] == "FINISHED"
         assert len(m.requests[("GET", URL(JOB_URL))]) == 4
+
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_job_uses_client_polling_defaults() -> None:
+    """Stored job settings drive waits when the call has no overrides."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+            job_polling_interval=0.25,
+            job_polling_max_interval=0.5,
+            job_polling_timeout=10,
+        )
+        m.get(JOB_URL, status=202, payload=job_payload("QUEUED"))
+        m.get(JOB_URL, status=202, payload=job_payload("STARTED"))
+        m.get(JOB_URL, status=200, payload=job_payload("FINISHED"))
+
+        sleep = AsyncMock()
+        with patch("flexmeasures_client.client.asyncio.sleep", sleep):
+            job = await client.wait_for_job(JOB_ID)
+
+        assert job["status"] == "FINISHED"
+        assert [call.args[0] for call in sleep.await_args_list] == [0.25, 0.5]
+
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_job_uses_client_timeout_default() -> None:
+    """The stored job timeout is used when no call override is supplied."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+            job_polling_timeout=0,
+        )
+        m.get(JOB_URL, status=202, payload=job_payload("QUEUED"))
+
+        with pytest.raises(JobTimeoutError, match="within 0 seconds"):
+            await client.wait_for_job(JOB_ID)
 
         await client.close()
 

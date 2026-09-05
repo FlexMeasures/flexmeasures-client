@@ -89,17 +89,74 @@ async def test__init__(
         "ssl": asserted_ssl,
         "api_version": asserted_version,
         "path": "/api/v3_0/",
-        "max_polling_steps": 10,
-        "polling_timeout": 200.0,
+        "max_request_attempts": 10,
+        "request_retry_timeout": 200.0,
         "server_version": None,
         "request_timeout": 40.0,
-        "polling_interval": 10.0,
+        "request_retry_interval": 10.0,
+        "job_polling_interval": 2.0,
+        "job_polling_max_interval": 30.0,
+        "job_polling_timeout": 600.0,
     }
     init_dict = flexmeasures_client.__dict__
     init_dict.pop("session")
     init_dict.pop("logger")
     init_dict.pop("_sensor_asset_id_cache")
     assert init_dict == assert_dict
+
+
+@pytest.mark.parametrize(
+    ("old_name", "new_name", "value"),
+    (
+        ("max_polling_steps", "max_request_attempts", 4),
+        ("polling_timeout", "request_retry_timeout", 12.5),
+        ("polling_interval", "request_retry_interval", 0.25),
+    ),
+)
+@pytest.mark.asyncio
+async def test_deprecated_request_retry_option_is_still_accepted(
+    old_name: str,
+    new_name: str,
+    value: int | float,
+) -> None:
+    """Old constructor names configure their renamed request-loop options."""
+    with pytest.warns(
+        DeprecationWarning,
+        match=f"use {new_name} instead",
+    ):
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            **{old_name: value},
+        )
+
+    assert getattr(client, new_name) == value
+    assert old_name not in client.__dict__
+    await client.close()
+
+
+@pytest.mark.parametrize(
+    ("old_name", "new_name", "old_value", "new_value"),
+    (
+        ("max_polling_steps", "max_request_attempts", 4, 5),
+        ("polling_timeout", "request_retry_timeout", 12.5, 15.0),
+        ("polling_interval", "request_retry_interval", 0.25, 0.5),
+    ),
+)
+@pytest.mark.asyncio
+async def test_old_and_new_request_retry_names_are_rejected(
+    old_name: str,
+    new_name: str,
+    old_value: int | float,
+    new_value: int | float,
+) -> None:
+    """Ambiguous old and new retry configuration is rejected."""
+    with pytest.raises(TypeError, match=f"Pass either {new_name}"):
+        FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            **{new_name: new_value, old_name: old_value},
+        )
 
 
 @pytest.mark.parametrize(
@@ -299,7 +356,7 @@ async def test_get_versions() -> None:
 @pytest.mark.asyncio
 async def test_get_schedule_timeout() -> None:
     async def callback(url, **kwargs):
-        # Sleep longer than the polling_timeout
+        # Sleep longer than the request_retry_timeout
         await asyncio.sleep(3)
         return CallbackResult(status=200)
 
@@ -313,9 +370,9 @@ async def test_get_schedule_timeout() -> None:
         flexmeasures_client = FlexMeasuresClient(
             email="test@test.test",
             password="test",
-            polling_timeout=0.5,
+            request_retry_timeout=0.5,
             request_timeout=0.2,
-            polling_interval=0.1,
+            request_retry_interval=0.1,
         )
 
         with pytest.raises(ConnectionError):
@@ -386,7 +443,7 @@ async def test_503_retry_after():
         flexmeasures_client = FlexMeasuresClient(
             email="test@test.test",
             password="test",
-            polling_interval=0.01,
+            request_retry_interval=0.01,
             request_timeout=5,
         )
         flexmeasures_client.access_token = "test-token"

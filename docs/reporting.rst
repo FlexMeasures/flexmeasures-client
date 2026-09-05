@@ -110,17 +110,32 @@ Polling behaviour
 state.  Waits back off exponentially, so short jobs are picked up quickly
 without hammering the server on long ones:
 
-- ``polling_interval`` (default 2 s)      — delay before a repeated status check
-- ``max_polling_interval`` (default 30 s) — cap on the backing-off wait
-- ``timeout`` (default 600 s)             — total budget for the job to finish
+- ``job_polling_interval`` (default 2 s) — delay before a repeated status check
+- ``job_polling_max_interval`` (default 30 s) — cap on the backing-off wait
+- ``job_polling_timeout`` (default 600 s) — total job wait budget
+
+Configure these defaults on the client. Calls to ``wait_for_job`` and
+``trigger_and_await_report`` can override them with ``polling_interval``,
+``max_polling_interval``, and ``timeout``:
 
 .. code-block:: python
 
+    client = FlexMeasuresClient(
+        ...,
+        job_polling_interval=5.0,
+        job_polling_timeout=3600.0,
+    )
+
     job = await client.wait_for_job(
         job_id,
-        timeout=3600.0,           # allow an hour for a heavy report
         max_polling_interval=60.0,
     )
+
+Each job-status lookup is itself an HTTP request, so ``request_timeout``,
+``request_retry_interval``, ``request_retry_timeout``, and
+``max_request_attempts`` still govern that individual lookup and any transient
+retries. They do not determine when the next job-status lookup happens or the
+total job-wait budget; the ``job_polling_*`` settings do.
 
 
 Error handling

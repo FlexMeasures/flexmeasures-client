@@ -220,29 +220,45 @@ Waiting, legacy polling, and errors
 
 On FlexMeasures v0.33.0 and newer, ``trigger_and_get_schedule`` waits through
 ``GET /jobs/<uuid>`` once, then retrieves the requested sensor result or
-results.  Its job wait is controlled by method arguments:
+results. Its job wait is controlled by the following client defaults:
 
-- ``polling_interval`` (default 2 s) — delay before a repeated status check
-- ``max_polling_interval`` (default 30 s) — maximum delay between checks
-- ``timeout`` (default 600 s) — total job wait budget
+- ``job_polling_interval`` (default 2 s) — delay before a repeated status check
+- ``job_polling_max_interval`` (default 30 s) — maximum delay between checks
+- ``job_polling_timeout`` (default 600 s) — total job wait budget
+
+Set these defaults when constructing the client. The convenience method's
+``polling_interval``, ``max_polling_interval``, and ``timeout`` arguments can
+override them for one schedule:
 
 .. code-block:: python
+
+    client = FlexMeasuresClient(
+        ...,
+        job_polling_interval=5.0,
+        job_polling_timeout=1800.0,
+    )
 
     schedule = await client.trigger_and_get_schedule(
         sensor_id=8,
         start="2026-09-05T08:00:00+02:00",
         duration="PT12H",
-        timeout=1800.0,
         max_polling_interval=60.0,
     )
 
 ``get_schedule`` still polls the sensor result endpoint when called directly,
 and ``trigger_and_get_schedule`` retains that behaviour for servers older than
-v0.33.0.  This legacy polling is controlled by client settings:
+v0.33.0. This legacy polling uses the client's general HTTP request settings.
+Those settings also apply to authentication, API discovery, asset and sensor
+operations, data transfer, trigger calls, result retrieval, and each individual
+job-status lookup:
 
-- ``polling_interval`` (default 10 s) — initial wait between attempts
-- ``polling_timeout`` (default 200 s) — maximum total wait
-- ``max_polling_steps`` (default 10) — maximum number of attempts
+- ``request_timeout`` (default 40 s) — timeout for one HTTP attempt
+- ``request_retry_interval`` (default 10 s) — initial wait between attempts
+- ``request_retry_timeout`` (default 200 s) — total request/retry budget
+- ``max_request_attempts`` (default 10) — maximum attempts in that loop
+
+They do not control the cadence or total lifetime of a background-job wait;
+the ``job_polling_*`` settings above do that.
 
 Override them when constructing the client:
 
@@ -250,9 +266,9 @@ Override them when constructing the client:
 
     client = FlexMeasuresClient(
         ...,
-        polling_interval=5.0,
-        polling_timeout=300.0,
-        max_polling_steps=12,
+        request_retry_interval=5.0,
+        request_retry_timeout=300.0,
+        max_request_attempts=12,
     )
 
 With the jobs API, a job that ends as ``FAILED``, ``STOPPED``, or ``CANCELED``
