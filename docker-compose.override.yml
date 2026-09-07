@@ -144,7 +144,7 @@ services:
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         pip install --break-system-packages -e /app/flexmeasures-client[s2]
-        flexmeasures jobs run-worker --name flexmeasures-worker-1 --queue scheduling\|forecasting
+        flexmeasures jobs run-worker --name flexmeasures-worker-1 --queue scheduling\|forecasting\|ingestion
   worker-2:
     <<: *worker
     command:
@@ -153,7 +153,7 @@ services:
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         pip install --break-system-packages -e /app/flexmeasures-client[s2]
-        flexmeasures jobs run-worker --name flexmeasures-worker-2 --queue scheduling\|forecasting
+        flexmeasures jobs run-worker --name flexmeasures-worker-2 --queue scheduling\|forecasting\|ingestion
   worker-3:
     <<: *worker
     command:
@@ -162,7 +162,7 @@ services:
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         pip install --break-system-packages -e /app/flexmeasures-client[s2]
-        flexmeasures jobs run-worker --name flexmeasures-worker-3 --queue scheduling\|forecasting
+        flexmeasures jobs run-worker --name flexmeasures-worker-3 --queue scheduling\|forecasting\|ingestion
   # One CEM per simulated household. Add or remove instances as needed;
   # scale by copying an entry and bumping the host port.
   cem:
