@@ -205,6 +205,25 @@ async def test_get_assets_root_depth_fields_new_server():
 
 
 @pytest.mark.asyncio
+async def test_get_assets_includes_zero_depth():
+    """depth=0 is meaningful and must be included in the URL."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.31.0"
+        m.get(
+            "http://localhost:5000/api/v3_0/assets?all_accessible=False&sort_by=id&sort_dir=asc&include_public=False&depth=0",
+            status=200,
+            payload=[{"id": 1, "name": "top-level"}],
+        )
+
+        assets = await client.get_assets(depth=0, parse_json_fields=False)
+
+        assert assets == [{"id": 1, "name": "top-level"}]
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_get_assets_root_old_server_warning(caplog):
     """root param on server < 0.31.0 emits warning."""
     import re as _re

@@ -24,14 +24,18 @@ from flexmeasures_client.s2.control_types.FRBC import FRBC, FRBCTest
 from flexmeasures_client.s2.utils import get_unique_id
 
 
-def make_instruction(mode: str, factor: float, slot: int, actuator: str) -> FRBCInstruction:
+def make_instruction(
+    mode: str, factor: float, slot: int, actuator: str
+) -> FRBCInstruction:
     return FRBCInstruction(
         message_id=get_unique_id(),
         id=get_unique_id(),
         actuator_id=actuator,
         operation_mode=mode,
         operation_mode_factor=factor,
-        execution_time=datetime(2022, 12, 1, slot // 4, (slot % 4) * 15, tzinfo=timezone.utc),
+        execution_time=datetime(
+            2022, 12, 1, slot // 4, (slot % 4) * 15, tzinfo=timezone.utc
+        ),
         abnormal_condition=False,
     )
 
@@ -90,8 +94,7 @@ class _RecordingFRBC(FRBCTest):
         generation = self._supersession_counters.get("storage_status", 0)
         await asyncio.sleep(self.delay_s)  # the FM round trip
         batch = [
-            make_instruction(get_unique_id(), 1.0, i, get_unique_id())
-            for i in range(3)
+            make_instruction(get_unique_id(), 1.0, i, get_unique_id()) for i in range(3)
         ]
         sent = await self.send_instruction_batch(
             batch, supersession_key="storage_status", generation=generation
@@ -101,9 +104,7 @@ class _RecordingFRBC(FRBCTest):
 
 
 def make_status(fill_level: float = 0.5) -> FRBCStorageStatus:
-    return FRBCStorageStatus(
-        message_id=get_unique_id(), present_fill_level=fill_level
-    )
+    return FRBCStorageStatus(message_id=get_unique_id(), present_fill_level=fill_level)
 
 
 @pytest.mark.asyncio
@@ -116,9 +117,9 @@ async def test_only_the_latest_storage_status_produces_a_batch():
         await frbc.handle_message(make_status())
     await asyncio.gather(*frbc.background_tasks)
 
-    assert frbc.completed_generations == [3], (
-        "only generation 3 (the newest request) may complete a batch"
-    )
+    assert frbc.completed_generations == [
+        3
+    ], "only generation 3 (the newest request) may complete a batch"
     # Registry holds exactly the surviving batch.
     assert len(frbc._sent_instructions) == 3
 
@@ -143,12 +144,12 @@ async def test_resent_system_description_is_acked_but_not_reprocessed(
     await asyncio.gather(*frbc.background_tasks)
 
     assert str(response_1.status) == str(ReceptionStatusValues.OK)
-    assert str(response_2.status) == str(ReceptionStatusValues.OK), (
-        "the RM's resend must still be acknowledged"
-    )
-    assert len(frbc._system_description_history) == history_size, (
-        "unchanged content must not be stored or reprocessed"
-    )
+    assert str(response_2.status) == str(
+        ReceptionStatusValues.OK
+    ), "the RM's resend must still be acknowledged"
+    assert (
+        len(frbc._system_description_history) == history_size
+    ), "unchanged content must not be stored or reprocessed"
 
 
 @pytest.mark.asyncio

@@ -27,8 +27,8 @@ except ImportError:
 
 from flexmeasures_client.s2.control_types.FRBC import FRBC
 from flexmeasures_client.s2.control_types.FRBC.utils import (
-    fm_schedule_to_instructions,
     clip_fill_level_target_profile,
+    fm_schedule_to_instructions,
     get_soc_min_max,
 )
 from flexmeasures_client.s2.control_types.translations import (
@@ -138,7 +138,9 @@ class FRBCSimple(FRBC):
                 "HANGDEBUG send_storage_status: SoC posted, calling trigger_schedule"
             )
             await self.trigger_schedule(now, generation=generation)
-            self._logger.debug("HANGDEBUG send_storage_status: trigger_schedule returned")
+            self._logger.debug(
+                "HANGDEBUG send_storage_status: trigger_schedule returned"
+            )
         except Exception:
             self._logger.exception("HANGDEBUG send_storage_status: raised")
             raise
@@ -392,9 +394,7 @@ class FRBCSimple(FRBC):
                     "HANGDEBUG trigger_schedule: trigger_and_get_schedule raised"
                 )
                 raise
-        self._logger.debug(
-            f"HANGDEBUG trigger_schedule: got schedule back: {schedule}"
-        )
+        self._logger.debug(f"HANGDEBUG trigger_schedule: got schedule back: {schedule}")
 
         # The server silently substitutes its fallback scheduler's result when
         # the real scheduling problem is infeasible (the GET follows the

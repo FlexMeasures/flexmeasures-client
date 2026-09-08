@@ -282,7 +282,9 @@ async def configure_site(
         asset_id=site_asset["id"],
         updates=dict(sensors_to_show=sensors_to_show),
     )
-    LOGGER.debug(f"HANGDEBUG configure_site: done, returning sensors for asset {site_asset['id']}")
+    LOGGER.debug(
+        f"HANGDEBUG configure_site: done, returning sensors for asset {site_asset['id']}"
+    )
     return (
         price_sensor,
         production_price_sensor,

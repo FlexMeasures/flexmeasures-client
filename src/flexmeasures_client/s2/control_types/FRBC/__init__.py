@@ -272,7 +272,6 @@ class FRBC(ControlTypeHandler):
             return
 
         try:
-            from datetime import datetime
             from datetime import timedelta
 
             start = system_description.valid_from
@@ -283,7 +282,9 @@ class FRBC(ControlTypeHandler):
             )
 
             # Use a default conversion efficiency duration if not set by subclass
-            duration = getattr(self, "_conversion_efficiency_duration", timedelta(hours=99))
+            duration = getattr(
+                self, "_conversion_efficiency_duration", timedelta(hours=99)
+            )
             if isinstance(duration, str):
                 # If duration is a string like "PT99H", use default timedelta
                 duration = timedelta(hours=99)
@@ -303,8 +304,12 @@ class FRBC(ControlTypeHandler):
                         * fill_level_scale
                         / (operation_mode.elements[-1].power_ranges[0].end_of_range)
                     )
-                    self._logger.debug(f"operation_mode.elements[-1].fill_rate.end_of_range: {operation_mode.elements[-1].fill_rate.end_of_range}")
-                    self._logger.debug(f"operation_mode.elements[-1].power_ranges[0].end_of_range: {operation_mode.elements[-1].power_ranges[0].end_of_range}")
+                    self._logger.debug(
+                        f"operation_mode.elements[-1].fill_rate.end_of_range: {operation_mode.elements[-1].fill_rate.end_of_range}"
+                    )
+                    self._logger.debug(
+                        f"operation_mode.elements[-1].power_ranges[0].end_of_range: {operation_mode.elements[-1].power_ranges[0].end_of_range}"
+                    )
                     self._logger.debug(f"fill_level_scale: {fill_level_scale}")
                     self._logger.debug(f"efficiency: {efficiency}")
                 except (IndexError, AttributeError, ZeroDivisionError) as e:

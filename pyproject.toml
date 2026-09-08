@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "flexmeasures-client"
 description = "Async client to connect to the FlexMeasures API"
 readme = "README.rst"
-requires-python = ">=3.10, <3.13"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [
@@ -20,15 +20,19 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 dynamic = ["version"]
+# Keep the floors below permissive: Home Assistant pins these packages to
+# exact versions (homeassistant/package_constraints.txt), so every floor we
+# raise here shrinks the range of HA versions the FlexMeasures HA integration
+# can be installed on. E.g. HA 2026.7 pins async-timeout==4.0.3.
 dependencies = [
-    "aiohttp>=3.13.3",
+    "aiohttp>=3.8.1",
     "pandas>=2.1.4",
-    "async-timeout>=5.0.1",
-    "packaging>=26.0",
-    # Below: minimum requirements solely here for security reasons
-    "urllib3>=2.7.0",  # https://github.com/FlexMeasures/flexmeasures-client/security/dependabot/16
+    "async-timeout>=4.0.1",
+    "packaging>=23.1",
 ]
 
 [project.urls]
@@ -38,10 +42,10 @@ Documentation = "https://flexmeasures-client.readthedocs.io/"
 
 [project.optional-dependencies]
 s2 = [
-    "requests>=2.32.5",
+    "requests>=2.31.0",
     "s2-python>=0.8.1",
     "semver>=3.0.4",
-    "tzdata>=2025.3",
+    "tzdata>=2023.3",
 ]
 
 [dependency-groups]

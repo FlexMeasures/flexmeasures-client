@@ -6,8 +6,9 @@ import logging
 import os
 import re
 import socket
+import time
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from datetime import datetime, timedelta
 from logging import Logger
 from typing import Any, cast
@@ -23,8 +24,9 @@ from flexmeasures_client.exceptions import (
     ContentTypeError,
     EmailValidationError,
     EmptyPasswordError,
-    IngestionFailedError,
     InsufficientServerVersionError,
+    JobFailedError,
+    JobTimeoutError,
     WrongAPIVersionError,
     WrongHostError,
 )
@@ -33,30 +35,33 @@ from flexmeasures_client.response_handling import (
     check_for_status,
     check_response,
 )
+from flexmeasures_client.utils import apply_deprecated_parameter_aliases
 
 LOGGER = logging.getLogger(__name__)
 
-# With each backoff sleep capped at MAX_POLLING_SLEEP, the number of steps is
-# what bounds total patience (~step count x 10s); keep it high enough that
-# polling_timeout (200s), not the step count, is the effective budget.
-MAX_POLLING_STEPS: int = 40
-POLLING_TIMEOUT = 360.0  # seconds
+MAX_REQUEST_ATTEMPTS: int = 10
+REQUEST_RETRY_TIMEOUT = 200.0  # seconds, total request/retry budget
 REQUEST_TIMEOUT = 40.0  # seconds
-POLLING_INTERVAL = 10.0  # seconds
+REQUEST_RETRY_INTERVAL = 10.0  # seconds
+# Backward-compatible module-level aliases; use the REQUEST_* names instead.
+MAX_POLLING_STEPS = MAX_REQUEST_ATTEMPTS
+POLLING_TIMEOUT = REQUEST_RETRY_TIMEOUT
+POLLING_INTERVAL = REQUEST_RETRY_INTERVAL
 API_VERSIONS_LIST = ["v3_0"]
 
-# Since FlexMeasures PR #2101, POST .../sensors/data (and the file-upload
-# equivalent) can return 202 Accepted with a background job id instead of
-# processing synchronously. post_sensor_data() polls the job-status endpoint
-# (GET .../jobs/<job_id>) to restore read-your-writes semantics: by the time
-# post_sensor_data() returns, the data is confirmed ingested (or polling gave
-# up - see IngestionFailedError / the ERROR log on timeout). These constants
-# tune that polling loop specifically; they are intentionally much gentler
-# than MAX_POLLING_SLEEP/POLLING_INTERVAL above (which govern retrying the
-# HTTP request itself, not waiting on a background job).
-INGESTION_POLL_INITIAL_INTERVAL = 0.25  # seconds
-INGESTION_POLL_MAX_INTERVAL = 2.0  # seconds
-INGESTION_POLL_TIMEOUT = 60.0  # seconds
+JOB_POLLING_INTERVAL = 2.0  # seconds, first wait between job status polls
+JOB_POLLING_MAX_INTERVAL = 30.0  # seconds, cap on the backing-off wait
+JOB_POLLING_TIMEOUT = 600.0  # seconds, total budget for a job to finish
+
+# Terminal job states, as reported by GET /api/v3_0/jobs/<uuid>
+JOB_STATUS_FINISHED = "FINISHED"
+JOB_STATUS_UNSUCCESSFUL = frozenset({"FAILED", "STOPPED", "CANCELED"})
+
+# The generic job status endpoint landed in FlexMeasures v0.33.0
+JOB_STATUS_MIN_SERVER_VERSION = "0.33.0"
+
+# The asset report trigger endpoint landed in FlexMeasures v1.1.0
+REPORT_TRIGGER_MIN_SERVER_VERSION = "1.1.0"
 
 
 def _parse_json_field(data: dict, field_name: str) -> None:
@@ -85,6 +90,18 @@ def _parse_asset_json_fields(asset: dict) -> None:
 def _parse_sensor_json_fields(sensor: dict) -> None:
     """Parse JSON fields in a sensor dictionary in-place."""
     _parse_json_field(sensor, "attributes")
+
+
+def _server_version_at_least(server_version: str | None, minimum: str) -> bool:
+    """Compare server versions by release generation.
+
+    FlexMeasures reports development versions such as 0.33.0.dev26 while the
+    server is already exposing the 0.33 API shape. Comparing base versions keeps
+    these development builds on the right side of feature checks.
+    """
+    if server_version is None:
+        return False
+    return Version(Version(server_version).base_version) >= Version(minimum)
 
 
 def convert_units(
@@ -119,6 +136,18 @@ def convert_units(
     return values
 
 
+def _describe_failed_job(job_id: str, job: dict) -> str:
+    """Build an error message for a job that ended in a non-successful state."""
+    msg = f"Job {job_id} ended with status {job['status']}."
+    job_message = job.get("message")
+    if job_message:
+        msg += f" {job_message}"
+    exc_info = job.get("exc-info") or job.get("exc_info")
+    if exc_info:
+        msg += f"\nServer traceback:\n{exc_info}"
+    return msg
+
+
 @dataclass
 class FlexMeasuresClient:
     """Main class for connecting to the FlexMeasures API."""
@@ -132,19 +161,57 @@ class FlexMeasuresClient:
     path: str = f"/api/{api_version}/"
     access_token: str | None = None
 
-    max_polling_steps: int = MAX_POLLING_STEPS
-    polling_timeout: float = POLLING_TIMEOUT  # seconds
+    # These govern the HTTP request/retry loop used throughout the client: auth,
+    # version discovery, assets and sensors, data I/O, trigger requests, result
+    # retrieval, and each individual job-status lookup. They do not control how
+    # often or how long a background job is polled; the job_polling_* fields do.
+    max_request_attempts: int = MAX_REQUEST_ATTEMPTS
+    request_retry_timeout: float = REQUEST_RETRY_TIMEOUT  # total loop budget
     request_timeout: float = REQUEST_TIMEOUT  # seconds
-    polling_interval: float = POLLING_INTERVAL  # seconds
-    ingestion_polling_timeout: float = INGESTION_POLL_TIMEOUT  # seconds
+    request_retry_interval: float = REQUEST_RETRY_INTERVAL  # seconds
     session: ClientSession | None = None
     server_version: str | None = None
     logger: Logger = LOGGER
+    job_polling_interval: float = JOB_POLLING_INTERVAL  # seconds
+    job_polling_max_interval: float = JOB_POLLING_MAX_INTERVAL  # seconds
+    job_polling_timeout: float = JOB_POLLING_TIMEOUT  # seconds
+    max_polling_steps: InitVar[int | None] = None
+    polling_timeout: InitVar[float | None] = None
+    polling_interval: InitVar[float | None] = None
     _sensor_asset_id_cache: dict[int, int] = field(
         default_factory=dict, init=False, repr=False
     )
 
-    def __post_init__(self):
+    def __post_init__(
+        self,
+        max_polling_steps: int | None,
+        polling_timeout: float | None,
+        polling_interval: float | None,
+    ):
+        apply_deprecated_parameter_aliases(
+            self,
+            (
+                (
+                    "max_polling_steps",
+                    max_polling_steps,
+                    "max_request_attempts",
+                    MAX_REQUEST_ATTEMPTS,
+                ),
+                (
+                    "polling_timeout",
+                    polling_timeout,
+                    "request_retry_timeout",
+                    REQUEST_RETRY_TIMEOUT,
+                ),
+                (
+                    "polling_interval",
+                    polling_interval,
+                    "request_retry_interval",
+                    REQUEST_RETRY_INTERVAL,
+                ),
+            ),
+        )
+
         if self.session is None:
             self.session = ClientSession()
 
@@ -196,17 +263,22 @@ class FlexMeasuresClient:
         """Function to close FlexMeasuresClient session when all requests are done."""
         await cast(ClientSession, self.session).close()
 
+    async def _resolve_server_version(self) -> str | None:
+        """Return the server version, looking it up if it isn't known yet."""
+        if self.server_version is None:
+            # Fall back to explicit version lookup for older servers that don't
+            # send the FlexMeasures-Version response header.
+            version_info = await self.get_versions()
+            self.server_version = version_info["server_version"]
+        return self.server_version
+
     async def ensure_minimum_server_version(
         self,
         minimum_server_version: str,
         minimum_server_version_msg: str | None = None,
     ):
         """Ensure that the server version meets a minimum requirement."""
-        if self.server_version is None:
-            # Fall back to explicit version lookup for older servers that don't
-            # send the FlexMeasures-Version response header.
-            version_info = await self.get_versions()
-            self.server_version = version_info["server_version"]
+        await self._resolve_server_version()
         if Version(cast(str, self.server_version)) < Version(minimum_server_version):
             msg = (
                 "This functionality requires FlexMeasures server of "
@@ -228,17 +300,28 @@ class FlexMeasuresClient:
         include_auth: bool = True,
         minimum_server_version: str | None = None,
         minimum_server_version_msg: str | None = None,
+        pass_through_statuses: frozenset[int] = frozenset(),
     ) -> tuple[dict | list, int]:
         """Send a request to FlexMeasures.
 
+        The request-level settings apply to all HTTP calls made by the client,
+        including each individual job-status lookup. ``request_timeout`` limits
+        one HTTP attempt; ``request_retry_interval``, ``request_retry_timeout``,
+        and ``max_request_attempts`` govern the surrounding retry loop. The
+        separate ``job_polling_*`` settings govern repeated job-status lookups.
+
         Retries if:
-        - the client request timed out (as indicated by the client's self.request_timeout)
+        - the client request timed out (as indicated by ``request_timeout``)
         - the server response indicates a 408 (Request Timeout) status
         - the server response indicates a 503 (Service Unavailable) status with a Retry-After response header.
 
         Fails if:
         - the server response indicated a status code of 400 or higher
-        - the client polling timed out (as indicated by the client's self.polling_timeout)
+        - the request/retry loop exceeded ``request_retry_timeout``
+
+        ``pass_through_statuses`` is for callers that interpret particular HTTP
+        statuses themselves. Such responses are returned without generic
+        polling or error handling.
         """  # noqa: E501
         url = self.build_url(uri, path=path)
 
@@ -248,11 +331,12 @@ class FlexMeasuresClient:
         # we allow retrying once if we include authentication headers
         reauth_once = True if include_auth else False
         try:
-            async with async_timeout.timeout(self.polling_timeout):
-                while polling_step < self.max_polling_steps:
+            async with async_timeout.timeout(self.request_retry_timeout):
+                while polling_step < self.max_request_attempts:
                     headers = await self.get_headers(include_auth=include_auth)
                     try:
                         async with async_timeout.timeout(self.request_timeout):
+                            previous_polling_step = polling_step
                             (
                                 response,
                                 polling_step,
@@ -266,14 +350,15 @@ class FlexMeasuresClient:
                                 json_payload=json_payload,
                                 polling_step=polling_step,
                                 reauth_once=reauth_once,
+                                pass_through_statuses=pass_through_statuses,
                             )
-                            if response.status < 300:
+                            if (
+                                response.status < 300
+                                or response.status in pass_through_statuses
+                            ) and polling_step == previous_polling_step:
                                 break
                     except asyncio.TimeoutError:
-                        sleep_interval = min(
-                            self.polling_interval * (2**polling_step),
-                            MAX_POLLING_SLEEP,
-                        )
+                        sleep_interval = self.request_retry_interval * (2**polling_step)
                         message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {sleep_interval} seconds..."  # noqa: E501
                         self.logger.debug(message)
                         polling_step += 1
@@ -292,10 +377,14 @@ class FlexMeasuresClient:
                         raise ConnectionError(
                             f"Error occurred while communicating with the API: {exception}"
                         ) from exception
+                else:
+                    raise ConnectionError(
+                        "Maximum request attempts reached while waiting for the API response."
+                    )
 
         except asyncio.TimeoutError as exception:
             raise ConnectionError(
-                "Client polling timeout while connection to the API."
+                "Request retry timeout while connecting to the API."
             ) from exception
 
         check_content_type(response)
@@ -311,6 +400,7 @@ class FlexMeasuresClient:
         json_payload: dict | None = None,
         polling_step: int = 0,
         reauth_once: bool = True,
+        pass_through_statuses: frozenset[int] = frozenset(),
     ) -> tuple[ClientResponse, int, bool, URL]:
         url_msg = f"url: {url}"
         json_msg = f"payload: {json_payload}"
@@ -358,12 +448,24 @@ class FlexMeasuresClient:
                     f"FlexMeasures server version changed from {self.server_version} to {header_version}."
                 )
             self.server_version = header_version
-            self.server_version = "0.33.0"  # temp override until v0.33.0 is released
 
         polling_step, reauth_once, url = await check_response(
-            self, response, polling_step, reauth_once, url
+            self,
+            response,
+            polling_step,
+            reauth_once,
+            url,
+            method=method,
+            pass_through_statuses=pass_through_statuses,
         )
         return response, polling_step, reauth_once, url
+
+    def _supports_job_status_api(self) -> bool:
+        """Return whether the connected server exposes the generic jobs API."""
+        return _server_version_at_least(
+            self.server_version,
+            JOB_STATUS_MIN_SERVER_VERSION,
+        )
 
     def ensure_session(self):
         """If there is no session, start one."""
@@ -454,11 +556,12 @@ class FlexMeasuresClient:
         self,
         sensor_id: int,
         *,
+        # Required for JSON data upload; optional for file upload
+        unit: str | None = None,
         # Parameters for JSON data upload
         start: str | datetime | None = None,
         duration: str | timedelta | None = None,
         values: list[float] | None = None,
-        unit: str | None = None,
         prior: str | datetime | None = None,
         # Parameters for file upload
         file_path: str | None = None,
@@ -470,7 +573,9 @@ class FlexMeasuresClient:
 
         This method supports two modes:
         1. JSON data upload: Provide start, duration, values, and unit parameters
-        2. File upload: Provide file_path parameter
+        2. File upload: Provide file_path and, optionally, unit parameters
+           (passing a unit here requires a FlexMeasures server of 0.30.0 or above,
+           as earlier servers ignore it and read the file in the sensor's own unit)
 
         The method automatically chooses the appropriate API endpoint based on the provided parameters.
 
@@ -487,9 +592,9 @@ class FlexMeasuresClient:
 
         :param await_ingestion: If True (default) and the server responds 202 with
             a job id, poll GET .../jobs/<job_id> (with exponential backoff, capped
-            at ``self.ingestion_polling_timeout`` seconds) until the job finishes.
+            at ``self.job_polling_timeout`` seconds) until the job finishes.
             - Job status FINISHED: returns normally.
-            - Job status FAILED (or STOPPED/CANCELED): raises IngestionFailedError.
+            - Job status FAILED (or STOPPED/CANCELED): raises JobFailedError.
             - Polling timeout reached while the job is still pending: logs an ERROR
               and returns normally (this is a deliberate choice - the caller's own
               safety nets, e.g. a compliance check, are expected to catch data that
@@ -499,25 +604,33 @@ class FlexMeasuresClient:
         This function raises a ValueError when an unhandled status code is returned.
         """
         # Check parameter combinations
-        json_params = [start, duration, values, unit]
+        json_params = [start, duration, values]
         has_json_params = any(param is not None for param in json_params)
         has_file_param = file_path is not None
 
         if not has_json_params and not has_file_param:
+            if unit is not None or prior is not None:
+                # A unit or prior on its own only makes sense for a JSON upload, so
+                # name the parameters that are missing rather than claim that
+                # nothing was provided at all.
+                raise ValueError(
+                    "When using JSON data upload, all parameters (start, duration, values, unit) "
+                    "must be provided."
+                )
             raise ValueError(
-                "Either provide JSON data parameters (start, duration, values, unit) "
+                "Either provide JSON data parameters (start, duration, values) "
                 "or a file_path parameter, but not neither."
             )
 
         if has_json_params and has_file_param:
             raise ValueError(
-                "Either provide JSON data parameters (start, duration, values, unit) "
+                "Either provide JSON data parameters (start, duration, values) "
                 "or a file_path parameter, but not both."
             )
 
         if has_json_params:
             # Validate required JSON parameters
-            if any(param is None for param in json_params):
+            if any(param is None for param in [*json_params, unit]):
                 raise ValueError(
                     "When using JSON data upload, all parameters (start, duration, values, unit) "
                     "must be provided."
@@ -548,48 +661,42 @@ class FlexMeasuresClient:
                 sensor_id=sensor_id,
                 file_path=file_path,
                 belief_time_measured_instantly=belief_time_measured_instantly,
+                unit=unit,
                 await_ingestion=await_ingestion,
             )
 
-    async def _await_sensor_data_ingestion(self, job_id: str) -> None:
-        """Poll the job-status endpoint until an ingestion job reaches a terminal
-        state, or until self.ingestion_polling_timeout is exceeded.
+    @staticmethod
+    def _ingestion_job_id(response) -> str | None:
+        """The background job id from a 202 response to a sensor-data post, if any.
 
-        :raises IngestionFailedError: if the job reports status FAILED, STOPPED
-            or CANCELED.
+        FlexMeasures standardised asynchronous job responses on the ``job`` field
+        (API v3.0-32); ``job_id`` is the older spelling, still accepted here so that
+        this client keeps working against servers predating that change.
         """
-        loop = asyncio.get_event_loop()
-        deadline = loop.time() + self.ingestion_polling_timeout
-        sleep_interval = INGESTION_POLL_INITIAL_INTERVAL
+        if not isinstance(response, dict):
+            return None
+        job_id = response.get("job") or response.get("job_id")
+        return job_id if isinstance(job_id, str) else None
 
-        while True:
-            response, status = await self.request(uri=f"jobs/{job_id}", method="GET")
-            check_for_status(status, 200)
-            job_status = response.get("status") if isinstance(response, dict) else None
+    async def _await_sensor_data_ingestion(self, job_id: str) -> None:
+        """Wait for an ingestion job to finish, so that posted data is readable.
 
-            if job_status == "FINISHED":
-                self.logger.debug(f"Ingestion job {job_id} finished.")
-                return
+        Delegates to wait_for_job(), so ingestion follows the same polling and
+        back-off behaviour as every other background job this client waits on.
 
-            if job_status in ("FAILED", "STOPPED", "CANCELED"):
-                message = (
-                    response.get("message") if isinstance(response, dict) else None
-                )
-                raise IngestionFailedError(
-                    f"Ingestion job {job_id} did not complete successfully "
-                    f"(status: {job_status}). {message or ''}".strip()
-                )
-
-            if loop.time() >= deadline:
-                self.logger.error(
-                    f"Ingestion not confirmed within {self.ingestion_polling_timeout}s "
-                    f"(job {job_id}, last status: {job_status}); proceeding - "
-                    "downstream schedules may read incomplete data."
-                )
-                return
-
-            await asyncio.sleep(sleep_interval)
-            sleep_interval = min(sleep_interval * 2, INGESTION_POLL_MAX_INTERVAL)
+        A failed job propagates as JobFailedError: callers such as the S2 CEM treat
+        that like any other failed post and release their de-duplication key, so the
+        resource manager's next re-send retries it. A timeout, by contrast, is logged
+        and swallowed: the data may still land moments later, and refusing to continue
+        would strand a simulation that has its own watchdogs for incomplete data.
+        """
+        try:
+            await self.wait_for_job(job_id)
+        except JobTimeoutError as e:
+            self.logger.error(
+                f"Ingestion not confirmed for job {job_id}; proceeding - downstream "
+                f"reads may miss this data. {e}"
+            )
 
     async def _post_sensor_data_json(
         self,
@@ -624,15 +731,18 @@ class FlexMeasuresClient:
         check_for_status(status, 200)
         self.logger.info("Sensor data sent successfully via JSON.")
 
-        job_id = response.get("job_id") if isinstance(response, dict) else None
+        job_id = self._ingestion_job_id(response)
         if await_ingestion and status == 202 and job_id:
             await self._await_sensor_data_ingestion(job_id)
+
+        return response, status
 
     async def _post_sensor_data_file(
         self,
         sensor_id: int,
         file_path: str,
         belief_time_measured_instantly: bool = False,
+        unit: str | None = None,
         await_ingestion: bool = True,
     ):
         """
@@ -642,6 +752,24 @@ class FlexMeasuresClient:
 
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
+
+        if unit is not None:
+            # Servers before v0.30.0 don't read a "unit" form field on this endpoint.
+            # They drop it silently and then ingest the file as if its values were
+            # already in the sensor's unit, returning 200 all the while. Refuse to
+            # upload rather than let unconverted values be recorded.
+            # Base versions are compared so that pre-release builds such as
+            # 0.30.0.dev5, which already expose the field, aren't rejected.
+            if not _server_version_at_least(
+                await self._resolve_server_version(), "0.30.0"
+            ):
+                raise InsufficientServerVersionError(
+                    "Uploading a file with an explicit unit requires a FlexMeasures "
+                    "server of 0.30.0 or above. Current server has version "
+                    f"{self.server_version}.\n"
+                    "Alternatively, convert the data to the sensor's unit before "
+                    "uploading, and omit the unit parameter."
+                )
 
         # Determine content type based on file extension
         file_extension = os.path.splitext(file_path)[1].lower()
@@ -668,6 +796,8 @@ class FlexMeasuresClient:
             "belief-time-measured-instantly",
             str(belief_time_measured_instantly),
         )
+        if unit is not None:
+            form_data.add_field("unit", unit)
         # Build URL for file upload endpoint
         url = self.build_url(f"sensors/{sensor_id}/data/upload")
 
@@ -689,10 +819,10 @@ class FlexMeasuresClient:
                     allow_redirects=False,
                 )
 
-                # Check response status. 202 is accepted here too: since
-                # FlexMeasures PR #2101, this endpoint may process the upload
-                # asynchronously (see await_ingestion handling below).
-                if response.status not in (200, 202):
+                # Check response status (any 2xx is success, e.g. 202 Accepted
+                # for asynchronous processing, matching check_for_status()'s
+                # convention used elsewhere in this client)
+                if not (200 <= response.status < 300):
                     try:
                         error_data = await response.json()
                         error_message = f"Request failed with status code {response.status}: {error_data}"
@@ -706,14 +836,11 @@ class FlexMeasuresClient:
                 # Parse response
                 response_data = await response.json()
                 self.logger.info(
-                    f"File uploaded successfully: {os.path.basename(file_path)}"
+                    f"File uploaded successfully: {os.path.basename(file_path)} "
+                    f"(status {response.status})"
                 )
 
-                job_id = (
-                    response_data.get("job_id")
-                    if isinstance(response_data, dict)
-                    else None
-                )
+                job_id = self._ingestion_job_id(response_data)
                 if await_ingestion and response.status == 202 and job_id:
                     await self._await_sensor_data_ingestion(job_id)
 
@@ -927,7 +1054,7 @@ class FlexMeasuresClient:
         if account_id and isinstance(account_id, int):
             uri += f"&account_id={account_id}"
 
-        if root or depth or fields:
+        if root is not None or depth is not None or fields:
             if self.server_version is not None and Version(
                 self.server_version
             ) < Version("0.31.0"):
@@ -935,9 +1062,9 @@ class FlexMeasuresClient:
                     "get_assets(): The 'root', 'depth' and 'fields' parameters require FlexMeasures server version 0.31.0 or above. "
                     f"These parameters will be ignored for server version {self.server_version}."
                 )
-            if root and isinstance(root, int):
+            if root is not None and isinstance(root, int):
                 uri += f"&root={root}"
-            if depth and isinstance(depth, int):
+            if depth is not None and isinstance(depth, int):
                 uri += f"&depth={depth}"
             if fields and isinstance(fields, list):
                 fields_str = "|".join(fields)
@@ -1019,8 +1146,15 @@ class FlexMeasuresClient:
         prior: datetime | None = None,
         scheduler: str | None = None,
         unit: str | None = None,
+        timeout: float | None = None,
+        polling_interval: float | None = None,
+        max_polling_interval: float | None = None,
     ) -> dict | list[dict]:
         """Trigger a schedule and then fetch it.
+
+        On FlexMeasures v0.33.0 and newer, wait for the scheduling job through
+        the generic jobs endpoint before fetching sensor results. Older servers
+        retain result-endpoint polling.
 
         To schedule a single flexible device, use the sensor ID of its power sensor.
         To schedule a collection of flexible devices, use the asset ID of the asset
@@ -1030,6 +1164,12 @@ class FlexMeasuresClient:
 
         :param unit: desired unit for the schedule values (e.g. "W", "kW", "MW").
                      Passed through to get_schedule(); see its docstring for details.
+        :param timeout: total seconds to wait through the jobs endpoint.
+                        Defaults to ``self.job_polling_timeout``.
+        :param polling_interval: seconds before the first repeated status lookup.
+                                 Defaults to ``self.job_polling_interval``.
+        :param max_polling_interval: maximum delay between status lookups.
+                                     Defaults to ``self.job_polling_max_interval``.
         :returns: For a single device, returns the schedule as a dictionary.
                   For example:
                   {
@@ -1052,6 +1192,14 @@ class FlexMeasuresClient:
             prior=prior,
             scheduler=scheduler,
         )
+
+        if self._supports_job_status_api():
+            await self.wait_for_job(
+                job_id=schedule_id,
+                timeout=timeout,
+                polling_interval=polling_interval,
+                max_polling_interval=max_polling_interval,
+            )
 
         if sensor_id is not None:
             # Get the schedule for a single device
@@ -1225,8 +1373,8 @@ class FlexMeasuresClient:
         name: str,
         account_id: int,
         generic_asset_type_id: int,
-        latitude: float = None,
-        longitude: float = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
         parent_asset_id: int | None = None,
         sensors_to_show: list | None = None,
         flex_context: dict | None = None,
@@ -1449,6 +1597,51 @@ class FlexMeasuresClient:
         _, status = await self.request(uri=uri, method="DELETE")
         check_for_status(status, 204)
 
+    async def delete_sensor_data(
+        self,
+        sensor_id: int,
+        confirm_first: bool = True,
+        source: int | None = None,
+        start: str | datetime | None = None,
+        until: str | datetime | None = None,
+    ) -> None:
+        """Delete sensor data while preserving the sensor itself.
+
+        Optionally limit deletion to one source and/or an event-time range.
+        """
+        if confirm_first:
+            deletion_scope = (
+                "all data"
+                if source is None and start is None and until is None
+                else "matching data"
+            )
+            answer = input(
+                f"Permanently delete {deletion_scope} from sensor "
+                f"{sensor_id}? [y/N] "
+            )
+            if answer.lower() not in ["y", "yes"]:
+                print("Aborting ...")
+                return
+        json_payload = {}
+        if source is not None:
+            json_payload["source"] = source
+        if start is not None:
+            json_payload["start"] = pd.Timestamp(start).isoformat()
+        if until is not None:
+            json_payload["until"] = pd.Timestamp(until).isoformat()
+
+        _, status = await self.request(
+            uri=f"sensors/{sensor_id}/data",
+            json_payload=json_payload,
+            method="DELETE",
+            minimum_server_version="0.33.0",
+            minimum_server_version_msg=(
+                "Deleting sensor data without deleting the sensor requires "
+                "FlexMeasures server v0.33.0 or above."
+            ),
+        )
+        check_for_status(status, 204)
+
     async def trigger_schedule(
         self,
         start: str | datetime,
@@ -1480,14 +1673,10 @@ class FlexMeasuresClient:
         if metadata is not None:
             message["metadata"] = metadata
 
+        force_new_job_creation_requested = False
         if prior is not None:
             message["prior"] = pd.Timestamp(prior).isoformat()
-            if self.server_version is not None and Version(
-                self.server_version
-            ) < Version("0.33.0"):
-                message["force_new_job_creation"] = True
-            else:
-                message["force-new-job-creation"] = True
+            force_new_job_creation_requested = True
 
         # For a sensor_id, try to resolve to the sensor's asset_id so we can use
         # the asset scheduling endpoint (preferred over the sensor endpoint).
@@ -1498,10 +1687,10 @@ class FlexMeasuresClient:
         use_sensor_endpoint = False
         if sensor_id is not None:
             if self.server_version is not None and (
-                Version(self.server_version) < Version("0.27.0")
+                not _server_version_at_least(self.server_version, "0.27.0")
                 or (
-                    Version(self.server_version) < Version("0.33.0")
-                    and "force_new_job_creation" in message
+                    not _server_version_at_least(self.server_version, "0.33.0")
+                    and force_new_job_creation_requested
                 )
             ):
                 use_sensor_endpoint = True
@@ -1513,7 +1702,6 @@ class FlexMeasuresClient:
                     )
                     self._sensor_asset_id_cache[sensor_id] = sensor["generic_asset_id"]
                 asset_id = self._sensor_asset_id_cache[sensor_id]
-                flex_model["sensor"] = sensor_id
 
                 # Move sensor ID into the flex-model
                 if flex_model is None:
@@ -1543,6 +1731,14 @@ class FlexMeasuresClient:
                 asset_id=asset_id, updates=dict(attributes=asset_attributes)
             )
 
+        if force_new_job_creation_requested:
+            if use_sensor_endpoint and not _server_version_at_least(
+                self.server_version, "0.33.0"
+            ):
+                message["force_new_job_creation"] = True
+            else:
+                message["force-new-job-creation"] = True
+
         if use_sensor_endpoint:
             response, status = await self.request(
                 uri=f"sensors/{sensor_id}/schedules/trigger",
@@ -1561,11 +1757,11 @@ class FlexMeasuresClient:
                 f"Expected a dictionary, but got {type(response)}",
             )
 
-        if not isinstance(response.get("schedule"), str):
+        schedule_id = response.get("job") or response.get("schedule")
+        if not isinstance(schedule_id, str):
             raise ContentTypeError(
-                f"Expected a schedule ID, but got {type(response.get('schedule'))}",
+                f"Expected a schedule job ID, but got {type(schedule_id)}",
             )
-        schedule_id = response["schedule"]
         self.logger.info(f"Schedule triggered successfully. Schedule ID: {schedule_id}")
         return schedule_id
 
@@ -1661,11 +1857,11 @@ class FlexMeasuresClient:
                 f"Expected a dictionary, but got {type(response)}",
             )
 
-        if not isinstance(response.get("forecast"), str):
+        forecast_id = response.get("job") or response.get("forecast")
+        if not isinstance(forecast_id, str):
             raise ContentTypeError(
-                f"Expected a forecast ID, but got {type(response.get('forecast'))}",
+                f"Expected a forecast job ID, but got {type(forecast_id)}",
             )
-        forecast_id = response["forecast"]
         self.logger.info(f"Forecast triggered successfully. Forecast ID: {forecast_id}")
         return forecast_id
 
@@ -1688,40 +1884,17 @@ class FlexMeasuresClient:
 
         This function raises a ValueError when an unhandled status code is returned.
         """
-        polling_step = 0
-        try:
-            async with async_timeout.timeout(self.polling_timeout):
-                while polling_step < self.max_polling_steps:
-                    forecast, status = await self.request(
-                        uri=f"sensors/{sensor_id}/forecasts/{forecast_id}",
-                        method="GET",
-                        minimum_server_version="0.31.0",
-                    )
-                    if status == 200:
-                        if not isinstance(forecast, dict):
-                            raise ContentTypeError(
-                                f"Expected a forecast dictionary, but got {type(forecast)}",
-                            )
-                        return forecast
-                    elif status == 202:
-                        job_status = (
-                            forecast.get("status", "unknown")
-                            if isinstance(forecast, dict)
-                            else "unknown"
-                        )
-                        message = f"Forecast job status: {job_status}. Polling step: {polling_step}. Retrying in {self.polling_interval} seconds..."
-                        self.logger.debug(message)
-                        polling_step += 1
-                        await asyncio.sleep(self.polling_interval)
-                    else:
-                        check_for_status(status, 200)
-        except asyncio.TimeoutError as exception:
-            raise ConnectionError(
-                "Client polling timeout while waiting for forecast job to complete."
-            ) from exception
-        raise ConnectionError(
-            "Max polling steps reached while waiting for forecast job to complete."
+        forecast, status = await self.request(
+            uri=f"sensors/{sensor_id}/forecasts/{forecast_id}",
+            method="GET",
+            minimum_server_version="0.31.0",
         )
+        check_for_status(status, 200)
+        if not isinstance(forecast, dict):
+            raise ContentTypeError(
+                f"Expected a forecast dictionary, but got {type(forecast)}",
+            )
+        return forecast
 
     async def trigger_and_get_forecast(
         self,
@@ -1739,8 +1912,22 @@ class FlexMeasuresClient:
         max_forecast_horizon: str | timedelta | None = None,
         forecast_frequency: str | timedelta | None = None,
         probabilistic: bool | None = None,
+        timeout: float | None = None,
+        polling_interval: float | None = None,
+        max_polling_interval: float | None = None,
     ) -> dict:
         """Trigger a forecasting job and then fetch the result.
+
+        On FlexMeasures v0.33.0 and newer, wait for the forecasting job through
+        the generic jobs endpoint before fetching its values. Older servers
+        retain result-endpoint polling.
+
+        :param timeout: total seconds to wait through the jobs endpoint.
+                        Defaults to ``self.job_polling_timeout``.
+        :param polling_interval: seconds before the first repeated status lookup.
+                                 Defaults to ``self.job_polling_interval``.
+        :param max_polling_interval: maximum delay between status lookups.
+                                     Defaults to ``self.job_polling_max_interval``.
 
         :returns: forecast as dictionary, for example:
                 {
@@ -1768,9 +1955,224 @@ class FlexMeasuresClient:
             forecast_frequency=forecast_frequency,
             probabilistic=probabilistic,
         )
+        if self._supports_job_status_api():
+            await self.wait_for_job(
+                job_id=forecast_id,
+                timeout=timeout,
+                polling_interval=polling_interval,
+                max_polling_interval=max_polling_interval,
+            )
         return await self.get_forecast(
             sensor_id=sensor_id,
             forecast_id=forecast_id,
+        )
+
+    async def get_job_status(self, job_id: str) -> dict:
+        """Get the status of a background job.
+
+        :param job_id: UUID of the job, as returned by a trigger endpoint.
+
+        :returns: job status as a dictionary, for example:
+                {
+                    'status': 'FINISHED',
+                    'message': 'Report job finished.',
+                    'result': None,
+                    'origin': 'flexmeasures:reporting',
+                    'func-name': 'flexmeasures.data.services.reporting.run_report_job',
+                    'enqueued-at': '2026-08-18T09:00:00+00:00',
+                    'started-at': '2026-08-18T09:00:01+00:00',
+                    'ended-at': '2026-08-18T09:00:04+00:00',
+                    'exc-info': None,
+                }
+
+        The ``status`` field is one of QUEUED, STARTED, FINISHED, FAILED,
+        DEFERRED, SCHEDULED, STOPPED or CANCELED.
+
+        This method performs exactly one HTTP request. Pending (HTTP 202) and
+        failed (HTTP 422) job responses are returned for the caller to inspect.
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        response, status = await self.request(
+            uri=f"jobs/{job_id}",
+            method="GET",
+            pass_through_statuses=frozenset({202, 422}),
+        )
+        if status not in {200, 202, 422}:
+            raise ValueError(f"Request failed with status code {status}")
+
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected a dictionary, but got {type(response)}",
+            )
+
+        if not isinstance(response.get("status"), str):
+            raise ContentTypeError(
+                f"Expected a job status string, but got {type(response.get('status'))}",
+            )
+        return response
+
+    async def wait_for_job(
+        self,
+        job_id: str,
+        timeout: float | None = None,
+        polling_interval: float | None = None,
+        max_polling_interval: float | None = None,
+    ) -> dict:
+        """Poll a background job until it reaches a terminal state.
+
+        Waits are backed off exponentially, from ``polling_interval`` up to
+        ``max_polling_interval``, so that short jobs are picked up quickly
+        without hammering the server on long ones.
+
+        :param job_id: UUID of the job, as returned by a trigger endpoint.
+        :param timeout: total number of seconds to wait for the job to finish.
+                        Defaults to ``self.job_polling_timeout``.
+        :param polling_interval: seconds to wait before a repeated status lookup.
+                                 Defaults to ``self.job_polling_interval``.
+        :param max_polling_interval: upper bound on the wait between polls.
+                                     Defaults to ``self.job_polling_max_interval``.
+
+        :returns: the final job status dictionary (see :func:`get_job_status`).
+
+        :raises JobFailedError: if the job ended as FAILED, STOPPED or CANCELED.
+        :raises JobTimeoutError: if the job did not finish within ``timeout``.
+        """
+        timeout = self.job_polling_timeout if timeout is None else timeout
+        polling_interval = (
+            self.job_polling_interval if polling_interval is None else polling_interval
+        )
+        max_polling_interval = (
+            self.job_polling_max_interval
+            if max_polling_interval is None
+            else max_polling_interval
+        )
+
+        deadline = time.monotonic() + timeout
+        interval = polling_interval
+        job = await self.get_job_status(job_id)
+        while True:
+            status = job["status"]
+            if status == JOB_STATUS_FINISHED:
+                self.logger.info(f"Job {job_id} finished.")
+                return job
+            if status in JOB_STATUS_UNSUCCESSFUL:
+                raise JobFailedError(_describe_failed_job(job_id, job))
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise JobTimeoutError(
+                    f"Job {job_id} did not finish within {timeout} seconds. "
+                    f"Last known status: {status}."
+                )
+            self.logger.debug(
+                f"Job {job_id} has status {status}. "
+                f"Checking again in {interval} seconds..."
+            )
+            await asyncio.sleep(min(interval, remaining))
+            interval = min(interval * 2, max_polling_interval)
+            job = await self.get_job_status(job_id)
+
+    async def trigger_report(
+        self,
+        asset_id: int,
+        reporter: str,
+        parameters: dict,
+        config: dict | None = None,
+    ) -> str:
+        """Trigger a one-off reporting job for the given asset.
+
+        The report runs on the server's ``reporting`` queue, so the server
+        needs a worker listening on that queue:
+
+            flexmeasures jobs run-worker --queue reporting
+
+        The caller needs to be able to read every input and configuration
+        sensor, and to record data on every output sensor. Each output sensor
+        must belong to the given asset or one of its descendants.
+
+        :param asset_id: ID of the asset to report on. Output sensors must sit
+                         in this asset's subtree.
+        :param reporter: name of the reporter class, e.g. "PandasReporter".
+        :param parameters: reporter parameters, holding at least the ``input``
+                           and ``output`` sensors and the ``start`` and ``end``
+                           of the reporting period.
+        :param config: reporter configuration. Defaults to an empty config.
+
+        :returns: job UUID (string), to be passed to :func:`wait_for_job`.
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        json_payload: dict[str, Any] = {
+            "reporter": reporter,
+            "parameters": parameters,
+        }
+        if config is not None:
+            json_payload["config"] = config
+
+        response, status = await self.request(
+            uri=f"assets/{asset_id}/reports/trigger",
+            json_payload=json_payload,
+            method="POST",
+            minimum_server_version=REPORT_TRIGGER_MIN_SERVER_VERSION,
+            minimum_server_version_msg=(
+                "Reports can only be triggered over the API from this version on. "
+                "On older servers, use the `flexmeasures add report` CLI command."
+            ),
+        )
+        check_for_status(status, 202)
+
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected a dictionary, but got {type(response)}",
+            )
+
+        if not isinstance(response.get("job"), str):
+            raise ContentTypeError(
+                f"Expected a job ID, but got {type(response.get('job'))}",
+            )
+        job_id = response["job"]
+        self.logger.info(f"Report triggered successfully. Job ID: {job_id}")
+        return job_id
+
+    async def trigger_and_await_report(
+        self,
+        asset_id: int,
+        reporter: str,
+        parameters: dict,
+        config: dict | None = None,
+        timeout: float | None = None,
+        polling_interval: float | None = None,
+        max_polling_interval: float | None = None,
+    ) -> dict:
+        """Trigger a one-off reporting job and wait for it to finish.
+
+        Reports write their result to their output sensors rather than
+        returning it, so use :func:`get_sensor_data` to read the values back.
+
+        :param timeout: total seconds to wait for the report job.
+                        Defaults to ``self.job_polling_timeout``.
+        :param polling_interval: seconds before a repeated status lookup.
+                                 Defaults to ``self.job_polling_interval``.
+        :param max_polling_interval: maximum delay between status lookups.
+                                     Defaults to ``self.job_polling_max_interval``.
+
+        :returns: the final job status dictionary (see :func:`get_job_status`).
+
+        :raises JobFailedError: if the report job ended as FAILED, STOPPED or CANCELED.
+        :raises JobTimeoutError: if the report job did not finish within ``timeout``.
+        """
+        job_id = await self.trigger_report(
+            asset_id=asset_id,
+            reporter=reporter,
+            parameters=parameters,
+            config=config,
+        )
+        return await self.wait_for_job(
+            job_id=job_id,
+            timeout=timeout,
+            polling_interval=polling_interval,
+            max_polling_interval=max_polling_interval,
         )
 
     @staticmethod

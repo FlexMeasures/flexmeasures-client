@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
-from unittest.mock import AsyncMock, MagicMock
 
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC import FRBCTest
-
-
 
 
 @pytest.mark.asyncio
@@ -129,14 +128,11 @@ async def test_frbc_message_implicitly_activates_frbc(
     ), "an incoming FRBC message implies the RM accepted FRBC"
     assert response["message_type"] == "ReceptionStatus"
     assert response["status"] == "OK", (
-        "the system description must be accepted, not bounced with"
-        " TEMPORARY_ERROR"
+        "the system description must be accepted, not bounced with" " TEMPORARY_ERROR"
     )
 
     # Cleanup: cancel any pending background tasks
-    for task in list(cem._handler_build_tasks.values()) + list(
-        frbc.background_tasks
-    ):
+    for task in list(cem._handler_build_tasks.values()) + list(frbc.background_tasks):
         if not task.done():
             task.cancel()
             try:
@@ -375,7 +371,10 @@ async def test_handle_message_during_handler_registration_race():
     await registration_started.wait()
 
     # --- THIS is the race moment
-    msg = {"message_type": "TestMessage", "message_id": "550e8400-e29b-41d4-a716-446655440000"}
+    msg = {
+        "message_type": "TestMessage",
+        "message_id": "550e8400-e29b-41d4-a716-446655440000",
+    }
 
     # Should NOT crash even though handler isn't registered yet
     await cem.handle_message(msg)
@@ -393,4 +392,3 @@ async def test_handle_message_during_handler_registration_race():
     await cem.handle_message(msg)
 
     assert frbc_handler.handle_message.called
-

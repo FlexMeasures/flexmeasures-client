@@ -48,6 +48,12 @@
             },
             {
                 "df_input": "total-energy-costs",
+                "method": "multiply",
+                "args": [0.25],
+                "df_output": "total-energy-costs"
+            },
+            {
+                "df_input": "total-energy-costs",
                 "method": "resample",
                 "args": ["1D"],
                 "df_output": "daily-total-energy-costs"

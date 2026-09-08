@@ -7,8 +7,8 @@ import math
 from collections import defaultdict
 from datetime import datetime, timedelta
 from logging import Logger
-from zoneinfo import ZoneInfo
 from typing import Dict, Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pydantic
@@ -34,8 +34,8 @@ except ImportError:
 
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2 import Handler, register
-from flexmeasures_client.s2.control_types import ControlTypeHandler
 from flexmeasures_client.s2.config_utils import configure_site
+from flexmeasures_client.s2.control_types import ControlTypeHandler
 from flexmeasures_client.s2.utils import (
     ControlContext,
     get_latest_compatible_version,
@@ -610,7 +610,9 @@ class CEM(Handler):
 
         return get_reception_status(message)
 
-    async def _post_measurement_safely(self, measurement_key, target_sensor_id, **kwargs) -> None:
+    async def _post_measurement_safely(
+        self, measurement_key, target_sensor_id, **kwargs
+    ) -> None:
         """Post one measurement, swallowing errors exactly like the historical
         inline try/except did (a lost measurement must not break the S2 session).
         On failure the content key is released so the RM's next re-send of the
@@ -656,7 +658,9 @@ class CEM(Handler):
                 if sensor_id is not None:
                     self._aggregate_power_sensor_id = int(sensor_id)
                     return self._aggregate_power_sensor_id
-        except Exception as e:  # noqa: B902 - best-effort, never break measurement posting
+        except (
+            Exception
+        ) as e:  # noqa: B902 - best-effort, never break measurement posting
             self._logger.debug(
                 f"Could not resolve aggregate-power sensor for asset "
                 f"{self._apartment_asset_id}: {e}"

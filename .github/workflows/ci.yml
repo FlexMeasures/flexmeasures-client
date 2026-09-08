@@ -50,6 +50,8 @@ jobs:
           - "3.10"
           - "3.11"
           - "3.12"
+          - "3.13"
+          - "3.14"
         platform:
           - ubuntu-latest
           - macos-latest
@@ -82,8 +84,15 @@ jobs:
 
   test-s2:
     needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        python:
+          # Oldest and newest supported Python; 3.14 is what Home Assistant runs on.
+          - "3.10"
+          - "3.14"
     runs-on: ubuntu-latest
-    name: "Test S2 (on Python 3.12)"
+    name: "Test S2 (on Python ${{ matrix.python }})"
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
@@ -91,7 +100,7 @@ jobs:
         with:
           enable-cache: true
           version: "0.10.9"
-          python-version-file: ".python-version"
+          python-version: ${{ matrix.python }}
       - name: Install dependencies
         run: uv sync --frozen --extra s2 --group test
       - name: Run S2 tests

@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import logging
 import os
-from unittest.mock import patch
+import re
+from unittest.mock import AsyncMock, patch
+from urllib.parse import unquote
 
+import pandas as pd
 import pytest
 from aioresponses import aioresponses
 
 from flexmeasures_client.client import ContentTypeError, FlexMeasuresClient
-from flexmeasures_client.exceptions import IngestionFailedError
+from flexmeasures_client.exceptions import (
+    InsufficientServerVersionError,
+    JobFailedError,
+)
 
 
 @pytest.mark.asyncio
@@ -326,6 +332,104 @@ async def test_delete_sensor_confirm_no():
 
 
 @pytest.mark.asyncio
+async def test_delete_sensor_data_preserves_sensor():
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.33.0"
+        m.delete(
+            "http://localhost:5000/api/v3_0/sensors/7/data",
+            status=204,
+            payload={},
+        )
+
+        await client.delete_sensor_data(sensor_id=7, confirm_first=False)
+
+        m.assert_called_once_with(
+            "http://localhost:5000/api/v3_0/sensors/7/data",
+            method="DELETE",
+            json={},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "test-token",
+            },
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_data_confirmation_declined():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.access_token = "test-token"
+    with (
+        patch("builtins.input", return_value="n") as prompt,
+        patch.object(client, "request", new_callable=AsyncMock) as request,
+    ):
+        await client.delete_sensor_data(sensor_id=7)
+    prompt.assert_called_once_with("Permanently delete all data from sensor 7? [y/N] ")
+    request.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_filtered_sensor_data_confirmation_is_scoped():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.access_token = "test-token"
+    with (
+        patch("builtins.input", return_value="n") as prompt,
+        patch.object(client, "request", new_callable=AsyncMock) as request,
+    ):
+        await client.delete_sensor_data(sensor_id=7, source=3)
+    prompt.assert_called_once_with(
+        "Permanently delete matching data from sensor 7? [y/N] "
+    )
+    request.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_data_with_filters():
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.33.0"
+        m.delete(
+            "http://localhost:5000/api/v3_0/sensors/7/data",
+            status=204,
+            payload={},
+        )
+
+        await client.delete_sensor_data(
+            sensor_id=7,
+            confirm_first=False,
+            source=3,
+            start="2030-01-01T00:00:00+00:00",
+            until="2030-01-02T00:00:00+00:00",
+        )
+
+        m.assert_called_once_with(
+            "http://localhost:5000/api/v3_0/sensors/7/data",
+            method="DELETE",
+            json={
+                "source": 3,
+                "start": "2030-01-01T00:00:00+00:00",
+                "until": "2030-01-02T00:00:00+00:00",
+            },
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "test-token",
+            },
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_post_sensor_data() -> None:
     with aioresponses() as m:
         flexmeasures_client = FlexMeasuresClient(
@@ -345,13 +449,15 @@ async def test_post_sensor_data() -> None:
         values = "test"
         unit = "test"
 
-        await flexmeasures_client.post_sensor_data(
+        response, status = await flexmeasures_client.post_sensor_data(
             sensor_id=sensor_id,
             start=start,
             duration=duration,
             values=values,
             unit=unit,
         )
+        assert response == {"test": "test"}
+        assert status == 200
         m.assert_called_once_with(
             f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
             method="POST",
@@ -370,12 +476,46 @@ async def test_post_sensor_data() -> None:
 
 
 @pytest.mark.asyncio
+async def test_post_sensor_data_json_accepted_returns_ingestion_job() -> None:
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/5/data",
+            status=202,
+            payload={
+                "job": "ingestion-job-id",
+                "status": "ACCEPTED",
+            },
+        )
+        # post_sensor_data awaits ingestion by default, so the job it reports
+        # must resolve before the post returns.
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/ingestion-job-id",
+            status=200,
+            payload={"status": "FINISHED", "message": "ok", "result": None},
+        )
+
+        response, status = await client.post_sensor_data(
+            sensor_id=5,
+            start="2023-03-26T10:00+02:00",
+            duration="PT1H",
+            values=[1.0],
+            unit="kW",
+        )
+
+        assert response["job"] == "ingestion-job-id"
+        assert status == 202
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_post_sensor_data_no_params():
     """No json params and no file_path raises ValueError."""
     client = FlexMeasuresClient(email="test@test.test", password="test")
     with pytest.raises(
         ValueError,
-        match="Either provide JSON data parameters \\(start, duration, values, unit\\) or a file_path parameter, but not neither\\.",
+        match="Either provide JSON data parameters \\(start, duration, values\\) or a file_path parameter, but not neither\\.",
     ):
         await client.post_sensor_data(sensor_id=1)
     await client.close()
@@ -387,7 +527,7 @@ async def test_post_sensor_data_both_params():
     client = FlexMeasuresClient(email="test@test.test", password="test")
     with pytest.raises(
         ValueError,
-        match="Either provide JSON data parameters \\(start, duration, values, unit\\) or a file_path parameter, but not both\\.",
+        match="Either provide JSON data parameters \\(start, duration, values\\) or a file_path parameter, but not both\\.",
     ):
         await client.post_sensor_data(
             sensor_id=1,
@@ -413,9 +553,192 @@ async def test_post_sensor_data_partial_params():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"unit": "MW"},
+        {"prior": "2023-01-01T00:00+00:00"},
+        {"unit": "MW", "prior": "2023-01-01T00:00+00:00"},
+    ],
+)
+async def test_post_sensor_data_only_unit_or_prior(kwargs):
+    """A lone unit/prior points at the missing params, not at "you passed nothing".
+
+    Neither counts towards has_json_params, but reporting that neither mode was
+    chosen is misleading when the caller clearly attempted a JSON upload.
+    """
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with pytest.raises(ValueError, match="all parameters .* must be provided"):
+        await client.post_sensor_data(sensor_id=1, **kwargs)
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_post_sensor_data_with_file():
-    """file_path provided triggers file upload endpoint."""
+    """file_path provided triggers file upload endpoint and accepts a unit."""
     csv_path = "/tmp/test_sensor_data.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            client = FlexMeasuresClient(email="test@test.test", password="test")
+            client.access_token = "test-token"
+            client.server_version = "0.30.0"
+            m.post(
+                "http://localhost:5000/api/v3_0/sensors/1/data/upload",
+                status=200,
+                payload={"message": "Upload successful"},
+            )
+            response_data, status = await client.post_sensor_data(
+                sensor_id=1,
+                file_path=csv_path,
+                unit="kW",
+            )
+            assert status == 200
+            request = next(iter(m.requests.values()))[0]
+            form_data = request.kwargs["data"]
+            fields = {field[0]["name"]: field[2] for field in form_data._fields}
+            assert fields["unit"] == "kW"
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_file_unit_requires_server_0_30():
+    """Servers before v0.30.0 silently ignore the unit, so refuse to upload at all.
+
+    Such a server would answer 200 while storing the values unconverted, as if they
+    were already in the sensor's unit.
+    """
+    csv_path = "/tmp/test_sensor_data_old_server.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            client = FlexMeasuresClient(email="test@test.test", password="test")
+            client.access_token = "test-token"
+            client.server_version = "0.29.0"
+            with pytest.raises(
+                InsufficientServerVersionError,
+                match="requires a FlexMeasures server of 0.30.0 or above",
+            ):
+                await client.post_sensor_data(
+                    sensor_id=1,
+                    file_path=csv_path,
+                    unit="kW",
+                )
+            # The upload must not have been attempted.
+            assert m.requests == {}
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_file_without_unit_works_on_old_server():
+    """The version guard only applies when a unit is passed."""
+    csv_path = "/tmp/test_sensor_data_old_server_no_unit.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            client = FlexMeasuresClient(email="test@test.test", password="test")
+            client.access_token = "test-token"
+            client.server_version = "0.28.0"
+            m.post(
+                "http://localhost:5000/api/v3_0/sensors/1/data/upload",
+                status=200,
+                payload={"message": "Upload successful"},
+            )
+            _response_data, status = await client.post_sensor_data(
+                sensor_id=1,
+                file_path=csv_path,
+            )
+            assert status == 200
+            request = next(iter(m.requests.values()))[0]
+            fields = {
+                field[0]["name"]: field[2] for field in request.kwargs["data"]._fields
+            }
+            assert "unit" not in fields
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_file_unit_when_server_version_unknown():
+    """A server that reports no version can't be shown to support the unit field.
+
+    Refusing is the safe reading: a server that does not honour the unit records
+    the file's values unconverted while still answering 200.
+    """
+    csv_path = "/tmp/test_sensor_data_unknown_version.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            m.get(
+                "http://localhost:5000/api/",
+                status=200,
+                payload={"versions": ["v3_0"]},  # no flexmeasures_version key
+                repeat=True,
+            )
+            client = FlexMeasuresClient(
+                email="test@test.test", password="test", access_token="skip-auth"
+            )
+            assert client.server_version is None
+            with pytest.raises(
+                InsufficientServerVersionError,
+                match="requires a FlexMeasures server of 0.30.0 or above",
+            ):
+                await client.post_sensor_data(
+                    sensor_id=1,
+                    file_path=csv_path,
+                    unit="kW",
+                )
+            assert [key for key in m.requests if key[0] == "POST"] == []
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_file_unit_allowed_on_dev_build():
+    """A 0.30.0 pre-release already exposes the unit field, so don't reject it."""
+    csv_path = "/tmp/test_sensor_data_dev_server.csv"
+    with open(csv_path, "w") as f:
+        f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+
+    try:
+        with aioresponses() as m:
+            client = FlexMeasuresClient(email="test@test.test", password="test")
+            client.access_token = "test-token"
+            client.server_version = "0.30.0.dev5"
+            m.post(
+                "http://localhost:5000/api/v3_0/sensors/1/data/upload",
+                status=200,
+                payload={"message": "Upload successful"},
+            )
+            _response_data, status = await client.post_sensor_data(
+                sensor_id=1,
+                file_path=csv_path,
+                unit="kW",
+            )
+            assert status == 200
+            await client.close()
+    finally:
+        os.unlink(csv_path)
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_with_file_accepted():
+    """202 Accepted (asynchronous processing) is treated as success, not an error."""
+    csv_path = "/tmp/test_sensor_data_accepted.csv"
     with open(csv_path, "w") as f:
         f.write("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
 
@@ -425,14 +748,23 @@ async def test_post_sensor_data_with_file():
             client.access_token = "test-token"
             m.post(
                 "http://localhost:5000/api/v3_0/sensors/1/data/upload",
+                status=202,
+                payload={
+                    "job": "test-job-id",
+                    "message": "Sensor data has been accepted for processing.",
+                    "status": "ACCEPTED",
+                },
+            )
+            m.get(
+                "http://localhost:5000/api/v3_0/jobs/test-job-id",
                 status=200,
-                payload={"message": "Upload successful"},
+                payload={"status": "FINISHED", "message": "ok", "result": None},
             )
             response_data, status = await client.post_sensor_data(
                 sensor_id=1,
                 file_path=csv_path,
             )
-            assert status == 200
+            assert status == 202
             await client.close()
     finally:
         os.unlink(csv_path)
@@ -531,7 +863,7 @@ async def test_get_sensor_data() -> None:
 
         sensor_id = 2
         m.get(
-            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data?duration=P0DT0H45M0S&resolution=P0DT0H15M0S&start=2023-06-01T10%253A00%253A00%252B02%253A00&unit=MW",  # noqa: E501
+            re.compile(rf"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data\?.*"),
             status=200,
             payload={
                 "duration": "PT45M",
@@ -557,6 +889,17 @@ async def test_get_sensor_data() -> None:
             resolution=resolution,
         )
         assert sensor_data["values"] == [8.5, 8.5, 8.5]
+
+        # Check the requested query params. Durations are compared as
+        # timedeltas, because pandas renders "PT45M" as "P0DT0H45M0S" on
+        # some versions, and both are valid ISO 8601. The start param is
+        # unquoted first, because yarl versions differ in requote behavior.
+        ((request_key, _),) = m.requests.items()
+        query = request_key[1].query
+        assert pd.Timedelta(query["duration"]) == pd.Timedelta(duration)
+        assert pd.Timedelta(query["resolution"]) == pd.Timedelta(resolution)
+        assert unquote(query["start"]) == start
+        assert query["unit"] == unit
         await flexmeasures_client.close()
 
 
@@ -602,7 +945,7 @@ async def test_post_sensor_data_await_ingestion_finished():
                 "status": "ACCEPTED",
                 "message": "Sensor data has been accepted for processing.",
                 "job_monitor_url": "http://localhost:5000/api/v3_0/jobs/job-1",
-                "job_id": "job-1",
+                "job": "job-1",
             },
         )
         m.get(
@@ -628,7 +971,7 @@ async def test_post_sensor_data_await_ingestion_finished():
 @pytest.mark.asyncio
 async def test_post_sensor_data_await_ingestion_failed():
     """202 + job_id, job later FAILED: post_sensor_data raises
-    IngestionFailedError."""
+    JobFailedError."""
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
@@ -640,7 +983,7 @@ async def test_post_sensor_data_await_ingestion_failed():
                 "status": "ACCEPTED",
                 "message": "Sensor data has been accepted for processing.",
                 "job_monitor_url": "http://localhost:5000/api/v3_0/jobs/job-2",
-                "job_id": "job-2",
+                "job": "job-2",
             },
         )
         m.get(
@@ -653,7 +996,7 @@ async def test_post_sensor_data_await_ingestion_failed():
             },
         )
 
-        with pytest.raises(IngestionFailedError, match="job-2"):
+        with pytest.raises(JobFailedError, match="job-2"):
             await client.post_sensor_data(
                 sensor_id=sensor_id,
                 start="2023-01-01T00:00+00:00",
@@ -671,8 +1014,9 @@ async def test_post_sensor_data_await_ingestion_timeout(caplog):
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
-        # Very small timeout so the test doesn't need to wait for the default 60s.
-        client.ingestion_polling_timeout = 0.05
+        # Very small timeout, so the test does not wait out the default.
+        client.job_polling_timeout = 0.05
+        client.job_polling_interval = 0.01
         sensor_id = 5
         m.post(
             f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
@@ -681,7 +1025,7 @@ async def test_post_sensor_data_await_ingestion_timeout(caplog):
                 "status": "ACCEPTED",
                 "message": "Sensor data has been accepted for processing.",
                 "job_monitor_url": "http://localhost:5000/api/v3_0/jobs/job-3",
-                "job_id": "job-3",
+                "job": "job-3",
             },
         )
         m.get(
@@ -704,7 +1048,7 @@ async def test_post_sensor_data_await_ingestion_timeout(caplog):
                 unit="MW",
             )
         assert any(
-            "not confirmed within" in record.message for record in caplog.records
+            "Ingestion not confirmed" in record.message for record in caplog.records
         )
         await client.close()
 
@@ -749,7 +1093,7 @@ async def test_post_sensor_data_await_ingestion_false_no_polling():
                 "status": "ACCEPTED",
                 "message": "Sensor data has been accepted for processing.",
                 "job_monitor_url": "http://localhost:5000/api/v3_0/jobs/job-4",
-                "job_id": "job-4",
+                "job": "job-4",
             },
         )
         # No jobs/* endpoint mocked: if post_sensor_data attempted to poll despite

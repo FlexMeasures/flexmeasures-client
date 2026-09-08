@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from logging import Logger
-from typing import Callable, cast
+from typing import Any, Callable, cast
 
 from pydantic import BaseModel
 from s2python.common import (
@@ -23,6 +23,10 @@ class ControlTypeHandler(Handler):
     _fm_client: FlexMeasuresClient
     send_message: Callable
     _logger: Logger
+    #: Back-reference to the CEM that registered this handler, so a handler can
+    #: await the CEM's flush_measurement_posts() barrier before triggering a
+    #: schedule. Set by CEM.register_control_type().
+    _cem: Any = None
 
     def __init__(self, max_size: int = 100) -> None:
         super().__init__(max_size)

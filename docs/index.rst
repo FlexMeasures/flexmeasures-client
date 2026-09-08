@@ -31,6 +31,8 @@ Contents
 
    Overview <readme>
    Forecasting <forecasting>
+   Scheduling <scheduling>
+   Reporting <reporting>
    Contributions & Help <contributing>
    License <license>
    Authors <authors>

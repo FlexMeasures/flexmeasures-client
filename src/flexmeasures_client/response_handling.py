@@ -8,7 +8,6 @@ from aiohttp import ContentTypeError
 from yarl import URL
 
 from flexmeasures_client.constants import CONTENT_TYPE
-from flexmeasures_client.constants import MAX_POLLING_SLEEP
 
 if TYPE_CHECKING:  # Only imports the below statements during type checking
     from flexmeasures_client.client import FlexMeasuresClient
@@ -17,22 +16,46 @@ logger = logging.getLogger(__name__)
 
 
 async def check_response(
-    self: FlexMeasuresClient, response, polling_step: int, reauth_once: bool, url: URL
+    self: FlexMeasuresClient,
+    response,
+    polling_step: int,
+    reauth_once: bool,
+    url: URL,
+    method: str = "GET",
+    pass_through_statuses: frozenset[int] = frozenset(),
 ) -> tuple[int, bool, URL]:
     """
     <300: passes
+    202 on GET: job not ready yet
     303: redirect to new url
     400 + custom message: schedule not ready yet
     401: reauthenticate
     503 + Retry-After header: poll again
     otherwise: call error_handler
+
+    Returns: tuple of (polling_step, reauth_once, url)
+     - polling_step: incremented if we need to poll again, otherwise unchanged
+     - reauth_once: set to False if we re-authenticated (on 401), otherwise unchanged
+     - url: updated if we get a redirect (303), otherwise unchanged
     """
     status = response.status
     payload = await response.json()
     if payload is None:
         payload = {}
     headers = response.headers
-    if status < 300:
+    if status in pass_through_statuses:
+        pass
+    elif status == 202 and method.upper() == "GET":
+        sleep_interval = self.request_retry_interval * (2**polling_step)
+        job_status = payload.get("status")
+        message = "Server accepted the request but the result is not ready yet."
+        if job_status:
+            message += f" Job status: {job_status}."
+        message += f" Retrying in {sleep_interval} seconds..."
+        self.logger.debug(message)
+        polling_step += 1
+        await asyncio.sleep(sleep_interval)
+    elif status < 300:
         pass
     elif response.status == 303:
         message = f"Redirect to fallback schedule: {response.headers['location']}"  # noqa: E501
@@ -44,9 +67,7 @@ async def check_response(
         or "Scheduling job has an unknown status" in payload.get("message", "")
     ):
         # can be removed in a later version GH issue #645 of the FlexMeasures repo
-        sleep_interval = min(
-            self.polling_interval * (2**polling_step), MAX_POLLING_SLEEP
-        )
+        sleep_interval = self.request_retry_interval * (2**polling_step)
         message = f"Server indicated to try again later. Retrying in {sleep_interval} seconds..."  # noqa: E501
         self.logger.debug(message)
         polling_step += 1
@@ -61,9 +82,7 @@ async def check_response(
         await self.get_access_token()
         reauth_once = False
     elif status == 503 and "Retry-After" in headers:
-        sleep_interval = min(
-            self.polling_interval * (2**polling_step), MAX_POLLING_SLEEP
-        )
+        sleep_interval = self.request_retry_interval * (2**polling_step)
         polling_step += 1
         await asyncio.sleep(sleep_interval)
     elif payload.get("errors"):

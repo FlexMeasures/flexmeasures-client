@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import patch
 
 import pytest
 from aioresponses import aioresponses
+from yarl import URL
 
 from flexmeasures_client.client import ContentTypeError, FlexMeasuresClient
 
@@ -105,7 +107,7 @@ async def test_get_schedule_polling() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
 
@@ -113,6 +115,49 @@ async def test_get_schedule_polling() -> None:
             sensor_id=1, schedule_id="some-uuid", duration="PT45M"
         )
     assert schedule["values"] == [2.15, 3, 2]
+    await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_polling_accepted(caplog) -> None:
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid?duration=P0DT0H45M0S"  # noqa 501
+    with aioresponses() as m:
+        m.get(
+            url=url,
+            status=202,
+            payload={"status": "QUEUED"},
+        )
+        m.get(
+            url=url,
+            status=202,
+            payload={"status": "STARTED"},
+        )
+        m.get(
+            url=url,
+            status=200,
+            payload={
+                "values": [2.15, 3, 2],
+                "start": "2015-06-02T10:00:00+00:00",
+                "duration": "PT45M",
+                "unit": "MW",
+            },
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            request_timeout=2,
+            request_retry_interval=0.2,
+            access_token="skip-auth",
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="flexmeasures_client.client"):
+            schedule = await flexmeasures_client.get_schedule(
+                sensor_id=1, schedule_id="some-uuid", duration="PT45M"
+            )
+    assert schedule["values"] == [2.15, 3, 2]
+    assert "result is not ready yet" in caplog.text
+    assert "Job status: QUEUED" in caplog.text
+    assert "Job status: STARTED" in caplog.text
     await flexmeasures_client.close()
 
 
@@ -141,7 +186,7 @@ async def test_get_schedule_polling_exponential_backoff() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=1.0,
+            request_retry_interval=1.0,
             access_token="skip-auth",
         )
 
@@ -194,7 +239,7 @@ async def test_trigger_and_get_schedule() -> None:
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
 
@@ -259,7 +304,7 @@ async def test_get_fallback_schedule():
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
 
@@ -412,7 +457,7 @@ async def test_trigger_and_get_schedule_asset_id_flex_model_list():
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.1,
+            request_retry_interval=0.1,
         )
         client.access_token = "test-token"
         m.post(
@@ -445,6 +490,59 @@ async def test_trigger_and_get_schedule_asset_id_flex_model_list():
 
 
 @pytest.mark.asyncio
+async def test_trigger_and_get_schedule_waits_once_via_jobs_api():
+    """A modern multi-device schedule waits once, then fetches each result."""
+    schedule_id = "sched-uuid"
+    trigger_url = "http://localhost:5000/api/v3_0/assets/1/schedules/trigger"
+    job_url = f"http://localhost:5000/api/v3_0/jobs/{schedule_id}"
+    result_urls = [
+        f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/schedules/"
+        f"{schedule_id}?duration=P0DT0H45M0S"
+        for sensor_id in (10, 11)
+    ]
+
+    with aioresponses() as m:
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+        )
+        m.post(
+            trigger_url,
+            status=202,
+            payload={"job": schedule_id, "status": "ACCEPTED"},
+            headers={"FlexMeasures-Version": "0.33.0"},
+        )
+        m.get(job_url, status=202, payload={"status": "STARTED"})
+        m.get(job_url, status=200, payload={"status": "FINISHED"})
+        for sensor_id, result_url in zip((10, 11), result_urls):
+            m.get(
+                result_url,
+                status=200,
+                payload={
+                    "values": [float(sensor_id)],
+                    "start": "2023-01-01T00:00:00+00:00",
+                    "duration": "PT45M",
+                    "unit": "MW",
+                },
+            )
+
+        schedules = await client.trigger_and_get_schedule(
+            asset_id=1,
+            start="2023-01-01T00:00:00+00:00",
+            duration="PT45M",
+            flex_model=[{"sensor": 10}, {"sensor": 11}],
+            polling_interval=0,
+        )
+
+        assert [schedule["sensor"] for schedule in schedules] == [10, 11]
+        assert len(m.requests[("GET", URL(job_url))]) == 2
+        for result_url in result_urls:
+            assert len(m.requests[("GET", URL(result_url))]) == 1
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_trigger_and_get_schedule_asset_id_no_flex_model():
     """asset_id with flex_model=None returns []."""
     with aioresponses() as m:
@@ -452,7 +550,7 @@ async def test_trigger_and_get_schedule_asset_id_no_flex_model():
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.1,
+            request_retry_interval=0.1,
         )
         client.access_token = "test-token"
         m.post(
@@ -520,6 +618,78 @@ async def test_trigger_schedule_with_prior():
             prior="2023-01-01T00:00+00:00",
         )
         assert schedule_id == "sched-uuid"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_with_prior_on_dev_033_uses_asset_field_name():
+    """0.33.0.dev servers already expose the 0.33 asset scheduling API shape."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.33.0.dev26+gda5eae592"
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
+            status=200,
+            payload={"schedule": "sched-uuid"},
+        )
+        schedule_id = await client.trigger_schedule(
+            asset_id=10,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            prior="2023-01-01T00:00+00:00",
+        )
+        assert schedule_id == "sched-uuid"
+        m.assert_called_with(
+            method="POST",
+            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            json={
+                "start": "2023-01-01T00:00:00+00:00",
+                "duration": "P0DT1H0M0S",
+                "prior": "2023-01-01T00:00:00+00:00",
+                "force-new-job-creation": True,
+            },
+            url="http://localhost:5000/api/v3_0/assets/10/schedules/trigger",
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_with_prior_on_old_server_uses_sensor_field_name():
+    """Older servers use the sensor endpoint with the legacy force field name."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "0.32.0"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            status=200,
+            payload={"schedule": "sched-uuid"},
+        )
+        schedule_id = await client.trigger_schedule(
+            sensor_id=1,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            prior="2023-01-01T00:00+00:00",
+        )
+        assert schedule_id == "sched-uuid"
+        m.assert_called_with(
+            method="POST",
+            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            json={
+                "start": "2023-01-01T00:00:00+00:00",
+                "duration": "P0DT1H0M0S",
+                "prior": "2023-01-01T00:00:00+00:00",
+                "force_new_job_creation": True,
+            },
+            url="http://localhost:5000/api/v3_0/sensors/1/schedules/trigger",
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
         await client.close()
 
 
@@ -911,7 +1081,7 @@ async def test_trigger_and_get_schedule_with_unit():
             email="test@test.test",
             password="test",
             request_timeout=2,
-            polling_interval=0.2,
+            request_retry_interval=0.2,
             access_token="skip-auth",
         )
         # Older server: client-side conversion
@@ -959,3 +1129,65 @@ def test_convert_units_unsupported():
 
     with pytest.raises(NotImplementedError, match="Power conversion from MW to °C"):
         convert_units([1.0], "MW", "°C")
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_accepts_202_accepted() -> None:
+    """FlexMeasures API v3.0-32+ responds to trigger requests with
+    202 (Accepted) and job info, instead of 200 (PROCESSED)."""
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        flexmeasures_client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
+            status=202,
+            payload={
+                "schedule": "test_schedule_id",
+                "job_id": "test_schedule_id",
+                "job_monitor_url": "/api/v3_0/jobs/test_schedule_id",
+                "status": "ACCEPTED",
+                "message": "Request has been accepted for processing.",
+            },
+        )
+
+        schedule_id = await flexmeasures_client.trigger_schedule(
+            asset_id=5,
+            start="2023-03-26T10:00+02:00",
+            duration="PT12H",
+            flex_model=[{"sensor": 3, "soc-at-start": "50 kWh"}],
+        )
+
+        assert schedule_id == "test_schedule_id"
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_failed_job_raises() -> None:
+    """FlexMeasures API v3.0-32+ reports a failed scheduling job with
+    422 and a failure message (previously 400 UNKNOWN_SCHEDULE), which
+    should surface as an error rather than being polled forever."""
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid?duration=P0DT0H45M0S"  # noqa: E501
+    with aioresponses() as m:
+        m.get(
+            url=url,
+            status=422,
+            payload={
+                "status": "FAILED",
+                "message": "Scheduling job failed with ValueError: prices unknown",
+            },
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            request_timeout=2,
+            request_retry_interval=0.2,
+            access_token="skip-auth",
+        )
+
+        with pytest.raises(ValueError, match="prices unknown"):
+            await flexmeasures_client.get_schedule(
+                sensor_id=1, schedule_id="some-uuid", duration="PT45M"
+            )
+    await flexmeasures_client.close()
