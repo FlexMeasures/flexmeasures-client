@@ -250,12 +250,30 @@ class FRBCSimple(FRBC):
                     band_min, band_max = sorted(
                         (power_range.start_of_range, power_range.end_of_range)
                     )
-                    band = {
-                        "power-range": [
-                            f"{band_min} {self.power_unit}",
+                    # S2 fixes one sign convention for power (positive means
+                    # consumption), while FlexMeasures asks for the two
+                    # directions separately, each non-negative. Split the S2
+                    # range by sign: its non-negative part is the consumption
+                    # range, and its negative part becomes the production range
+                    # with the sign flipped. A band spanning zero maps onto
+                    # both, and each of those then starts at zero.
+                    band: dict[str, list[str]] = {}
+                    if band_max > 0:
+                        band["consumption-range"] = [
+                            f"{max(band_min, 0)} {self.power_unit}",
                             f"{band_max} {self.power_unit}",
                         ]
-                    }
+                    if band_min < 0:
+                        band["production-range"] = [
+                            f"{max(-band_max, 0)} {self.power_unit}",
+                            f"{-band_min} {self.power_unit}",
+                        ]
+                    if not band:
+                        # A band of exactly {0}: no power in either direction.
+                        band["consumption-range"] = [
+                            f"0 {self.power_unit}",
+                            f"0 {self.power_unit}",
+                        ]
                     if band not in operation_mode_bands:
                         operation_mode_bands.append(band)
 
