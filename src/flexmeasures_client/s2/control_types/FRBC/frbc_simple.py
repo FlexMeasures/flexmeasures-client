@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from flexmeasures_client.client import _server_version_at_least
+
 try:
     from s2python.frbc import (
         FRBCActuatorStatus,
@@ -243,6 +245,14 @@ class FRBCSimple(FRBC):
         # of a fractional power that the RM would have to round to a full-on
         # block, overshooting site capacity limits). Only sent when the bands
         # actually restrict the power range (more than one distinct band).
+        # Which shape the power bands take depends on the server: FlexMeasures from
+        # v1.0.0 wants consumption and production stated separately and rejects the
+        # single signed field, while older servers want only that signed field. Asking
+        # the server rather than pinning it per branch keeps one client working against
+        # both.
+        split_power_ranges = _server_version_at_least(
+            await self._fm_client._resolve_server_version(), "1.0.0"
+        )
         operation_mode_bands: list[dict] = []
         for operation_mode in actuator.operation_modes:
             for element in operation_mode.elements:
@@ -258,7 +268,12 @@ class FRBCSimple(FRBC):
                     # with the sign flipped. A band spanning zero maps onto
                     # both, and each of those then starts at zero.
                     band: dict[str, list[str]] = {}
-                    if band_max > 0:
+                    if not split_power_ranges:
+                        band["power-range"] = [
+                            f"{band_min} {self.power_unit}",
+                            f"{band_max} {self.power_unit}",
+                        ]
+                    elif band_max > 0:
                         band["consumption-range"] = [
                             f"{max(band_min, 0)} {self.power_unit}",
                             f"{band_max} {self.power_unit}",
@@ -269,7 +284,7 @@ class FRBCSimple(FRBC):
                             f"{-band_min} {self.power_unit}",
                         ]
                     if not band:
-                        # A band of exactly {0}: no power in either direction.
+                        # A band of exactly {0} on a v1 server: no power either way.
                         band["consumption-range"] = [
                             f"0 {self.power_unit}",
                             f"0 {self.power_unit}",
