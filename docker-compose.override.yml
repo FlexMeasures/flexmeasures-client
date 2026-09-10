@@ -144,7 +144,29 @@ services:
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         pip install --break-system-packages -e /app/flexmeasures-client[s2]
-        flexmeasures jobs run-worker --name flexmeasures-worker-1 --queue scheduling\|forecasting\|ingestion
+        # Drop any lingering ingestion registration before this worker starts.
+        # FlexMeasures decides synchronous vs asynchronous sensor-data ingestion by asking
+        # Redis which workers are registered for the ingestion queue (PR #2101), and STALE
+        # registrations count: if a dead worker's entry survives, posts are enqueued to a
+        # queue nobody serves and the run hangs with no error. Removing only entries that
+        # name the ingestion queue is safe to run on every start - no worker here registers
+        # for it - and it is idempotent, so all three workers may do it concurrently.
+        python3 - <<'PYGUARD'
+        import os, redis
+        r = redis.Redis(host=os.environ.get("FLEXMEASURES_REDIS_URL", "queue-db"),
+                        port=int(os.environ.get("FLEXMEASURES_REDIS_PORT", 6379)),
+                        password=os.environ.get("FLEXMEASURES_REDIS_PASSWORD"))
+        try:
+            for name in r.smembers("rq:workers"):
+                key = name.decode()
+                queues = (r.hget(key, "queues") or b"").decode()
+                if "ingestion" in queues or not queues:
+                    r.srem("rq:workers", name); r.delete(key)
+            r.delete("rq:workers:ingestion")
+        except Exception as exc:
+            print(f"ingestion-registration guard skipped: {exc}")
+        PYGUARD
+        flexmeasures jobs run-worker --name flexmeasures-worker-1 --queue scheduling\|forecasting
   worker-2:
     <<: *worker
     command:
@@ -153,7 +175,29 @@ services:
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         pip install --break-system-packages -e /app/flexmeasures-client[s2]
-        flexmeasures jobs run-worker --name flexmeasures-worker-2 --queue scheduling\|forecasting\|ingestion
+        # Drop any lingering ingestion registration before this worker starts.
+        # FlexMeasures decides synchronous vs asynchronous sensor-data ingestion by asking
+        # Redis which workers are registered for the ingestion queue (PR #2101), and STALE
+        # registrations count: if a dead worker's entry survives, posts are enqueued to a
+        # queue nobody serves and the run hangs with no error. Removing only entries that
+        # name the ingestion queue is safe to run on every start - no worker here registers
+        # for it - and it is idempotent, so all three workers may do it concurrently.
+        python3 - <<'PYGUARD'
+        import os, redis
+        r = redis.Redis(host=os.environ.get("FLEXMEASURES_REDIS_URL", "queue-db"),
+                        port=int(os.environ.get("FLEXMEASURES_REDIS_PORT", 6379)),
+                        password=os.environ.get("FLEXMEASURES_REDIS_PASSWORD"))
+        try:
+            for name in r.smembers("rq:workers"):
+                key = name.decode()
+                queues = (r.hget(key, "queues") or b"").decode()
+                if "ingestion" in queues or not queues:
+                    r.srem("rq:workers", name); r.delete(key)
+            r.delete("rq:workers:ingestion")
+        except Exception as exc:
+            print(f"ingestion-registration guard skipped: {exc}")
+        PYGUARD
+        flexmeasures jobs run-worker --name flexmeasures-worker-2 --queue scheduling\|forecasting
   worker-3:
     <<: *worker
     command:
@@ -162,7 +206,29 @@ services:
         pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
         pip install timely-beliefs -U --break-system-packages
         pip install --break-system-packages -e /app/flexmeasures-client[s2]
-        flexmeasures jobs run-worker --name flexmeasures-worker-3 --queue scheduling\|forecasting\|ingestion
+        # Drop any lingering ingestion registration before this worker starts.
+        # FlexMeasures decides synchronous vs asynchronous sensor-data ingestion by asking
+        # Redis which workers are registered for the ingestion queue (PR #2101), and STALE
+        # registrations count: if a dead worker's entry survives, posts are enqueued to a
+        # queue nobody serves and the run hangs with no error. Removing only entries that
+        # name the ingestion queue is safe to run on every start - no worker here registers
+        # for it - and it is idempotent, so all three workers may do it concurrently.
+        python3 - <<'PYGUARD'
+        import os, redis
+        r = redis.Redis(host=os.environ.get("FLEXMEASURES_REDIS_URL", "queue-db"),
+                        port=int(os.environ.get("FLEXMEASURES_REDIS_PORT", 6379)),
+                        password=os.environ.get("FLEXMEASURES_REDIS_PASSWORD"))
+        try:
+            for name in r.smembers("rq:workers"):
+                key = name.decode()
+                queues = (r.hget(key, "queues") or b"").decode()
+                if "ingestion" in queues or not queues:
+                    r.srem("rq:workers", name); r.delete(key)
+            r.delete("rq:workers:ingestion")
+        except Exception as exc:
+            print(f"ingestion-registration guard skipped: {exc}")
+        PYGUARD
+        flexmeasures jobs run-worker --name flexmeasures-worker-3 --queue scheduling\|forecasting
   # One CEM per simulated household. Add or remove instances as needed;
   # scale by copying an entry and bumping the host port.
   cem:
