@@ -102,6 +102,7 @@ async def configure_site(
     usage_forecast_sensor = None
     leakage_behaviour_sensor = None
     charging_efficiency_sensor = None
+    fill_rate_sensor = None
     for sensor in sensors:
         if sensor["name"] == "price":
             price_sensor = sensor
@@ -125,6 +126,8 @@ async def configure_site(
             leakage_behaviour_sensor = sensor
         elif sensor["name"] == "charging-efficiency":
             charging_efficiency_sensor = sensor
+        elif sensor["name"] == "fill-rate":
+            fill_rate_sensor = sensor
 
     if price_sensor is None:
         price_sensor = await fm_client.add_sensor(
@@ -199,6 +202,19 @@ async def configure_site(
             generic_asset_id=site_asset["id"],
             timezone="Europe/Amsterdam",
             attributes={"consumption_is_positive": True},
+        )
+    if fill_rate_sensor is None:
+        # The actuator's FILL RATE, kept separate from "power". A fill rate is what the
+        # actuator delivers into its buffer - for a heat pump, thermal output - while "power"
+        # is what it draws electrically, smaller by the coefficient of performance. These were
+        # posted onto one sensor, which made an apartment appear to draw its thermal output.
+        # Same principle as measured-power above: never conflate two quantities on one sensor.
+        fill_rate_sensor = await fm_client.add_sensor(
+            name="fill-rate",
+            event_resolution="PT15M",
+            unit="W",
+            generic_asset_id=site_asset["id"],
+            timezone="Europe/Amsterdam",
         )
     if soc_sensor is None:
         soc_sensor = await fm_client.add_sensor(
@@ -297,4 +313,5 @@ async def configure_site(
         leakage_behaviour_sensor,
         charging_efficiency_sensor,
         measured_power_sensor,
+        fill_rate_sensor,
     )

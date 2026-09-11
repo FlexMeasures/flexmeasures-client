@@ -471,6 +471,7 @@ class CEM(Handler):
             leakage_behaviour_sensor,
             charging_efficiency_sensor,
             measured_power_sensor,
+            fill_rate_sensor,
         ) = await configure_site(message.name, self._fm_client)
 
         # Wire up the apartment's dedicated MEASUREMENT sensor (distinct from the
@@ -500,6 +501,7 @@ class CEM(Handler):
             usage_forecast_sensor_id=usage_forecast_sensor["id"],
             leakage_behaviour_sensor_id=leakage_behaviour_sensor["id"],
             charging_efficiency_sensor_id=charging_efficiency_sensor["id"],
+            fill_rate_sensor_id=fill_rate_sensor["id"],
         )
         self.register_control_type(frbc)
 
