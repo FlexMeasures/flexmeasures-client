@@ -566,6 +566,7 @@ class FlexMeasuresClient:
         # Parameters for file upload
         file_path: str | None = None,
         belief_time_measured_instantly: bool = False,
+        await_ingestion: bool = True,
     ):
         """
         Post sensor data for the given time range.
@@ -577,6 +578,28 @@ class FlexMeasuresClient:
            as earlier servers ignore it and read the file in the sensor's own unit)
 
         The method automatically chooses the appropriate API endpoint based on the provided parameters.
+
+        Since FlexMeasures PR #2101, the server may process the ingestion of posted
+        data asynchronously: it returns ``202 Accepted`` with a background job id
+        instead of ``200 OK`` when an ingestion worker is available, and processes
+        the data (typically well) after the request returns. By default
+        (``await_ingestion=True``), this method polls the job-status endpoint until
+        the job reaches a terminal state, restoring read-your-writes semantics for
+        callers: once this call returns, the data is confirmed ingested (unless
+        polling times out - see below). Pass ``await_ingestion=False`` to opt out
+        and return as soon as the POST is acknowledged, regardless of whether
+        ingestion has completed.
+
+        :param await_ingestion: If True (default) and the server responds 202 with
+            a job id, poll GET .../jobs/<job_id> (with exponential backoff, capped
+            at ``self.job_polling_timeout`` seconds) until the job finishes.
+            - Job status FINISHED: returns normally.
+            - Job status FAILED (or STOPPED/CANCELED): raises JobFailedError.
+            - Polling timeout reached while the job is still pending: logs an ERROR
+              and returns normally (this is a deliberate choice - the caller's own
+              safety nets, e.g. a compliance check, are expected to catch data that
+              never lands).
+            Has no effect on synchronous (200 OK) responses.
 
         This function raises a ValueError when an unhandled status code is returned.
         """
@@ -627,6 +650,7 @@ class FlexMeasuresClient:
                 values=values,
                 unit=unit,
                 prior=prior,
+                await_ingestion=await_ingestion,
             )
         else:
             # Type assertion to help the type checker understand that file_path is not None
@@ -638,6 +662,40 @@ class FlexMeasuresClient:
                 file_path=file_path,
                 belief_time_measured_instantly=belief_time_measured_instantly,
                 unit=unit,
+                await_ingestion=await_ingestion,
+            )
+
+    @staticmethod
+    def _ingestion_job_id(response) -> str | None:
+        """The background job id from a 202 response to a sensor-data post, if any.
+
+        FlexMeasures standardised asynchronous job responses on the ``job`` field
+        (API v3.0-32); ``job_id`` is the older spelling, still accepted here so that
+        this client keeps working against servers predating that change.
+        """
+        if not isinstance(response, dict):
+            return None
+        job_id = response.get("job") or response.get("job_id")
+        return job_id if isinstance(job_id, str) else None
+
+    async def _await_sensor_data_ingestion(self, job_id: str) -> None:
+        """Wait for an ingestion job to finish, so that posted data is readable.
+
+        Delegates to wait_for_job(), so ingestion follows the same polling and
+        back-off behaviour as every other background job this client waits on.
+
+        A failed job propagates as JobFailedError: callers such as the S2 CEM treat
+        that like any other failed post and release their de-duplication key, so the
+        resource manager's next re-send retries it. A timeout, by contrast, is logged
+        and swallowed: the data may still land moments later, and refusing to continue
+        would strand a simulation that has its own watchdogs for incomplete data.
+        """
+        try:
+            await self.wait_for_job(job_id)
+        except JobTimeoutError as e:
+            self.logger.error(
+                f"Ingestion not confirmed for job {job_id}; proceeding - downstream "
+                f"reads may miss this data. {e}"
             )
 
     async def _post_sensor_data_json(
@@ -648,6 +706,7 @@ class FlexMeasuresClient:
         values: list[float],
         unit: str,
         prior: str | datetime | None = None,
+        await_ingestion: bool = True,
     ):
         """
         Post sensor data using JSON payload.
@@ -671,6 +730,11 @@ class FlexMeasuresClient:
         )
         check_for_status(status, 200)
         self.logger.info("Sensor data sent successfully via JSON.")
+
+        job_id = self._ingestion_job_id(response)
+        if await_ingestion and status == 202 and job_id:
+            await self._await_sensor_data_ingestion(job_id)
+
         return response, status
 
     async def _post_sensor_data_file(
@@ -679,6 +743,7 @@ class FlexMeasuresClient:
         file_path: str,
         belief_time_measured_instantly: bool = False,
         unit: str | None = None,
+        await_ingestion: bool = True,
     ):
         """
         Post sensor data using file upload.
@@ -774,6 +839,11 @@ class FlexMeasuresClient:
                     f"File uploaded successfully: {os.path.basename(file_path)} "
                     f"(status {response.status})"
                 )
+
+                job_id = self._ingestion_job_id(response_data)
+                if await_ingestion and response.status == 202 and job_id:
+                    await self._await_sensor_data_ingestion(job_id)
+
                 return response_data, response.status
 
         except Exception as e:
@@ -1302,9 +1372,9 @@ class FlexMeasuresClient:
         self,
         name: str,
         account_id: int,
-        latitude: float,
-        longitude: float,
         generic_asset_type_id: int,
+        latitude: float | None = None,
+        longitude: float | None = None,
         parent_asset_id: int | None = None,
         sensors_to_show: list | None = None,
         flex_context: dict | None = None,
@@ -1333,10 +1403,12 @@ class FlexMeasuresClient:
         asset = dict(
             name=name,
             account_id=account_id,
-            latitude=latitude,
-            longitude=longitude,
             generic_asset_type_id=generic_asset_type_id,
         )
+        if latitude is not None:
+            asset["latitude"] = str(latitude)
+        if longitude is not None:
+            asset["longitude"] = str(longitude)
         if parent_asset_id:
             asset["parent_asset_id"] = parent_asset_id
         if sensors_to_show:
@@ -1580,7 +1652,12 @@ class FlexMeasuresClient:
         asset_id: int | None = None,
         prior: datetime | None = None,
         scheduler: str | None = None,
+        metadata: dict | None = None,
     ) -> str:
+        """metadata: opaque orchestration metadata passed alongside the domain
+        payload (a sibling of flex-model/flex-context, mirroring the S2 wrapper
+        convention). Requires a server that accepts the trigger "metadata"
+        field; it is passed through verbatim to the Scheduler."""
         if (sensor_id is None) == (asset_id is None):
             raise ValueError("Pass either a sensor_id or an asset_id.")
         message = {
@@ -1593,6 +1670,8 @@ class FlexMeasuresClient:
             message["flex-model"] = flex_model
         if flex_context is not None:
             message["flex-context"] = flex_context
+        if metadata is not None:
+            message["metadata"] = metadata
 
         force_new_job_creation_requested = False
         if prior is not None:

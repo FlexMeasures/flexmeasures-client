@@ -76,6 +76,13 @@ packages = ["src/flexmeasures_client"]
 [tool.hatch.version]
 source = "vcs"
 
+[tool.hatch.version.raw-options]
+# Containers mounting this repo have no git binary, so hatch-vcs
+# (setuptools-scm underneath) cannot derive the version at pip-install
+# time and the install fails. Fall back to a static version there;
+# proper versions still come from git tags wherever git is available.
+fallback_version = "0.9.3"
+
 [tool.poe.tasks.test]
 help = "Run the full test suite."
 cmd = "pytest"
