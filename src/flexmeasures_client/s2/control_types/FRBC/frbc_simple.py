@@ -154,7 +154,37 @@ class FRBCSimple(FRBC):
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
         sd: FRBCSystemDescription = list(self._system_description_history.values())[-1]
-        element = sd.actuators[0].operation_modes[0].elements[0]
+
+        # Report the mode the actuator is ACTUALLY in, not whichever the system description happens
+        # to list first. An FRBC actuator here declares its modes with DEGENERATE power ranges - on
+        # is [883.7, 883.7] W and off is [0, 0] - so interpolating by the factor cannot express the
+        # difference between them; only the choice of mode can. Taking operation_modes[0] pinned
+        # every status to the on-mode value, so the power sensor showed a constant draw and could
+        # never show the heater switching off, whatever the factor said. frbc_tunes already selects
+        # by active_operation_mode_id; this brings frbc_simple in line.
+        actuator = next(
+            (a for a in sd.actuators if a.id == status.actuator_id), sd.actuators[0]
+        )
+        operation_mode = next(
+            (
+                om
+                for om in actuator.operation_modes
+                if om.id == status.active_operation_mode_id
+            ),
+            None,
+        )
+        if operation_mode is None:
+            # A status naming a mode absent from the newest system description means the two have
+            # drifted apart. Fall back to the first mode rather than dropping the status, but say
+            # so: silently reporting the wrong mode is what this change exists to stop.
+            self._logger.warning(
+                "FRBC.ActuatorStatus names operation mode %s, absent from the latest system "
+                "description for actuator %s; falling back to its first mode.",
+                status.active_operation_mode_id,
+                status.actuator_id,
+            )
+            operation_mode = actuator.operation_modes[0]
+        element = operation_mode.elements[0]
 
         # Interpolate the element's POWER range, not its fill rate. A fill rate is the thermal
         # output a heat pump delivers into its buffer; the power range is what it draws
