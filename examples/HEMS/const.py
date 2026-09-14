@@ -9,6 +9,10 @@ pwd = "toy-password"  # Account-admin user password
 host = "127.0.0.1:5000"  # FlexMeasures host, without http:// or https://
 ssl = False  # Local development server uses HTTP; set True for HTTPS deployments
 
+# Allow one request to wait through the server's default 5-minute trigger-rate
+# window (plus margin) when it responds with HTTP 429 and Retry-After.
+HEMS_REQUEST_RETRY_TIMEOUT_SECONDS = 10 * 60
+
 # PV operation mode:
 # - "inflexible": all available PV is delivered; surplus production is fed in.
 # - "curtailable": FlexMeasures may schedule PV below its available production.
