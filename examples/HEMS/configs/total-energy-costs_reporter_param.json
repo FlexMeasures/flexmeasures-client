@@ -1,0 +1,42 @@
+{
+    "input": [
+        {
+            "name": "aggregate-power",
+            "sensor": 3645,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        },
+        {
+            "name": "consumption-production-price",
+            "sensor": 3609,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        },
+        {
+            "name": "heating-power",
+            "sensor": 3666,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        }
+    ],
+    "output": [
+        {
+            "name": "total-energy-costs",
+            "sensor": 3651
+        },
+        {
+            "name": "daily-total-energy-costs",
+            "sensor": 3652
+        }
+    ],
+    "start": "2030-01-15T00:00:00+01:00",
+    "end": "2030-01-16T00:00:00+01:00",
+    "belief_horizon": "PT0H",
+    "check_output_resolution": false
+}

@@ -9,6 +9,10 @@ repos:
   - id: check-ast
   - id: check-json
   - id: check-merge-conflict
+    # RST section adornments are rows of "=", which this hook reads as conflict
+    # markers. It scans the whole tree while a merge is in progress, so without
+    # this exclusion every merge commit is blocked by docs/license.rst.
+    exclude: ^docs/license\.rst$
   - id: check-xml
   - id: check-yaml
   - id: debug-statements
