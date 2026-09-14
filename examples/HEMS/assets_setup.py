@@ -434,6 +434,7 @@ async def create_battery_asset(
             "flex_model": flex_model,
             "attributes": {"flex_model": attributes_flex_model},
         },
+        parse_json_fields=True,
     )
 
     print(f"Created battery asset with ID: {battery_asset['id']}")
@@ -542,6 +543,7 @@ async def create_evse_asset(
                 "sensors_to_show": sensors_to_show,
             },
         },
+        parse_json_fields=True,
     )
 
     print(f"Created EVSE asset {evse_name} with ID: {evse_asset['id']}")
@@ -672,6 +674,7 @@ async def create_heating_asset(
             "flex_model": flex_model,
             "sensors_to_show": sensors_to_show,
         },
+        parse_json_fields=True,
     )
 
     print(f"Created heating asset '{heating_name}' with ID: {heating_asset['id']}")
@@ -747,7 +750,9 @@ async def configure_site_flex_context(
 
     # Update site asset with flex-context
     await client.update_asset(
-        asset_id=site_asset["id"], updates={"flex_context": flex_context}
+        asset_id=site_asset["id"],
+        updates={"flex_context": flex_context},
+        parse_json_fields=True,
     )
 
     print("Site flex-context configured successfully")
@@ -855,6 +860,7 @@ async def configure_site_dashboard(
             "sensors_to_show": sensors_to_show,
             "sensors_to_show_as_kpis": sensors_to_show_as_kpis,
         },
+        parse_json_fields=True,
     )
 
     print("Sensors to show configured successfully")
@@ -1092,7 +1098,9 @@ async def create_community_asset(
 
     # Update site asset with flex-context
     await client.update_asset(
-        asset_id=community_asset["id"], updates={"flex_context": flex_context}
+        asset_id=community_asset["id"],
+        updates={"flex_context": flex_context},
+        parse_json_fields=True,
     )
     for i in range(len(site_names)):
         await create_sites_assets_and_sensors(

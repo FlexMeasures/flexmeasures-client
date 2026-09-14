@@ -396,8 +396,8 @@ async def test_rename_site_assets_preserves_ids():
     await rename_site_assets(client, sites, ["Building A", "Building B"])
 
     assert client.update_asset.await_args_list == [
-        call(asset_id=20, updates={"name": "Building A"}, parse_json_fields=False),
-        call(asset_id=21, updates={"name": "Building B"}, parse_json_fields=False),
+        call(asset_id=20, updates={"name": "Building A"}, parse_json_fields=True),
+        call(asset_id=21, updates={"name": "Building B"}, parse_json_fields=True),
     ]
 
 
