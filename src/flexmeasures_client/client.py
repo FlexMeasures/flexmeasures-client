@@ -11,7 +11,7 @@ import warnings
 from dataclasses import InitVar, dataclass, field
 from datetime import datetime, timedelta
 from logging import Logger
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 import async_timeout
 import pandas as pd
@@ -172,6 +172,9 @@ class FlexMeasuresClient:
     session: ClientSession | None = None
     server_version: str | None = None
     logger: Logger = LOGGER
+    rate_limit_notifier: Callable[[str], None] | None = None
+    job_status_notifier: Callable[[str], None] | None = None
+    job_status_notification_interval: float = 60.0  # seconds
     job_polling_interval: float = JOB_POLLING_INTERVAL  # seconds
     job_polling_max_interval: float = JOB_POLLING_MAX_INTERVAL  # seconds
     job_polling_timeout: float = JOB_POLLING_TIMEOUT  # seconds
@@ -313,7 +316,10 @@ class FlexMeasuresClient:
         Retries if:
         - the client request timed out (as indicated by ``request_timeout``)
         - the server response indicates a 408 (Request Timeout) status
-        - the server response indicates a 503 (Service Unavailable) status with a Retry-After response header.
+        - the server response indicates a 429 (Too Many Requests) status; the
+          ``Retry-After`` response header is honored when present
+        - the server response indicates a 503 (Service Unavailable) status with
+          a ``Retry-After`` response header.
 
         Fails if:
         - the server response indicated a status code of 400 or higher
@@ -328,6 +334,19 @@ class FlexMeasuresClient:
         self.ensure_session()
 
         polling_step = 0  # reset this counter once when starting polling
+        rate_limit_retries = 0
+
+        def report_rate_limit(message: str) -> None:
+            """Report only the first 429 encountered by this request."""
+            nonlocal rate_limit_retries
+            rate_limit_retries += 1
+            if rate_limit_retries > 1:
+                return
+            if self.rate_limit_notifier is not None:
+                self.rate_limit_notifier(message)
+            else:
+                self.logger.warning(message)
+
         # we allow retrying once if we include authentication headers
         reauth_once = True if include_auth else False
         try:
@@ -335,28 +354,38 @@ class FlexMeasuresClient:
                 while polling_step < self.max_request_attempts:
                     headers = await self.get_headers(include_auth=include_auth)
                     try:
-                        async with async_timeout.timeout(self.request_timeout):
-                            previous_polling_step = polling_step
-                            (
-                                response,
-                                polling_step,
-                                reauth_once,
-                                url,
-                            ) = await self.request_once(
-                                method=method,
-                                url=url,
-                                params=params,
-                                headers=headers,
-                                json_payload=json_payload,
-                                polling_step=polling_step,
-                                reauth_once=reauth_once,
-                                pass_through_statuses=pass_through_statuses,
-                            )
-                            if (
-                                response.status < 300
-                                or response.status in pass_through_statuses
-                            ) and polling_step == previous_polling_step:
-                                break
+                        previous_polling_step = polling_step
+                        (
+                            response,
+                            polling_step,
+                            reauth_once,
+                            url,
+                        ) = await self.request_once(
+                            method=method,
+                            url=url,
+                            params=params,
+                            headers=headers,
+                            json_payload=json_payload,
+                            polling_step=polling_step,
+                            reauth_once=reauth_once,
+                            pass_through_statuses=pass_through_statuses,
+                            rate_limit_callback=report_rate_limit,
+                        )
+                        if (
+                            response.status < 300
+                            or response.status in pass_through_statuses
+                        ) and polling_step == previous_polling_step:
+                            if rate_limit_retries:
+                                message = (
+                                    f"Rate limit cleared; {method.upper()} {url.path} "
+                                    f"succeeded after {rate_limit_retries} "
+                                    f"rate-limit {'retry' if rate_limit_retries == 1 else 'retries'}."
+                                )
+                                if self.rate_limit_notifier is not None:
+                                    self.rate_limit_notifier(message)
+                                else:
+                                    self.logger.info(message)
+                            break
                     except asyncio.TimeoutError:
                         sleep_interval = self.request_retry_interval * (2**polling_step)
                         message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {sleep_interval} seconds..."  # noqa: E501
@@ -401,6 +430,7 @@ class FlexMeasuresClient:
         polling_step: int = 0,
         reauth_once: bool = True,
         pass_through_statuses: frozenset[int] = frozenset(),
+        rate_limit_callback: Callable[[str], None] | None = None,
     ) -> tuple[ClientResponse, int, bool, URL]:
         url_msg = f"url: {url}"
         json_msg = f"payload: {json_payload}"
@@ -417,16 +447,20 @@ class FlexMeasuresClient:
 
         """Sends a single request to FlexMeasures and checks the response."""
         self.ensure_session()
-        response = await cast(ClientSession, self.session).request(
-            method=method,
-            url=url,
-            params=params,
-            headers=headers,
-            json=json_payload,
-            ssl=self.ssl,
-            allow_redirects=False,
-        )
-        payload = await response.json()
+        # Limit network I/O for one attempt, but do not apply this timeout to a
+        # server-directed Retry-After wait in check_response below. The outer
+        # request_retry_timeout still bounds the complete request/retry loop.
+        async with async_timeout.timeout(self.request_timeout):
+            response = await cast(ClientSession, self.session).request(
+                method=method,
+                url=url,
+                params=params,
+                headers=headers,
+                json=json_payload,
+                ssl=self.ssl,
+                allow_redirects=False,
+            )
+            payload = await response.json()
         status_msg = f"status: {response.status}"
         response_payload_msg = f"payload: {payload}"
         headers_msg = f"headers: {response.headers}"
@@ -457,6 +491,7 @@ class FlexMeasuresClient:
             url,
             method=method,
             pass_through_statuses=pass_through_statuses,
+            rate_limit_callback=rate_limit_callback,
         )
         return response, polling_step, reauth_once, url
 
@@ -1649,7 +1684,9 @@ class FlexMeasuresClient:
                     asset_attributes = {}
             asset_attributes["custom-scheduler"] = scheduler
             await self.update_asset(
-                asset_id=asset_id, updates=dict(attributes=asset_attributes)
+                asset_id=asset_id,
+                updates=dict(attributes=asset_attributes),
+                parse_json_fields=True,
             )
 
         if force_new_job_creation_requested:
@@ -1954,6 +1991,11 @@ class FlexMeasuresClient:
         :param max_polling_interval: upper bound on the wait between polls.
                                      Defaults to ``self.job_polling_max_interval``.
 
+        When ``job_status_notifier`` is configured, it is called immediately
+        for the first pending status, whenever that status changes, every
+        ``job_status_notification_interval`` seconds while it remains
+        unchanged, and once when the job finishes.
+
         :returns: the final job status dictionary (see :func:`get_job_status`).
 
         :raises JobFailedError: if the job ended as FAILED, STOPPED or CANCELED.
@@ -1969,18 +2011,59 @@ class FlexMeasuresClient:
             else max_polling_interval
         )
 
-        deadline = time.monotonic() + timeout
+        started_waiting_at = time.monotonic()
+        deadline = started_waiting_at + timeout
         interval = polling_interval
+        last_notified_at: float | None = None
+        last_notified_status: str | None = None
         job = await self.get_job_status(job_id)
         while True:
             status = job["status"]
+            now = time.monotonic()
+            elapsed = now - started_waiting_at
             if status == JOB_STATUS_FINISHED:
                 self.logger.info(f"Job {job_id} finished.")
+                if (
+                    self.job_status_notifier is not None
+                    and last_notified_at is not None
+                ):
+                    self.job_status_notifier(
+                        f"Job {job_id} finished after {elapsed:.0f} seconds."
+                    )
                 return job
             if status in JOB_STATUS_UNSUCCESSFUL:
                 raise JobFailedError(_describe_failed_job(job_id, job))
 
-            remaining = deadline - time.monotonic()
+            notification_due = (
+                last_notified_at is None
+                or status != last_notified_status
+                or now - last_notified_at >= self.job_status_notification_interval
+            )
+            if self.job_status_notifier is not None and notification_due:
+                queue = job.get("origin") or job.get("queue")
+                if isinstance(queue, str):
+                    queue = queue.rsplit(":", 1)[-1]
+                queue_text = f" on the {queue} queue" if queue else ""
+                if last_notified_at is None:
+                    message = (
+                        f"Job {job_id} is {status}{queue_text}; waiting up to "
+                        f"{timeout:g} seconds."
+                    )
+                elif status != last_notified_status:
+                    message = (
+                        f"Job {job_id} changed to {status}{queue_text} after "
+                        f"{elapsed:.0f} seconds."
+                    )
+                else:
+                    message = (
+                        f"Job {job_id} is still {status}{queue_text} after "
+                        f"{elapsed:.0f} seconds."
+                    )
+                self.job_status_notifier(message)
+                last_notified_at = now
+                last_notified_status = status
+
+            remaining = deadline - now
             if remaining <= 0:
                 raise JobTimeoutError(
                     f"Job {job_id} did not finish within {timeout} seconds. "

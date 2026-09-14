@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import re
-from unittest.mock import MagicMock
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiohttp.client import ClientSession
@@ -18,7 +19,11 @@ from flexmeasures_client.client import (
     _parse_json_field,
     _parse_sensor_json_fields,
 )
-from flexmeasures_client.response_handling import check_content_type, check_for_status
+from flexmeasures_client.response_handling import (
+    check_content_type,
+    check_for_status,
+    parse_retry_after,
+)
 
 
 @pytest.mark.parametrize(
@@ -94,6 +99,9 @@ async def test__init__(
         "server_version": None,
         "request_timeout": 40.0,
         "request_retry_interval": 10.0,
+        "rate_limit_notifier": None,
+        "job_status_notifier": None,
+        "job_status_notification_interval": 60.0,
         "job_polling_interval": 2.0,
         "job_polling_max_interval": 30.0,
         "job_polling_timeout": 600.0,
@@ -437,8 +445,12 @@ async def test_determine_port_conflict():
 
 
 @pytest.mark.asyncio
-async def test_503_retry_after():
+async def test_503_retry_after(mocker):
     """503 with Retry-After triggers retry."""
+    sleep = mocker.patch(
+        "flexmeasures_client.response_handling.asyncio.sleep",
+        new_callable=AsyncMock,
+    )
     with aioresponses() as m:
         flexmeasures_client = FlexMeasuresClient(
             email="test@test.test",
@@ -460,7 +472,178 @@ async def test_503_retry_after():
         )
         sensors = await flexmeasures_client.get_sensors(parse_json_fields=False)
         assert sensors == []
+        sleep.assert_awaited_once_with(1.0)
         await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_429_retry_after_retries_request(mocker):
+    """429 retries the same request after the server-requested delay."""
+    sleep = mocker.patch(
+        "flexmeasures_client.response_handling.asyncio.sleep",
+        new_callable=AsyncMock,
+    )
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+        )
+        flexmeasures_client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/1/schedules/trigger",
+            status=429,
+            payload={"status": "TOO_MANY_REQUESTS"},
+            headers={"Retry-After": "300"},
+        )
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/1/schedules/trigger",
+            status=202,
+            payload={"job": "schedule-job-id"},
+        )
+
+        schedule_id = await flexmeasures_client.trigger_schedule(
+            asset_id=1,
+            start="2030-01-15T00:00:00+01:00",
+            duration="PT24H",
+            flex_model=[],
+        )
+
+        assert schedule_id == "schedule-job-id"
+        sleep.assert_awaited_once_with(300.0)
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_429_notifier_is_sparse_and_reports_recovery(mocker):
+    """The notifier emits once on entry and once after leaving a 429 wait."""
+    mocker.patch(
+        "flexmeasures_client.response_handling.asyncio.sleep",
+        new_callable=AsyncMock,
+    )
+    notifier = MagicMock()
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            rate_limit_notifier=notifier,
+        )
+        flexmeasures_client.access_token = "test-token"
+        trigger_url = "http://localhost:5000/api/v3_0/assets/1/schedules/trigger"
+        m.post(
+            trigger_url,
+            status=429,
+            payload={"status": "TOO_MANY_REQUESTS"},
+            headers={"Retry-After": "30"},
+        )
+        m.post(
+            trigger_url,
+            status=429,
+            payload={"status": "TOO_MANY_REQUESTS"},
+            headers={"Retry-After": "10"},
+        )
+        m.post(
+            trigger_url,
+            status=202,
+            payload={"job": "schedule-job-id"},
+        )
+
+        await flexmeasures_client.trigger_schedule(
+            asset_id=1,
+            start="2030-01-15T00:00:00+01:00",
+            duration="PT24H",
+            flex_model=[],
+        )
+
+        assert notifier.call_count == 2
+        assert "Retrying in 30 seconds" in notifier.call_args_list[0].args[0]
+        assert (
+            "succeeded after 2 rate-limit retries" in notifier.call_args_list[1].args[0]
+        )
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_429_retry_after_is_not_cut_short_by_attempt_timeout(mocker):
+    """The network-attempt timeout does not interrupt Retry-After waits."""
+    original_sleep = asyncio.sleep
+    completed_delays = []
+
+    async def record_completed_sleep(delay):
+        await original_sleep(delay)
+        completed_delays.append(delay)
+
+    mocker.patch(
+        "flexmeasures_client.response_handling.asyncio.sleep",
+        new=record_completed_sleep,
+    )
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            request_timeout=0.01,
+            request_retry_timeout=1,
+            request_retry_interval=0.001,
+        )
+        flexmeasures_client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=429,
+            payload={"status": "TOO_MANY_REQUESTS"},
+            headers={"Retry-After": "0.05"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=200,
+            payload=[],
+        )
+
+        sensors = await flexmeasures_client.get_sensors(parse_json_fields=False)
+
+        assert sensors == []
+        assert completed_delays == [0.05]
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_429_without_valid_retry_after_uses_local_backoff(mocker):
+    """A malformed or absent Retry-After header does not disable 429 retries."""
+    sleep = mocker.patch(
+        "flexmeasures_client.response_handling.asyncio.sleep",
+        new_callable=AsyncMock,
+    )
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            request_retry_interval=0.25,
+        )
+        flexmeasures_client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=429,
+            payload={"status": "TOO_MANY_REQUESTS"},
+            headers={"Retry-After": "later"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors",
+            status=200,
+            payload=[],
+        )
+
+        sensors = await flexmeasures_client.get_sensors(parse_json_fields=False)
+
+        assert sensors == []
+        sleep.assert_awaited_once_with(0.25)
+        await flexmeasures_client.close()
+
+
+def test_parse_retry_after_http_date():
+    """Retry-After also supports the standard HTTP-date representation."""
+    now = datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc)
+
+    delay = parse_retry_after("Thu, 10 Sep 2026 12:05:00 GMT", now=now)
+
+    assert delay == 300.0
 
 
 @pytest.mark.asyncio
