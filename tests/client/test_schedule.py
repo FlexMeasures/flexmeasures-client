@@ -8,7 +8,9 @@ import pytest
 from aioresponses import aioresponses
 from yarl import URL
 
+from flexmeasures_client import __version__
 from flexmeasures_client.client import ContentTypeError, FlexMeasuresClient
+from flexmeasures_client.constants import CLIENT_VERSION_HEADER
 
 
 @pytest.mark.asyncio
@@ -57,7 +59,11 @@ async def test_trigger_schedule() -> None:
 
         m.assert_called_with(
             method="POST",
-            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
             json={
                 "start": "2023-03-26T10:00:00+02:00",
                 "duration": "P0DT12H0M0S",
@@ -318,7 +324,11 @@ async def test_get_fallback_schedule():
         m.assert_called_with(
             "http://localhost:5000/api/v3_0/sensors/1/schedules/fallback-schedule",
             method="GET",
-            headers={"Content-Type": "application/json", "Authorization": "skip-auth"},
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "skip-auth",
+            },
             params={"duration": "P0DT0H45M0S"},
             ssl=False,
             allow_redirects=False,
@@ -401,7 +411,11 @@ async def test_trigger_schedule_with_custom_scheduler() -> None:
             json={
                 "attributes": '{"existing-key": "existing-value", "custom-scheduler": "my-custom-scheduler"}'
             },
-            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
             params=None,
             ssl=False,
             allow_redirects=False,
@@ -642,7 +656,11 @@ async def test_trigger_schedule_with_prior_on_dev_033_uses_asset_field_name():
         assert schedule_id == "sched-uuid"
         m.assert_called_with(
             method="POST",
-            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
             json={
                 "start": "2023-01-01T00:00:00+00:00",
                 "duration": "P0DT1H0M0S",
@@ -678,7 +696,11 @@ async def test_trigger_schedule_with_prior_on_old_server_uses_sensor_field_name(
         assert schedule_id == "sched-uuid"
         m.assert_called_with(
             method="POST",
-            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
             json={
                 "start": "2023-01-01T00:00:00+00:00",
                 "duration": "P0DT1H0M0S",
