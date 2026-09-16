@@ -2,7 +2,9 @@ import pytest
 from aioresponses import aioresponses
 from yarl import URL
 
+from flexmeasures_client import __version__
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.constants import CLIENT_VERSION_HEADER
 from flexmeasures_client.exceptions import JobFailedError
 
 
@@ -33,7 +35,11 @@ async def test_trigger_forecast() -> None:
         m.assert_called_once_with(
             f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/forecasts/trigger",
             method="POST",
-            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
             json={
                 "start": "2025-01-05T00:00:00+00:00",
                 "end": "2025-01-07T00:00:00+00:00",
@@ -76,7 +82,11 @@ async def test_trigger_forecast_with_config() -> None:
         m.assert_called_once_with(
             f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/forecasts/trigger",
             method="POST",
-            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
             json={
                 "start": "2025-01-05T00:00:00+00:00",
                 "end": "2025-01-07T00:00:00+00:00",
