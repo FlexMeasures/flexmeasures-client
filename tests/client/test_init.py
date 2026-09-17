@@ -9,6 +9,7 @@ import pytest
 from aiohttp.client import ClientSession
 from aioresponses import CallbackResult, aioresponses
 
+from flexmeasures_client import __version__
 from flexmeasures_client.client import (
     EmailValidationError,
     EmptyPasswordError,
@@ -19,6 +20,7 @@ from flexmeasures_client.client import (
     _parse_json_field,
     _parse_sensor_json_fields,
 )
+from flexmeasures_client.constants import CLIENT_VERSION_HEADER
 from flexmeasures_client.response_handling import (
     check_content_type,
     check_for_status,
@@ -243,6 +245,7 @@ async def test_get_access_token() -> None:
             json={"email": "test@test.test", "password": "test"},
             headers={
                 "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
             },
             params=None,
             ssl=False,
@@ -277,7 +280,11 @@ async def test_reauth_with_access_token() -> None:
         m.assert_called_with(
             "http://localhost:5000/api/v3_0/sensors",
             method="GET",
-            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
             params=None,
             ssl=False,
             json=None,
@@ -801,3 +808,43 @@ def test_check_for_status_non_2xx_raises(status):
     """check_for_status raises ValueError for non-2xx status codes."""
     with pytest.raises(ValueError, match=f"Request failed with status code {status}"):
         check_for_status(status, 200)
+
+
+@pytest.mark.asyncio
+async def test_every_request_sends_the_client_version(tmp_path) -> None:
+    """Send the client version on unauthenticated, authenticated and file-upload requests alike.
+
+    The server can only adapt its responses to a client whose version it knows from the very first request.
+    """
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+    with aioresponses() as m:
+        m.post(
+            "http://localhost:5000/api/requestAuthToken",
+            status=200,
+            payload={"auth_token": "test-token"},
+        )
+        m.get(
+            "http://localhost:5000/api/",
+            status=200,
+            payload={"flexmeasures_version": "0.33.0", "versions": ["v3_0"]},
+        )
+        m.get("http://localhost:5000/api/v3_0/sensors", status=200, payload=[])
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/1/data/upload",
+            status=200,
+            payload={"message": "Upload successful"},
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+
+        await flexmeasures_client.get_versions()
+        await flexmeasures_client.get_sensors(parse_json_fields=False)
+        await flexmeasures_client.post_sensor_data(sensor_id=1, file_path=str(csv_path))
+
+        requests = [call for calls in m.requests.values() for call in calls]
+        assert len(requests) == 4
+        for request in requests:
+            assert request.kwargs["headers"][CLIENT_VERSION_HEADER] == __version__
+        await flexmeasures_client.close()

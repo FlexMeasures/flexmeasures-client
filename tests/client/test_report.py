@@ -4,7 +4,9 @@ import pytest
 from aioresponses import aioresponses
 from yarl import URL
 
+from flexmeasures_client import __version__
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.constants import CLIENT_VERSION_HEADER
 from flexmeasures_client.exceptions import (
     ContentTypeError,
     JobFailedError,
@@ -68,6 +70,7 @@ async def test_trigger_report() -> None:
             method="POST",
             headers={
                 "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
                 "Authorization": "test-token",
             },
             json={"reporter": "PandasReporter", "parameters": PARAMETERS},
@@ -99,6 +102,7 @@ async def test_trigger_report_with_config() -> None:
             method="POST",
             headers={
                 "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
                 "Authorization": "test-token",
             },
             json={
@@ -146,6 +150,7 @@ async def test_get_job_status() -> None:
             method="GET",
             headers={
                 "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
                 "Authorization": "test-token",
             },
             json=None,

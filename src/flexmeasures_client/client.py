@@ -19,7 +19,11 @@ from aiohttp.client import ClientError, ClientResponse, ClientSession
 from packaging.version import Version
 from yarl import URL
 
-from flexmeasures_client.constants import API_VERSION, CONTENT_TYPE_HEADERS
+from flexmeasures_client.constants import (
+    API_VERSION,
+    CLIENT_VERSION_HEADER,
+    CONTENT_TYPE_HEADERS,
+)
 from flexmeasures_client.exceptions import (
     ContentTypeError,
     EmailValidationError,
@@ -508,8 +512,13 @@ class FlexMeasuresClient:
             self.session = ClientSession()
 
     async def get_headers(self, include_auth: bool) -> dict:
-        """Create HTTP headers dictionary with content type and, optionally, access token."""  # noqa: E501
-        headers = dict(CONTENT_TYPE_HEADERS)
+        """Create HTTP headers dictionary with content type, client version and, optionally, access token.
+
+        The client version lets the server adapt its responses to what this client supports.
+        """  # noqa: E501
+        from flexmeasures_client import __version__ as client_version
+
+        headers = dict(CONTENT_TYPE_HEADERS) | {CLIENT_VERSION_HEADER: client_version}
         if include_auth:
             if self.access_token is None:
                 await self.get_access_token()
