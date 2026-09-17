@@ -605,6 +605,46 @@ async def test_429_notifier_is_sparse_and_reports_recovery(mocker):
 
 
 @pytest.mark.asyncio
+async def test_429_recovery_notifier_does_not_call_passed_through_error_successful(
+    mocker,
+):
+    """Recovery reports a passed-through error without calling it successful."""
+    mocker.patch(
+        "flexmeasures_client.response_handling.asyncio.sleep",
+        new_callable=AsyncMock,
+    )
+    notifier = MagicMock()
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            rate_limit_notifier=notifier,
+        )
+        flexmeasures_client.access_token = "test-token"
+        job_url = "http://localhost:5000/api/v3_0/jobs/job-id"
+        m.get(
+            job_url,
+            status=429,
+            payload={"status": "TOO_MANY_REQUESTS"},
+            headers={"Retry-After": "0"},
+        )
+        m.get(
+            job_url,
+            status=422,
+            payload={"status": "FAILED", "message": "Job failed."},
+        )
+
+        job = await flexmeasures_client.get_job_status("job-id")
+
+        assert job["status"] == "FAILED"
+        assert notifier.call_count == 2
+        recovery_message = notifier.call_args_list[1].args[0]
+        assert "received HTTP 422 after 1 rate-limit retry" in recovery_message
+        assert "succeeded" not in recovery_message
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
 async def test_429_retry_after_is_not_cut_short_by_attempt_timeout(mocker):
     """The network-attempt timeout does not interrupt Retry-After waits."""
     original_sleep = asyncio.sleep

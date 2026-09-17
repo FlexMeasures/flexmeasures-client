@@ -384,9 +384,14 @@ class FlexMeasuresClient:
                             or response.status in pass_through_statuses
                         ) and polling_step == previous_polling_step:
                             if rate_limit_retries:
+                                response_outcome = (
+                                    "succeeded"
+                                    if response.status < 300
+                                    else f"received HTTP {response.status}"
+                                )
                                 message = (
                                     f"Rate limit cleared; {method.upper()} {url.path} "
-                                    f"succeeded after {rate_limit_retries} "
+                                    f"{response_outcome} after {rate_limit_retries} "
                                     f"rate-limit {'retry' if rate_limit_retries == 1 else 'retries'}."
                                 )
                                 if self.rate_limit_notifier is not None:
