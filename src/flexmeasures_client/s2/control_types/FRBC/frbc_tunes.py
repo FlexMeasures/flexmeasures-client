@@ -646,6 +646,7 @@ class FillRateBasedControlTUNES(FRBC):
                     "prefer-curtailing-later": True,
                 },
             ),
+            parse_json_fields=True,
         )
 
     async def close(self):

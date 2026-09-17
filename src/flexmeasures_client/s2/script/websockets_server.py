@@ -148,7 +148,9 @@ async def configure_site(
             name=site_name, account_id=account["id"], **site_asset_specs
         )
     # Update site asset with the latest specs
-    await fm_client.update_asset(site_asset["id"], site_asset_specs)
+    await fm_client.update_asset(
+        site_asset["id"], site_asset_specs, parse_json_fields=True
+    )
 
     sensors = site_asset.get("sensors", [])
     price_sensor = None

@@ -8,7 +8,16 @@ import asyncio
 from typing import Callable
 
 from assets_setup import create_community_asset
-from const import COMMUNITY_NAME, PV_MODE, SITE_NAMES, host, pwd, ssl, usr
+from const import (
+    COMMUNITY_NAME,
+    HEMS_REQUEST_RETRY_TIMEOUT_SECONDS,
+    PV_MODE,
+    SITE_NAMES,
+    host,
+    pwd,
+    ssl,
+    usr,
+)
 from forecasting import generate_forecasts
 from reporters import create_reports
 from scheduling import just_continue, run_scheduling_simulation
@@ -32,6 +41,16 @@ from utils.workflow_utils import (
 )
 
 from flexmeasures_client import FlexMeasuresClient
+
+
+def print_rate_limit_notice(message: str) -> None:
+    """Show sparse HTTP rate-limit progress in the HEMS console."""
+    print(f"[RATE-LIMIT] {message}", flush=True)
+
+
+def print_job_status_notice(message: str) -> None:
+    """Show sparse background-job progress in the HEMS console."""
+    print(f"[JOB] {message}", flush=True)
 
 
 def print_workflow_summary(state: dict) -> None:
@@ -275,7 +294,15 @@ async def main(
     # flexmeasures add user --username hems-admin --email hems-admin@example.com \
     #     --account 2 --roles account-admin
 
-    client = FlexMeasuresClient(email=usr, password=pwd, host=host, ssl=ssl)
+    client = FlexMeasuresClient(
+        email=usr,
+        password=pwd,
+        host=host,
+        ssl=ssl,
+        request_retry_timeout=HEMS_REQUEST_RETRY_TIMEOUT_SECONDS,
+        rate_limit_notifier=print_rate_limit_notice,
+        job_status_notifier=print_job_status_notice,
+    )
 
     try:
         print(

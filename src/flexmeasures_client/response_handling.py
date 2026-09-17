@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+import math
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from typing import TYPE_CHECKING, Callable
 
 from aiohttp import ContentTypeError
 from yarl import URL
@@ -15,6 +18,40 @@ if TYPE_CHECKING:  # Only imports the below statements during type checking
 logger = logging.getLogger(__name__)
 
 
+def parse_retry_after(
+    value: str | None, *, now: datetime | None = None
+) -> float | None:
+    """Return the delay described by an HTTP Retry-After header.
+
+    RFC 9110 permits either a number of seconds or an HTTP date. Invalid and
+    negative values are ignored so callers can fall back to their local retry
+    policy.
+    """
+    if value is None:
+        return None
+
+    try:
+        delay = float(value)
+    except (TypeError, ValueError):
+        pass
+    else:
+        if math.isfinite(delay) and delay >= 0:
+            return delay
+        return None
+
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+
+    current_time = now or datetime.now(timezone.utc)
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=timezone.utc)
+    return max(0.0, (retry_at - current_time).total_seconds())
+
+
 async def check_response(
     self: FlexMeasuresClient,
     response,
@@ -23,6 +60,7 @@ async def check_response(
     url: URL,
     method: str = "GET",
     pass_through_statuses: frozenset[int] = frozenset(),
+    rate_limit_callback: Callable[[str], None] | None = None,
 ) -> tuple[int, bool, URL]:
     """
     <300: passes
@@ -30,7 +68,8 @@ async def check_response(
     303: redirect to new url
     400 + custom message: schedule not ready yet
     401: reauthenticate
-    503 + Retry-After header: poll again
+    429: retry after the server-requested delay, or with local backoff
+    503 + Retry-After header: retry after the server-requested delay
     otherwise: call error_handler
 
     Returns: tuple of (polling_step, reauth_once, url)
@@ -81,8 +120,24 @@ async def check_response(
         self.logger.debug(message)
         await self.get_access_token()
         reauth_once = False
-    elif status == 503 and "Retry-After" in headers:
-        sleep_interval = self.request_retry_interval * (2**polling_step)
+    elif status == 429 or (status == 503 and "Retry-After" in headers):
+        sleep_interval = parse_retry_after(headers.get("Retry-After"))
+        if sleep_interval is None:
+            sleep_interval = self.request_retry_interval * (2**polling_step)
+            delay_source = "local exponential backoff"
+        else:
+            delay_source = "Retry-After"
+        message = (
+            f"Rate limit reached for {method.upper()} {url.path}. Retrying in "
+            f"{sleep_interval:g} seconds using {delay_source}."
+        )
+        if status == 429:
+            if rate_limit_callback is not None:
+                rate_limit_callback(message)
+            else:
+                self.logger.warning(message)
+        else:
+            self.logger.debug(message)
         polling_step += 1
         await asyncio.sleep(sleep_interval)
     elif payload.get("errors"):
