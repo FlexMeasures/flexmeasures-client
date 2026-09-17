@@ -115,6 +115,41 @@ async def test__init__(
     assert init_dict == assert_dict
 
 
+@pytest.mark.asyncio
+async def test_notification_options_preserve_positional_polling_options() -> None:
+    """New keyword-only options do not shift the released positional API."""
+    logger = MagicMock()
+    client = FlexMeasuresClient(
+        "password",
+        "test@test.test",
+        "localhost:5000",
+        None,
+        False,
+        "v3_0",
+        "/api/v3_0/",
+        None,
+        10,
+        200.0,
+        40.0,
+        10.0,
+        None,
+        None,
+        logger,
+        3.0,
+        31.0,
+        601.0,
+    )
+
+    assert client.logger is logger
+    assert client.job_polling_interval == 3.0
+    assert client.job_polling_max_interval == 31.0
+    assert client.job_polling_timeout == 601.0
+    assert client.rate_limit_notifier is None
+    assert client.job_status_notifier is None
+    assert client.job_status_notification_interval == 60.0
+    await client.close()
+
+
 @pytest.mark.parametrize(
     ("old_name", "new_name", "value"),
     (

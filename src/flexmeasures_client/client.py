@@ -176,9 +176,13 @@ class FlexMeasuresClient:
     session: ClientSession | None = None
     server_version: str | None = None
     logger: Logger = LOGGER
-    rate_limit_notifier: Callable[[str], None] | None = None
-    job_status_notifier: Callable[[str], None] | None = None
-    job_status_notification_interval: float = 60.0  # seconds
+    rate_limit_notifier: Callable[[str], None] | None = field(
+        default=None, kw_only=True
+    )
+    job_status_notifier: Callable[[str], None] | None = field(
+        default=None, kw_only=True
+    )
+    job_status_notification_interval: float = field(default=60.0, kw_only=True)
     job_polling_interval: float = JOB_POLLING_INTERVAL  # seconds
     job_polling_max_interval: float = JOB_POLLING_MAX_INTERVAL  # seconds
     job_polling_timeout: float = JOB_POLLING_TIMEOUT  # seconds
