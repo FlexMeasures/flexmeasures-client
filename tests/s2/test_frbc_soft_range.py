@@ -111,6 +111,7 @@ async def test_flex_model_declares_wide_safety_rails(frbc_system_description):
     frbc._storage_status_history[str(status.message_id)] = status
 
     frbc._fm_client = AsyncMock()
+    frbc._fm_client._resolve_server_version = AsyncMock(return_value="1.1.0")
     frbc._fm_client.trigger_and_get_schedule = AsyncMock(
         side_effect=RuntimeError("stop after capturing the flex model")
     )
@@ -143,6 +144,7 @@ async def test_safety_rails_still_widen_to_include_the_start_state(
     frbc._storage_status_history[str(status.message_id)] = status
 
     frbc._fm_client = AsyncMock()
+    frbc._fm_client._resolve_server_version = AsyncMock(return_value="1.1.0")
     frbc._fm_client.trigger_and_get_schedule = AsyncMock(
         side_effect=RuntimeError("stop after capturing the flex model")
     )
@@ -193,3 +195,96 @@ async def test_fill_level_target_profile_is_posted_clipped(frbc_system_descripti
     assert minima[1] == pytest.approx(0.8 * RANGE_TOP)  # untouched
     assert maxima[1] == pytest.approx(range_top)  # clipped DOWN to the top
     assert all(lo <= hi for lo, hi in zip(minima, maxima))
+
+
+NATIVE_CRASH = (
+    "Job 9d1db924 ended with status FAILED. Scheduling job failed with Work-horse terminated "
+    "unexpectedly; waitpid returned 134 (signal 6)."
+)
+
+
+def _frbc_ready_to_schedule(frbc_system_description) -> FRBCSimple:
+    frbc = make_frbc()
+    sd = frbc_system_description
+    frbc._system_description_history[str(sd.message_id)] = sd
+    status = FRBCStorageStatus(message_id=get_unique_id(), present_fill_level=0.5)
+    frbc._storage_status_history[str(status.message_id)] = status
+    frbc._fm_client = AsyncMock()
+    # trigger_schedule parses the server version, so the mock must answer with a version string.
+    frbc._fm_client._resolve_server_version = AsyncMock(return_value="1.1.0")
+    return frbc
+
+
+@pytest.mark.asyncio
+async def test_a_failed_job_reported_through_the_job_status_api_is_retried(
+    frbc_system_description, monkeypatch
+):
+    """A crashed scheduling job must be re-triggered, not abandoned.
+
+    Against a server with the job-status API the client reports a failed job as JobFailedError,
+    not ValueError. The retry loop caught only the latter, so a native solver crash stranded the
+    apartment without instructions for the rest of a co-simulation.
+    """
+    from flexmeasures_client.exceptions import JobFailedError
+
+    monkeypatch.setattr(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.asyncio.sleep",
+        AsyncMock(),
+    )
+    frbc = _frbc_ready_to_schedule(frbc_system_description)
+    frbc._fm_client.trigger_and_get_schedule = AsyncMock(
+        side_effect=[
+            JobFailedError(NATIVE_CRASH),
+            RuntimeError("stop after the retry was attempted"),
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match="stop after the retry"):
+        await frbc.trigger_schedule(datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc))
+
+    assert frbc._fm_client.trigger_and_get_schedule.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_a_deterministic_job_failure_is_still_not_retried(
+    frbc_system_description, monkeypatch
+):
+    """Catching JobFailedError must not widen retries to failures that re-fail identically."""
+    from flexmeasures_client.exceptions import JobFailedError
+
+    monkeypatch.setattr(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.asyncio.sleep",
+        AsyncMock(),
+    )
+    frbc = _frbc_ready_to_schedule(frbc_system_description)
+    frbc._fm_client.trigger_and_get_schedule = AsyncMock(
+        side_effect=JobFailedError(
+            "Job x ended with status FAILED. Scheduling job failed with UniqueViolation: "
+            "duplicate key value violates unique constraint."
+        )
+    )
+
+    with pytest.raises(JobFailedError):
+        await frbc.trigger_schedule(datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc))
+
+    assert frbc._fm_client.trigger_and_get_schedule.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_retries_on_job_failure_are_bounded(frbc_system_description, monkeypatch):
+    """A job that keeps failing gives up after the attempt limit rather than looping forever."""
+    from flexmeasures_client.exceptions import JobFailedError
+
+    monkeypatch.setattr(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.asyncio.sleep",
+        AsyncMock(),
+    )
+    frbc = _frbc_ready_to_schedule(frbc_system_description)
+    frbc._fm_client.trigger_and_get_schedule = AsyncMock(
+        side_effect=JobFailedError(NATIVE_CRASH)
+    )
+
+    with pytest.raises(JobFailedError):
+        await frbc.trigger_schedule(datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc))
+
+    assert frbc._fm_client.trigger_and_get_schedule.call_count == 5

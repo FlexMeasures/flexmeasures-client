@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from flexmeasures_client.client import _server_version_at_least
+from flexmeasures_client.exceptions import JobFailedError
 
 try:
     from s2python.frbc import (
@@ -466,7 +467,17 @@ class FRBCSimple(FRBC):
                     unit=self.power_unit,
                 )
                 break
-            except ValueError as exc:
+            # JobFailedError, not only ValueError: against a server with the job-status API,
+            # trigger_and_get_schedule waits on the job through wait_for_job, which reports a
+            # failed job as JobFailedError. This loop predates that path and caught only the
+            # ValueError the schedule endpoint raises, so every failed job - a native solver
+            # crash included - went straight past the retry. The fire-and-forget task died, the
+            # RM never got instructions for that timestep, and in a co-simulation it polled
+            # until its round timeout, every round, for the rest of the run (observed with a
+            # SIGABRT inside HiGHS: one crash stalled one apartment and held the run open).
+            # The message is the same job status description either way, so the transient and
+            # deterministic markers below apply unchanged.
+            except (ValueError, JobFailedError) as exc:
                 if (
                     any(marker in str(exc) for marker in deterministic_errors)
                     or not any(marker in str(exc) for marker in transient_errors)
