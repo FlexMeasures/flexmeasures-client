@@ -14,6 +14,8 @@ from const import (
     SCHEDULING_END,
     SCHEDULING_START,
     SIMULATION_STEP_HOURS,
+    SITE_POWER_CAPACITY,
+    SOLVE_AS_COMMUNITY,
     TUTORIAL_START_DATE,
     battery_name,
     evse1_name,
@@ -31,6 +33,7 @@ from utils.asset_utils import (
 )
 from utils.ev_utils import (
     calculate_ev_soc_targets_and_constraints,
+    generate_ev_soc_target_annotations,
     simulate_random_trip,
 )
 from utils.reporter_utils import run_report
@@ -43,6 +46,31 @@ BASE_DIR = Path(__file__).parent
 
 async def just_continue(*args, **kwargs):
     return True
+
+
+async def add_ev_soc_target_annotations(
+    client: FlexMeasuresClient,
+    sensors: dict,
+    site_count: int,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> None:
+    """Mark configured EV deadlines on each EV state-of-charge sensor."""
+    annotations = generate_ev_soc_target_annotations(start, end)
+    if not annotations:
+        return
+    sensor_ids = [
+        sensors[f"evse{evse_number}-soc-{index}"]["id"]
+        for index in range(1, site_count + 1)
+        for evse_number in (1, 2)
+    ]
+    print(
+        f"Adding {len(annotations)} configured EV SoC target labels "
+        f"to {len(sensor_ids)} sensors..."
+    )
+    for sensor_id in dict.fromkeys(sensor_ids):
+        for annotation in annotations:
+            await client.add_sensor_annotation(sensor_id=sensor_id, **annotation)
 
 
 def realize_pv_power(
@@ -73,9 +101,22 @@ async def run_scheduling_simulation(
     site_names: list[str],
     simulate_live_corrections: bool = False,
     callback: Callable = just_continue,
+    solve_as_community: bool = SOLVE_AS_COMMUNITY,
 ):
     """Run step-by-step scheduling simulation for the third week with EV charging."""
     print("Running scheduling simulation for third week with EV charging...")
+    if solve_as_community:
+        print(
+            "[SCHEDULING-MODE] Solving all buildings jointly on the community "
+            "asset; community and building capacity limits are included."
+        )
+    else:
+        print("[SCHEDULING-MODE] Solving each building independently.")
+        print(
+            "[COMMUNITY-CAPACITY-WARNING] The community capacity is not enforced "
+            "in per-site mode and may be violated. Breaches will be annotated "
+            "after each simulation step."
+        )
 
     # Find required assets and sensors
     sensors = await map_site_sensors(
@@ -90,6 +131,13 @@ async def run_scheduling_simulation(
     # Initialize simulation
     current_time = pd.to_datetime(SCHEDULING_START)
     end_time = pd.to_datetime(SCHEDULING_END)
+    await add_ev_soc_target_annotations(
+        client=client,
+        sensors=sensors,
+        site_count=len(site_names),
+        start=current_time,
+        end=end_time,
+    )
     step_num = 1
     battery_next_current_soc = None
     evse1_next_current_soc = None
@@ -121,6 +169,7 @@ async def run_scheduling_simulation(
             heating_soc_schedules = []
             evse1_flex_models = []
             evse2_flex_models = []
+            site_flex_models = []
             for index, site_name in enumerate(site_names, start=1):
 
                 (
@@ -159,15 +208,7 @@ async def run_scheduling_simulation(
                     "capacity_kwh", EV_CONFIG["default_capacity_kwh"]
                 )
 
-                (
-                    schedule_result,
-                    battery_soc_schedule,
-                    evse1_soc_schedule,
-                    evse2_soc_schedule,
-                    heating_soc_schedule,
-                ) = await compute_site_schedules(
-                    client=client,
-                    site_asset=site_asset,
+                schedule_parameters = dict(
                     index=index,
                     sensors=sensors,
                     step_num=step_num,
@@ -185,15 +226,41 @@ async def run_scheduling_simulation(
                     ],
                     evse1_capacity=evse1_capacity,
                     evse2_capacity=evse2_capacity,
-                    simulate_live_corrections=simulate_live_corrections,
                 )
-                schedule_results.append(schedule_result)
-                battery_soc_schedules.append(battery_soc_schedule)
-                evse1_soc_schedules.append(evse1_soc_schedule)
-                evse2_soc_schedules.append(evse2_soc_schedule)
-                heating_soc_schedules.append(heating_soc_schedule)
+                if solve_as_community:
+                    site_flex_models.append(
+                        build_site_flex_models(**schedule_parameters)
+                    )
+                else:
+                    site_schedules = await compute_site_schedules(
+                        client=client,
+                        site_asset=site_asset,
+                        simulate_live_corrections=simulate_live_corrections,
+                        **schedule_parameters,
+                    )
+                    schedule_results.append(site_schedules[0])
+                    battery_soc_schedules.append(site_schedules[1])
+                    evse1_soc_schedules.append(site_schedules[2])
+                    evse2_soc_schedules.append(site_schedules[3])
+                    heating_soc_schedules.append(site_schedules[4])
                 evse1_flex_models.append(evse1_flex_model)
                 evse2_flex_models.append(evse2_flex_model)
+
+            if solve_as_community:
+                community_schedules = await compute_community_schedules(
+                    client=client,
+                    community_asset=community_asset,
+                    site_flex_models=site_flex_models,
+                    sensors=sensors,
+                    current_time=current_time,
+                    simulate_live_corrections=simulate_live_corrections,
+                )
+                for site_schedules in community_schedules:
+                    schedule_results.append(site_schedules[0])
+                    battery_soc_schedules.append(site_schedules[1])
+                    evse1_soc_schedules.append(site_schedules[2])
+                    evse2_soc_schedules.append(site_schedules[3])
+                    heating_soc_schedules.append(site_schedules[4])
 
             step_info = dict(
                 iteration=rescheduling_iteration,
@@ -251,6 +318,14 @@ async def run_scheduling_simulation(
             raise RuntimeError(
                 f"Aggregate report generation failed for simulation step {step_num}."
             )
+        if not solve_as_community:
+            await report_community_capacity_breaches(
+                client=client,
+                power_sensor=sensors["community-power"],
+                capacity_sensor=sensors["community-site-power-capacity"],
+                current_time=current_time,
+                step_end_time=step_end_time,
+            )
 
         # Move to next simulation step
         current_time = step_end_time
@@ -268,9 +343,7 @@ async def run_scheduling_simulation(
     return True
 
 
-async def compute_site_schedules(
-    client: FlexMeasuresClient,
-    site_asset: dict,
+def build_site_flex_models(
     index: int,
     sensors: dict,
     step_num: int,
@@ -284,14 +357,10 @@ async def compute_site_schedules(
     heating_next_current_soc: float = None,
     evse1_capacity: float = None,
     evse2_capacity: float = None,
-    simulate_live_corrections: bool = True,
-):
+) -> list[dict]:
+    """Build one building's dynamic device flex-models for a scheduling job."""
 
     print(f"Simulation step {step_num}: {current_time}")
-
-    # Create schedule for the site with battery and EVs
-    schedule_start = current_time
-    schedule_duration = timedelta(hours=FORECAST_HORIZON_HOURS)
 
     # Create flex model for battery
     if battery_next_current_soc is None:
@@ -420,9 +489,97 @@ async def compute_site_schedules(
         print(f"[FLEX-MODEL] {device_name}: {model}")
     print()
 
+    return final_flex_models
+
+
+async def retrieve_site_schedules(
+    client: FlexMeasuresClient,
+    job_uuid: str,
+    final_flex_models: list[dict],
+    sensors: dict,
+    index: int,
+    schedule_duration: timedelta,
+):
+    """Retrieve one building's device power and state-of-charge schedules."""
+
+    schedule_result = []
+    for flex_model in final_flex_models:
+        sensor_id = flex_model["sensor"]
+        power_schedule = await client.get_schedule(
+            sensor_id=sensor_id,
+            schedule_id=job_uuid,
+            duration=schedule_duration,
+        )
+        power_schedule["sensor"] = sensor_id
+        schedule_result.append(power_schedule)
+
+    async def get_storage_schedule(sensor_key: str, device_label: str) -> dict:
+        soc_schedule = await client.get_schedule(
+            sensor_id=sensors[sensor_key]["id"],
+            schedule_id=job_uuid,
+            duration=schedule_duration,
+        )
+        scheduler = soc_schedule["scheduler_info"]["scheduler"]
+        if scheduler != "StorageScheduler":
+            raise ValueError(
+                f"Unexpected scheduler was used to determine {device_label} "
+                f"SOC schedule: {scheduler}"
+            )
+        return soc_schedule
+
+    battery_soc_schedule = await get_storage_schedule(f"battery-soc-{index}", "battery")
+    evse1_soc_schedule = await get_storage_schedule(f"evse1-soc-{index}", "EVSE 1")
+    evse2_soc_schedule = await get_storage_schedule(f"evse2-soc-{index}", "EVSE 2")
+    heating_soc_schedule = await get_storage_schedule(f"heating-soc-{index}", "heating")
+
+    return (
+        schedule_result,
+        battery_soc_schedule,
+        evse1_soc_schedule,
+        evse2_soc_schedule,
+        heating_soc_schedule,
+    )
+
+
+async def compute_site_schedules(
+    client: FlexMeasuresClient,
+    site_asset: dict,
+    index: int,
+    sensors: dict,
+    step_num: int,
+    current_time: pd.Timestamp,
+    battery_soc_at_start: float,
+    evse1_flex_model: dict,
+    evse2_flex_model: dict,
+    battery_next_current_soc: float = None,
+    evse1_next_current_soc: float = None,
+    evse2_next_current_soc: float = None,
+    heating_next_current_soc: float = None,
+    evse1_capacity: float = None,
+    evse2_capacity: float = None,
+    simulate_live_corrections: bool = True,
+):
+    """Trigger and retrieve an independent scheduling job for one building."""
+    schedule_duration = timedelta(hours=FORECAST_HORIZON_HOURS)
+    final_flex_models = build_site_flex_models(
+        index=index,
+        sensors=sensors,
+        step_num=step_num,
+        current_time=current_time,
+        battery_soc_at_start=battery_soc_at_start,
+        evse1_flex_model=evse1_flex_model,
+        evse2_flex_model=evse2_flex_model,
+        battery_next_current_soc=battery_next_current_soc,
+        evse1_next_current_soc=evse1_next_current_soc,
+        evse2_next_current_soc=evse2_next_current_soc,
+        heating_next_current_soc=heating_next_current_soc,
+        evse1_capacity=evse1_capacity,
+        evse2_capacity=evse2_capacity,
+    )
+
     # Trigger scheduling and get job UUID to retrieve both power and SoC schedules
     job_uuid = await client.trigger_schedule(
-        start=schedule_start,
+        start=current_time,
         duration=schedule_duration,
         flex_model=final_flex_models,
         asset_id=site_asset["id"],
@@ -435,77 +592,113 @@ async def compute_site_schedules(
 
     print(f"Multi-device scheduling job triggered with UUID: {job_uuid}")
 
-    # Get power schedules for each device
-    schedule_result = []
-    for flex_model in final_flex_models:
-        sensor_id = flex_model["sensor"]
-        power_schedule = await client.get_schedule(
-            sensor_id=sensor_id,
-            schedule_id=job_uuid,
-            duration=schedule_duration,
-        )
-        power_schedule["sensor"] = sensor_id
-        schedule_result.append(power_schedule)
-
-    # Get SoC schedules computed by FlexMeasures using the same job UUID
-    # This retrieves the SoC values that FlexMeasures computed based on the flex-model constraints
-    battery_soc_schedule = await client.get_schedule(
-        sensor_id=sensors[f"battery-soc-{index}"]["id"],
-        schedule_id=job_uuid,
-        duration=schedule_duration,
+    schedules = await retrieve_site_schedules(
+        client=client,
+        job_uuid=job_uuid,
+        final_flex_models=final_flex_models,
+        sensors=sensors,
+        index=index,
+        schedule_duration=schedule_duration,
     )
-    if (
-        scheduler := battery_soc_schedule["scheduler_info"]["scheduler"]
-    ) != "StorageScheduler":
-        raise ValueError(
-            f"Unexpected scheduler was used to determine battery SOC schedule: {scheduler}"
-        )
-
-    evse1_soc_schedule = await client.get_schedule(
-        sensor_id=sensors[f"evse1-soc-{index}"]["id"],
-        schedule_id=job_uuid,
-        duration=schedule_duration,
-    )
-    if (
-        scheduler := evse1_soc_schedule["scheduler_info"]["scheduler"]
-    ) != "StorageScheduler":
-        raise ValueError(
-            f"Unexpected scheduler was used to determine EVSE 1 SOC schedule: {scheduler}"
-        )
-
-    evse2_soc_schedule = await client.get_schedule(
-        sensor_id=sensors[f"evse2-soc-{index}"]["id"],
-        schedule_id=job_uuid,
-        duration=schedule_duration,
-    )
-    if (
-        scheduler := evse2_soc_schedule["scheduler_info"]["scheduler"]
-    ) != "StorageScheduler":
-        raise ValueError(
-            f"Unexpected scheduler was used to determine EVSE 2 SOC schedule: {scheduler}"
-        )
-
-    heating_soc_schedule = await client.get_schedule(
-        sensor_id=sensors[f"heating-soc-{index}"]["id"],
-        schedule_id=job_uuid,
-        duration=schedule_duration,
-    )
-    if (
-        scheduler := heating_soc_schedule["scheduler_info"]["scheduler"]
-    ) != "StorageScheduler":
-        raise ValueError(
-            f"Unexpected scheduler was used to determine heating SOC schedule: {scheduler}"
-        )
-
     print("Multi-device power and SoC schedules retrieved successfully")
+    return schedules
 
-    return (
-        schedule_result,
-        battery_soc_schedule,
-        evse1_soc_schedule,
-        evse2_soc_schedule,
-        heating_soc_schedule,
+
+def build_community_flex_models(
+    site_flex_models: list[list[dict]],
+    sensors: dict,
+    pv_mode: str = PV_MODE,
+) -> list[dict]:
+    """Combine site models into groups constrained at building and community level."""
+    community_flex_models = []
+    for index, flex_models in enumerate(site_flex_models, start=1):
+        group_reference = {"sensor": sensors[f"electricity-aggregate-{index}"]["id"]}
+        community_flex_models.extend(
+            {**flex_model, "group": group_reference} for flex_model in flex_models
+        )
+        community_flex_models.append(
+            {
+                "sensor": sensors[f"building-consumption-{index}"]["id"],
+                "inflexible-consumption": {
+                    "sensor": sensors[f"building-consumption-{index}"]["id"]
+                },
+                "group": group_reference,
+            }
+        )
+        if pv_mode == "inflexible":
+            community_flex_models.append(
+                {
+                    "sensor": sensors[f"pv-production-{index}"]["id"],
+                    "inflexible-production": {
+                        "sensor": sensors[f"pv-production-{index}"]["id"]
+                    },
+                    "group": group_reference,
+                }
+            )
+        elif pv_mode != "curtailable":
+            raise ValueError(
+                f"Unsupported PV_MODE {pv_mode!r}; choose 'inflexible' or "
+                "'curtailable'."
+            )
+        community_flex_models.append(
+            {
+                "sensor": group_reference["sensor"],
+                "power-capacity": SITE_POWER_CAPACITY,
+                "consumption-capacity": {
+                    "sensor": sensors[f"max-consumption-capacity-{index}"]["id"]
+                },
+                "production-capacity": {
+                    "sensor": sensors[f"max-production-capacity-{index}"]["id"]
+                },
+            }
+        )
+    return community_flex_models
+
+
+async def compute_community_schedules(
+    client: FlexMeasuresClient,
+    community_asset: dict,
+    site_flex_models: list[list[dict]],
+    sensors: dict,
+    current_time: pd.Timestamp,
+    simulate_live_corrections: bool = True,
+):
+    """Trigger one community job and retrieve every building's schedules."""
+    schedule_duration = timedelta(hours=FORECAST_HORIZON_HOURS)
+    community_flex_models = build_community_flex_models(
+        site_flex_models=site_flex_models,
+        sensors=sensors,
     )
+    job_uuid = await client.trigger_schedule(
+        start=current_time,
+        duration=schedule_duration,
+        flex_model=community_flex_models,
+        flex_context={
+            "consumption-price": {"sensor": sensors["electricity-price"]["id"]}
+        },
+        asset_id=community_asset["id"],
+        prior=(
+            current_time + timedelta(hours=SIMULATION_STEP_HOURS)
+            if simulate_live_corrections
+            else current_time
+        ),
+    )
+    print(f"Community scheduling job triggered with UUID: {job_uuid}")
+
+    schedules = []
+    for index, flex_models in enumerate(site_flex_models, start=1):
+        schedules.append(
+            await retrieve_site_schedules(
+                client=client,
+                job_uuid=job_uuid,
+                final_flex_models=flex_models,
+                sensors=sensors,
+                index=index,
+                schedule_duration=schedule_duration,
+            )
+        )
+    print("Community power and SoC schedules retrieved successfully")
+    return schedules
 
 
 async def compute_site_measurements(
@@ -963,6 +1156,16 @@ async def map_site_sensors(
             (f"evse2-soc-{index}", f"{evse2_name} {index}", "state-of-charge"),
             ("electricity-price", price_market_name, "electricity-price"),
             (f"electricity-aggregate-{index}", site_name, "electricity-aggregate"),
+            (
+                f"max-consumption-capacity-{index}",
+                site_name,
+                "max-consumption-capacity",
+            ),
+            (
+                f"max-production-capacity-{index}",
+                site_name,
+                "max-production-capacity",
+            ),
             (f"heating-power-{index}", f"{heating_name} {index}", "power"),
             (f"heating-soc-{index}", f"{heating_name} {index}", "state of charge"),
         ]
@@ -976,7 +1179,114 @@ async def map_site_sensors(
                 allow_top_level_asset=asset_name == price_market_name,
             )
             sensors[sensor_key] = sensor
+    for sensor_key, sensor_name in (
+        ("community-power", "power"),
+        ("community-site-power-capacity", "site-power-capacity"),
+    ):
+        sensors[sensor_key] = await find_sensor_by_name_and_asset(
+            client,
+            sensor_name,
+            community_name,
+            top_level_asset_id=top_level_asset_id,
+            allow_top_level_asset=True,
+        )
     return sensors
+
+
+def find_capacity_breaches(
+    power_data: dict,
+    capacity_data: dict,
+    power_resolution: timedelta = timedelta(minutes=15),
+    capacity_resolution: timedelta = timedelta(hours=1),
+) -> list[dict]:
+    """Return timestamped intervals whose absolute power exceeds site capacity."""
+    power_values = pd.to_numeric(power_data.get("values", []), errors="coerce")
+    capacity_values = pd.to_numeric(capacity_data.get("values", []), errors="coerce")
+    if len(power_values) == 0 or len(capacity_values) == 0:
+        return []
+
+    power_start = pd.Timestamp(power_data["start"])
+    capacity_start = pd.Timestamp(capacity_data["start"])
+    power_index = pd.date_range(
+        power_start, periods=len(power_values), freq=power_resolution
+    )
+    capacity_index = pd.date_range(
+        capacity_start, periods=len(capacity_values), freq=capacity_resolution
+    )
+    power_series = pd.Series(power_values, index=power_index)
+    capacity_series = pd.Series(capacity_values, index=capacity_index)
+    aligned_capacity = (
+        capacity_series.reindex(capacity_series.index.union(power_index))
+        .sort_index()
+        .ffill()
+        .reindex(power_index)
+    )
+
+    breaches = []
+    for timestamp, power in power_series.items():
+        capacity = aligned_capacity.loc[timestamp]
+        if pd.isna(power) or pd.isna(capacity) or abs(power) <= capacity:
+            continue
+        breaches.append(
+            {
+                "timestamp": timestamp,
+                "power": float(power),
+                "capacity": float(capacity),
+                "excess": float(abs(power) - capacity),
+                "direction": "consumption" if power >= 0 else "production",
+            }
+        )
+    return breaches
+
+
+async def report_community_capacity_breaches(
+    client: FlexMeasuresClient,
+    power_sensor: dict,
+    capacity_sensor: dict,
+    current_time: pd.Timestamp,
+    step_end_time: pd.Timestamp,
+) -> list[dict]:
+    """Print measurement intervals violating capacity in per-site mode."""
+    duration = step_end_time - current_time
+    try:
+        power_data = await client.get_sensor_data(
+            sensor_id=power_sensor["id"],
+            start=current_time,
+            duration=duration,
+            unit="kW",
+            resolution=timedelta(minutes=15),
+            source_type="reporter",
+        )
+        capacity_data = await client.get_sensor_data(
+            sensor_id=capacity_sensor["id"],
+            start=current_time,
+            duration=duration,
+            unit="kW",
+            resolution=timedelta(hours=1),
+        )
+    except Exception as exc:
+        print(
+            "[COMMUNITY-CAPACITY-WARNING] Could not check the community capacity "
+            f"for {current_time.isoformat()}: {exc}"
+        )
+        return []
+
+    breaches = find_capacity_breaches(power_data, capacity_data)
+    if not breaches:
+        print(
+            "[COMMUNITY-CAPACITY] No measured community-capacity breaches from "
+            f"{current_time.isoformat()} through {step_end_time.isoformat()}."
+        )
+        return []
+
+    for breach in breaches:
+        print(
+            "[COMMUNITY-CAPACITY-BREACH] "
+            f"{breach['timestamp'].isoformat()}: community {breach['direction']} "
+            f"was {abs(breach['power']):.2f} kW, exceeding the "
+            f"{breach['capacity']:.2f} kW limit by {breach['excess']:.2f} kW."
+        )
+    return breaches
 
 
 async def run_community_aggregate(

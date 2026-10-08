@@ -9,6 +9,7 @@ import pytest
 HEMS_DIR = Path(__file__).parents[2] / "examples" / "HEMS"
 sys.path.insert(0, str(HEMS_DIR))
 
+import HEMS_setup  # noqa: E402
 from assets_setup import (  # noqa: E402
     create_community_asset,
     get_or_create_asset,
@@ -100,6 +101,55 @@ class InMemoryClient:
         asset = next(asset for asset in self.assets if asset["id"] == asset_id)
         asset.update(updates)
         return dict(asset)
+
+
+@pytest.mark.asyncio
+async def test_completed_tutorial_prints_community_asset_id(capsys):
+    state = {
+        "workflow-version": WORKFLOW_VERSION,
+        "status": "ready",
+        "completed-phases": [
+            ASSET_SETUP_PHASE,
+            DATA_UPLOAD_PHASE,
+            FORECASTING_PHASE,
+            SCHEDULING_PHASE,
+            REPORTING_PHASE,
+        ],
+        "top-level-asset-ids": [42],
+        "sensor-ids": [100],
+        "site-names": ["Building A"],
+    }
+    client = AsyncMock()
+    client.get_account.return_value = {"id": 9, "name": "Example account"}
+    client.get_assets.return_value = [
+        {
+            "id": 42,
+            "name": "Community Site",
+            "account_id": 9,
+            "parent_asset_id": None,
+            "attributes": {"hems_tutorial": state},
+        }
+    ]
+
+    with (
+        patch.object(HEMS_setup, "FlexMeasuresClient", return_value=client),
+        patch.object(
+            HEMS_setup,
+            "get_site_assets",
+            new_callable=AsyncMock,
+            return_value=[{"name": "Building A"}],
+        ),
+        patch.object(HEMS_setup, "prompt_for_existing_setup", return_value="resume"),
+    ):
+        await HEMS_setup.main(
+            community_name="Community Site", site_names=["Building A"]
+        )
+
+    assert (
+        "HEMS Tutorial completed successfully! Community asset "
+        "'Community Site' (ID: 42)."
+    ) in capsys.readouterr().out
+    client.close.assert_awaited_once()
 
 
 def test_interrupted_wipe_requires_explicit_continue():

@@ -4,6 +4,7 @@ from typing import Any
 
 import pandas as pd
 from const import heating_name, price_market_name, pv_name, weather_station_name
+from generate_solar_data import generate_day_annotations
 
 from flexmeasures_client import FlexMeasuresClient
 
@@ -169,12 +170,24 @@ async def find_sensors_by_asset(
     return sensors
 
 
+async def add_pv_day_annotations(
+    client: FlexMeasuresClient, pv_production_sensor_ids: list[int]
+) -> None:
+    """Label synthetic solar conditions on each rooftop PV production sensor."""
+    annotations = generate_day_annotations()
+    for sensor_id in dict.fromkeys(pv_production_sensor_ids):
+        print(f"Adding {len(annotations)} solar-day labels to PV sensor {sensor_id}...")
+        for annotation in annotations:
+            await client.add_sensor_annotation(sensor_id=sensor_id, **annotation)
+
+
 async def upload_data_for_first_two_weeks(
     client: FlexMeasuresClient, community_name: str, site_names: list[str]
 ):
-    """Upload historical data for the first two weeks."""
+    """Upload historical data and label the synthetic PV weather days."""
     print("Uploading data for first two weeks...")
     pending_ingestion_jobs: list[str] = []
+    pv_production_sensor_ids: list[int] = []
 
     for i, site_name in enumerate(site_names, start=1):
         # Find all required sensors
@@ -191,6 +204,7 @@ async def upload_data_for_first_two_weeks(
         ]
 
         sensors = await find_sensors_by_asset(client, sensor_mappings, community_name)
+        pv_production_sensor_ids.append(sensors["electricity-production"]["id"])
 
         # Upload data files directly
         data_files = [
@@ -224,6 +238,7 @@ async def upload_data_for_first_two_weeks(
     # File uploads may only have been accepted (HTTP 202), not processed yet.
     # Forecasting must not start until all historical data is available.
     await wait_for_ingestion_jobs(client, pending_ingestion_jobs)
+    await add_pv_day_annotations(client, pv_production_sensor_ids)
 
     return True
 

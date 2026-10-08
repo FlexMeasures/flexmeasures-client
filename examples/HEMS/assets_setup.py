@@ -3,6 +3,7 @@ from const import (
     EV_CONFIG,
     HEATING_CONFIG,
     PV_MODE,
+    SITE_POWER_CAPACITY,
     battery_name,
     evse1_name,
     evse2_name,
@@ -717,7 +718,7 @@ async def configure_site_flex_context(
         "site-production-capacity": {
             "sensor": max_production_sensor["id"]
         },  # Relaxed constraint for residential
-        "site-power-capacity": "20 kVA",
+        "site-power-capacity": SITE_POWER_CAPACITY,
         # Enable soft constraints for SoC minima (this makes soc-minima soft constraints instead of hard)
         "relax-soc-constraints": True,
         "relax-site-capacity-constraints": True,

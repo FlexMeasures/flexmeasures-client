@@ -144,11 +144,29 @@ its other settings, then restart the server container:
 
     docker compose restart name-of-flexmeasures-server-container
 
-Now run the client script using the `/examples/HEMS` folder as the current working directory:
+Now run the client script using the ``examples/HEMS`` folder as the current
+working directory. Point ``uv`` at the repository project so the script imports
+this checkout's client instead of a possibly older user-site installation:
 
 .. code-block:: bash
 
-    python3 HEMS_setup.py
+    uv run --no-sync --project ../.. python HEMS_setup.py
+
+Scheduling the community jointly or per building
+=================================================
+
+The ``SOLVE_AS_COMMUNITY`` option in ``examples/HEMS/const.py`` defaults to
+``True``. In this mode, each scheduling iteration triggers one job on the
+community asset. The job includes every building's flexible and inflexible
+devices, each building's connection constraints, and the community's shared
+``site-power-capacity`` constraint.
+
+Set ``SOLVE_AS_COMMUNITY = False`` to retain independent scheduling jobs for
+each building. Those jobs enforce the individual building constraints, but they
+cannot enforce the shared community constraint. The script prints a prominent
+warning when this mode starts and, after each simulated step, prints a
+timestamped annotation for every measured 15-minute interval that exceeded the
+community limit.
 
 Rerunning or resuming the tutorial
 ==================================
@@ -193,7 +211,7 @@ from the same directory:
 
 .. code-block:: bash
 
-    python3 HEMS_cleanup.py
+    uv run --no-sync --project ../.. python HEMS_cleanup.py
 
 The script shows the matching top-level assets and asks for confirmation. It
 deletes the community asset, the energy market, and the weather station. Asset

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 from urllib.parse import unquote
 
@@ -254,6 +255,46 @@ async def test_add_sensor_with_optional_params():
             attributes={"key": "val"},
         )
         assert sensor["id"] == 36
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [200, 201])
+async def test_add_sensor_annotation(status: int) -> None:
+    """New and already-existing annotations are both successful responses."""
+    with aioresponses() as responses:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        url = "http://localhost:5000/api/v3_0/sensors/42/annotations"
+        responses.post(url, status=status, payload={"id": 17})
+
+        annotation = await client.add_sensor_annotation(
+            sensor_id=42,
+            content="Synthetic PV conditions: Clear sky",
+            start=datetime.fromisoformat("2030-01-15T00:00:00+01:00"),
+            end="2030-01-16T00:00:00+01:00",
+            prior=datetime.fromisoformat("2029-12-31T00:00:00+01:00"),
+        )
+
+        assert annotation == {"id": 17}
+        responses.assert_called_once_with(
+            url,
+            method="POST",
+            json={
+                "content": "Synthetic PV conditions: Clear sky",
+                "start": "2030-01-15T00:00:00+01:00",
+                "end": "2030-01-16T00:00:00+01:00",
+                "type": "label",
+                "prior": "2029-12-31T00:00:00+01:00",
+            },
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "test-token",
+            },
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
         await client.close()
 
 
