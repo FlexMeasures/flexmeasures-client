@@ -24,6 +24,45 @@ def get_day_pattern(date_time: pd.Timestamp) -> tuple:
     return pattern
 
 
+def generate_ev_soc_target_annotations(
+    start: pd.Timestamp, end: pd.Timestamp
+) -> list[dict[str, str]]:
+    """Return EV SoC deadline markers known 24 hours in advance.
+
+    These are the nominal weekly targets. A simulated random trip can increase
+    the minimum sent to the scheduler, so the annotation does not claim to show
+    the final dynamic constraint.
+    """
+    annotations = []
+    day = start.normalize()
+    while day < end:
+        needs_charging, departure_time, _, target_percent = EV_WEEKLY_PATTERNS[
+            day.weekday()
+        ]
+        if needs_charging and departure_time:
+            hour, minute = map(int, departure_time.split(":"))
+            deadline = day.replace(hour=hour, minute=minute)
+            content = (
+                f"Depart for work: {target_percent}% SoC "
+                f"by {departure_time} (configured)"
+            )
+        else:
+            deadline = day + pd.Timedelta(days=1)
+            content = f"EOD target: {target_percent}% SoC by midnight (configured)"
+
+        if start < deadline <= end:
+            annotations.append(
+                {
+                    "content": content,
+                    "start": (deadline - pd.Timedelta(minutes=15)).isoformat(),
+                    "end": deadline.isoformat(),
+                    "prior": (deadline - pd.Timedelta(hours=24)).isoformat(),
+                }
+            )
+        day += pd.Timedelta(days=1)
+    return annotations
+
+
 def calculate_ev_soc_targets_and_constraints(
     current_time: pd.Timestamp,
     capacity_kwh: float = None,

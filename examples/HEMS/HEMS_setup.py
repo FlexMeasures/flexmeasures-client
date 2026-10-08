@@ -13,6 +13,7 @@ from const import (
     HEMS_REQUEST_RETRY_TIMEOUT_SECONDS,
     PV_MODE,
     SITE_NAMES,
+    SOLVE_AS_COMMUNITY,
     host,
     pwd,
     ssl,
@@ -263,7 +264,10 @@ async def upgrade_existing_setup(
 
 
 async def main(
-    community_name: str, site_names: list[str], callback: Callable = just_continue
+    community_name: str,
+    site_names: list[str],
+    callback: Callable = just_continue,
+    solve_as_community: bool = SOLVE_AS_COMMUNITY,
 ):
     """
     Complete HEMS setup using FlexMeasures client.
@@ -496,6 +500,7 @@ async def main(
                 community_name=community_name,
                 site_names=active_site_names,
                 callback=callback,
+                solve_as_community=solve_as_community,
             )
             if not scheduling_succeeded:
                 raise RuntimeError("Scheduling simulation did not complete.")
@@ -519,7 +524,10 @@ async def main(
                 client, asset["id"], state, REPORTING_PHASE
             )
         print("\n" + "=" * 50)
-        print("HEMS Tutorial completed successfully!")
+        print(
+            "HEMS Tutorial completed successfully! "
+            f"Community asset '{community_name}' (ID: {asset['id']})."
+        )
 
     except Exception as e:
         print(f" Error during setup: {e}")
@@ -532,4 +540,10 @@ if __name__ == "__main__":
     community_name = COMMUNITY_NAME
     site_names = SITE_NAMES
 
-    asyncio.run(main(community_name=community_name, site_names=site_names))
+    asyncio.run(
+        main(
+            community_name=community_name,
+            site_names=site_names,
+            solve_as_community=SOLVE_AS_COMMUNITY,
+        )
+    )
