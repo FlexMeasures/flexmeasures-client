@@ -33,6 +33,7 @@ Contents
    Forecasting <forecasting>
    Scheduling <scheduling>
    Reporting <reporting>
+   Automations <automations>
    Contributions & Help <contributing>
    License <license>
    Authors <authors>
