@@ -39,7 +39,7 @@ from flexmeasures_client.response_handling import (
     check_for_status,
     check_response,
 )
-from flexmeasures_client.utils import apply_deprecated_parameter_aliases
+from flexmeasures_client.utils import apply_deprecated_parameter_aliases, merge_updates
 
 LOGGER = logging.getLogger(__name__)
 
@@ -66,6 +66,9 @@ JOB_STATUS_MIN_SERVER_VERSION = "0.33.0"
 
 # The asset report trigger endpoint landed in FlexMeasures v1.1.0
 REPORT_TRIGGER_MIN_SERVER_VERSION = "1.1.0"
+
+# The asset automation endpoints landed in FlexMeasures v1.1.0
+AUTOMATIONS_MIN_SERVER_VERSION = "1.1.0"
 
 
 def _parse_json_field(data: dict, field_name: str) -> None:
@@ -2192,6 +2195,329 @@ class FlexMeasuresClient:
         )
         return await self.wait_for_job(
             job_id=job_id,
+            timeout=timeout,
+            polling_interval=polling_interval,
+            max_polling_interval=max_polling_interval,
+        )
+
+    async def _request_automations(
+        self,
+        uri: str,
+        method: str,
+        json_payload: dict | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> tuple[dict | list, int]:
+        """Send a request to an automation endpoint, explaining a 404 response.
+
+        A 404 means either that the server predates the automation endpoints,
+        or that the asset or automation does not exist (an automation is only found under the asset it is defined on).
+        Server versions are compared by release generation, so that release candidates of v1.1.0 are accepted.
+        """
+        response, status = await self.request(
+            uri=uri,
+            method=method,
+            json_payload=json_payload,
+            params=params,
+            pass_through_statuses=frozenset({404}),
+        )
+        if status == 404:
+            await self._resolve_server_version()
+            if not _server_version_at_least(
+                self.server_version, AUTOMATIONS_MIN_SERVER_VERSION
+            ):
+                raise InsufficientServerVersionError(
+                    "Automations require a FlexMeasures server of "
+                    f"{AUTOMATIONS_MIN_SERVER_VERSION} or above. Current server has version "
+                    f"{self.server_version}."
+                )
+            message = (
+                response.get("message") if isinstance(response, dict) else None
+            ) or "Not found."
+            raise ValueError(f"Request failed with status code 404: {message}")
+        return response, status
+
+    async def get_automations(
+        self, asset_id: int, include_child_assets: bool = True
+    ) -> list[dict]:
+        """Get the automations defined on an asset.
+
+        Automations are recurring forecasting, scheduling, reporting or plugin-defined tasks.
+
+        :param asset_id: ID of the asset.
+        :param include_child_assets: whether to also list the automations of the assets below it,
+                                     at any depth, as far as you may read them.
+                                     Each automation names the asset it is defined on, in ``asset`` and ``asset-name``.
+
+        :returns: list of automations, for example:
+                [
+                    {
+                        'id': 1,
+                        'created-at': '2026-07-11T00:00:00+00:00',
+                        'asset': 1,
+                        'asset-name': 'Solar panels',
+                        'type': 'forecasting',
+                        'name': 'Day-ahead PV forecasts',
+                        'cron': '0 6 * * *',
+                        'timezone': 'Europe/Amsterdam',
+                        'cursor': '2026-07-11T06:00:00+02:00',
+                        'next-run': '2026-07-12T06:00:00+02:00',
+                        'recurrence-description': 'At 06:00',
+                        'schedule-revision': 1,
+                        'active': True,
+                        'job-stats': {'finished': 3},
+                    }
+                ]
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        response, status = await self._request_automations(
+            uri=f"assets/{asset_id}/automations",
+            method="GET",
+            params={"include-child-assets": str(include_child_assets).lower()},
+        )
+        check_for_status(status, 200)
+        if not isinstance(response, dict) or not isinstance(
+            response.get("automations"), list
+        ):
+            raise ContentTypeError(
+                f"Expected a dictionary listing automations, but got {type(response)}",
+            )
+        if response.get("redis-connection-err"):
+            self.logger.warning(
+                "Job statistics of the automations could not be loaded: "
+                f"{response['redis-connection-err']}"
+            )
+        return response["automations"]
+
+    async def get_automation(self, asset_id: int, automation_id: int) -> dict:
+        """Get the details of one automation defined on an asset.
+
+        Besides the fields listed by :func:`get_automations`, the details show the automation's ``parameters``,
+        the data ``source`` it records under (including its ``config``),
+        its ``input-sensors`` and ``output-sensors``, and statistics on its jobs (``job-stats``) and runs (``run-stats``).
+
+        :param asset_id: ID of the asset the automation is defined on.
+        :param automation_id: ID of the automation.
+
+        This function raises a ValueError when an unhandled status code is returned,
+        including when the asset has no automation with that ID.
+        """
+        response, status = await self._request_automations(
+            uri=f"assets/{asset_id}/automations/{automation_id}",
+            method="GET",
+        )
+        check_for_status(status, 200)
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected an automation dictionary, but got {type(response)}",
+            )
+        if response.get("redis-connection-err"):
+            self.logger.warning(
+                "Job statistics of the automation could not be loaded: "
+                f"{response['redis-connection-err']}"
+            )
+        return response
+
+    async def add_automation(
+        self,
+        asset_id: int,
+        name: str,
+        cron: str,
+        automation_type: str = "forecasting",
+        parameters: dict | None = None,
+        timezone: str | None = None,
+        active: bool = True,
+        data_generator: str | None = None,
+        config: dict | None = None,
+        source: int | None = None,
+    ) -> dict:
+        """Create an automation on an asset.
+
+        :param asset_id: ID of the asset to create the automation on.
+        :param name: name of the automation (at most 80 characters).
+        :param cron: cron expression of its recurrence, e.g. "0 6 * * *" for every day at 06:00.
+        :param automation_type: "forecasting" (default), "scheduling", "reporting", or a type provided by a server plugin.
+        :param parameters: parameters each run uses, validated by the server according to the automation type.
+                           As an automation runs again and again, they cannot fix a moment in time:
+                           use two of ``start-offset``, ``end-offset`` and ``duration`` instead of a ``start`` or ``end``.
+        :param timezone: IANA timezone in which the cron expression is interpreted.
+                         Defaults, on the server, to the asset's own timezone.
+        :param active: whether the automation runs on its recurrence right away.
+        :param data_generator: class of the data generator that computes the results, e.g. "TrainPredictPipeline".
+        :param config: configuration stored on the data generator, as opposed to the parameters it runs with.
+        :param source: ID of an existing data source to reuse, instead of a ``data_generator`` and ``config``.
+
+        :returns: the automation as a dictionary, including any ``warnings`` the server gave.
+
+        This function raises a ValueError when an unhandled status code is returned,
+        including when the server rejects the automation, in which case the message says which part of the request was refused.
+        """
+        json_payload: dict[str, Any] = {
+            "name": name,
+            "cron": cron,
+            "type": automation_type,
+            "active": active,
+        }
+        if parameters is not None:
+            json_payload["parameters"] = parameters
+        if timezone is not None:
+            json_payload["timezone"] = timezone
+        if data_generator is not None:
+            json_payload["data-generator"] = data_generator
+        if config is not None:
+            json_payload["config"] = config
+        if source is not None:
+            json_payload["source"] = source
+
+        response, status = await self._request_automations(
+            uri=f"assets/{asset_id}/automations",
+            method="POST",
+            json_payload=json_payload,
+        )
+        check_for_status(status, 201)
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected an automation dictionary, but got {type(response)}",
+            )
+        for warning in response.get("warnings") or []:
+            self.logger.warning(f"Automation {response.get('id')}: {warning}")
+        return response
+
+    async def update_automation(
+        self,
+        asset_id: int,
+        automation_id: int,
+        updates: dict | None = None,
+        **kwargs,
+    ) -> dict:
+        """Update an automation.
+
+        Pass the fields to update as a dict, as keyword arguments, or both:
+
+            await client.update_automation(1, 5, active=False)
+            await client.update_automation(1, 5, {"cron": "0 7 * * *", "timezone": "Europe/Amsterdam"})
+
+        FlexMeasures v1.1.0 accepts ``name``, ``cron``, ``timezone`` and ``active``;
+        other fields of an automation cannot be updated, so create a new automation instead.
+        Changing the recurrence or the timezone, or reactivating the automation, resets its cursor,
+        so that runs from before the change are not caught up on.
+
+        Field names are passed on without checking them, so that fields the server makes editable later need no client release.
+        Keyword names are converted to the API's kebab-case (``depends_on`` becomes ``depends-on``), while dict keys are sent as given.
+
+        :param asset_id: ID of the asset the automation is defined on.
+        :param automation_id: ID of the automation.
+        :param updates: dictionary with the fields to update.
+
+        :returns: the updated automation as a dictionary.
+
+        :raises ValueError: if no field is given, if a field is given both ways,
+                            or when an unhandled status code is returned.
+        """
+        json_payload = merge_updates(updates, kwargs, kebab_case_keywords=True)
+        response, status = await self._request_automations(
+            uri=f"assets/{asset_id}/automations/{automation_id}",
+            method="PATCH",
+            json_payload=json_payload,
+        )
+        check_for_status(status, 200)
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected an automation dictionary, but got {type(response)}",
+            )
+        return response
+
+    async def delete_automation(
+        self, asset_id: int, automation_id: int, confirm_first: bool = True
+    ):
+        """Delete an automation. Any jobs it already queued are unaffected.
+
+        This function raises a ValueError when an unhandled status code is returned.
+        """
+        if confirm_first is True:
+            answer = input(
+                f"Delete automation {automation_id} of asset {asset_id}? [yN]"
+            )
+            if answer.lower() not in ["y", "yes"]:
+                print("Aborting ...")
+                return
+        _, status = await self._request_automations(
+            uri=f"assets/{asset_id}/automations/{automation_id}",
+            method="DELETE",
+        )
+        check_for_status(status, 204)
+
+    async def trigger_automation(self, asset_id: int, automation_id: int) -> dict:
+        """Run an automation once now, in addition to its recurring runs.
+
+        Inactive automations can be triggered too, which is how to try one out before activating it.
+        An on-demand run leaves the automation's cursor where it was, so its recurring runs are unaffected.
+
+        :param asset_id: ID of the asset the automation is defined on.
+        :param automation_id: ID of the automation.
+
+        :returns: the server's response, for example:
+                {
+                    'status': 'ACCEPTED',
+                    'job': '364bfd06-c1fa-430b-8d25-8f5a547651fb',
+                    'job-url': '/api/v3_0/jobs/364bfd06-c1fa-430b-8d25-8f5a547651fb',
+                    'n-jobs': 2,
+                    'message': 'Request has been accepted for processing.',
+                }
+                The ``job`` UUID can be passed to :func:`wait_for_job`.
+                A run can queue more than one job, as ``n-jobs`` says.
+
+        This function raises a ValueError when an unhandled status code is returned,
+        including when the automation cannot run.
+        """
+        response, status = await self._request_automations(
+            uri=f"assets/{asset_id}/automations/{automation_id}/trigger",
+            method="POST",
+        )
+        check_for_status(status, 202)
+        if not isinstance(response, dict):
+            raise ContentTypeError(
+                f"Expected a dictionary, but got {type(response)}",
+            )
+        if not isinstance(response.get("job"), str):
+            raise ContentTypeError(
+                f"Expected a job ID, but got {type(response.get('job'))}",
+            )
+        self.logger.info(
+            f"Automation {automation_id} triggered successfully. Job ID: {response['job']}"
+        )
+        return response
+
+    async def trigger_and_await_automation(
+        self,
+        asset_id: int,
+        automation_id: int,
+        timeout: float | None = None,
+        polling_interval: float | None = None,
+        max_polling_interval: float | None = None,
+    ) -> dict:
+        """Run an automation once now, and wait for its job to finish.
+
+        This waits for the one job the server names in its response.
+        When the run queues more than one job (see :func:`trigger_automation`), the others may still be running.
+
+        :param timeout: total seconds to wait for the job.
+                        Defaults to ``self.job_polling_timeout``.
+        :param polling_interval: seconds before a repeated status lookup.
+                                 Defaults to ``self.job_polling_interval``.
+        :param max_polling_interval: maximum delay between status lookups.
+                                     Defaults to ``self.job_polling_max_interval``.
+
+        :returns: the final job status dictionary (see :func:`get_job_status`).
+
+        :raises JobFailedError: if the job ended as FAILED, STOPPED or CANCELED.
+        :raises JobTimeoutError: if the job did not finish within ``timeout``.
+        """
+        response = await self.trigger_automation(
+            asset_id=asset_id, automation_id=automation_id
+        )
+        return await self.wait_for_job(
+            job_id=response["job"],
             timeout=timeout,
             polling_interval=polling_interval,
             max_polling_interval=max_polling_interval,
