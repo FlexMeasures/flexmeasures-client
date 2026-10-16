@@ -3,10 +3,9 @@
 Automations
 ===========
 
-Automations are recurring forecasting, scheduling, reporting or plugin-defined
-tasks, defined on an asset and run by the FlexMeasures server on a cron
-schedule. The FlexMeasures Client supports the automation endpoints introduced
-in FlexMeasures v1.1.0:
+Automations are recurring forecasting, scheduling, reporting or plugin-defined tasks,
+defined on an asset and run by the FlexMeasures server on a cron schedule.
+The FlexMeasures Client supports the automation endpoints introduced in FlexMeasures v1.1.0:
 
 - ``GET    /assets/<id>/automations``               — list automations
 - ``GET    /assets/<id>/automations/<id>``          — automation details
@@ -23,7 +22,7 @@ These are exposed through the following client methods:
 - :meth:`update_automation` — change its name, recurrence, timezone or activation status
 - :meth:`delete_automation` — delete an automation
 - :meth:`trigger_automation` — run an automation once now, and return its job UUID
-- :meth:`trigger_automation_and_wait` — convenience wrapper for triggering and waiting
+- :meth:`trigger_automation_and_wait` — run an automation once now, and wait for the job it names to finish
 
 .. note::
 
@@ -77,11 +76,11 @@ Forecast a sensor every day at 06:00, try the automation out once, and switch it
 Timing each run
 ---------------
 
-An automation runs again and again, so its parameters cannot fix a moment in
-time: a ``start``, ``end`` or ``prior`` is refused. Say instead how the period
-each run covers relates to the time the run was due, with two of
-``start-offset``, ``end-offset`` and ``duration``. The offsets are chains of
-comma-separated Pandas offsets, plus ``DB`` (day begin) and ``HB`` (hour begin):
+An automation runs again and again, so its parameters cannot fix a moment in time:
+a ``start``, ``end`` or ``prior`` is refused.
+Say instead how the period each run covers relates to the time the run was due,
+with two of ``start-offset``, ``end-offset`` and ``duration``.
+The offsets are chains of comma-separated Pandas offsets, plus ``DB`` (day begin) and ``HB`` (hour begin):
 
 .. code-block:: python
 
@@ -106,23 +105,23 @@ Pass the fields to update as a dictionary, as keyword arguments, or both:
     await client.update_automation(3, 5, active=False)
     await client.update_automation(3, 5, {"cron": "0 7 * * *"}, timezone="UTC")
 
-Field names are passed on without checking them, so fields that a newer server
-makes editable can be updated without upgrading the client. Keyword names are
-converted to the API's kebab-case (``depends_on`` becomes ``depends-on``),
+Field names are passed on without checking them,
+so fields that a newer server makes editable can be updated without upgrading the client.
+Keyword names are converted to the API's kebab-case (``depends_on`` becomes ``depends-on``),
 while dictionary keys are sent as given.
 
-Changing the recurrence or the timezone, or reactivating the automation, resets
-its cursor, so that runs from before the change are not caught up on. Its
-other fields cannot be changed; create a new automation instead.
+Changing the recurrence or the timezone, or reactivating the automation, resets its cursor,
+so that runs from before the change are not caught up on.
+Its other fields cannot be changed; create a new automation instead.
 
 
 Triggering a run
 ----------------
 
-:meth:`trigger_automation` runs an automation once, in addition to its
-recurring runs, and also works for inactive automations. Its response holds
-the UUID of a job to follow, which can be passed to :meth:`wait_for_job`, and
-the number of jobs the run queued, in ``n-jobs``:
+:meth:`trigger_automation` runs an automation once, in addition to its recurring runs,
+and also works for inactive automations.
+Its response holds the UUID of a job to follow, which can be passed to :meth:`wait_for_job`,
+and the number of jobs the run queued, in ``n-jobs``:
 
 .. code-block:: python
 
@@ -138,8 +137,8 @@ Error handling
 --------------
 
 A request the server rejects raises ``ValueError``, with the server's message.
-For an automation it refuses to create, that message says which part of the
-request it refused, such as the ``parameters`` or the ``config``. An
-automation is only found under the asset it is defined on, so asking for it
-under another asset raises ``ValueError``, too. A server older than v1.1.0
-raises :class:`InsufficientServerVersionError`.
+For an automation it refuses to create, that message says which part of the request it refused,
+such as the ``parameters`` or the ``config``.
+An automation is only found under the asset it is defined on,
+so asking for it under another asset raises ``ValueError``, too.
+A server older than v1.1.0 raises :class:`InsufficientServerVersionError`.

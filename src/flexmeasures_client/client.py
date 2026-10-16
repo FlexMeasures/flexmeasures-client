@@ -2392,7 +2392,7 @@ class FlexMeasuresClient:
     ) -> dict:
         """Update an automation.
 
-        Pass the fields to update as a dict, as keyword arguments, or both:
+        Pass the fields to update as a dict, as keyword arguments, or both::
 
             await client.update_automation(1, 5, active=False)
             await client.update_automation(1, 5, {"cron": "0 7 * * *", "timezone": "Europe/Amsterdam"})
