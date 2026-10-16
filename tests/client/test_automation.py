@@ -409,7 +409,7 @@ async def test_trigger_automation_that_cannot_run() -> None:
 
 
 @pytest.mark.asyncio
-async def test_trigger_and_await_automation() -> None:
+async def test_trigger_automation_and_wait() -> None:
     with aioresponses() as m:
         client = make_client()
         m.post(TRIGGER_URL, status=202, payload=ACCEPTED_PAYLOAD)
@@ -417,7 +417,7 @@ async def test_trigger_and_await_automation() -> None:
         m.get(JOB_URL, status=200, payload={"status": "FINISHED"})
 
         with patch("asyncio.sleep") as sleep:
-            job = await client.trigger_and_await_automation(
+            job = await client.trigger_automation_and_wait(
                 ASSET_ID, AUTOMATION_ID, polling_interval=1.0
             )
 

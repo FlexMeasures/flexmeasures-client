@@ -23,7 +23,7 @@ These are exposed through the following client methods:
 - :meth:`update_automation` — change its name, recurrence, timezone or activation status
 - :meth:`delete_automation` — delete an automation
 - :meth:`trigger_automation` — run an automation once now, and return its job UUID
-- :meth:`trigger_and_await_automation` — convenience wrapper for triggering and waiting
+- :meth:`trigger_automation_and_wait` — convenience wrapper for triggering and waiting
 
 .. note::
 
@@ -59,7 +59,7 @@ Forecast a sensor every day at 06:00, try the automation out once, and switch it
         )
 
         # Run it once, and wait for its job to finish
-        await client.trigger_and_await_automation(
+        await client.trigger_automation_and_wait(
             asset_id=3, automation_id=automation["id"]
         )
 
