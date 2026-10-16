@@ -179,6 +179,11 @@ Implement your changes
 
 #. Add yourself to the list of contributors in ``AUTHORS.rst``.
 
+#. Describe your change for users in ``CHANGELOG.rst``, under **Unreleased**,
+   in the section that fits it (Added, Changed, Deprecated, Removed, Fixed or Security),
+   and end the entry with a link to your pull request.
+   Changes that users do not notice, such as to the CI or the tests, need no entry.
+
 #. When you’re done editing, do::
 
     git add <MODIFIED FILES>
@@ -271,6 +276,9 @@ Releases
 Releases are handled automatically by the CI pipeline (``release.yml``). To publish a new release:
 
 #. Make sure all unit tests are successful on ``main``.
+#. In ``CHANGELOG.rst``, rename **Unreleased** to the new version and its release date (``vX.Y.Z | YYYY-MM-DD``),
+   point its link to the changes since the previous version at the new tag,
+   and open a new, empty **Unreleased** section above it.
 #. Tag the commit with a version tag and push it::
 
     git tag -s -a vX.Y.Z -m "Short summary"
