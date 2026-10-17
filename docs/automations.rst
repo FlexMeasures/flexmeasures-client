@@ -24,6 +24,11 @@ These are exposed through the following client methods:
 - :meth:`trigger_automation` — run an automation once now, and return its job UUID
 - :meth:`trigger_and_await_automation` — run an automation once now, and wait for the job it names to finish
 
+Like :meth:`trigger_and_await_report`, the last one returns the finished job rather than a result.
+Methods named ``trigger_and_get_*`` return their result itself, such as a schedule or a forecast,
+whereas methods named ``trigger_and_await_*`` return the finished job,
+as the results of reports and automations are written to sensors, where :meth:`get_sensor_data` reads them.
+
 .. note::
 
     These endpoints require a FlexMeasures server of version **1.1.0** or above,
