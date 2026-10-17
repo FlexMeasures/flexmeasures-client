@@ -2488,7 +2488,7 @@ class FlexMeasuresClient:
         )
         return response
 
-    async def trigger_automation_and_wait(
+    async def trigger_and_await_automation(
         self,
         asset_id: int,
         automation_id: int,

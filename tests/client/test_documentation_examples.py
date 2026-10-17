@@ -94,9 +94,9 @@ class ExampleClient:
         self.calls.append(("add_automation", kwargs))
         return {"id": 5, **kwargs}
 
-    async def trigger_automation_and_wait(self, **kwargs) -> dict:
-        inspect.signature(REAL_CLIENT.trigger_automation_and_wait).bind(None, **kwargs)
-        self.calls.append(("trigger_automation_and_wait", kwargs))
+    async def trigger_and_await_automation(self, **kwargs) -> dict:
+        inspect.signature(REAL_CLIENT.trigger_and_await_automation).bind(None, **kwargs)
+        self.calls.append(("trigger_and_await_automation", kwargs))
         return {"status": "FINISHED"}
 
     async def update_automation(self, *args, **kwargs) -> dict:
@@ -138,7 +138,7 @@ class ExampleClient:
             "automations.rst",
             [
                 "add_automation",
-                "trigger_automation_and_wait",
+                "trigger_and_await_automation",
                 "update_automation",
                 "get_automations",
             ],
