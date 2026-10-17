@@ -179,6 +179,12 @@ Implement your changes
 
 #. Add yourself to the list of contributors in ``AUTHORS.rst``.
 
+#. Describe your change for users in ``CHANGELOG.rst``, under **Unreleased**,
+   in the section that fits it (Added, Changed, Deprecated, Removed, Fixed or Security),
+   and end the entry with a link to your pull request.
+   Describe changes to the S2 integration in ``CHANGELOG-S2.rst`` instead, in the same way.
+   Changes that users do not notice, such as to the CI or the tests, need no entry.
+
 #. When you’re done editing, do::
 
     git add <MODIFIED FILES>
@@ -271,6 +277,13 @@ Releases
 Releases are handled automatically by the CI pipeline (``release.yml``). To publish a new release:
 
 #. Make sure all unit tests are successful on ``main``.
+#. In ``CHANGELOG.rst``, rename **Unreleased** to the new version and its release date (``vX.Y.Z | YYYY-MM-DD``),
+   point its link to the changes since the previous version at the new tag,
+   and open a new, empty **Unreleased** section above it.
+#. Do the same in ``CHANGELOG-S2.rst``, if the release changes the S2 integration,
+   and let the two sections link to each other, like those of earlier releases do.
+   GitHub's anchor for a heading drops its punctuation and turns spaces into hyphens,
+   so ``vX.Y.Z | YYYY-MM-DD`` becomes ``#vxyz--yyyy-mm-dd``.
 #. Tag the commit with a version tag and push it::
 
     git tag -s -a vX.Y.Z -m "Short summary"
