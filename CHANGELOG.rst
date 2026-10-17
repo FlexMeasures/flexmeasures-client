@@ -20,6 +20,7 @@ Added
 -----
 
 * Optional ``rate_limit_notifier`` and ``job_status_notifier`` callbacks, to report rate limits and the progress of jobs being waited for, instead of logging them [`#225 <https://github.com/FlexMeasures/flexmeasures-client/pull/225>`__]
+* ``get_automations``, ``get_automation``, ``add_automation``, ``update_automation``, ``delete_automation``, ``trigger_automation`` and ``trigger_and_await_automation``, to manage and run automations through the API on FlexMeasures v1.1.0 and up [`#230 <https://github.com/FlexMeasures/flexmeasures-client/pull/230>`__]
 
 Fixed
 -----
