@@ -280,9 +280,10 @@ Releases are handled automatically by the CI pipeline (``release.yml``). To publ
 #. In ``CHANGELOG.rst``, rename **Unreleased** to the new version and its release date (``vX.Y.Z | YYYY-MM-DD``),
    point its link to the changes since the previous version at the new tag,
    and open a new, empty **Unreleased** section above it.
-   Rename the label above it, too (``.. _changes-vX.Y.Z:``).
-#. Do the same in ``CHANGELOG-S2.rst`` (with label ``.. _s2-vX.Y.Z:``), if the release changes the S2 integration,
-   and let the two sections refer to each other, like those of earlier releases do.
+#. Do the same in ``CHANGELOG-S2.rst``, if the release changes the S2 integration,
+   and let the two sections link to each other, like those of earlier releases do.
+   GitHub's anchor for a heading drops its punctuation and turns spaces into hyphens,
+   so ``vX.Y.Z | YYYY-MM-DD`` becomes ``#vxyz--yyyy-mm-dd``.
 #. Tag the commit with a version tag and push it::
 
     git tag -s -a vX.Y.Z -m "Short summary"

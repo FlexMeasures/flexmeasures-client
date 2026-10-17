@@ -7,11 +7,9 @@ All notable changes to the FlexMeasures Client are documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 Each entry links to the pull request that made the change.
-Changes to the S2 integration are listed in the :ref:`s2-changes`,
-which each release that changed it refers to.
+Changes to the S2 integration are listed in the `S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst>`_,
+which each release that changed it links to.
 Add your entry under **Unreleased** when you open a pull request.
-
-.. _changes-unreleased:
 
 Unreleased
 ==========
@@ -27,8 +25,6 @@ Fixed
 -----
 
 * Respect HTTP 429 (Too Many Requests) responses, waiting as long as the server's ``Retry-After`` header says, or backing off exponentially [`#225 <https://github.com/FlexMeasures/flexmeasures-client/pull/225>`__]
-
-.. _changes-v0.9.6:
 
 v0.9.6 | 2026-09-16
 ===================
@@ -53,16 +49,12 @@ Deprecated
 
 * The ``max_polling_steps``, ``polling_timeout`` and ``polling_interval`` arguments, in favour of ``max_request_attempts``, ``request_retry_timeout`` and ``request_retry_interval`` [`#224 <https://github.com/FlexMeasures/flexmeasures-client/pull/224>`__]
 
-.. _changes-v0.9.5:
-
 v0.9.5 | 2026-08-09
 ===================
 
 `All changes since v0.9.4 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.9.4...v0.9.5>`__.
 
 Same code as v0.9.4.
-
-.. _changes-v0.9.4:
 
 v0.9.4 | 2026-08-09
 ===================
@@ -88,8 +80,6 @@ Fixed
 * Name the field that forces a new scheduling job the way the server expects, also for development versions of FlexMeasures [`#218 <https://github.com/FlexMeasures/flexmeasures-client/pull/218>`__]
 * The HEMS tutorial can be run in Docker, and no longer misses failed asynchronous uploads [`#216 <https://github.com/FlexMeasures/flexmeasures-client/pull/216>`__]
 
-.. _changes-v0.9.3:
-
 v0.9.3 | 2026-07-13
 ===================
 
@@ -100,8 +90,6 @@ Fixed
 
 * Install on Python 3.13 and 3.14 again, and loosen dependency floors that conflicted with Home Assistant's pins [`#220 <https://github.com/FlexMeasures/flexmeasures-client/pull/220>`__]
 
-.. _changes-v0.9.2:
-
 v0.9.2 | 2026-06-16
 ===================
 
@@ -111,8 +99,6 @@ Fixed
 -----
 
 * ``parse_json_fields`` works when updating a sensor or an asset, too [`#215 <https://github.com/FlexMeasures/flexmeasures-client/pull/215>`__]
-
-.. _changes-v0.9.1:
 
 v0.9.1 | 2026-05-27
 ===================
@@ -134,14 +120,12 @@ Security
 
 * Require urllib3 v2.7.0 [`#204 <https://github.com/FlexMeasures/flexmeasures-client/pull/204>`__]
 
-.. _changes-v0.9.0:
-
 v0.9.0 | 2026-04-21
 ===================
 
 `All changes since v0.8.1 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.8.1...v0.9.0>`__.
 
-S2 changes: see :ref:`s2-v0.9.0` in the :ref:`s2-changes`.
+S2 changes: see `v0.9.0 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v090--2026-04-21>`__.
 
 Added
 -----
@@ -168,14 +152,12 @@ Fixed
 
 * Also parse the ``sensors_to_show`` and ``kpi_sensors_to_show`` JSON fields [`#197 <https://github.com/FlexMeasures/flexmeasures-client/pull/197>`__]
 
-.. _changes-v0.8.1:
-
 v0.8.1 | 2026-02-07
 ===================
 
 `All changes since v0.8.0 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.8.0...v0.8.1>`__.
 
-S2 changes: see :ref:`s2-v0.8.1` in the :ref:`s2-changes`.
+S2 changes: see `v0.8.1 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v081--2026-02-07>`__.
 
 Added
 -----
@@ -196,14 +178,12 @@ Fixed
 
 * Several fixes to the HEMS and CEMS tutorials, such as running several communities side by side [`#163 <https://github.com/FlexMeasures/flexmeasures-client/pull/163>`__, `#166 <https://github.com/FlexMeasures/flexmeasures-client/pull/166>`__, `#167 <https://github.com/FlexMeasures/flexmeasures-client/pull/167>`__, `#169 <https://github.com/FlexMeasures/flexmeasures-client/pull/169>`__, `#170 <https://github.com/FlexMeasures/flexmeasures-client/pull/170>`__, `#171 <https://github.com/FlexMeasures/flexmeasures-client/pull/171>`__, `#172 <https://github.com/FlexMeasures/flexmeasures-client/pull/172>`__]
 
-.. _changes-v0.8.0:
-
 v0.8.0 | 2026-01-14
 ===================
 
 `All changes since v0.7.0 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.7.0...v0.8.0>`__.
 
-S2 changes: see :ref:`s2-v0.8.0` in the :ref:`s2-changes`.
+S2 changes: see `v0.8.0 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v080--2026-01-14>`__.
 
 Added
 -----
@@ -234,8 +214,6 @@ Fixed
 
 * The flex-model and flex-context are optional when triggering a schedule [`#141 <https://github.com/FlexMeasures/flexmeasures-client/pull/141>`__]
 
-.. _changes-v0.7.0:
-
 v0.7.0 | 2025-07-15
 ===================
 
@@ -249,14 +227,12 @@ Added
 * ``get_sensors`` can be filtered by asset [`#126 <https://github.com/FlexMeasures/flexmeasures-client/pull/126>`__]
 * A complete example script [`#127 <https://github.com/FlexMeasures/flexmeasures-client/pull/127>`__]
 
-.. _changes-v0.6.0:
-
 v0.6.0 | 2025-07-09
 ===================
 
 `All changes since v0.5.6 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.5.6...v0.6.0>`__.
 
-S2 changes: see :ref:`s2-v0.6.0` in the :ref:`s2-changes`.
+S2 changes: see `v0.6.0 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v060--2025-07-09>`__.
 
 Added
 -----
@@ -265,34 +241,26 @@ Added
 * Set a parent asset when adding an asset [`#118 <https://github.com/FlexMeasures/flexmeasures-client/pull/118>`__]
 * Raise an informative error when multi-asset scheduling is attempted on a server that does not support it [`#119 <https://github.com/FlexMeasures/flexmeasures-client/pull/119>`__]
 
-.. _changes-v0.5.6:
-
 v0.5.6 | 2025-05-26
 ===================
 
 `All changes since v0.5.4 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.5.4...v0.5.6>`__.
 
-S2 changes: see :ref:`s2-v0.5.6` in the :ref:`s2-changes`.
-
-.. _changes-v0.5.4:
+S2 changes: see `v0.5.6 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v056--2025-05-26>`__.
 
 v0.5.4 | 2025-05-23
 ===================
 
 `All changes since v0.5.3 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.5.3...v0.5.4>`__.
 
-S2 changes: see :ref:`s2-v0.5.4` in the :ref:`s2-changes`.
-
-.. _changes-v0.5.3:
+S2 changes: see `v0.5.4 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v054--2025-05-23>`__.
 
 v0.5.3 | 2025-05-16
 ===================
 
 `All changes since v0.5.2 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.5.2...v0.5.3>`__.
 
-S2 changes: see :ref:`s2-v0.5.3` in the :ref:`s2-changes`.
-
-.. _changes-v0.5.2:
+S2 changes: see `v0.5.3 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v053--2025-05-16>`__.
 
 v0.5.2 | 2025-05-16
 ===================
@@ -301,34 +269,26 @@ v0.5.2 | 2025-05-16
 
 Tagged, but not published on PyPI.
 
-.. _changes-v0.5.1:
-
 v0.5.1 | 2025-05-16
 ===================
 
 `All changes since v0.5.0 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.5.0...v0.5.1>`__.
 
-S2 changes: see :ref:`s2-v0.5.1` in the :ref:`s2-changes`.
-
-.. _changes-v0.5.0:
+S2 changes: see `v0.5.1 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v051--2025-05-16>`__.
 
 v0.5.0 | 2025-05-16
 ===================
 
 `All changes since v0.4.7 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.7...v0.5.0>`__.
 
-S2 changes: see :ref:`s2-v0.5.0` in the :ref:`s2-changes`.
-
-.. _changes-v0.4.7:
+S2 changes: see `v0.5.0 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v050--2025-05-16>`__.
 
 v0.4.7 | 2025-04-23
 ===================
 
 `All changes since v0.4.6 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.6...v0.4.7>`__.
 
-S2 changes: see :ref:`s2-v0.4.7` in the :ref:`s2-changes`.
-
-.. _changes-v0.4.6:
+S2 changes: see `v0.4.7 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v047--2025-04-23>`__.
 
 v0.4.6 | 2025-03-27
 ===================
@@ -340,75 +300,59 @@ Fixed
 
 * Internal fixes.
 
-.. _changes-v0.4.5:
-
 v0.4.5 | 2025-03-25
 ===================
 
 `All changes since v0.4.4 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.4...v0.4.5>`__.
 
-S2 changes: see :ref:`s2-v0.4.5` in the :ref:`s2-changes`.
-
-.. _changes-v0.4.4:
+S2 changes: see `v0.4.5 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v045--2025-03-25>`__.
 
 v0.4.4 | 2025-03-18
 ===================
 
 `All changes since v0.4.3 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.3...v0.4.4>`__.
 
-S2 changes: see :ref:`s2-v0.4.4` in the :ref:`s2-changes`.
-
-.. _changes-v0.4.3:
+S2 changes: see `v0.4.4 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v044--2025-03-18>`__.
 
 v0.4.3 | 2025-02-18
 ===================
 
 `All changes since v0.4.2 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.2...v0.4.3>`__.
 
-S2 changes: see :ref:`s2-v0.4.3` in the :ref:`s2-changes`.
-
-.. _changes-v0.4.2:
+S2 changes: see `v0.4.3 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v043--2025-02-18>`__.
 
 v0.4.2 | 2025-02-17
 ===================
 
 `All changes since v0.4.1 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.1...v0.4.2>`__.
 
-S2 changes: see :ref:`s2-v0.4.2` in the :ref:`s2-changes`.
-
-.. _changes-v0.4.1:
+S2 changes: see `v0.4.2 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v042--2025-02-17>`__.
 
 v0.4.1 | 2025-02-06
 ===================
 
 `All changes since v0.4.0 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.0...v0.4.1>`__.
 
-S2 changes: see :ref:`s2-v0.4.1` in the :ref:`s2-changes`.
-
-.. _changes-v0.4.0:
+S2 changes: see `v0.4.1 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v041--2025-02-06>`__.
 
 v0.4.0 | 2025-02-06
 ===================
 
 `All changes since v0.3.3 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.3.3...v0.4.0>`__.
 
-S2 changes: see :ref:`s2-v0.4.0` in the :ref:`s2-changes`.
-
-.. _changes-v0.3.3:
+S2 changes: see `v0.4.0 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v040--2025-02-06>`__.
 
 v0.3.3 | 2025-01-30
 ===================
 
 `All changes since v0.3.2 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.3.2...v0.3.3>`__.
 
-S2 changes: see :ref:`s2-v0.3.3` in the :ref:`s2-changes`.
+S2 changes: see `v0.3.3 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v033--2025-01-30>`__.
 
 Changed
 -------
 
 * **Breaking:** S2 support is an optional extra, so install ``flexmeasures-client[s2]`` to use it [`#102 <https://github.com/FlexMeasures/flexmeasures-client/pull/102>`__]
-
-.. _changes-v0.3.2:
 
 v0.3.2 | 2025-01-24
 ===================
@@ -420,25 +364,19 @@ Changed
 
 * Remove the pin on aiohttp [`#101 <https://github.com/FlexMeasures/flexmeasures-client/pull/101>`__]
 
-.. _changes-v0.3.1:
-
 v0.3.1 | 2025-01-24
 ===================
 
 `All changes since v0.3.0 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.3.0...v0.3.1>`__.
 
-S2 changes: see :ref:`s2-v0.3.1` in the :ref:`s2-changes`.
-
-.. _changes-v0.3.0:
+S2 changes: see `v0.3.1 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v031--2025-01-24>`__.
 
 v0.3.0 | 2025-01-23
 ===================
 
 `All changes since v0.2.6 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.2.6...v0.3.0>`__.
 
-S2 changes: see :ref:`s2-v0.3.0` in the :ref:`s2-changes`.
-
-.. _changes-v0.2.6:
+S2 changes: see `v0.3.0 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v030--2025-01-23>`__.
 
 v0.2.6 | 2024-12-13
 ===================
@@ -450,16 +388,12 @@ Added
 
 * ``get_account`` [`#94 <https://github.com/FlexMeasures/flexmeasures-client/pull/94>`__]
 
-.. _changes-v0.2.5:
-
 v0.2.5 | 2024-11-12
 ===================
 
 `All changes since v0.2.4 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.2.4...v0.2.5>`__.
 
-S2 changes: see :ref:`s2-v0.2.5` in the :ref:`s2-changes`.
-
-.. _changes-v0.2.4:
+S2 changes: see `v0.2.5 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v025--2024-11-12>`__.
 
 v0.2.4 | 2024-10-02
 ===================
@@ -470,8 +404,6 @@ Fixed
 -----
 
 * Do not require a session when creating the client.
-
-.. _changes-v0.2.3:
 
 v0.2.3 | 2024-10-02
 ===================
@@ -484,8 +416,6 @@ Changed
 -------
 
 * Rename ``start_session()`` to ``ensure_session()``.
-
-.. _changes-v0.2.2:
 
 v0.2.2 | 2024-10-02
 ===================
@@ -500,8 +430,6 @@ Fixed
 * Do not create an HTTP session on import already [`#87 <https://github.com/FlexMeasures/flexmeasures-client/pull/87>`__]
 * Take a port number given as part of the ``host`` into account [`#88 <https://github.com/FlexMeasures/flexmeasures-client/pull/88>`__]
 
-.. _changes-v0.2.1:
-
 v0.2.1 | 2024-03-12
 ===================
 
@@ -512,14 +440,12 @@ Changed
 
 * **Breaking:** exception classes moved to ``flexmeasures_client.exceptions`` [`#80 <https://github.com/FlexMeasures/flexmeasures-client/pull/80>`__]
 
-.. _changes-v0.2.0:
-
 v0.2.0 | 2024-03-04
 ===================
 
 `All changes since v0.1.11 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.1.11...v0.2.0>`__.
 
-S2 changes: see :ref:`s2-v0.2.0` in the :ref:`s2-changes`.
+S2 changes: see `v0.2.0 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v020--2024-03-04>`__.
 
 Added
 -----
@@ -536,8 +462,6 @@ Fixed
 
 * Use ``URL`` objects instead of strings for URLs [`#79 <https://github.com/FlexMeasures/flexmeasures-client/pull/79>`__]
 
-.. _changes-v0.1.11:
-
 v0.1.11 | 2023-11-02
 ====================
 
@@ -548,8 +472,6 @@ Added
 
 * Follow a redirect to the fallback schedule [`#71 <https://github.com/FlexMeasures/flexmeasures-client/pull/71>`__]
 
-.. _changes-v0.1.10:
-
 v0.1.10 | 2023-09-17
 ====================
 
@@ -559,8 +481,6 @@ Added
 -----
 
 * A static method to convert the units of a schedule [`#68 <https://github.com/FlexMeasures/flexmeasures-client/pull/68>`__]
-
-.. _changes-v0.1.9:
 
 v0.1.9 | 2023-09-14
 ===================
@@ -573,54 +493,44 @@ Added
 * Schedule with a flex-model and a flex-context [`#65 <https://github.com/FlexMeasures/flexmeasures-client/pull/65>`__]
 * Update the attributes of sensors and assets with a dictionary [`#64 <https://github.com/FlexMeasures/flexmeasures-client/pull/64>`__]
 
-.. _changes-v0.1.8:
-
 v0.1.8 | 2023-09-01
 ===================
 
 `All changes since v0.1.7 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.1.7...v0.1.8>`__.
 
-S2 changes: see :ref:`s2-v0.1.8` in the :ref:`s2-changes`.
-
-.. _changes-v0.1.7:
+S2 changes: see `v0.1.8 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v018--2023-09-01>`__.
 
 v0.1.7 | 2023-08-31
 ===================
 
 `All changes since v0.1.6 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.1.6...v0.1.7>`__.
 
-S2 changes: see :ref:`s2-v0.1.7` in the :ref:`s2-changes`.
-
-.. _changes-v0.1.6:
+S2 changes: see `v0.1.7 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v017--2023-08-31>`__.
 
 v0.1.6 | 2023-08-31
 ===================
 
 `All changes since v0.1.5 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.1.5...v0.1.6>`__.
 
-S2 changes: see :ref:`s2-v0.1.6` in the :ref:`s2-changes`.
+S2 changes: see `v0.1.6 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v016--2023-08-31>`__.
 
 Changed
 -------
 
 * Only a sensor ID is needed, not an entity address [`#58 <https://github.com/FlexMeasures/flexmeasures-client/pull/58>`__]
 
-.. _changes-v0.1.5:
-
 v0.1.5 | 2023-08-16
 ===================
 
 `All changes since v0.1.4 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.1.4...v0.1.5>`__.
 
-S2 changes: see :ref:`s2-v0.1.5` in the :ref:`s2-changes`.
+S2 changes: see `v0.1.5 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v015--2023-08-16>`__.
 
 Added
 -----
 
 * ``get_sensor``, ``add_sensor``, ``add_asset`` and ``update_asset`` [`#55 <https://github.com/FlexMeasures/flexmeasures-client/pull/55>`__]
 * Info and debug logging [`#47 <https://github.com/FlexMeasures/flexmeasures-client/pull/47>`__]
-
-.. _changes-v0.1.4:
 
 v0.1.4 | 2023-06-27
 ===================
@@ -645,8 +555,6 @@ Fixed
 * Re-authenticate once when a request is unauthorized [`#50 <https://github.com/FlexMeasures/flexmeasures-client/pull/50>`__]
 * Ship the S2 message definitions in a submodule, so that the package installs from PyPI [`#52 <https://github.com/FlexMeasures/flexmeasures-client/pull/52>`__]
 
-.. _changes-v0.1.3:
-
 v0.1.3 | 2023-06-02
 ===================
 
@@ -659,8 +567,6 @@ Added
 
 * ``trigger_and_get_schedule``, to trigger a schedule and get it in one call [`#42 <https://github.com/FlexMeasures/flexmeasures-client/pull/42>`__]
 
-.. _changes-v0.1.2:
-
 v0.1.2 | 2023-05-30
 ===================
 
@@ -668,9 +574,7 @@ v0.1.2 | 2023-05-30
 
 Tagged, but not published on PyPI.
 
-S2 changes: see :ref:`s2-v0.1.2` in the :ref:`s2-changes`.
-
-.. _changes-v0.1.1:
+S2 changes: see `v0.1.2 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v012--2023-05-30>`__.
 
 v0.1.1 | 2023-05-26
 ===================
@@ -681,8 +585,6 @@ Fixed
 -----
 
 * An import statement [`#41 <https://github.com/FlexMeasures/flexmeasures-client/pull/41>`__]
-
-.. _changes-v0.1.0:
 
 v0.1.0 | 2023-05-24
 ===================
