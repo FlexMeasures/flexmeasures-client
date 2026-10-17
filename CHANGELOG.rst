@@ -7,7 +7,11 @@ All notable changes to the FlexMeasures Client are documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 Each entry links to the pull request that made the change.
+Changes to the S2 integration are listed in the :ref:`s2-changes`,
+which each release that changed it refers to.
 Add your entry under **Unreleased** when you open a pull request.
+
+.. _changes-unreleased:
 
 Unreleased
 ==========
@@ -23,6 +27,8 @@ Fixed
 -----
 
 * Respect HTTP 429 (Too Many Requests) responses, waiting as long as the server's ``Retry-After`` header says, or backing off exponentially [`#225 <https://github.com/FlexMeasures/flexmeasures-client/pull/225>`__]
+
+.. _changes-v0.9.6:
 
 v0.9.6 | 2026-09-16
 ===================
@@ -47,12 +53,16 @@ Deprecated
 
 * The ``max_polling_steps``, ``polling_timeout`` and ``polling_interval`` arguments, in favour of ``max_request_attempts``, ``request_retry_timeout`` and ``request_retry_interval`` [`#224 <https://github.com/FlexMeasures/flexmeasures-client/pull/224>`__]
 
+.. _changes-v0.9.5:
+
 v0.9.5 | 2026-08-09
 ===================
 
 `All changes since v0.9.4 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.9.4...v0.9.5>`__.
 
 Same code as v0.9.4.
+
+.. _changes-v0.9.4:
 
 v0.9.4 | 2026-08-09
 ===================
@@ -78,6 +88,8 @@ Fixed
 * Name the field that forces a new scheduling job the way the server expects, also for development versions of FlexMeasures [`#218 <https://github.com/FlexMeasures/flexmeasures-client/pull/218>`__]
 * The HEMS tutorial can be run in Docker, and no longer misses failed asynchronous uploads [`#216 <https://github.com/FlexMeasures/flexmeasures-client/pull/216>`__]
 
+.. _changes-v0.9.3:
+
 v0.9.3 | 2026-07-13
 ===================
 
@@ -88,6 +100,8 @@ Fixed
 
 * Install on Python 3.13 and 3.14 again, and loosen dependency floors that conflicted with Home Assistant's pins [`#220 <https://github.com/FlexMeasures/flexmeasures-client/pull/220>`__]
 
+.. _changes-v0.9.2:
+
 v0.9.2 | 2026-06-16
 ===================
 
@@ -97,6 +111,8 @@ Fixed
 -----
 
 * ``parse_json_fields`` works when updating a sensor or an asset, too [`#215 <https://github.com/FlexMeasures/flexmeasures-client/pull/215>`__]
+
+.. _changes-v0.9.1:
 
 v0.9.1 | 2026-05-27
 ===================
@@ -118,10 +134,14 @@ Security
 
 * Require urllib3 v2.7.0 [`#204 <https://github.com/FlexMeasures/flexmeasures-client/pull/204>`__]
 
+.. _changes-v0.9.0:
+
 v0.9.0 | 2026-04-21
 ===================
 
 `All changes since v0.8.1 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.8.1...v0.9.0>`__.
+
+S2 changes: see :ref:`s2-v0.9.0` in the :ref:`s2-changes`.
 
 Added
 -----
@@ -136,9 +156,6 @@ Changed
 -------
 
 * Back off exponentially between polling retries [`#184 <https://github.com/FlexMeasures/flexmeasures-client/pull/184>`__]
-* S2: respond to a ``Handshake`` with a ``ReceptionStatus``, too [`#187 <https://github.com/FlexMeasures/flexmeasures-client/pull/187>`__]
-* S2: handle timezones with ``zoneinfo`` instead of ``pytz`` [`#192 <https://github.com/FlexMeasures/flexmeasures-client/pull/192>`__]
-* S2: the example WebSocket server logs through the CEM's logger [`#178 <https://github.com/FlexMeasures/flexmeasures-client/pull/178>`__]
 * Develop with uv instead of tox and PyScaffold, building with hatchling [`#177 <https://github.com/FlexMeasures/flexmeasures-client/pull/177>`__]
 
 Removed
@@ -150,12 +167,15 @@ Fixed
 -----
 
 * Also parse the ``sensors_to_show`` and ``kpi_sensors_to_show`` JSON fields [`#197 <https://github.com/FlexMeasures/flexmeasures-client/pull/197>`__]
-* S2: fix the CEM's ``get_message`` under Pydantic 1 [`#176 <https://github.com/FlexMeasures/flexmeasures-client/pull/176>`__]
+
+.. _changes-v0.8.1:
 
 v0.8.1 | 2026-02-07
 ===================
 
 `All changes since v0.8.0 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.8.0...v0.8.1>`__.
+
+S2 changes: see :ref:`s2-v0.8.1` in the :ref:`s2-changes`.
 
 Added
 -----
@@ -165,7 +185,6 @@ Added
 * A ``parse_json_fields`` argument for the asset and sensor methods, to receive ``attributes``, ``flex_context`` and ``flex_model`` as dictionaries rather than JSON strings [`#164 <https://github.com/FlexMeasures/flexmeasures-client/pull/164>`__]
 * Log the schedule ID when a schedule is triggered [`#174 <https://github.com/FlexMeasures/flexmeasures-client/pull/174>`__]
 * A CEMS tutorial, scheduling several sites of an energy community in parallel [`#148 <https://github.com/FlexMeasures/flexmeasures-client/pull/148>`__]
-* Documentation for running the client as an S2 CEM [`#158 <https://github.com/FlexMeasures/flexmeasures-client/pull/158>`__]
 
 Deprecated
 ----------
@@ -177,10 +196,14 @@ Fixed
 
 * Several fixes to the HEMS and CEMS tutorials, such as running several communities side by side [`#163 <https://github.com/FlexMeasures/flexmeasures-client/pull/163>`__, `#166 <https://github.com/FlexMeasures/flexmeasures-client/pull/166>`__, `#167 <https://github.com/FlexMeasures/flexmeasures-client/pull/167>`__, `#169 <https://github.com/FlexMeasures/flexmeasures-client/pull/169>`__, `#170 <https://github.com/FlexMeasures/flexmeasures-client/pull/170>`__, `#171 <https://github.com/FlexMeasures/flexmeasures-client/pull/171>`__, `#172 <https://github.com/FlexMeasures/flexmeasures-client/pull/172>`__]
 
+.. _changes-v0.8.0:
+
 v0.8.0 | 2026-01-14
 ===================
 
 `All changes since v0.7.0 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.7.0...v0.8.0>`__.
+
+S2 changes: see :ref:`s2-v0.8.0` in the :ref:`s2-changes`.
 
 Added
 -----
@@ -200,7 +223,6 @@ Changed
 
 * Use the sensor data endpoints of FlexMeasures v0.28.0 and up, without entity addresses [`#139 <https://github.com/FlexMeasures/flexmeasures-client/pull/139>`__]
 * Double the request timeout, from 20 to 40 seconds [`#155 <https://github.com/FlexMeasures/flexmeasures-client/pull/155>`__]
-* S2: update the CEM [`#155 <https://github.com/FlexMeasures/flexmeasures-client/pull/155>`__]
 
 Deprecated
 ----------
@@ -211,6 +233,8 @@ Fixed
 -----
 
 * The flex-model and flex-context are optional when triggering a schedule [`#141 <https://github.com/FlexMeasures/flexmeasures-client/pull/141>`__]
+
+.. _changes-v0.7.0:
 
 v0.7.0 | 2025-07-15
 ===================
@@ -225,10 +249,14 @@ Added
 * ``get_sensors`` can be filtered by asset [`#126 <https://github.com/FlexMeasures/flexmeasures-client/pull/126>`__]
 * A complete example script [`#127 <https://github.com/FlexMeasures/flexmeasures-client/pull/127>`__]
 
+.. _changes-v0.6.0:
+
 v0.6.0 | 2025-07-09
 ===================
 
 `All changes since v0.5.6 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.5.6...v0.6.0>`__.
+
+S2 changes: see :ref:`s2-v0.6.0` in the :ref:`s2-changes`.
 
 Added
 -----
@@ -237,40 +265,34 @@ Added
 * Set a parent asset when adding an asset [`#118 <https://github.com/FlexMeasures/flexmeasures-client/pull/118>`__]
 * Raise an informative error when multi-asset scheduling is attempted on a server that does not support it [`#119 <https://github.com/FlexMeasures/flexmeasures-client/pull/119>`__]
 
-Fixed
------
-
-* S2: add missing type annotations [`#122 <https://github.com/FlexMeasures/flexmeasures-client/pull/122>`__]
+.. _changes-v0.5.6:
 
 v0.5.6 | 2025-05-26
 ===================
 
 `All changes since v0.5.4 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.5.4...v0.5.6>`__.
 
-Fixed
------
+S2 changes: see :ref:`s2-v0.5.6` in the :ref:`s2-changes`.
 
-* S2: assume a relevant power unit [`#116 <https://github.com/FlexMeasures/flexmeasures-client/pull/116>`__]
+.. _changes-v0.5.4:
 
 v0.5.4 | 2025-05-23
 ===================
 
 `All changes since v0.5.3 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.5.3...v0.5.4>`__.
 
-Changed
--------
+S2 changes: see :ref:`s2-v0.5.4` in the :ref:`s2-changes`.
 
-* S2: log a warning instead of failing when a power measurement cannot be posted [`#115 <https://github.com/FlexMeasures/flexmeasures-client/pull/115>`__]
+.. _changes-v0.5.3:
 
 v0.5.3 | 2025-05-16
 ===================
 
 `All changes since v0.5.2 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.5.2...v0.5.3>`__.
 
-Fixed
------
+S2 changes: see :ref:`s2-v0.5.3` in the :ref:`s2-changes`.
 
-* S2: internal fixes to the TUNES control type.
+.. _changes-v0.5.2:
 
 v0.5.2 | 2025-05-16
 ===================
@@ -279,40 +301,34 @@ v0.5.2 | 2025-05-16
 
 Tagged, but not published on PyPI.
 
+.. _changes-v0.5.1:
+
 v0.5.1 | 2025-05-16
 ===================
 
 `All changes since v0.5.0 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.5.0...v0.5.1>`__.
 
-Fixed
------
+S2 changes: see :ref:`s2-v0.5.1` in the :ref:`s2-changes`.
 
-* S2: schedule every 15 minutes and send data every 5 minutes.
+.. _changes-v0.5.0:
 
 v0.5.0 | 2025-05-16
 ===================
 
 `All changes since v0.4.7 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.7...v0.5.0>`__.
 
-Added
------
+S2 changes: see :ref:`s2-v0.5.0` in the :ref:`s2-changes`.
 
-* S2: the TUNES control type scales fill levels and fill rates to internal units, and picks the most efficient valid operation mode [`#113 <https://github.com/FlexMeasures/flexmeasures-client/pull/113>`__]
-
-Fixed
------
-
-* S2: send a reception status when a message fails validation [`#113 <https://github.com/FlexMeasures/flexmeasures-client/pull/113>`__]
+.. _changes-v0.4.7:
 
 v0.4.7 | 2025-04-23
 ===================
 
 `All changes since v0.4.6 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.6...v0.4.7>`__.
 
-Added
------
+S2 changes: see :ref:`s2-v0.4.7` in the :ref:`s2-changes`.
 
-* S2: the TUNES control type processes instructions [`#112 <https://github.com/FlexMeasures/flexmeasures-client/pull/112>`__]
+.. _changes-v0.4.6:
 
 v0.4.6 | 2025-03-27
 ===================
@@ -324,76 +340,75 @@ Fixed
 
 * Internal fixes.
 
+.. _changes-v0.4.5:
+
 v0.4.5 | 2025-03-25
 ===================
 
 `All changes since v0.4.4 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.4...v0.4.5>`__.
 
-Added
------
+S2 changes: see :ref:`s2-v0.4.5` in the :ref:`s2-changes`.
 
-* S2: send the active actuator to a sensor, to track the source of actuator status messages [`#111 <https://github.com/FlexMeasures/flexmeasures-client/pull/111>`__]
+.. _changes-v0.4.4:
 
 v0.4.4 | 2025-03-18
 ===================
 
 `All changes since v0.4.3 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.3...v0.4.4>`__.
 
-Added
------
+S2 changes: see :ref:`s2-v0.4.4` in the :ref:`s2-changes`.
 
-* S2: limit how often measurements are sent [`#108 <https://github.com/FlexMeasures/flexmeasures-client/pull/108>`__]
+.. _changes-v0.4.3:
 
 v0.4.3 | 2025-02-18
 ===================
 
 `All changes since v0.4.2 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.2...v0.4.3>`__.
 
-Added
------
+S2 changes: see :ref:`s2-v0.4.3` in the :ref:`s2-changes`.
 
-* S2: activate the TUNES control type with the resource manager's details [`#107 <https://github.com/FlexMeasures/flexmeasures-client/pull/107>`__]
+.. _changes-v0.4.2:
 
 v0.4.2 | 2025-02-17
 ===================
 
 `All changes since v0.4.1 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.1...v0.4.2>`__.
 
-Fixed
------
+S2 changes: see :ref:`s2-v0.4.2` in the :ref:`s2-changes`.
 
-* S2: units in the TUNES control type [`#105 <https://github.com/FlexMeasures/flexmeasures-client/pull/105>`__]
-* S2: check handshake versions with semantic versioning [`#106 <https://github.com/FlexMeasures/flexmeasures-client/pull/106>`__]
+.. _changes-v0.4.1:
 
 v0.4.1 | 2025-02-06
 ===================
 
 `All changes since v0.4.0 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.4.0...v0.4.1>`__.
 
-Fixed
------
+S2 changes: see :ref:`s2-v0.4.1` in the :ref:`s2-changes`.
 
-* S2: the CEM version.
+.. _changes-v0.4.0:
 
 v0.4.0 | 2025-02-06
 ===================
 
 `All changes since v0.3.3 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.3.3...v0.4.0>`__.
 
-Changed
--------
+S2 changes: see :ref:`s2-v0.4.0` in the :ref:`s2-changes`.
 
-* S2: select an S2 version compatible with the TNO resource manager [`#103 <https://github.com/FlexMeasures/flexmeasures-client/pull/103>`__]
+.. _changes-v0.3.3:
 
 v0.3.3 | 2025-01-30
 ===================
 
 `All changes since v0.3.2 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.3.2...v0.3.3>`__.
 
+S2 changes: see :ref:`s2-v0.3.3` in the :ref:`s2-changes`.
+
 Changed
 -------
 
 * **Breaking:** S2 support is an optional extra, so install ``flexmeasures-client[s2]`` to use it [`#102 <https://github.com/FlexMeasures/flexmeasures-client/pull/102>`__]
+
+.. _changes-v0.3.2:
 
 v0.3.2 | 2025-01-24
 ===================
@@ -405,30 +420,25 @@ Changed
 
 * Remove the pin on aiohttp [`#101 <https://github.com/FlexMeasures/flexmeasures-client/pull/101>`__]
 
+.. _changes-v0.3.1:
+
 v0.3.1 | 2025-01-24
 ===================
 
 `All changes since v0.3.0 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.3.0...v0.3.1>`__.
 
-Changed
--------
+S2 changes: see :ref:`s2-v0.3.1` in the :ref:`s2-changes`.
 
-* S2: raise the minimum version of s2-python [`#100 <https://github.com/FlexMeasures/flexmeasures-client/pull/100>`__]
+.. _changes-v0.3.0:
 
 v0.3.0 | 2025-01-23
 ===================
 
 `All changes since v0.2.6 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.2.6...v0.3.0>`__.
 
-Added
------
+S2 changes: see :ref:`s2-v0.3.0` in the :ref:`s2-changes`.
 
-* S2: the ``FillRateBasedControlTUNES`` control type [`#83 <https://github.com/FlexMeasures/flexmeasures-client/pull/83>`__]
-
-Changed
--------
-
-* S2: support Pydantic 2 [`#99 <https://github.com/FlexMeasures/flexmeasures-client/pull/99>`__]
+.. _changes-v0.2.6:
 
 v0.2.6 | 2024-12-13
 ===================
@@ -440,15 +450,16 @@ Added
 
 * ``get_account`` [`#94 <https://github.com/FlexMeasures/flexmeasures-client/pull/94>`__]
 
+.. _changes-v0.2.5:
+
 v0.2.5 | 2024-11-12
 ===================
 
 `All changes since v0.2.4 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.2.4...v0.2.5>`__.
 
-Changed
--------
+S2 changes: see :ref:`s2-v0.2.5` in the :ref:`s2-changes`.
 
-* S2: pin s2-python to a release that uses Pydantic 1, which Home Assistant still requires [`#89 <https://github.com/FlexMeasures/flexmeasures-client/pull/89>`__]
+.. _changes-v0.2.4:
 
 v0.2.4 | 2024-10-02
 ===================
@@ -459,6 +470,8 @@ Fixed
 -----
 
 * Do not require a session when creating the client.
+
+.. _changes-v0.2.3:
 
 v0.2.3 | 2024-10-02
 ===================
@@ -471,6 +484,8 @@ Changed
 -------
 
 * Rename ``start_session()`` to ``ensure_session()``.
+
+.. _changes-v0.2.2:
 
 v0.2.2 | 2024-10-02
 ===================
@@ -485,6 +500,8 @@ Fixed
 * Do not create an HTTP session on import already [`#87 <https://github.com/FlexMeasures/flexmeasures-client/pull/87>`__]
 * Take a port number given as part of the ``host`` into account [`#88 <https://github.com/FlexMeasures/flexmeasures-client/pull/88>`__]
 
+.. _changes-v0.2.1:
+
 v0.2.1 | 2024-03-12
 ===================
 
@@ -495,10 +512,14 @@ Changed
 
 * **Breaking:** exception classes moved to ``flexmeasures_client.exceptions`` [`#80 <https://github.com/FlexMeasures/flexmeasures-client/pull/80>`__]
 
+.. _changes-v0.2.0:
+
 v0.2.0 | 2024-03-04
 ===================
 
 `All changes since v0.1.11 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.1.11...v0.2.0>`__.
+
+S2 changes: see :ref:`s2-v0.2.0` in the :ref:`s2-changes`.
 
 Added
 -----
@@ -508,13 +529,14 @@ Added
 Changed
 -------
 
-* S2: use the official s2-python library [`#76 <https://github.com/FlexMeasures/flexmeasures-client/pull/76>`__]
 * Handle all response status codes in one place [`#72 <https://github.com/FlexMeasures/flexmeasures-client/pull/72>`__]
 
 Fixed
 -----
 
 * Use ``URL`` objects instead of strings for URLs [`#79 <https://github.com/FlexMeasures/flexmeasures-client/pull/79>`__]
+
+.. _changes-v0.1.11:
 
 v0.1.11 | 2023-11-02
 ====================
@@ -526,6 +548,8 @@ Added
 
 * Follow a redirect to the fallback schedule [`#71 <https://github.com/FlexMeasures/flexmeasures-client/pull/71>`__]
 
+.. _changes-v0.1.10:
+
 v0.1.10 | 2023-09-17
 ====================
 
@@ -535,6 +559,8 @@ Added
 -----
 
 * A static method to convert the units of a schedule [`#68 <https://github.com/FlexMeasures/flexmeasures-client/pull/68>`__]
+
+.. _changes-v0.1.9:
 
 v0.1.9 | 2023-09-14
 ===================
@@ -547,53 +573,54 @@ Added
 * Schedule with a flex-model and a flex-context [`#65 <https://github.com/FlexMeasures/flexmeasures-client/pull/65>`__]
 * Update the attributes of sensors and assets with a dictionary [`#64 <https://github.com/FlexMeasures/flexmeasures-client/pull/64>`__]
 
+.. _changes-v0.1.8:
+
 v0.1.8 | 2023-09-01
 ===================
 
 `All changes since v0.1.7 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.1.7...v0.1.8>`__.
 
-Fixed
------
+S2 changes: see :ref:`s2-v0.1.8` in the :ref:`s2-changes`.
 
-* S2: initialise the control type handlers when creating the CEM [`#61 <https://github.com/FlexMeasures/flexmeasures-client/pull/61>`__]
+.. _changes-v0.1.7:
 
 v0.1.7 | 2023-08-31
 ===================
 
 `All changes since v0.1.6 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.1.6...v0.1.7>`__.
 
-Changed
--------
+S2 changes: see :ref:`s2-v0.1.7` in the :ref:`s2-changes`.
 
-* S2: revert the migration to Pydantic 2, for Home Assistant [`#60 <https://github.com/FlexMeasures/flexmeasures-client/pull/60>`__]
+.. _changes-v0.1.6:
 
 v0.1.6 | 2023-08-31
 ===================
 
 `All changes since v0.1.5 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.1.5...v0.1.6>`__.
 
-Added
------
-
-* S2: expose the control type as a public property [`#59 <https://github.com/FlexMeasures/flexmeasures-client/pull/59>`__]
+S2 changes: see :ref:`s2-v0.1.6` in the :ref:`s2-changes`.
 
 Changed
 -------
 
-* S2: migrate to Pydantic 2 [`#57 <https://github.com/FlexMeasures/flexmeasures-client/pull/57>`__]
 * Only a sensor ID is needed, not an entity address [`#58 <https://github.com/FlexMeasures/flexmeasures-client/pull/58>`__]
+
+.. _changes-v0.1.5:
 
 v0.1.5 | 2023-08-16
 ===================
 
 `All changes since v0.1.4 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.1.4...v0.1.5>`__.
 
+S2 changes: see :ref:`s2-v0.1.5` in the :ref:`s2-changes`.
+
 Added
 -----
 
 * ``get_sensor``, ``add_sensor``, ``add_asset`` and ``update_asset`` [`#55 <https://github.com/FlexMeasures/flexmeasures-client/pull/55>`__]
 * Info and debug logging [`#47 <https://github.com/FlexMeasures/flexmeasures-client/pull/47>`__]
-* S2: FRBC support for actuator status messages [`#56 <https://github.com/FlexMeasures/flexmeasures-client/pull/56>`__]
+
+.. _changes-v0.1.4:
 
 v0.1.4 | 2023-06-27
 ===================
@@ -618,6 +645,8 @@ Fixed
 * Re-authenticate once when a request is unauthorized [`#50 <https://github.com/FlexMeasures/flexmeasures-client/pull/50>`__]
 * Ship the S2 message definitions in a submodule, so that the package installs from PyPI [`#52 <https://github.com/FlexMeasures/flexmeasures-client/pull/52>`__]
 
+.. _changes-v0.1.3:
+
 v0.1.3 | 2023-06-02
 ===================
 
@@ -630,6 +659,8 @@ Added
 
 * ``trigger_and_get_schedule``, to trigger a schedule and get it in one call [`#42 <https://github.com/FlexMeasures/flexmeasures-client/pull/42>`__]
 
+.. _changes-v0.1.2:
+
 v0.1.2 | 2023-05-30
 ===================
 
@@ -637,10 +668,9 @@ v0.1.2 | 2023-05-30
 
 Tagged, but not published on PyPI.
 
-Added
------
+S2 changes: see :ref:`s2-v0.1.2` in the :ref:`s2-changes`.
 
-* S2: handle S2 messages as a CEM [`#29 <https://github.com/FlexMeasures/flexmeasures-client/pull/29>`__]
+.. _changes-v0.1.1:
 
 v0.1.1 | 2023-05-26
 ===================
@@ -651,6 +681,8 @@ Fixed
 -----
 
 * An import statement [`#41 <https://github.com/FlexMeasures/flexmeasures-client/pull/41>`__]
+
+.. _changes-v0.1.0:
 
 v0.1.0 | 2023-05-24
 ===================

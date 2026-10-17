@@ -182,6 +182,7 @@ Implement your changes
 #. Describe your change for users in ``CHANGELOG.rst``, under **Unreleased**,
    in the section that fits it (Added, Changed, Deprecated, Removed, Fixed or Security),
    and end the entry with a link to your pull request.
+   Describe changes to the S2 integration in ``CHANGELOG-S2.rst`` instead, in the same way.
    Changes that users do not notice, such as to the CI or the tests, need no entry.
 
 #. When you’re done editing, do::
@@ -279,6 +280,9 @@ Releases are handled automatically by the CI pipeline (``release.yml``). To publ
 #. In ``CHANGELOG.rst``, rename **Unreleased** to the new version and its release date (``vX.Y.Z | YYYY-MM-DD``),
    point its link to the changes since the previous version at the new tag,
    and open a new, empty **Unreleased** section above it.
+   Rename the label above it, too (``.. _changes-vX.Y.Z:``).
+#. Do the same in ``CHANGELOG-S2.rst`` (with label ``.. _s2-vX.Y.Z:``), if the release changes the S2 integration,
+   and let the two sections refer to each other, like those of earlier releases do.
 #. Tag the commit with a version tag and push it::
 
     git tag -s -a vX.Y.Z -m "Short summary"

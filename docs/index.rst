@@ -37,6 +37,7 @@ Contents
    License <license>
    Authors <authors>
    Changelog <changelog>
+   S2 CEM changelog <s2-changelog>
    Module Reference <api/modules>
 
 
