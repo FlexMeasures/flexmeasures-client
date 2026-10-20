@@ -26,6 +26,7 @@ Fixed
 -----
 
 * Respect HTTP 429 (Too Many Requests) responses, waiting as long as the server's ``Retry-After`` header says, or backing off exponentially [`#225 <https://github.com/FlexMeasures/flexmeasures-client/pull/225>`__]
+* Upgrade dependencies for security [`#234 <https://github.com/FlexMeasures/flexmeasures-client/pull/234>`__]
 
 v0.9.6 | 2026-09-16
 ===================
