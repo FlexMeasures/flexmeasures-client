@@ -72,9 +72,9 @@ x-worker: &worker
     - ./flexmeasures-instance/:/usr/var/flexmeasures-instance/:rw
     - ../flexmeasures/flexmeasures:/app/flexmeasures:rw
     - ./flexmeasures-instance/:/app/instance/:rw
-    # The client repo (flexmeasures_client + examples/HEMS). The seita_ems
-    # community plugin is mounted by the ems repo's docker-compose.community.yml
-    # overlay instead, so this stack also runs without access to that repo.
+    # The client repo (flexmeasures_client + examples/HEMS). The community
+    # scheduler plugin is mounted by a separate overlay instead, so this
+    # stack also runs without it.
     - ../flexmeasures-client:/app/flexmeasures-client:rw
   entrypoint: ["/bin/sh", "-c"]
   environment:
@@ -97,7 +97,8 @@ services:
       - "6380:6379"
   server:
     # SYS_PTRACE: lets py-spy attach to the gunicorn workers for live debugging
-    # of the CEM-asset-reuse hang (see projects/009 HANDOFF.md in pps_flexed).
+    # of the CEM-asset-reuse hang, which turned out to be GIL starvation
+    # in a gunicorn worker; see the worker-count comment below.
     cap_add:
       - SYS_PTRACE
     volumes:
@@ -107,9 +108,9 @@ services:
       - ./flexmeasures-instance/:/usr/var/flexmeasures-instance/:rw
       - ./flexmeasures-instance/:/app/instance/:rw
       - ../flexmeasures/flexmeasures:/app/flexmeasures:rw
-      # The client repo (flexmeasures_client + examples/HEMS). The seita_ems
-      # community plugin is mounted by the ems repo's docker-compose.community.yml
-      # overlay instead, so this stack also runs without access to that repo.
+      # The client repo (flexmeasures_client + examples/HEMS). The community
+      # scheduler plugin is mounted by a separate overlay instead, so this
+      # stack also runs without it.
       - ../flexmeasures-client:/app/flexmeasures-client:rw
     command:
       - |
@@ -123,7 +124,7 @@ services:
             flexmeasures add toy-account --name 'Docker Toy Account'
         fi
         # More worker PROCESSES, fewer threads per worker: a slow CPU-bound
-        # request (see projects/009 HANDOFF.md - belief-dedup in
+        # request (belief-dedup in
         # flexmeasures/data/services/time_series.py can be slow) previously
         # monopolized the GIL of its gunicorn worker under --threads 4,
         # starving unrelated concurrent requests until they hit client-side

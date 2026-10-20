@@ -246,7 +246,7 @@ class CEM(Handler):
         # CEM stuck in NO_SELECTION forever: every FRBC.SystemDescription was
         # answered with TEMPORARY_ERROR, the RM retried indefinitely, and the
         # whole simulation hung at its first barrier (observed in vivo,
-        # 2026-07-26, house APP_4).
+        # 2026-07-26).
         message_type = (
             message.get("message_type", "") if isinstance(message, dict) else ""
         )
