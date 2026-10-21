@@ -27,8 +27,9 @@ Open-source components
 
 `FlexMeasures Client <https://github.com/FlexMeasures/flexmeasures-client>`_, branch ``dev/fix-handshake-handler`` (Apache-2.0)
    This package, in two roles.
-   As an :ref:`S2 Customer Energy Manager <cem-tutorial>` it speaks S2 over a WebSocket with the resource manager in each home, and translates that home's heat pump and heat buffer into a FlexMeasures flex-model.
-   As an API client it is how the simulation driver creates assets, posts measurements and triggers schedules.
+   As an `S2 Customer Energy Manager <https://github.com/FlexMeasures/flexmeasures-client/blob/main/docs/CEM.rst>`_ it speaks S2 over a WebSocket with the resource manager in each home, and translates that home's heat pump and heat buffer into a FlexMeasures flex-model.
+   As an API client it is how the simulation driver creates assets, posts measurements and triggers schedules, which is also what the `HEMS tutorial <https://github.com/FlexMeasures/flexmeasures-client/blob/main/docs/HEMS.rst>`_ does.
+   The simulations ran this branch, which is `pull request #188 <https://github.com/FlexMeasures/flexmeasures-client/pull/188>`_ and still open.
 
 `s2-python <https://github.com/flexiblepower/s2-ws-json-python>`_ 0.8.1 (Apache-2.0)
    The message types of the `S2 standard <https://s2standard.org/>`_ for flexibility communication.
@@ -57,5 +58,5 @@ What they rely on, though, is: they are built on the components above, through t
 Where to start
 --------------
 
-- :ref:`cem-tutorial` sets up the client as an S2 CEM, including a Docker Compose stack with a FlexMeasures server.
-- :ref:`hems-tutorial` builds a complete home energy management system from scratch, with PV, a battery and a heat pump.
+- The `CEM tutorial <https://github.com/FlexMeasures/flexmeasures-client/blob/main/docs/CEM.rst>`_ sets up the client as an S2 CEM, including a Docker Compose stack with a FlexMeasures server.
+- The `HEMS tutorial <https://github.com/FlexMeasures/flexmeasures-client/blob/main/docs/HEMS.rst>`_ builds a complete home energy management system from scratch, with PV, a battery and a heat pump.
