@@ -36,6 +36,10 @@ from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
 # noise on the link, or an error from a strict resource manager.
 PENDING_INSTRUCTION_STATUSES = (InstructionStatus.NEW, InstructionStatus.ACCEPTED)
 
+# The kind of request that system descriptions are, for the purpose of superseding:
+# each one asks for a schedule, and only the newest such request is worth answering.
+SYSTEM_DESCRIPTION_REQUESTS = "system_description"
+
 
 class FRBC(ControlTypeHandler):
     _control_type = ControlType.FILL_RATE_BASED_CONTROL
@@ -55,6 +59,7 @@ class FRBC(ControlTypeHandler):
     _last_system_description_fingerprint: int | None
     _sent_instructions: dict[str, FRBCInstruction]
     send_revocations: bool
+    _supersession_counters: dict[str, int]
 
     def __init__(self, max_size: int = 100) -> None:
         super().__init__(max_size)
@@ -88,6 +93,21 @@ class FRBC(ControlTypeHandler):
         # (the FLEXED co-simulation resource manager does exactly that).
         # A deployment against a resource manager that honours revocations should turn it on.
         self.send_revocations = False
+        # One counter per kind of request, counting the requests of that kind received so far.
+        # A task spawned for a request notes the count at the time, and stands down if a newer
+        # request of the same kind has arrived by the time it runs, or by the time it has an
+        # answer to act on (see _is_current_generation).
+        self._supersession_counters = {}
+
+    def _next_generation(self, key: str) -> int:
+        """Count a newly received request of the given kind, and return its generation."""
+        generation = self._supersession_counters.get(key, 0) + 1
+        self._supersession_counters[key] = generation
+        return generation
+
+    def _is_current_generation(self, key: str, generation: int) -> bool:
+        """Whether that generation is still the newest request of its kind."""
+        return self._supersession_counters.get(key, 0) == generation
 
     @staticmethod
     def filter_instruction_transitions(
@@ -118,14 +138,33 @@ class FRBC(ControlTypeHandler):
             filtered.append(instruction)
         return filtered
 
-    async def send_instruction_batch(self, instructions: list[FRBCInstruction]) -> int:
+    async def send_instruction_batch(
+        self,
+        instructions: list[FRBCInstruction],
+        supersession_key: str | None = None,
+        generation: int | None = None,
+    ) -> int:
         """Replace the outstanding instruction batch with a new one, and return what was sent.
 
-        The transition filter is applied first, then the previous batch is revoked if this handler
-        is configured to revoke (and only those of its instructions that are still pending),
-        and the instructions that remain are sent and recorded as the outstanding batch.
+        The transition filter is applied first.
+        A batch computed for a request that has since been superseded is then dropped rather than
+        sent: the resource manager would file it under its current request, which is not the
+        request this batch answers (see _is_current_generation).
+        What remains is sent, after the previous batch has been revoked where this handler is
+        configured to revoke, and is recorded as the outstanding batch.
         """
         filtered = self.filter_instruction_transitions(instructions)
+
+        if (
+            supersession_key is not None
+            and generation is not None
+            and not self._is_current_generation(supersession_key, generation)
+        ):
+            self._logger.info(
+                f"Dropping an instruction batch of {len(filtered)} instructions: "
+                f"a newer '{supersession_key}' request arrived while it was being computed."
+            )
+            return 0
 
         if self.send_revocations:
             for instruction_id, instruction in self._sent_instructions.items():
@@ -189,8 +228,28 @@ class FRBC(ControlTypeHandler):
         # store system_description message for later
         self._system_description_history[system_description_id] = message
 
+        # Each description asks for a schedule, and answering one means a round trip to
+        # FlexMeasures and a full instruction batch to the resource manager.
+        # Where several arrive before their tasks get to run - a backlog under load, or a resource
+        # manager resending a changed description - only the newest is worth answering;
+        # the older ones stand down here, and a task whose request is superseded while it waits
+        # for its schedule drops its batch rather than sending it.
+        # Co-simulated time is what makes the request order the only usable signal: a retrigger
+        # round shares one simulated timestamp while the steering signals behind it change, so a
+        # time-based throttle, such as the timers in the TUNES handler, cannot tell stale work
+        # from fresh work.
+        generation = self._next_generation(SYSTEM_DESCRIPTION_REQUESTS)
+
+        async def trigger_schedule_unless_superseded():
+            if not self._is_current_generation(SYSTEM_DESCRIPTION_REQUESTS, generation):
+                self._logger.info(
+                    f"Skipping a superseded schedule request (generation {generation})."
+                )
+                return
+            await self.trigger_schedule(system_description_id, generation=generation)
+
         # schedule trigger_schedule to run soon concurrently
-        task = asyncio.create_task(self.trigger_schedule(system_description_id))
+        task = asyncio.create_task(trigger_schedule_unless_superseded())
         self.background_tasks.add(
             task
         )  # important to avoid a task disappearing mid-execution.
@@ -287,14 +346,29 @@ class FRBC(ControlTypeHandler):
     ):
         raise NotImplementedError()
 
+    async def trigger_schedule(
+        self, system_description_id: str, generation: int | None = None
+    ):
+        """Ask FlexMeasures for a schedule, and send the resulting instructions.
+
+        :param system_description_id: system description to base the schedule on
+        :param generation:            the generation of the request this schedule answers,
+                                      to be passed on to send_instruction_batch so that a batch
+                                      answering a superseded request is dropped
+        """
+        raise NotImplementedError()
+
 
 class FRBCTest(FRBC):
     """Dummy class to simulate the triggering of a schedule."""
 
-    async def trigger_schedule(self, system_description_id: str):
+    async def trigger_schedule(
+        self, system_description_id: str, generation: int | None = None
+    ):
         """Creates schedule consisting on just a dummy instruction
 
         :param system_description_id: system description to based the schedule on
+        :param generation:            the generation of the request this schedule answers
         """
 
         system_description: FRBCSystemDescription = self._system_description_history[

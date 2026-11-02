@@ -14,7 +14,11 @@ import pytest
 from s2python.common import InstructionStatus, InstructionStatusUpdate, RevokeObject
 from s2python.frbc import FRBCInstruction, FRBCSystemDescription
 
-from flexmeasures_client.s2.control_types.FRBC import FRBC, FRBCTest
+from flexmeasures_client.s2.control_types.FRBC import (
+    FRBC,
+    SYSTEM_DESCRIPTION_REQUESTS,
+    FRBCTest,
+)
 from flexmeasures_client.s2.utils import get_unique_id
 
 
@@ -207,3 +211,76 @@ async def test_a_new_batch_revokes_nothing_unless_revocations_are_on():
     )
 
     assert not [m for m in frbc.sent if isinstance(m, RevokeObject)]
+
+
+class SlowRecordingFRBC(RecordingFRBC):
+    """A recording handler whose schedule round trip takes a while, as a real one does."""
+
+    def __init__(self, round_trip: float = 0.05, **kwargs):
+        super().__init__(**kwargs)
+        self.round_trip = round_trip
+        self.answered_generations: list[int] = []
+
+    async def trigger_schedule(
+        self, system_description_id: str, generation: int | None = None
+    ):
+        await asyncio.sleep(self.round_trip)  # the round trip to FlexMeasures
+        actuator = self._system_description_history[system_description_id].actuators[0]
+        batch = [
+            make_instruction(
+                str(actuator.operation_modes[0].id), 1.0, slot, str(actuator.id)
+            )
+            for slot in range(3)
+        ]
+        sent = await self.send_instruction_batch(
+            batch,
+            supersession_key=SYSTEM_DESCRIPTION_REQUESTS,
+            generation=generation,
+        )
+        if sent:
+            self.answered_generations.append(generation)
+
+
+def change_of(description: FRBCSystemDescription, hours: int) -> FRBCSystemDescription:
+    """The same system description, said to be valid from a different time."""
+    return FRBCSystemDescription(
+        message_id=get_unique_id(),
+        valid_from=description.valid_from + timedelta(hours=hours),
+        actuators=description.actuators,
+        storage=description.storage,
+    )
+
+
+@pytest.mark.asyncio
+async def test_only_the_newest_schedule_request_is_answered(frbc_system_description):
+    """A burst of system descriptions: the older requests stand down before they run."""
+    frbc = SlowRecordingFRBC()
+
+    for hours in range(3):
+        await frbc.handle_message(change_of(frbc_system_description, hours))
+    await asyncio.gather(*frbc.background_tasks)
+
+    assert frbc.answered_generations == [
+        3
+    ], "only the newest of the three requests may be answered"
+    assert len(frbc.sent) == 1, "and only its batch may reach the resource manager"
+
+
+@pytest.mark.asyncio
+async def test_a_batch_is_dropped_when_its_request_was_superseded_meanwhile(
+    frbc_system_description,
+):
+    """The re-check at sending time: the schedule came back, but it answers an old question."""
+    frbc = RecordingFRBC()
+    generation = frbc._next_generation(SYSTEM_DESCRIPTION_REQUESTS)
+    frbc._next_generation(SYSTEM_DESCRIPTION_REQUESTS)  # a newer request arrives
+
+    sent = await frbc.send_instruction_batch(
+        [make_instruction(get_unique_id(), 1.0, 0, get_unique_id())],
+        supersession_key=SYSTEM_DESCRIPTION_REQUESTS,
+        generation=generation,
+    )
+
+    assert sent == 0
+    assert frbc.sent == []
+    assert frbc._sent_instructions == {}, "and the outstanding batch is left alone"

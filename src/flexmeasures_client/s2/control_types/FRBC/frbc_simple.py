@@ -19,7 +19,7 @@ except ImportError:
     )
 
 
-from flexmeasures_client.s2.control_types.FRBC import FRBC
+from flexmeasures_client.s2.control_types.FRBC import FRBC, SYSTEM_DESCRIPTION_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     fm_schedule_to_instructions,
     get_soc_min_max,
@@ -155,8 +155,15 @@ class FRBCSimple(FRBC):
                 duration=timedelta(minutes=15),
             )
 
-    async def trigger_schedule(self, system_description_id: str):
-        """Translates S2 System Description into FM API calls"""
+    async def trigger_schedule(
+        self, system_description_id: str, generation: int | None = None
+    ):
+        """Translates S2 System Description into FM API calls.
+
+        :param system_description_id: system description to base the schedule on
+        :param generation:            the generation of the request this schedule answers, which
+                                      is checked once more before the instructions go out
+        """
 
         system_description: FRBCSystemDescription = self._system_description_history[
             system_description_id
@@ -199,4 +206,8 @@ class FRBCSimple(FRBC):
             schedule, system_description, initial_fill_level=soc_at_start
         )
 
-        await self.send_instruction_batch(instructions)
+        await self.send_instruction_batch(
+            instructions,
+            supersession_key=SYSTEM_DESCRIPTION_REQUESTS,
+            generation=generation,
+        )
