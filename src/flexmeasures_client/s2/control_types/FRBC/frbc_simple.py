@@ -156,13 +156,13 @@ class FRBCSimple(FRBC):
             )
 
     async def trigger_schedule(
-        self, system_description_id: str, generation: int | None = None
+        self, system_description_id: str, request_number: int | None = None
     ):
         """Translates S2 System Description into FM API calls.
 
         :param system_description_id: system description to base the schedule on
-        :param generation:            the generation of the request this schedule answers, which
-                                      is checked once more before the instructions go out
+        :param request_number:        which request this schedule answers, which is checked once
+                                      more before the instructions go out
         """
 
         system_description: FRBCSystemDescription = self._system_description_history[
@@ -208,6 +208,6 @@ class FRBCSimple(FRBC):
 
         await self.send_instruction_batch(
             instructions,
-            supersession_key=SYSTEM_DESCRIPTION_REQUESTS,
-            generation=generation,
+            request_kind=SYSTEM_DESCRIPTION_REQUESTS,
+            request_number=request_number,
         )

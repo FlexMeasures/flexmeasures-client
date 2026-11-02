@@ -186,10 +186,10 @@ class SlowRecordingFRBC(RecordingFRBC):
     def __init__(self, round_trip: float = 0.05, **kwargs):
         super().__init__(**kwargs)
         self.round_trip = round_trip
-        self.answered_generations: list[int] = []
+        self.answered_requests: list[int] = []
 
     async def trigger_schedule(
-        self, system_description_id: str, generation: int | None = None
+        self, system_description_id: str, request_number: int | None = None
     ):
         await asyncio.sleep(self.round_trip)  # the round trip to FlexMeasures
         actuator = self._system_description_history[system_description_id].actuators[0]
@@ -201,11 +201,11 @@ class SlowRecordingFRBC(RecordingFRBC):
         ]
         sent = await self.send_instruction_batch(
             batch,
-            supersession_key=SYSTEM_DESCRIPTION_REQUESTS,
-            generation=generation,
+            request_kind=SYSTEM_DESCRIPTION_REQUESTS,
+            request_number=request_number,
         )
         if sent:
-            self.answered_generations.append(generation)
+            self.answered_requests.append(request_number)
 
 
 def change_of(description: FRBCSystemDescription, hours: int) -> FRBCSystemDescription:
@@ -227,7 +227,7 @@ async def test_only_the_newest_schedule_request_is_answered(frbc_system_descript
         await frbc.handle_message(change_of(frbc_system_description, hours))
     await asyncio.gather(*frbc.background_tasks)
 
-    assert frbc.answered_generations == [
+    assert frbc.answered_requests == [
         3
     ], "only the newest of the three requests may be answered"
     assert len(frbc.sent) == 1, "and only its batch may reach the resource manager"
@@ -239,13 +239,13 @@ async def test_a_batch_is_dropped_when_its_request_was_superseded_meanwhile(
 ):
     """The re-check at sending time: the schedule came back, but it answers an old question."""
     frbc = RecordingFRBC()
-    generation = frbc._next_generation(SYSTEM_DESCRIPTION_REQUESTS)
-    frbc._next_generation(SYSTEM_DESCRIPTION_REQUESTS)  # a newer request arrives
+    request_number = frbc._count_request(SYSTEM_DESCRIPTION_REQUESTS)
+    frbc._count_request(SYSTEM_DESCRIPTION_REQUESTS)  # a newer request arrives
 
     sent = await frbc.send_instruction_batch(
         [make_instruction(get_unique_id(), 1.0, 0, get_unique_id())],
-        supersession_key=SYSTEM_DESCRIPTION_REQUESTS,
-        generation=generation,
+        request_kind=SYSTEM_DESCRIPTION_REQUESTS,
+        request_number=request_number,
     )
 
     assert sent == 0

@@ -16,7 +16,7 @@ Other changes: see `Unreleased in the changelog <https://github.com/FlexMeasures
 Changed
 -------
 
-* ``FRBC.trigger_schedule()`` takes the generation of the request it answers as a keyword argument, so a subclass that overrides it has to accept that argument [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
+* ``FRBC.trigger_schedule()`` takes the number of the request it answers as a keyword argument, so a subclass that overrides it has to accept that argument [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
 
 Fixed
 -----
