@@ -10,3 +10,4 @@
 
 - [ ] Added tests
 - [ ] Added a changelog entry under **Unreleased** in `CHANGELOG.rst`, or in `CHANGELOG-S2.rst` for changes to the S2 integration (not needed for changes users do not notice)
+- [ ] Set the milestone to the first release that will ship this change
