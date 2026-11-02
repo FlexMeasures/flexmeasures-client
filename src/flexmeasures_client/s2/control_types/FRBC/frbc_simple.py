@@ -199,5 +199,4 @@ class FRBCSimple(FRBC):
             schedule, system_description, initial_fill_level=soc_at_start
         )
 
-        for instruction in instructions:
-            await self.send_message(instruction)
+        await self.send_instruction_batch(instructions)

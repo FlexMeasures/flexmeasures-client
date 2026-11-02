@@ -11,9 +11,10 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from s2python.common import InstructionStatus, InstructionStatusUpdate, RevokeObject
 from s2python.frbc import FRBCInstruction, FRBCSystemDescription
 
-from flexmeasures_client.s2.control_types.FRBC import FRBCTest
+from flexmeasures_client.s2.control_types.FRBC import FRBC, FRBCTest
 from flexmeasures_client.s2.utils import get_unique_id
 
 
@@ -99,3 +100,110 @@ async def test_a_changed_system_description_is_acted_on(frbc_system_description)
 
     assert len(frbc._system_description_history) == 2
     assert len(frbc.sent) == 2
+
+
+class TestTransitionFilter:
+    def test_repeats_are_dropped_and_changes_kept(self):
+        on, off = get_unique_id(), get_unique_id()
+        actuator = get_unique_id()
+        modes = [on, on, on, off, off, on, on, on]
+        instructions = [
+            make_instruction(mode, 1.0, slot, actuator)
+            for slot, mode in enumerate(modes)
+        ]
+
+        filtered = FRBC.filter_instruction_transitions(instructions)
+
+        assert [str(i.operation_mode) for i in filtered] == [str(on), str(off), str(on)]
+        assert (
+            filtered[0] is instructions[0]
+        ), "the first instruction establishes the state"
+
+    def test_a_changed_factor_is_a_transition(self):
+        mode = get_unique_id()
+        actuator = get_unique_id()
+        instructions = [
+            make_instruction(mode, factor, slot, actuator)
+            for slot, factor in enumerate([0.5, 0.5, 1.0, 1.0])
+        ]
+
+        filtered = FRBC.filter_instruction_transitions(instructions)
+
+        assert [i.operation_mode_factor for i in filtered] == [0.5, 1.0]
+
+    def test_actuators_are_followed_separately(self):
+        mode = get_unique_id()
+        one, other = get_unique_id(), get_unique_id()
+        instructions = [
+            make_instruction(mode, 1.0, 0, one),
+            make_instruction(mode, 1.0, 0, other),  # another actuator, so a transition
+            make_instruction(mode, 1.0, 1, one),  # a repeat for the first actuator
+        ]
+
+        filtered = FRBC.filter_instruction_transitions(instructions)
+
+        assert len(filtered) == 2
+        assert {str(i.actuator_id) for i in filtered} == {str(one), str(other)}
+
+
+@pytest.mark.asyncio
+async def test_only_transitions_are_sent_and_recorded():
+    frbc = RecordingFRBC()
+    mode, actuator = get_unique_id(), get_unique_id()
+    instructions = [make_instruction(mode, 1.0, slot, actuator) for slot in range(4)]
+
+    sent = await frbc.send_instruction_batch(instructions)
+
+    assert sent == 1, "three of the four instructions ask for nothing new"
+    assert len(frbc.sent) == 1
+    assert list(frbc._sent_instructions) == [str(instructions[0].id)]
+
+
+@pytest.mark.asyncio
+async def test_a_new_batch_revokes_only_the_instructions_still_pending():
+    frbc = RecordingFRBC()
+    frbc.send_revocations = True
+
+    mode, actuator = get_unique_id(), get_unique_id()
+    first = [
+        make_instruction(mode, float(slot % 2), slot, actuator) for slot in range(4)
+    ]
+    await frbc.send_instruction_batch(first)
+    assert len(frbc._sent_instructions) == 4, "alternating factors are all transitions"
+
+    # The resource manager reports one of them as finished, so it cannot be called off.
+    finished = first[0]
+    await frbc.handle_message(
+        InstructionStatusUpdate(
+            message_id=get_unique_id(),
+            instruction_id=finished.id,
+            status_type=InstructionStatus.SUCCEEDED,
+            timestamp=datetime(2022, 12, 1, 12, 0, tzinfo=timezone.utc),
+        )
+    )
+
+    frbc.sent.clear()
+    await frbc.send_instruction_batch(
+        [make_instruction(get_unique_id(), 1.0, 0, actuator)]
+    )
+
+    revocations = [m for m in frbc.sent if isinstance(m, RevokeObject)]
+    assert len(revocations) == 3
+    assert str(finished.id) not in {str(r.object_id) for r in revocations}
+    assert len(frbc._sent_instructions) == 1, "the registry holds only the new batch"
+
+
+@pytest.mark.asyncio
+async def test_a_new_batch_revokes_nothing_unless_revocations_are_on():
+    frbc = RecordingFRBC()
+    actuator = get_unique_id()
+
+    await frbc.send_instruction_batch(
+        [make_instruction(get_unique_id(), 1.0, 0, actuator)]
+    )
+    frbc.sent.clear()
+    await frbc.send_instruction_batch(
+        [make_instruction(get_unique_id(), 1.0, 1, actuator)]
+    )
+
+    assert not [m for m in frbc.sent if isinstance(m, RevokeObject)]

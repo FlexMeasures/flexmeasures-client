@@ -3,7 +3,13 @@ import asyncio
 import pydantic
 
 try:
-    from s2python.common import ControlType, ReceptionStatusValues
+    from s2python.common import (
+        ControlType,
+        InstructionStatus,
+        ReceptionStatusValues,
+        RevokableObjects,
+        RevokeObject,
+    )
     from s2python.frbc import (
         FRBCActuatorStatus,
         FRBCFillLevelTargetProfile,
@@ -25,6 +31,11 @@ from flexmeasures_client.s2 import SizeLimitOrderedDict, register
 from flexmeasures_client.s2.control_types import ControlTypeHandler
 from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
 
+# An instruction the resource manager has not started yet can still be called off.
+# One it has started, finished or already refused cannot, and a revocation for it would only be
+# noise on the link, or an error from a strict resource manager.
+PENDING_INSTRUCTION_STATUSES = (InstructionStatus.NEW, InstructionStatus.ACCEPTED)
+
 
 class FRBC(ControlTypeHandler):
     _control_type = ControlType.FILL_RATE_BASED_CONTROL
@@ -42,6 +53,8 @@ class FRBC(ControlTypeHandler):
     _storage_status_history: SizeLimitOrderedDict[str, FRBCStorageStatus]
     background_tasks: set
     _last_system_description_fingerprint: int | None
+    _sent_instructions: dict[str, FRBCInstruction]
+    send_revocations: bool
 
     def __init__(self, max_size: int = 100) -> None:
         super().__init__(max_size)
@@ -64,6 +77,81 @@ class FRBC(ControlTypeHandler):
         self.background_tasks = set()
 
         self._last_system_description_fingerprint = None
+
+        # The instructions of the batch the resource manager is currently working from, by their
+        # instruction id, which is also the id it reports status updates against.
+        # A new batch replaces them, because an FRBC schedule is sent whole rather than amended.
+        self._sent_instructions = {}
+        # Whether replacing a batch also revokes the instructions of the batch before it.
+        # Off by default: a resource manager is not required to implement RevokeObject,
+        # and one that keys instructions to its current request discards the old batch by itself
+        # (the FLEXED co-simulation resource manager does exactly that).
+        # A deployment against a resource manager that honours revocations should turn it on.
+        self.send_revocations = False
+
+    @staticmethod
+    def filter_instruction_transitions(
+        instructions: list[FRBCInstruction],
+    ) -> list[FRBCInstruction]:
+        """Keep only the instructions that change what an actuator is doing.
+
+        An FRBC instruction is a switch command, not a setpoint sample: the resource manager holds
+        the operation mode and factor it was last given until it is told otherwise.
+        An instruction repeating its predecessor's actuator, operation mode and factor therefore
+        asks for nothing, and a schedule expressed as one instruction per quarter hour over a day
+        is mostly made of such repeats.
+        Instructions for different actuators are independent, so each actuator is followed
+        separately, and the first instruction for an actuator is always kept, since it is what
+        establishes that actuator's state.
+        """
+        filtered: list[FRBCInstruction] = []
+        last_state: dict[str, tuple[str, float]] = {}
+        for instruction in instructions:
+            actuator = str(instruction.actuator_id)
+            state = (
+                str(instruction.operation_mode),
+                float(instruction.operation_mode_factor),
+            )
+            if last_state.get(actuator) == state:
+                continue
+            last_state[actuator] = state
+            filtered.append(instruction)
+        return filtered
+
+    async def send_instruction_batch(self, instructions: list[FRBCInstruction]) -> int:
+        """Replace the outstanding instruction batch with a new one, and return what was sent.
+
+        The transition filter is applied first, then the previous batch is revoked if this handler
+        is configured to revoke (and only those of its instructions that are still pending),
+        and the instructions that remain are sent and recorded as the outstanding batch.
+        """
+        filtered = self.filter_instruction_transitions(instructions)
+
+        if self.send_revocations:
+            for instruction_id, instruction in self._sent_instructions.items():
+                status = self._instruction_status_history.get(
+                    instruction_id, InstructionStatus.NEW
+                )
+                if status not in PENDING_INSTRUCTION_STATUSES:
+                    continue
+                await self.send_message(
+                    RevokeObject(
+                        message_id=get_unique_id(),
+                        object_type=RevokableObjects.FRBC_Instruction,
+                        object_id=instruction.id,
+                    )
+                )
+
+        self._sent_instructions = {}
+        for instruction in filtered:
+            await self.send_message(instruction)
+            self._sent_instructions[str(instruction.id)] = instruction
+
+        self._logger.debug(
+            f"Sent an instruction batch of {len(filtered)} instructions, "
+            f"out of {len(instructions)} before transition-filtering."
+        )
+        return len(filtered)
 
     @staticmethod
     def system_description_fingerprint(message: FRBCSystemDescription) -> int:
