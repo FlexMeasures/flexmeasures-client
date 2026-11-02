@@ -19,7 +19,7 @@ except ImportError:
     )
 
 
-from flexmeasures_client.s2.control_types.FRBC import FRBC, SYSTEM_DESCRIPTION_REQUESTS
+from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     fm_schedule_to_instructions,
     get_soc_min_max,
@@ -92,13 +92,42 @@ class FRBCSimple(FRBC):
         ) % resolution_seconds
         return start.replace(microsecond=0) - timedelta(seconds=seconds_into_the_day)
 
-    async def send_storage_status(self, status: FRBCStorageStatus):
+    async def send_storage_status(
+        self, status: FRBCStorageStatus, request_number: int | None = None
+    ):
         await self._fm_client.post_measurements(
             self._soc_sensor_id,
             start=self.now(),
             values=[status.present_fill_level],
             unit="MWh",
             duration=timedelta(minutes=1),
+        )
+
+        # The state of charge this status reports is what a schedule starts from, so this is
+        # where a schedule is asked for.
+        # A system description is needed to turn that schedule into instructions, and a resource
+        # manager sends one before its first status, so its absence here means the two have gone
+        # out of step rather than that nothing has arrived yet.
+        if not self._system_description_history:
+            self._logger.warning(
+                "Cannot ask for a schedule: no FRBC.SystemDescription has arrived yet."
+            )
+            return
+
+        # The measurement above is posted whatever happens, because it is data.
+        # The planning below is skipped where a newer status has arrived in the meantime,
+        # since that newer status reports the state of charge a schedule should start from.
+        if request_number is not None and not self._is_latest_request(
+            STORAGE_STATUS_REQUESTS, request_number
+        ):
+            self._logger.info(
+                f"Skipping a superseded planning request (number {request_number})."
+            )
+            return
+
+        system_description_id = list(self._system_description_history)[-1]
+        await self.trigger_schedule(
+            system_description_id, request_number=request_number
         )
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
@@ -183,8 +212,8 @@ class FRBCSimple(FRBC):
         """Translates S2 System Description into FM API calls.
 
         :param system_description_id: system description to base the schedule on
-        :param request_number:        which request this schedule answers, which is checked once
-                                      more before the instructions go out
+        :param request_number:        which planning request this schedule answers, which is
+                                      checked once more before the instructions go out
         """
 
         system_description: FRBCSystemDescription = self._system_description_history[
@@ -229,6 +258,6 @@ class FRBCSimple(FRBC):
 
         await self.send_instruction_batch(
             instructions,
-            request_kind=SYSTEM_DESCRIPTION_REQUESTS,
+            request_kind=STORAGE_STATUS_REQUESTS,
             request_number=request_number,
         )

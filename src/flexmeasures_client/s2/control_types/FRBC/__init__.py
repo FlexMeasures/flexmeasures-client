@@ -36,9 +36,10 @@ from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
 # noise on the link, or an error from a strict resource manager.
 PENDING_INSTRUCTION_STATUSES = (InstructionStatus.NEW, InstructionStatus.ACCEPTED)
 
-# The kind of request that system descriptions are, for the purpose of superseding:
-# each one asks for a schedule, and only the newest such request is worth answering.
-SYSTEM_DESCRIPTION_REQUESTS = "system_description"
+# The kind of request that storage statuses are, for the purpose of superseding:
+# each one reports a new state of charge and so asks for a schedule from that state,
+# and only the newest such request is worth answering.
+STORAGE_STATUS_REQUESTS = "storage_status"
 
 
 class FRBC(ControlTypeHandler):
@@ -198,34 +199,11 @@ class FRBC(ControlTypeHandler):
         # store system_description message for later
         self._system_description_history[system_description_id] = message
 
-        # Each description asks for a schedule, and answering one means a round trip to
-        # FlexMeasures and a full instruction batch to the resource manager.
-        # Where several arrive before their tasks get to run - a backlog under load, or a resource
-        # manager resending a changed description - only the newest is worth answering;
-        # the older ones stand down here, and a task whose request is superseded while it waits
-        # for its schedule drops its batch rather than sending it.
-        # Co-simulated time is what makes the request order the only usable signal: a retrigger
-        # round shares one simulated timestamp while the steering signals behind it change, so a
-        # time-based throttle, such as the timers in the TUNES handler, cannot tell stale work
-        # from fresh work.
-        request_number = self._count_request(SYSTEM_DESCRIPTION_REQUESTS)
-
-        async def trigger_schedule_unless_superseded():
-            if not self._is_latest_request(SYSTEM_DESCRIPTION_REQUESTS, request_number):
-                self._logger.info(
-                    f"Skipping a superseded schedule request (number {request_number})."
-                )
-                return
-            await self.trigger_schedule(
-                system_description_id, request_number=request_number
-            )
-
-        # schedule trigger_schedule to run soon concurrently
-        task = asyncio.create_task(trigger_schedule_unless_superseded())
-        self.background_tasks.add(
-            task
-        )  # important to avoid a task disappearing mid-execution.
-        task.add_done_callback(self.background_tasks.discard)
+        # A description says what the device can do, not what it is doing, so it is stored and
+        # no schedule is asked for here.
+        # Planning happens on a storage status, which is what carries a new state of charge,
+        # and which is the only one of the two a resource manager is required to keep sending
+        # (see handle_storage_status).
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
     @register(FRBCUsageForecast)
@@ -247,7 +225,19 @@ class FRBC(ControlTypeHandler):
 
         self._storage_status_history[message_id] = message
 
-        task = asyncio.create_task(self.send_storage_status(message))
+        # Each storage status is a planning request: it reports the state of charge a schedule
+        # has to start from, and answering it means a round trip to FlexMeasures and an
+        # instruction batch to the resource manager.
+        # Requests are counted so that a handler can tell its own request from a newer one and
+        # drop work that answers a question already out of date (see send_instruction_batch).
+        # Request order is the only signal available: in co-simulation a retrigger round shares
+        # one simulated timestamp while the steering signals behind it change, so the
+        # time-based throttling the TUNES handler uses cannot tell stale work from fresh work.
+        request_number = self._count_request(STORAGE_STATUS_REQUESTS)
+
+        task = asyncio.create_task(
+            self.send_storage_status(message, request_number=request_number)
+        )
         self.background_tasks.add(
             task
         )  # important to avoid a task disappearing mid-execution.
@@ -301,7 +291,17 @@ class FRBC(ControlTypeHandler):
     def handle_frbc_timer_status(self, message: FRBCTimerStatus) -> pydantic.BaseModel:
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
-    async def send_storage_status(self, status: FRBCStorageStatus):
+    async def send_storage_status(
+        self, status: FRBCStorageStatus, request_number: int | None = None
+    ):
+        """Record the reported state of charge, and ask for a schedule starting from it.
+
+        :param status:         the storage status to act on
+        :param request_number: which planning request this status is,
+                               to be passed on to trigger_schedule and from there to
+                               send_instruction_batch, so that a batch answering a superseded
+                               request is dropped rather than sent
+        """
         raise NotImplementedError()
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
