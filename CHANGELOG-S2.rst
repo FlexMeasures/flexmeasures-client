@@ -13,15 +13,26 @@ Unreleased
 
 Other changes: see `Unreleased in the changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG.rst#unreleased>`__.
 
+Changed
+-------
+
+* ``FRBC.trigger_schedule()`` takes the generation of the request it answers as a keyword argument, so a subclass that overrides it has to accept that argument [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
+
 Fixed
 -----
 
+* An FRBC handler ignores a re-sent system description whose content is unchanged, instead of triggering a schedule and an instruction batch for every resend [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
+* An FRBC handler answers only the newest schedule request, instead of letting every request in a backlog complete its own round trip and send its own instruction batch [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
+* An FRBC handler sends an instruction only where it changes what the actuator does, instead of one per quarter hour of the schedule, most of which repeat their predecessor [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
+* The instruction-status history is keyed by a string, as its type declares, instead of by the ``UUID`` that a no-op ``cast`` let through, which made every lookup miss [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
 * ``FRBCSimple`` reports the power of the operation mode the actuator is actually in, taken from the mode's power range, and posts it to the power sensor [`#236 <https://github.com/FlexMeasures/flexmeasures-client/pull/236>`__]
 * A control-type handler can log before it is registered, and one without its own ``close()`` no longer breaks CEM teardown [`#236 <https://github.com/FlexMeasures/flexmeasures-client/pull/236>`__]
 
 Added
 -----
 
+* An FRBC handler tracks the instruction batch the resource manager is working from, and ``send_revocations`` makes it revoke the instructions of a batch it replaces that are still pending [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
+* ``ControlTypeHandler.send_message()``, which handlers use instead of putting messages on the CEM's sending queue themselves [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
 * ``FRBCSimple`` takes an optional ``fill_rate_sensor_id``, and records the actuator's fill rate there instead of discarding it [`#236 <https://github.com/FlexMeasures/flexmeasures-client/pull/236>`__]
 
 v0.9.0 | 2026-04-21
