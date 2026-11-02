@@ -16,13 +16,13 @@ Other changes: see `Unreleased in the changelog <https://github.com/FlexMeasures
 Fixed
 -----
 
-* ``FRBCSimple`` reports the power of the operation mode the actuator is actually in, taken from the mode's power range, and posts it to the power sensor [`#PRNUM <https://github.com/FlexMeasures/flexmeasures-client/pull/PRNUM>`__]
-* A control-type handler can log before it is registered, and one without its own ``close()`` no longer breaks CEM teardown [`#PRNUM <https://github.com/FlexMeasures/flexmeasures-client/pull/PRNUM>`__]
+* ``FRBCSimple`` reports the power of the operation mode the actuator is actually in, taken from the mode's power range, and posts it to the power sensor [`#236 <https://github.com/FlexMeasures/flexmeasures-client/pull/236>`__]
+* A control-type handler can log before it is registered, and one without its own ``close()`` no longer breaks CEM teardown [`#236 <https://github.com/FlexMeasures/flexmeasures-client/pull/236>`__]
 
 Added
 -----
 
-* ``FRBCSimple`` takes an optional ``fill_rate_sensor_id``, and records the actuator's fill rate there instead of discarding it [`#PRNUM <https://github.com/FlexMeasures/flexmeasures-client/pull/PRNUM>`__]
+* ``FRBCSimple`` takes an optional ``fill_rate_sensor_id``, and records the actuator's fill rate there instead of discarding it [`#236 <https://github.com/FlexMeasures/flexmeasures-client/pull/236>`__]
 
 v0.9.0 | 2026-04-21
 ===================
