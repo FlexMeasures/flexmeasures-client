@@ -114,6 +114,11 @@ def changelog_releases(
     return releases
 
 
+def escape_command_data(text: str) -> str:
+    """Escape text for the message of a GitHub Actions workflow command, so that changelog text cannot end it early."""
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
 def problems_with(
     milestone: dict | None,
     open_milestones: list[str],
@@ -173,7 +178,7 @@ def main(argv: list[str]) -> int:
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if problems:
         for problem in problems:
-            print(f"::error title=Milestone::{problem}")
+            print(f"::error title=Milestone::{escape_command_data(problem)}")
         report = (
             "### Milestone check failed\n\n"
             + "\n".join(f"- {problem}" for problem in problems)

@@ -52,10 +52,10 @@ jobs:
             --jq '.[] | select(.pull_request) | .number' |
           while read -r number; do
             sha=$(gh api "repos/$REPO/pulls/$number" --jq .head.sha)
-            run=$(gh run list --repo "$REPO" --workflow milestone-check.yml --commit "$sha" --limit 1 --json databaseId --jq '.[0].databaseId')
+            run=$(gh run list --repo "$REPO" --workflow milestone-check.yml --commit "$sha" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
             if [ -n "$run" ]; then
               echo "Re-running the milestone check of #$number (run $run)"
-              gh run rerun "$run" --repo "$REPO"
+              gh run rerun "$run" --repo "$REPO" || echo "Could not re-run the milestone check of #$number (run $run), possibly as it is still running"
             else
               echo "No milestone check found for #$number at $sha"
             fi
