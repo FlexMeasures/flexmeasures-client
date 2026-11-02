@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from asyncio import Queue
-from logging import Logger
+from logging import Logger, getLogger
 from typing import cast
 
 from pydantic import BaseModel
@@ -30,6 +30,22 @@ class ControlTypeHandler(Handler):
 
         self._instruction_history = SizeLimitOrderedDict(max_size=max_size)
         self._instruction_status_history = SizeLimitOrderedDict(max_size=max_size)
+        # _logger was only ever an annotation, assigned by CEM.register_control_type(). A handler
+        # used before registration - in a test, or on any path that logs during construction -
+        # therefore raised AttributeError instead of logging. Default it here; the CEM still
+        # replaces it with its own logger on registration.
+        self._logger = getLogger(self.__class__.__name__)
+
+    async def close(self):
+        """Release any resources / stop recurring tasks for this handler.
+
+        Default no-op so CEM.close(), which calls close() on every registered handler when a
+        websocket tears down, works for any control-type handler.
+        Subclasses that own recurring tasks override this.
+        Without it, a handler lacking close() raised AttributeError inside CEM.close(),
+        killing the CEM's request handler and hanging the resource manager.
+        """
+        self._logger.debug(f"Closing {self.__class__.__name__} handler")
 
     @register(InstructionStatusUpdate)
     def handle_instruction_status_update(self, message: InstructionStatusUpdate):
