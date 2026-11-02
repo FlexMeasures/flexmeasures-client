@@ -199,6 +199,5 @@ class FRBCSimple(FRBC):
             schedule, system_description, initial_fill_level=soc_at_start
         )
 
-        # put instructions to sending queue
         for instruction in instructions:
-            await self._sending_queue.put(instruction)
+            await self.send_message(instruction)

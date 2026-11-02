@@ -195,5 +195,4 @@ class FRBCTest(FRBC):
             abnormal_condition=False,
         )
 
-        # put instruction into the sending queue
-        await self._sending_queue.put(instruction)
+        await self.send_message(instruction)
