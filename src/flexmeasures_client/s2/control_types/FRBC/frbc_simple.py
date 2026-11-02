@@ -31,8 +31,10 @@ class FRBCSimple(FRBC):
     _price_sensor_id: int
     _soc_sensor_id: int
     _rm_discharge_sensor_id: int
+    _fill_rate_sensor_id: int | None
     _schedule_duration: timedelta
     _valid_from_shift: timedelta
+    _fill_level_scale: float
 
     def __init__(
         self,
@@ -40,10 +42,15 @@ class FRBCSimple(FRBC):
         soc_sensor_id: int,
         rm_discharge_sensor_id: int,
         price_sensor_id: int,
+        # Optional so existing callers keep working; when absent the actuator's fill rate is
+        # simply not recorded, rather than being posted onto the power sensor.
+        fill_rate_sensor_id: int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         max_size: int = 100,
         valid_from_shift: timedelta = timedelta(days=1),
+        fill_level_scale: float = 1,
+        power_unit: str = "W",
     ) -> None:
         super().__init__(max_size)
         self._power_sensor_id = power_sensor_id
@@ -51,7 +58,10 @@ class FRBCSimple(FRBC):
         self._schedule_duration = schedule_duration
         self._soc_sensor_id = soc_sensor_id
         self._rm_discharge_sensor_id = rm_discharge_sensor_id
+        self._fill_rate_sensor_id = fill_rate_sensor_id
         self._timezone = ZoneInfo(timezone)
+        self._fill_level_scale = fill_level_scale
+        self.power_unit = power_unit
 
         # delay the start of the schedule from the time `valid_from`
         # of the FRBC.SystemDescription.
@@ -72,22 +82,78 @@ class FRBCSimple(FRBC):
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
         sd: FRBCSystemDescription = list(self._system_description_history.values())[-1]
-        fill_rate = sd.actuators[0].operation_modes[0].elements[0].fill_rate
 
+        # Report the mode the actuator is ACTUALLY in, not whichever the system description happens
+        # to list first. An FRBC actuator declares its modes with degenerate power ranges - on is
+        # [883.7, 883.7] W and off is [0, 0] - so interpolating by the factor cannot express the
+        # difference between them; only the choice of mode can. Taking operation_modes[0] pinned
+        # every status to the on-mode value, so the power sensor showed a constant draw and could
+        # never show the heater switching off, whatever the factor said. frbc_tunes already selects
+        # by active_operation_mode_id; this brings frbc_simple in line.
+        actuator = next(
+            (a for a in sd.actuators if a.id == status.actuator_id), sd.actuators[0]
+        )
+        operation_mode = next(
+            (
+                om
+                for om in actuator.operation_modes
+                if om.id == status.active_operation_mode_id
+            ),
+            None,
+        )
+        if operation_mode is None:
+            # A status naming a mode absent from the newest system description means the two have
+            # drifted apart. Fall back to the first mode rather than dropping the status, but say
+            # so: silently reporting the wrong mode is what this change exists to stop.
+            self._logger.warning(
+                "FRBC.ActuatorStatus names operation mode %s, absent from the latest system "
+                "description for actuator %s; falling back to its first mode.",
+                status.active_operation_mode_id,
+                status.actuator_id,
+            )
+            operation_mode = actuator.operation_modes[0]
+        element = operation_mode.elements[0]
+
+        # Interpolate the element's POWER range, not its fill rate. A fill rate is the thermal
+        # output a heat pump delivers into its buffer; the power range is what it draws
+        # electrically, smaller by the coefficient of performance. Posting the fill rate onto a
+        # power sensor made an apartment appear to draw 3800 W where its electrical maximum is
+        # 883.7 W, and being the most recent belief that is what the UI drew.
+        # The fill-level scale is deliberately absent here: it converts fill levels and fill rates,
+        # and has no business in a power value.
+        power_range = element.power_ranges[0]
         power = (
-            fill_rate.start_of_range
-            + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
+            power_range.start_of_range
+            + (power_range.end_of_range - power_range.start_of_range) * factor
         )
 
-        dt = status.transition_timestamp  # self.now()
+        start = status.transition_timestamp or self.now()
 
-        await self._fm_client.post_measurements(
-            self._rm_discharge_sensor_id,
-            start=dt,
-            values=[-power],
-            unit="MWh",
+        await self._fm_client.post_sensor_data(
+            self._power_sensor_id,
+            start=start,
+            prior=self.now(),
+            values=[power],
+            unit=self.power_unit,
             duration=timedelta(minutes=15),
         )
+
+        # The fill rate goes to its own sensor rather than being discarded. It is a real and
+        # useful quantity - what the actuator delivers into its buffer - it simply is not power.
+        if self._fill_rate_sensor_id is not None:
+            fill_rate = element.fill_rate
+            rate = (
+                fill_rate.start_of_range
+                + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
+            ) * self._fill_level_scale
+            await self._fm_client.post_sensor_data(
+                self._fill_rate_sensor_id,
+                start=start,
+                prior=self.now(),
+                values=[rate],
+                unit=self.power_unit,
+                duration=timedelta(minutes=15),
+            )
 
     async def trigger_schedule(self, system_description_id: str):
         """Translates S2 System Description into FM API calls"""
