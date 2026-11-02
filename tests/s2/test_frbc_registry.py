@@ -1,6 +1,7 @@
 """Tests for how the FRBC handler keeps track of outstanding work:
 
-- a storage status is the planning request, a system description is not,
+- a storage status is the planning request, a system description is only stored,
+- a re-sent system description is acknowledged and otherwise ignored,
 - only state-changing instructions are sent, and the outstanding batch is tracked,
 - the newest request supersedes older ones, without ever dropping a measurement.
 """
@@ -8,11 +9,11 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from s2python.common import InstructionStatus, InstructionStatusUpdate, RevokeObject
-from s2python.frbc import FRBCInstruction, FRBCStorageStatus
+from s2python.frbc import FRBCInstruction, FRBCStorageStatus, FRBCSystemDescription
 
 from flexmeasures_client.s2.control_types.FRBC import (
     FRBC,
@@ -85,6 +86,50 @@ async def test_a_system_description_is_stored_and_asks_for_nothing(
     assert str(response.status) == "ReceptionStatusValues.OK"
     assert len(frbc._system_description_history) == 1
     assert frbc.sent == [], "a description alone must not produce instructions"
+
+
+@pytest.mark.asyncio
+async def test_a_resent_system_description_is_acknowledged_but_not_stored_again(
+    frbc_system_description,
+):
+    """A resource manager has no way to say "unchanged", so it re-sends the whole thing."""
+    frbc = RecordingFRBC()
+
+    first = await frbc.handle_message(frbc_system_description)
+    await asyncio.gather(*frbc.background_tasks)
+    history_size = len(frbc._system_description_history)
+
+    resent = FRBCSystemDescription(
+        message_id=get_unique_id(),  # a fresh message id, carrying identical content
+        valid_from=frbc_system_description.valid_from,
+        actuators=frbc_system_description.actuators,
+        storage=frbc_system_description.storage,
+    )
+    second = await frbc.handle_message(resent)
+    await asyncio.gather(*frbc.background_tasks)
+
+    assert str(first.status) == "ReceptionStatusValues.OK"
+    assert (
+        str(second.status) == "ReceptionStatusValues.OK"
+    ), "a resend must still be acknowledged, or the resource manager will retry it"
+    assert len(frbc._system_description_history) == history_size
+
+
+@pytest.mark.asyncio
+async def test_a_changed_system_description_is_stored(frbc_system_description):
+    frbc = RecordingFRBC()
+
+    await frbc.handle_message(frbc_system_description)
+    changed = FRBCSystemDescription(
+        message_id=get_unique_id(),
+        valid_from=frbc_system_description.valid_from + timedelta(hours=1),
+        actuators=frbc_system_description.actuators,
+        storage=frbc_system_description.storage,
+    )
+    await frbc.handle_message(changed)
+    await asyncio.gather(*frbc.background_tasks)
+
+    assert len(frbc._system_description_history) == 2
 
 
 @pytest.mark.asyncio

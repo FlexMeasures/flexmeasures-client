@@ -60,6 +60,7 @@ class FRBC(ControlTypeHandler):
     _sent_instructions: dict[str, FRBCInstruction]
     send_revocations: bool
     _request_counts: dict[str, int]
+    _last_system_description_fingerprint: int | None
 
     def __init__(self, max_size: int = 100) -> None:
         super().__init__(max_size)
@@ -96,6 +97,7 @@ class FRBC(ControlTypeHandler):
         # request of the same kind has arrived by the time it runs, or by the time it has an
         # answer to act on (see _is_latest_request).
         self._request_counts = {}
+        self._last_system_description_fingerprint = None
 
     def _count_request(self, kind: str) -> int:
         """Count a newly received request of the given kind, and return its number."""
@@ -190,10 +192,39 @@ class FRBC(ControlTypeHandler):
         )
         return len(filtered)
 
+    @staticmethod
+    def system_description_fingerprint(message: FRBCSystemDescription) -> int:
+        """Hash what a system description says, ignoring which message said it.
+
+        A resource manager commonly re-sends its system description with every request,
+        under a fresh message id each time, because the specification offers no other way to say
+        "unchanged".
+        The fingerprint is therefore what distinguishes a genuine change from a resend.
+        """
+        content = message.to_dict()
+        content.pop("message_id", None)
+        return hash(str(content))
+
     @register(FRBCSystemDescription)
     def handle_system_description(
         self, message: FRBCSystemDescription
     ) -> pydantic.BaseModel:
+        # A resend is acknowledged, and otherwise ignored: storing it again would push a
+        # description out of a bounded history for no reason, and a handler that did act on a
+        # description would act on it twice.
+        # Acknowledging it still matters, or the resource manager retries.
+        # Ignoring a resend is safe now that planning hangs off storage statuses rather than
+        # descriptions, and not before: it would otherwise have dropped a planning request.
+        # The TUNES handler has fingerprinted its descriptions this way all along, and can adopt
+        # this shared helper separately.
+        fingerprint = self.system_description_fingerprint(message)
+        if fingerprint == self._last_system_description_fingerprint:
+            self._logger.debug(
+                "Ignoring a re-sent FRBC.SystemDescription: its content is unchanged."
+            )
+            return get_reception_status(message, status=ReceptionStatusValues.OK)
+        self._last_system_description_fingerprint = fingerprint
+
         system_description_id = str(message.message_id)
 
         # store system_description message for later
