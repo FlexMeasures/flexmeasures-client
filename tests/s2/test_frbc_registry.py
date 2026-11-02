@@ -1,6 +1,5 @@
 """Tests for how the FRBC handler keeps track of outstanding work:
 
-- a re-sent system description is acknowledged but not acted on,
 - only state-changing instructions are sent, and the outstanding batch is tracked,
 - the newest request supersedes older ones that are still waiting to run.
 """
@@ -52,38 +51,6 @@ def make_instruction(
         ),
         abnormal_condition=False,
     )
-
-
-@pytest.mark.asyncio
-async def test_resent_system_description_is_acknowledged_but_not_acted_on(
-    frbc_system_description,
-):
-    frbc = RecordingFRBC()
-
-    first_response = await frbc.handle_message(frbc_system_description)
-    await asyncio.gather(*frbc.background_tasks)
-    history_size = len(frbc._system_description_history)
-    sent_after_first = len(frbc.sent)
-    assert history_size == 1
-    assert sent_after_first == 1, "the first description triggers a schedule"
-
-    resent = FRBCSystemDescription(
-        message_id=get_unique_id(),  # a fresh message id, carrying identical content
-        valid_from=frbc_system_description.valid_from,
-        actuators=frbc_system_description.actuators,
-        storage=frbc_system_description.storage,
-    )
-    second_response = await frbc.handle_message(resent)
-    await asyncio.gather(*frbc.background_tasks)
-
-    assert str(first_response.status) == "ReceptionStatusValues.OK"
-    assert (
-        str(second_response.status) == "ReceptionStatusValues.OK"
-    ), "a resend must still be acknowledged, or the resource manager will retry it"
-    assert (
-        len(frbc._system_description_history) == history_size
-    ), "unchanged content must not be stored again"
-    assert len(frbc.sent) == sent_after_first, "nor trigger another schedule"
 
 
 @pytest.mark.asyncio

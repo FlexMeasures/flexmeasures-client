@@ -21,7 +21,6 @@ Changed
 Fixed
 -----
 
-* An FRBC handler ignores a re-sent system description whose content is unchanged, instead of triggering a schedule and an instruction batch for every resend [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
 * An FRBC handler answers only the newest schedule request, instead of letting every request in a backlog complete its own round trip and send its own instruction batch [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
 * An FRBC handler sends an instruction only where it changes what the actuator does, instead of one per quarter hour of the schedule, most of which repeat their predecessor [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
 * The instruction-status history is keyed by a string, as its type declares, instead of by the ``UUID`` that a no-op ``cast`` let through, which made every lookup miss [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
