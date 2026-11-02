@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from asyncio import Queue
 from logging import Logger, getLogger
-from typing import cast
 
 from pydantic import BaseModel
 from s2python.common import (
@@ -57,7 +56,10 @@ class ControlTypeHandler(Handler):
 
     @register(InstructionStatusUpdate)
     def handle_instruction_status_update(self, message: InstructionStatusUpdate):
-        instruction_id: str = cast(str, message.instruction_id)
+        # instruction_id is a UUID, and the cast that claimed otherwise did nothing at runtime,
+        # so the history was keyed by UUID objects while it declared string keys.
+        # A lookup by the instruction's id, written as a string, therefore always missed.
+        instruction_id = str(message.instruction_id)
 
         self._instruction_status_history[instruction_id] = message.status_type
 
