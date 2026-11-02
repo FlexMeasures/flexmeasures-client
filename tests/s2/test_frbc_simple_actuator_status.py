@@ -12,15 +12,15 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
+from s2python.common import Commodity, CommodityQuantity, NumberRange, PowerRange
 from s2python.frbc import (
     FRBCActuatorDescription,
-    FRBCStorageDescription,
     FRBCActuatorStatus,
     FRBCOperationMode,
     FRBCOperationModeElement,
+    FRBCStorageDescription,
     FRBCSystemDescription,
 )
-from s2python.common import Commodity, CommodityQuantity, NumberRange, PowerRange
 
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple

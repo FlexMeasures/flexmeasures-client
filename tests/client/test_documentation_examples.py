@@ -13,7 +13,7 @@ import flexmeasures_client
 
 DOCS_DIR = Path(__file__).parents[2] / "docs"
 PROJECT_DIR = DOCS_DIR.parent
-GUIDES = ("forecasting.rst", "scheduling.rst", "reporting.rst")
+GUIDES = ("forecasting.rst", "scheduling.rst", "reporting.rst", "automations.rst")
 PYTHON_DOCUMENTS = (
     *(DOCS_DIR / guide for guide in GUIDES),
     PROJECT_DIR / "README.rst",
@@ -89,6 +89,28 @@ class ExampleClient:
         self.calls.append(("trigger_and_await_report", kwargs))
         return {"status": "FINISHED"}
 
+    async def add_automation(self, **kwargs) -> dict:
+        inspect.signature(REAL_CLIENT.add_automation).bind(None, **kwargs)
+        self.calls.append(("add_automation", kwargs))
+        return {"id": 5, **kwargs}
+
+    async def trigger_and_await_automation(self, **kwargs) -> dict:
+        inspect.signature(REAL_CLIENT.trigger_and_await_automation).bind(None, **kwargs)
+        self.calls.append(("trigger_and_await_automation", kwargs))
+        return {"status": "FINISHED"}
+
+    async def update_automation(self, *args, **kwargs) -> dict:
+        inspect.signature(REAL_CLIENT.update_automation).bind(None, *args, **kwargs)
+        self.calls.append(("update_automation", kwargs))
+        return {"id": 5, **kwargs}
+
+    async def get_automations(self, **kwargs) -> list[dict]:
+        inspect.signature(REAL_CLIENT.get_automations).bind(None, **kwargs)
+        self.calls.append(("get_automations", kwargs))
+        return [
+            {"name": "Day-ahead PV forecasts", "recurrence-description": "At 06:00"}
+        ]
+
     async def get_sensor_data(self, **kwargs) -> dict:
         inspect.signature(REAL_CLIENT.get_sensor_data).bind(None, **kwargs)
         self.calls.append(("get_sensor_data", kwargs))
@@ -111,6 +133,15 @@ class ExampleClient:
         (
             "reporting.rst",
             ["trigger_and_await_report", "get_sensor_data"],
+        ),
+        (
+            "automations.rst",
+            [
+                "add_automation",
+                "trigger_and_await_automation",
+                "update_automation",
+                "get_automations",
+            ],
         ),
     ),
 )

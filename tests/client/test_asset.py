@@ -5,7 +5,9 @@ from unittest.mock import patch
 import pytest
 from aioresponses import aioresponses
 
+from flexmeasures_client import __version__
 from flexmeasures_client.client import ContentTypeError, FlexMeasuresClient
+from flexmeasures_client.constants import CLIENT_VERSION_HEADER
 
 
 @pytest.mark.asyncio
@@ -378,7 +380,11 @@ async def test_update_assets():
             "http://localhost:5000/api/v3_0/assets/1",
             method="PATCH",
             json={"attributes": '{"key": "value"}'},
-            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
             params=None,
             ssl=False,
             allow_redirects=False,

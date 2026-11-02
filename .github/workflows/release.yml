@@ -95,6 +95,12 @@ jobs:
   github-release:
     runs-on: ubuntu-latest
     needs: pypi-publish
+    # The workflow's own token suffices, so there is no personal access token to expire:
+    # it reads the released PRs for the notes and creates the GitHub release.
+    # A release created with this token does not trigger other workflows, and none listen for one.
+    permissions:
+      contents: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -183,7 +189,7 @@ jobs:
         env:
           TAG_NAME: ${{ inputs.custom_version || github.ref_name }}
           REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GH_RELEASE_PAT }}
+          GH_TOKEN: ${{ github.token }}
 
       - name: Publish release on GitHub
         uses: softprops/action-gh-release@v2
@@ -191,4 +197,4 @@ jobs:
           body_path: release_notes.md
           tag_name: ${{ inputs.custom_version || github.ref_name }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_RELEASE_PAT }}
+          GITHUB_TOKEN: ${{ github.token }}

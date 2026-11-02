@@ -19,6 +19,7 @@ async def main():
         updates={
             "flex_model": {"prefer-charging-sooner": False, "soc-min": "1001 kWh"}
         },
+        parse_json_fields=True,
     )
 
     print(asset)

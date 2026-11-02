@@ -105,7 +105,7 @@ async def rename_site_assets(
             await client.update_asset(
                 asset_id=site_asset["id"],
                 updates={"name": site_name},
-                parse_json_fields=False,
+                parse_json_fields=True,
             )
 
 
@@ -125,7 +125,7 @@ async def save_workflow_state(
     await client.update_asset(
         asset_id=community_asset_id,
         updates={"attributes": attributes},
-        parse_json_fields=False,
+        parse_json_fields=True,
     )
     return state
 

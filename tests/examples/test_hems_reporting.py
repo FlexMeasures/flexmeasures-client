@@ -2,13 +2,16 @@
 
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
+import pandas as pd
 import pytest
 
 HEMS_DIR = Path(__file__).parents[2] / "examples" / "HEMS"
 if str(HEMS_DIR) not in sys.path:
     sys.path.insert(0, str(HEMS_DIR))
 
+import scheduling  # noqa: E402
 from utils import reporter_utils  # noqa: E402
 from utils.reporter_utils import (  # noqa: E402
     asset_id_for_outputs,
@@ -164,3 +167,32 @@ async def test_run_report_triggers_against_the_owning_asset() -> None:
     assert calls[0]["reporter"] == "AggregatorReporter"
     assert calls[0]["config"] == load_reporter_config("aggregate")
     assert calls[0]["parameters"]["output"] == [{"sensor": 9}]
+
+
+@pytest.mark.asyncio
+async def test_community_aggregate_stops_after_first_site_failure() -> None:
+    """A failed site report does not trigger further dependent reports."""
+    sensors = {
+        "pv-power-1": {"id": 1},
+        "building-consumption-1": {"id": 2},
+        "battery-power-1": {"id": 3},
+        "evse1-power-1": {"id": 4},
+        "evse2-power-1": {"id": 5},
+        "heating-power-1": {"id": 6},
+        "electricity-aggregate-1": {"id": 7, "generic_asset_id": 8},
+    }
+
+    with patch.object(
+        scheduling, "run_report", new_callable=AsyncMock, return_value=False
+    ) as run_report:
+        succeeded = await scheduling.run_community_aggregate(
+            client=object(),
+            sensors=sensors,
+            current_time=pd.Timestamp("2026-08-17T00:00:00Z"),
+            step_end_time=pd.Timestamp("2026-08-18T00:00:00Z"),
+            community_asset={"id": 9, "sensors": [{"name": "power", "id": 10}]},
+            site_names=["Building 1", "Building 2"],
+        )
+
+    assert succeeded is False
+    run_report.assert_awaited_once()

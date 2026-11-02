@@ -33,10 +33,12 @@ Contents
    Forecasting <forecasting>
    Scheduling <scheduling>
    Reporting <reporting>
+   Automations <automations>
    Contributions & Help <contributing>
    License <license>
    Authors <authors>
    Changelog <changelog>
+   S2 CEM changelog <s2-changelog>
    Module Reference <api/modules>
 
 

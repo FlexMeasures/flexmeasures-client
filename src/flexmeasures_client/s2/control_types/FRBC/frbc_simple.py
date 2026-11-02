@@ -52,6 +52,7 @@ class FRBCSimple(FRBC):
     _usage_forecast_sensor_id: int
     _leakage_behaviour_sensor_id: int
     _charging_efficiency_sensor_id: int
+    _fill_rate_sensor_id: int | None
     _schedule_duration: timedelta
     _fill_level_scale: float
     _resolution = "15min"

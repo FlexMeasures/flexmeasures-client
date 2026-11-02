@@ -1,10 +1,12 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aioresponses import aioresponses
 from yarl import URL
 
+from flexmeasures_client import __version__
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.constants import CLIENT_VERSION_HEADER
 from flexmeasures_client.exceptions import (
     ContentTypeError,
     JobFailedError,
@@ -68,6 +70,7 @@ async def test_trigger_report() -> None:
             method="POST",
             headers={
                 "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
                 "Authorization": "test-token",
             },
             json={"reporter": "PandasReporter", "parameters": PARAMETERS},
@@ -99,6 +102,7 @@ async def test_trigger_report_with_config() -> None:
             method="POST",
             headers={
                 "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
                 "Authorization": "test-token",
             },
             json={
@@ -146,6 +150,7 @@ async def test_get_job_status() -> None:
             method="GET",
             headers={
                 "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
                 "Authorization": "test-token",
             },
             json=None,
@@ -200,6 +205,55 @@ async def test_wait_for_job_polls_until_finished() -> None:
         assert job["status"] == "FINISHED"
         assert len(m.requests[("GET", URL(JOB_URL))]) == 4
 
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_job_emits_sparse_progress_notices() -> None:
+    """Pending status is reported once, followed by completion."""
+    with aioresponses() as m:
+        notifier = MagicMock()
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+            job_status_notifier=notifier,
+        )
+        m.get(JOB_URL, status=202, payload=job_payload("QUEUED"))
+        m.get(JOB_URL, status=202, payload=job_payload("QUEUED"))
+        m.get(JOB_URL, status=202, payload=job_payload("QUEUED"))
+        m.get(JOB_URL, status=200, payload=job_payload("FINISHED"))
+
+        with patch("flexmeasures_client.client.asyncio.sleep", new_callable=AsyncMock):
+            await client.wait_for_job(JOB_ID)
+
+        assert notifier.call_count == 2
+        assert "is QUEUED on the reporting queue" in notifier.call_args_list[0].args[0]
+        assert "finished after" in notifier.call_args_list[1].args[0]
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_job_repeats_progress_after_notification_interval() -> None:
+    """An unchanged pending status is repeated once the interval is due."""
+    with aioresponses() as m:
+        notifier = MagicMock()
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+            job_status_notifier=notifier,
+            job_status_notification_interval=0,
+        )
+        m.get(JOB_URL, status=202, payload=job_payload("QUEUED"))
+        m.get(JOB_URL, status=202, payload=job_payload("QUEUED"))
+        m.get(JOB_URL, status=200, payload=job_payload("FINISHED"))
+
+        with patch("flexmeasures_client.client.asyncio.sleep", new_callable=AsyncMock):
+            await client.wait_for_job(JOB_ID)
+
+        assert notifier.call_count == 3
+        assert "is still QUEUED" in notifier.call_args_list[1].args[0]
         await client.close()
 
 

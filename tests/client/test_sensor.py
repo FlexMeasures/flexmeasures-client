@@ -10,7 +10,9 @@ import pandas as pd
 import pytest
 from aioresponses import aioresponses
 
+from flexmeasures_client import __version__
 from flexmeasures_client.client import ContentTypeError, FlexMeasuresClient
+from flexmeasures_client.constants import CLIENT_VERSION_HEADER
 from flexmeasures_client.exceptions import (
     InsufficientServerVersionError,
     JobFailedError,
@@ -282,7 +284,11 @@ async def test_update_sensor():
             "http://localhost:5000/api/v3_0/sensors/1",
             method="PATCH",
             json={"attributes": '{"key": "value"}'},
-            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
             params=None,
             ssl=False,
             allow_redirects=False,
@@ -351,6 +357,7 @@ async def test_delete_sensor_data_preserves_sensor():
             json={},
             headers={
                 "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
                 "Authorization": "test-token",
             },
             params=None,
@@ -420,6 +427,7 @@ async def test_delete_sensor_data_with_filters():
             },
             headers={
                 "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
                 "Authorization": "test-token",
             },
             params=None,
@@ -461,7 +469,11 @@ async def test_post_sensor_data() -> None:
         m.assert_called_once_with(
             f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
             method="POST",
-            headers={"Content-Type": "application/json", "Authorization": "test-token"},
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
             json={
                 "start": "2023-03-26T10:00:00+02:00",
                 "duration": "P0DT6H0M0S",

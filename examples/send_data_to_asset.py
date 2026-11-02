@@ -40,6 +40,7 @@ async def create_asset_with_sensor(client):
             "flex_context": {"site-consumption-capacity": "100 kW"},  # test this also
             "sensors_to_show": [{"title": "My Graph", "sensors": [sensor["id"]]}],
         },
+        parse_json_fields=True,
     )
     return asset, sensor
 

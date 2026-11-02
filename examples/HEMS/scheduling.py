@@ -999,7 +999,6 @@ async def run_community_aggregate(
             break
 
     # Run each site's aggregate reporter, against that site's asset
-    all_aggregates_succeeded = True
     for index, site_name in enumerate(site_names, start=1):
         site_aggregate_succeeded = await run_report(
             client=client,
@@ -1017,14 +1016,12 @@ async def run_community_aggregate(
             start=current_time.isoformat(),
             end=step_end_time.isoformat(),
         )
-        all_aggregates_succeeded = site_aggregate_succeeded and all_aggregates_succeeded
-
-    if not all_aggregates_succeeded:
-        print(
-            "Skipping the community aggregate report, "
-            "because not every site aggregate is available."
-        )
-        return False
+        if not site_aggregate_succeeded:
+            print(
+                "Skipping the remaining site and community aggregate reports, "
+                f"because the aggregate report for {site_name} failed."
+            )
+            return False
 
     # Run the community aggregate reporter, against the community asset
     return await run_report(
