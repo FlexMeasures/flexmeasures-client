@@ -41,6 +41,7 @@ class FRBC(ControlTypeHandler):
     _actuator_status_history: SizeLimitOrderedDict[str, FRBCActuatorStatus]
     _storage_status_history: SizeLimitOrderedDict[str, FRBCStorageStatus]
     background_tasks: set
+    _last_system_description_fingerprint: int | None
 
     def __init__(self, max_size: int = 100) -> None:
         super().__init__(max_size)
@@ -62,10 +63,39 @@ class FRBC(ControlTypeHandler):
         self._usage_forecast_history = SizeLimitOrderedDict(max_size=max_size)
         self.background_tasks = set()
 
+        self._last_system_description_fingerprint = None
+
+    @staticmethod
+    def system_description_fingerprint(message: FRBCSystemDescription) -> int:
+        """Hash what a system description says, ignoring which message said it.
+
+        A resource manager commonly re-sends its system description with every request,
+        under a fresh message id each time, because the specification offers no other way to say
+        "unchanged".
+        The fingerprint is therefore what distinguishes a genuine change from a resend.
+        """
+        content = message.to_dict()
+        content.pop("message_id", None)
+        return hash(str(content))
+
     @register(FRBCSystemDescription)
     def handle_system_description(
         self, message: FRBCSystemDescription
     ) -> pydantic.BaseModel:
+        # A re-sent description is acknowledged, but not stored and not acted on.
+        # Acting on it would trigger a schedule and a full instruction batch per resend,
+        # which is redundant work on the server and redundant traffic on the serial S2 link,
+        # and it was a large part of the instruction storms seen in the FLEXED co-simulation.
+        # The TUNES handler has fingerprinted its descriptions for the same reason all along;
+        # this brings the base handler in line.
+        fingerprint = self.system_description_fingerprint(message)
+        if fingerprint == self._last_system_description_fingerprint:
+            self._logger.debug(
+                "Ignoring a re-sent FRBC.SystemDescription: its content is unchanged."
+            )
+            return get_reception_status(message, status=ReceptionStatusValues.OK)
+        self._last_system_description_fingerprint = fingerprint
+
         system_description_id = str(message.message_id)
 
         # store system_description message for later
