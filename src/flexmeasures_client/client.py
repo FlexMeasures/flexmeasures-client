@@ -59,7 +59,7 @@ JOB_POLLING_TIMEOUT = 600.0  # seconds, total budget for a job to finish
 # Ingestion of posted sensor data is polled on a tighter profile than the jobs above,
 # because it is usually done within milliseconds, and because a caller waits for it inline,
 # where a schedule or a report is asked for and collected later.
-INGESTION_POLLING_INTERVAL = 0.1  # seconds, first wait between ingestion job status polls
+INGESTION_POLLING_INTERVAL = 0.1  # seconds, first wait between ingestion polls
 INGESTION_POLLING_MAX_INTERVAL = 5.0  # seconds, cap on the backing-off wait
 INGESTION_POLLING_TIMEOUT = 60.0  # seconds, total budget for ingestion to finish
 
