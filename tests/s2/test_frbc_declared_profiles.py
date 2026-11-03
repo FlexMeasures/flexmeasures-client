@@ -186,20 +186,30 @@ def test_clipping_holds_a_profile_inside_the_declared_range():
 
 
 def test_clipping_collapses_a_band_that_falls_outside_the_range():
-    """A band wholly below the range would clip to minima above maxima, so both meet in the middle."""
-    # [0, 10] is entirely below the range, so the minimum clips up to 20 and the maximum stays 10.
-    minima = pd.Series([0.0, 50.0])
-    maxima = pd.Series([10.0, 60.0])
+    """A band wholly outside the range collapses onto the nearest edge of it, not past it.
+
+    [0, 10] is entirely below [20, 80], so the minimum clips up to 20 while the maximum stays
+    at 10, which crosses. Their midpoint is 15, which is itself outside the range, so it is
+    held at the bottom of it. The mirror case collapses onto the top.
+    """
+    minima = pd.Series([0.0, 90.0, 50.0])
+    maxima = pd.Series([10.0, 95.0, 60.0])
 
     clipped_minima, clipped_maxima, number_crossed = clip_fill_level_target_profile(
         minima, maxima, RANGE_BOTTOM, RANGE_TOP
     )
 
-    assert number_crossed == 1
-    assert clipped_minima[0] == clipped_maxima[0] == pytest.approx(15.0)
+    assert number_crossed == 2
     assert (clipped_minima <= clipped_maxima).all()
+    # Wholly below, so onto the bottom; wholly above, so onto the top.
+    assert clipped_minima[0] == clipped_maxima[0] == RANGE_BOTTOM
+    assert clipped_minima[1] == clipped_maxima[1] == RANGE_TOP
+    # Nothing lands outside the range, which is what the whole function is for.
+    assert (clipped_minima >= RANGE_BOTTOM).all() and (
+        clipped_maxima <= RANGE_TOP
+    ).all()
     # The step that was already inside the range is untouched.
-    assert clipped_minima[1] == 50.0 and clipped_maxima[1] == 60.0
+    assert clipped_minima[2] == 50.0 and clipped_maxima[2] == 60.0
 
 
 # --- The three handlers, with the sensors configured ---
@@ -374,3 +384,47 @@ async def test_the_energy_unit_is_the_deployment_s_to_choose(system_description)
 
     assert _posted_measurement(frbc, 3)["unit"] == "MWh"
     assert _posted(frbc, SOC_MINIMA_SENSOR_ID)["unit"] == "MWh"
+
+
+@pytest.mark.asyncio
+async def test_a_schedule_is_asked_for_in_the_unit_the_fill_level_is_recorded_in(
+    system_description,
+):
+    """soc-unit has to follow energy_unit, or the scheduler plans against bounds a thousand times its measurements."""
+    frbc = _frbc(system_description, with_sensors=True)
+    # A schedule is only asked for once a storage status has said where to start from.
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=30.0
+    )
+    frbc._fm_client.trigger_and_get_schedule = AsyncMock(
+        return_value={
+            "values": [0.0] * 48,  # twelve hours on quarter-hour steps
+            "start": "2024-01-01T00:00:00+00:00",
+            "duration": "PT12H",
+        }
+    )
+    frbc.send_instruction_batch = AsyncMock(return_value=0)
+
+    await frbc.trigger_schedule(system_description.message_id)
+
+    flex_model = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
+        "flex_model"
+    ]
+    assert flex_model["soc-unit"] == frbc.energy_unit == "kWh"
+
+
+@pytest.mark.asyncio
+async def test_a_target_profile_is_posted_from_the_boundary_it_was_translated_onto(
+    system_description,
+):
+    """The translation floors the start, so posting at the raw start_time would shift every value."""
+    frbc = _frbc(system_description, with_sensors=True)
+    profile = _target_profile(30.0, 60.0)
+    # Move it off a boundary, as a resource manager's own clock would be.
+    profile.start_time = pd.Timestamp("2024-01-01T12:07:23+00:00").to_pydatetime()
+
+    await frbc.send_fill_level_target_profile(profile)
+
+    posted_start = _posted(frbc, SOC_MINIMA_SENSOR_ID)["start"]
+    assert posted_start == frbc.align_to_resolution(profile.start_time)
+    assert posted_start.minute % 15 == 0 and posted_start.second == 0

@@ -277,7 +277,10 @@ def clip_fill_level_target_profile(
 
     That alone can leave a minimum above its maximum, where the whole target band lies outside
     the range. Those two bounds collapse to their midpoint, which keeps minima at or below
-    maxima at every step, as whatever consumes them will expect.
+    maxima at every step, as whatever consumes them will expect. The midpoint of a crossed pair
+    lies outside the range itself, though, since it sits between a bound that was clipped and
+    one that was not, so it is held inside the range too: a band wholly below the range collapses
+    onto the bottom of it, and one wholly above onto the top.
 
     :returns: the clipped minima and maxima, and on how many steps the two had crossed,
               so that a caller can report it.
@@ -287,7 +290,9 @@ def clip_fill_level_target_profile(
     crossed = soc_maxima < soc_minima
     number_crossed = int(crossed.sum())
     if number_crossed:
-        midpoint = (soc_minima + soc_maxima) / 2
+        midpoint = ((soc_minima + soc_maxima) / 2).clip(
+            lower=range_bottom, upper=range_top
+        )
         soc_minima = soc_minima.mask(crossed, midpoint)
         soc_maxima = soc_maxima.mask(crossed, midpoint)
     return soc_minima, soc_maxima, number_crossed

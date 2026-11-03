@@ -277,7 +277,9 @@ class FRBCSimple(FRBC):
                 "site-power-capacity": f"{3 * 25 * 230} VA",
             },
             flex_model={
-                "soc-unit": "MWh",
+                # The same unit the fill level is recorded in, or the scheduler would plan
+                # against bounds a thousand times the measurements it plans from.
+                "soc-unit": self.energy_unit,
                 "soc-at-start": soc_at_start,  # TODO: use forecast of the SOC instead
                 "soc-min": soc_min,
                 "soc-max": soc_max,
@@ -344,13 +346,17 @@ class FRBCSimple(FRBC):
 
         now = self.now()
         duration = pd.Timedelta(self._resolution) * len(soc_maxima)
+        # The translation floors the profile's start to a resolution boundary, so the series
+        # that comes back begins there, not at the start_time the resource manager sent. Posting
+        # it at the raw start_time would shift every value by the difference.
+        start = self.align_to_resolution(fill_level_target_profile.start_time)
         for sensor_id, values in (
             (self._soc_minima_sensor_id, soc_minima),
             (self._soc_maxima_sensor_id, soc_maxima),
         ):
             await self._fm_client.post_sensor_data(
                 sensor_id=sensor_id,
-                start=fill_level_target_profile.start_time,
+                start=start,
                 prior=now,
                 values=values.tolist(),
                 unit=self.energy_unit,
