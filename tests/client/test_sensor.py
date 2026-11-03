@@ -500,8 +500,7 @@ async def test_post_sensor_data_json_accepted_returns_ingestion_job() -> None:
                 "status": "ACCEPTED",
             },
         )
-        # post_sensor_data awaits ingestion by default, so the job it reports
-        # must resolve before the post returns.
+        # The post waits for the job it is told about, so that job has to answer.
         m.get(
             "http://localhost:5000/api/v3_0/jobs/ingestion-job-id",
             status=200,
@@ -762,11 +761,12 @@ async def test_post_sensor_data_with_file_accepted():
                 "http://localhost:5000/api/v3_0/sensors/1/data/upload",
                 status=202,
                 payload={
-                    "job": "test-job-id",
+                    "job_id": "test-job-id",
                     "message": "Sensor data has been accepted for processing.",
                     "status": "ACCEPTED",
                 },
             )
+            # This one answers with the older "job_id" spelling, which is read too.
             m.get(
                 "http://localhost:5000/api/v3_0/jobs/test-job-id",
                 status=200,
@@ -939,13 +939,12 @@ async def test_get_sensor_data_content_type_error():
         await client.close()
 
 
-# --- await_ingestion (async server-side ingestion, restoring read-your-writes) ---
+# --- Waiting for asynchronous ingestion ---
 
 
 @pytest.mark.asyncio
 async def test_post_sensor_data_await_ingestion_finished():
-    """202 + job_id, job later FINISHED: post_sensor_data polls and returns
-    normally, without raising."""
+    """A post accepted for a job that finishes returns normally, once that job has."""
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
@@ -970,20 +969,26 @@ async def test_post_sensor_data_await_ingestion_finished():
             },
         )
 
-        await client.post_sensor_data(
+        response, status = await client.post_sensor_data(
             sensor_id=sensor_id,
             start="2023-01-01T00:00+00:00",
             duration="PT1H",
             values=[1.0],
             unit="MW",
         )
+
+        assert status == 202
+        # The job really was polled, and not merely offered for polling.
+        assert any(
+            method == "GET" and url.path == "/api/v3_0/jobs/job-1"
+            for method, url in m.requests
+        )
         await client.close()
 
 
 @pytest.mark.asyncio
 async def test_post_sensor_data_await_ingestion_failed():
-    """202 + job_id, job later FAILED: post_sensor_data raises
-    JobFailedError."""
+    """A post accepted for a job that fails raises, rather than reporting success."""
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
@@ -1021,14 +1026,13 @@ async def test_post_sensor_data_await_ingestion_failed():
 
 @pytest.mark.asyncio
 async def test_post_sensor_data_await_ingestion_timeout(caplog):
-    """202 + job_id, job stays QUEUED past the polling timeout: post_sensor_data
-    logs an ERROR and returns normally (does not raise)."""
+    """A job still pending when the timeout is reached is logged as an error, and the post returns."""
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
-        # Very small timeout, so the test does not wait out the default.
-        client.job_polling_timeout = 0.05
-        client.job_polling_interval = 0.01
+        # Wait briefly, rather than out the default timeout.
+        client.ingestion_polling_timeout = 0.05
+        client.ingestion_polling_interval = 0.01
         sensor_id = 5
         m.post(
             f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
@@ -1052,23 +1056,22 @@ async def test_post_sensor_data_await_ingestion_timeout(caplog):
         )
 
         with caplog.at_level(logging.ERROR):
-            await client.post_sensor_data(
+            response, status = await client.post_sensor_data(
                 sensor_id=sensor_id,
                 start="2023-01-01T00:00+00:00",
                 duration="PT1H",
                 values=[1.0],
                 unit="MW",
             )
-        assert any(
-            "Ingestion not confirmed" in record.message for record in caplog.records
-        )
+
+        assert status == 202
+        assert any("unconfirmed" in record.message for record in caplog.records)
         await client.close()
 
 
 @pytest.mark.asyncio
-async def test_post_sensor_data_200_no_polling():
-    """A synchronous 200 OK response is not followed by any job-status
-    polling."""
+async def test_post_sensor_data_synchronous_response_is_not_polled():
+    """A synchronous 200 OK answer names no job, so nothing is polled."""
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
@@ -1078,22 +1081,23 @@ async def test_post_sensor_data_200_no_polling():
             status=200,
             payload={"status": "PROCESSED", "message": "ok"},
         )
-        # No jobs/* endpoint mocked: if post_sensor_data attempted to poll, the
-        # unmocked GET request would raise inside aioresponses.
+        # No job endpoint is registered, so a poll would fail the test by raising here.
 
-        await client.post_sensor_data(
+        response, status = await client.post_sensor_data(
             sensor_id=sensor_id,
             start="2023-01-01T00:00+00:00",
             duration="PT1H",
             values=[1.0],
             unit="MW",
         )
+
+        assert status == 200
         await client.close()
 
 
 @pytest.mark.asyncio
-async def test_post_sensor_data_await_ingestion_false_no_polling():
-    """await_ingestion=False opts out of polling, even for a 202 response."""
+async def test_post_sensor_data_await_ingestion_false_is_not_polled():
+    """Opting out returns as soon as the data is accepted, without waiting for the job."""
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
@@ -1108,10 +1112,9 @@ async def test_post_sensor_data_await_ingestion_false_no_polling():
                 "job": "job-4",
             },
         )
-        # No jobs/* endpoint mocked: if post_sensor_data attempted to poll despite
-        # await_ingestion=False, the unmocked GET request would raise.
+        # No job endpoint is registered, so a poll would fail the test by raising here.
 
-        await client.post_sensor_data(
+        response, status = await client.post_sensor_data(
             sensor_id=sensor_id,
             start="2023-01-01T00:00+00:00",
             duration="PT1H",
@@ -1119,4 +1122,265 @@ async def test_post_sensor_data_await_ingestion_false_no_polling():
             unit="MW",
             await_ingestion=False,
         )
+
+        assert status == 202
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_await_ingestion_polls_on_the_ingestion_profile():
+    """Ingestion is polled on the ingestion_polling_* settings, not on the slower job_polling_* ones."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.ingestion_polling_interval = 0.25
+        client.ingestion_polling_max_interval = 1.5
+        client.ingestion_polling_timeout = 30.0
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-5"},
+        )
+
+        with patch.object(
+            client, "wait_for_job", AsyncMock(return_value={"status": "FINISHED"})
+        ) as wait_for_job:
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        wait_for_job.assert_awaited_once_with(
+            "job-5",
+            timeout=30.0,
+            polling_interval=0.25,
+            max_polling_interval=1.5,
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_await_ingestion_job_lookup_fails(caplog):
+    """A job that cannot be looked up is logged as an error, and the post returns: the data was accepted."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-6"},
+        )
+        # The job record is gone, or something in front of the server answers for it.
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-6",
+            status=404,
+            payload={"message": "Job not found."},
+            repeat=True,
+        )
+
+        with caplog.at_level(logging.ERROR):
+            response, status = await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        assert status == 202
+        assert any(
+            "looking that job up failed" in record.message for record in caplog.records
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_measurements_awaits_ingestion_and_can_opt_out():
+    """The deprecated alias waits like post_sensor_data, and takes the same opt-out."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-7"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-7",
+            status=200,
+            payload={"status": "FINISHED", "message": "ok", "result": None},
+        )
+
+        with pytest.warns(DeprecationWarning):
+            await client.post_measurements(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        assert any(
+            method == "GET" and url.path == "/api/v3_0/jobs/job-7"
+            for method, url in m.requests
+        )
+
+        # And opting out skips the poll: no job endpoint is registered for this one.
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-8"},
+        )
+        with pytest.warns(DeprecationWarning):
+            await client.post_measurements(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+                await_ingestion=False,
+            )
+        await client.close()
+
+
+def test_ingestion_polling_settings_are_keyword_only():
+    """Adding them must not shift the positional order of the arguments after them."""
+    import inspect
+
+    parameters = inspect.signature(FlexMeasuresClient).parameters
+    for name in (
+        "ingestion_polling_interval",
+        "ingestion_polling_max_interval",
+        "ingestion_polling_timeout",
+    ):
+        assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_202_is_not_logged_as_unexpected(caplog):
+    """202 is an ordinary answer to a sensor-data post, so it is not reported as a surprise."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-9"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-9",
+            status=200,
+            payload={"status": "FINISHED", "message": "ok", "result": None},
+        )
+
+        with caplog.at_level(logging.INFO):
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        assert not any(
+            "instead of expected" in record.message for record in caplog.records
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_log_says_accepted_not_sent_on_202(caplog):
+    """A 202 means the data was accepted, not that it landed, and the log says so."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-10"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-10",
+            status=200,
+            payload={"status": "FINISHED", "message": "ok", "result": None},
+        )
+
+        with caplog.at_level(logging.INFO):
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        messages = [record.message for record in caplog.records]
+        assert any(
+            "accepted via JSON for ingestion as job job-10" in m for m in messages
+        )
+        assert not any("sent successfully" in m for m in messages)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_log_still_says_sent_on_200(caplog):
+    """A synchronous 200 did land the data, so that log is unchanged."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=200,
+            payload={"status": "PROCESSED", "message": "ok"},
+        )
+
+        with caplog.at_level(logging.INFO):
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        assert any("sent successfully" in r.message for r in caplog.records)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_202_without_a_job_is_still_only_accepted(caplog):
+    """A 202 that names no job means the data was accepted, so the log must not claim it landed."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "message": "accepted, no job named"},
+        )
+        # No job endpoint is registered: there is no job to wait for, and a poll would raise here.
+
+        with caplog.at_level(logging.INFO):
+            response, status = await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        assert status == 202
+        messages = [record.message for record in caplog.records]
+        assert any("accepted via JSON for ingestion" in m for m in messages)
+        assert not any("sent successfully" in m for m in messages)
         await client.close()
