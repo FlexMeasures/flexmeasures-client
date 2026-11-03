@@ -23,6 +23,8 @@ Changed
 Fixed
 -----
 
+* The example CEM server answers an S2 handshake at once, instead of after configuring its site with FlexMeasures, which took longer than the timeout a resource manager waits for that answer [`#241 <https://github.com/FlexMeasures/flexmeasures-client/pull/241>`__]
+* The example CEM server seeds its demo prices from the current day, instead of from a date hardcoded when it was written, so that the window it schedules for has prices [`#241 <https://github.com/FlexMeasures/flexmeasures-client/pull/241>`__]
 * An FRBC handler asks for a schedule when a storage status reports a new state of charge, instead of when a system description arrives, so a resource manager that sends its description before its first status is planned for at all [`#240 <https://github.com/FlexMeasures/flexmeasures-client/pull/240>`__]
 * A schedule is asked for from a resolution boundary, instead of from whichever moment a resource manager happened to send its system description, which left FlexMeasures without prices for the window [`#240 <https://github.com/FlexMeasures/flexmeasures-client/pull/240>`__]
 * An FRBC handler ignores a re-sent system description whose content is unchanged, instead of storing it again [`#240 <https://github.com/FlexMeasures/flexmeasures-client/pull/240>`__]
