@@ -810,7 +810,8 @@ class FlexMeasuresClient:
             minimum_server_version="0.28.0",
             minimum_server_version_msg="Upgrade FlexMeasures or alternatively install client v0.7.0, where the deprecated endpoint is supported.",
         )
-        check_for_status(status, 200)
+        # 202 is as ordinary an answer here as 200 is: it says the server queued a job for the data rather than ingesting it inline.
+        check_for_status(status, (200, 202))
         self.logger.info("Sensor data sent successfully via JSON.")
 
         job_id = self._ingestion_job_id(response)

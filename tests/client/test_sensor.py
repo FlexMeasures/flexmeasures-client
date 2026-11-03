@@ -1260,3 +1260,36 @@ def test_ingestion_polling_settings_are_keyword_only():
         "ingestion_polling_timeout",
     ):
         assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_202_is_not_logged_as_unexpected(caplog):
+    """202 is an ordinary answer to a sensor-data post, so it is not reported as a surprise."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-9"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-9",
+            status=200,
+            payload={"status": "FINISHED", "message": "ok", "result": None},
+        )
+
+        with caplog.at_level(logging.INFO):
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        assert not any(
+            "instead of expected" in record.message for record in caplog.records
+        )
+        await client.close()
