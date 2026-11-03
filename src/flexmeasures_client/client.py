@@ -894,35 +894,39 @@ class FlexMeasuresClient:
 
         try:
             async with async_timeout.timeout(self.request_timeout):
-                response = await cast(ClientSession, self.session).post(
+                # As a context manager, so that the response is released on every path out of
+                # this block, the error path below included: a response whose body is never read
+                # keeps its connection out of the pool until it is garbage collected.
+                # Reading the body, which the success path does, already hands the connection
+                # back before anything is waited for.
+                async with cast(ClientSession, self.session).post(
                     url=url,
                     data=form_data,
                     headers=headers,
                     ssl=self.ssl,
                     allow_redirects=False,
-                )
+                ) as response:
+                    # Check response status (any 2xx is success, e.g. 202 Accepted
+                    # for asynchronous processing, matching check_for_status()'s
+                    # convention used elsewhere in this client)
+                    if not (200 <= response.status < 300):
+                        try:
+                            error_data = await response.json()
+                            error_message = f"Request failed with status code {response.status}: {error_data}"
+                        except Exception as e:
+                            self.logger.error(f"Error parsing response: {e}")
+                            error_message = (
+                                f"Request failed with status code {response.status}"
+                            )
+                        raise ValueError(error_message)
 
-                # Check response status (any 2xx is success, e.g. 202 Accepted
-                # for asynchronous processing, matching check_for_status()'s
-                # convention used elsewhere in this client)
-                if not (200 <= response.status < 300):
-                    try:
-                        error_data = await response.json()
-                        error_message = f"Request failed with status code {response.status}: {error_data}"
-                    except Exception as e:
-                        self.logger.error(f"Error parsing response: {e}")
-                        error_message = (
-                            f"Request failed with status code {response.status}"
-                        )
-                    raise ValueError(error_message)
-
-                # Parse response
-                response_data = await response.json()
-                status = response.status
-                self.logger.info(
-                    f"File uploaded successfully: {os.path.basename(file_path)} "
-                    f"(status {status})"
-                )
+                    # Parse response
+                    response_data = await response.json()
+                    status = response.status
+                    self.logger.info(
+                        f"File uploaded successfully: {os.path.basename(file_path)} "
+                        f"(status {status})"
+                    )
 
         except Exception as e:
             self.logger.error(f"Error uploading file {file_path}: {e}")
