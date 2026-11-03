@@ -101,6 +101,13 @@ class FRBCSimple(FRBC):
         self._usage_forecast_sensor_id = usage_forecast_sensor_id
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._timezone = ZoneInfo(timezone)
+        if fill_level_scale <= 0:
+            # Every fill level this handler records is multiplied by the scale, and the bounds
+            # a schedule was planned against are divided back by it, so zero divides by zero
+            # and a negative scale turns a band upside down.
+            raise ValueError(
+                f"fill_level_scale has to be greater than zero, since it converts a fill level into the unit it is recorded in, but {fill_level_scale} was given."
+            )
         self._fill_level_scale = fill_level_scale
         if safety_rail_factor < 1:
             # Below one, the rail sits inside the declared range, and FlexMeasures clips the

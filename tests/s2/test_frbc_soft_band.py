@@ -400,3 +400,32 @@ def test_the_walk_that_reads_a_schedule_is_bounded_as_the_schedule_was_planned()
 
     assert set(_modes_chosen(held_at_the_declared_range, system_description)) == {"low"}
     assert "high" in _modes_chosen(held_at_the_rails, system_description)
+
+
+def test_a_scale_that_cannot_convert_a_fill_level_is_refused():
+    """The scale multiplies on the way out and divides on the way back, so zero divides by zero."""
+    with pytest.raises(
+        ValueError, match="fill_level_scale has to be greater than zero"
+    ):
+        FRBCSimple(
+            power_sensor_id=1,
+            price_sensor_id=2,
+            soc_sensor_id=3,
+            rm_discharge_sensor_id=4,
+            fill_level_scale=0,
+        )
+
+
+def test_bounds_that_run_backwards_are_refused():
+    """Held between a lower bound above its upper one, the walk would never leave the lower."""
+    system_description = _two_band_system_description()
+    index = pd.date_range("2024-01-01T00:00:00+00:00", periods=4, freq="15min")
+    schedule = pd.DataFrame({"schedule": [1000.0] * 4}, index=index)
+
+    with pytest.raises(ValueError, match="fill_level_bounds runs from its lower bound"):
+        fm_schedule_to_instructions(
+            schedule,
+            system_description,
+            initial_fill_level=RANGE_BOTTOM,
+            fill_level_bounds=(RANGE_TOP, RANGE_BOTTOM),
+        )

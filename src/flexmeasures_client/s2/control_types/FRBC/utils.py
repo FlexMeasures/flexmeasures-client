@@ -139,6 +139,13 @@ def fm_schedule_to_instructions(
                               caller that asked for the schedule against that same range.
     """
 
+    if fill_level_bounds is not None and fill_level_bounds[0] > fill_level_bounds[1]:
+        # Held between a lower bound above its upper one, the walk would sit at the lower one
+        # for every step and choose every mode for a fill level the storage is never at.
+        raise ValueError(
+            f"fill_level_bounds runs from its lower bound to its upper one, but {fill_level_bounds} was given."
+        )
+
     if len(schedule) == 0 or len(system_description.actuators) == 0:
         return []
 
