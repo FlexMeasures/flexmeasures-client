@@ -428,3 +428,48 @@ async def test_a_target_profile_is_posted_from_the_boundary_it_was_translated_on
     posted_start = _posted(frbc, SOC_MINIMA_SENSOR_ID)["start"]
     assert posted_start == frbc.align_to_resolution(profile.start_time)
     assert posted_start.minute % 15 == 0 and posted_start.second == 0
+
+
+@pytest.mark.asyncio
+async def test_every_fill_level_follows_the_same_scale(system_description):
+    """A level, the band around it and the scheduler's bounds must all be in one scale."""
+    scale = 1000.0
+    frbc = FRBCSimple(
+        power_sensor_id=1,
+        price_sensor_id=2,
+        soc_sensor_id=3,
+        rm_discharge_sensor_id=4,
+        soc_minima_sensor_id=SOC_MINIMA_SENSOR_ID,
+        soc_maxima_sensor_id=SOC_MAXIMA_SENSOR_ID,
+        fill_level_scale=scale,
+    )
+    frbc._fm_client = AsyncMock(FlexMeasuresClient)
+    frbc._logger = logging.getLogger(__name__)
+    frbc._system_description_history = {
+        system_description.message_id: system_description
+    }
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=30.0
+    )
+    frbc._fm_client.trigger_and_get_schedule = AsyncMock(
+        return_value={
+            "values": [0.0] * 48,
+            "start": "2024-01-01T00:00:00+00:00",
+            "duration": "PT12H",
+        }
+    )
+    frbc.send_instruction_batch = AsyncMock(return_value=0)
+
+    await frbc.send_storage_status(
+        FRBCStorageStatus(message_id=get_unique_id(), present_fill_level=30.0)
+    )
+    await frbc.send_fill_level_target_profile(_target_profile(30.0, 60.0))
+    await frbc.trigger_schedule(system_description.message_id)
+
+    assert _posted_measurement(frbc, 3)["values"] == [30.0 * scale]
+    assert min(_posted(frbc, SOC_MINIMA_SENSOR_ID)["values"]) == 30.0 * scale
+    flex_model = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
+        "flex_model"
+    ]
+    assert flex_model["soc-min"] == RANGE_BOTTOM * scale
+    assert flex_model["soc-max"] == RANGE_TOP * scale

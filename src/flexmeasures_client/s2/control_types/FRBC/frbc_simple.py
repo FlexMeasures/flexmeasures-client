@@ -135,7 +135,9 @@ class FRBCSimple(FRBC):
         await self._fm_client.post_measurements(
             self._soc_sensor_id,
             start=self.now(),
-            values=[status.present_fill_level],
+            # Scaled like every other fill level this handler records, or the level and the
+            # band around it would be in different scales wherever fill_level_scale is not 1.
+            values=[status.present_fill_level * self._fill_level_scale],
             unit=self.energy_unit,
             duration=timedelta(minutes=1),
         )
@@ -265,7 +267,8 @@ class FRBCSimple(FRBC):
             print("Can't trigger schedule without knowing the status of the storage...")
             return
 
-        soc_min, soc_max = get_soc_min_max(system_description)
+        # Scaled, because these bound the state of charge above, which is scaled too.
+        soc_min, soc_max = get_soc_min_max(system_description, self._fill_level_scale)
 
         # call schedule
         schedule = await self._fm_client.trigger_and_get_schedule(
