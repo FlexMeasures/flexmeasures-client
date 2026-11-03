@@ -260,6 +260,39 @@ def get_soc_min_max(
     return soc_min, soc_max
 
 
+def clip_fill_level_target_profile(
+    soc_minima: pd.Series,
+    soc_maxima: pd.Series,
+    range_bottom: float,
+    range_top: float,
+) -> tuple[pd.Series, pd.Series, int]:
+    """Hold a translated fill-level target profile inside the declared fill-level range.
+
+    A resource manager declares a range its storage may be in, and separately asks for a target
+    profile within it. The two do not have to agree: a night setback can aim below the range,
+    and a profile sent before a description that narrowed the range can fall outside it.
+    Where they disagree, the range wins, since that is what the resource manager says its
+    storage can actually do, so minima are raised to the bottom of it and maxima lowered to
+    the top.
+
+    That alone can leave a minimum above its maximum, where the whole target band lies outside
+    the range. Those two bounds collapse to their midpoint, which keeps minima at or below
+    maxima at every step, as whatever consumes them will expect.
+
+    :returns: the clipped minima and maxima, and on how many steps the two had crossed,
+              so that a caller can report it.
+    """
+    soc_minima = soc_minima.clip(lower=range_bottom)
+    soc_maxima = soc_maxima.clip(upper=range_top)
+    crossed = soc_maxima < soc_minima
+    number_crossed = int(crossed.sum())
+    if number_crossed:
+        midpoint = (soc_minima + soc_maxima) / 2
+        soc_minima = soc_minima.mask(crossed, midpoint)
+        soc_maxima = soc_maxima.mask(crossed, midpoint)
+    return soc_minima, soc_maxima, number_crossed
+
+
 def power_to_fill_rate_with_metrics(
     operation_mode: FRBCOperationMode,
     power: float,
