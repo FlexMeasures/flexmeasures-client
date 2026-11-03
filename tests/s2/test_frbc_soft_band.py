@@ -226,6 +226,43 @@ async def test_how_far_the_rails_sit_from_the_range_is_the_deployments_to_choose
 
 
 @pytest.mark.asyncio
+async def test_one_side_of_a_band_is_not_a_band(system_description):
+    """One side alone is an open-ended push, not what the resource manager declared.
+
+    A band needs both sides, which is also the rule the recording half goes by: a fill-level
+    target profile is recorded only where both sensors are there to hold it.
+    """
+    frbc = _frbc(
+        system_description,
+        with_sensors=False,
+        soc_minima_sensor_id=SOC_MINIMA_SENSOR_ID,
+    )
+
+    flex_model, flex_context = await _asked_for(frbc, system_description)
+
+    assert "soc-minima" not in flex_model
+    assert "soc-maxima" not in flex_model
+    # And nothing is relaxed either, since there is no band for a breach price to apply to.
+    assert "relax-soc-constraints" not in flex_context
+
+
+def test_a_rail_inside_the_declared_range_is_refused():
+    """FlexMeasures clips the band into the hard bounds, so a rail below one narrows the band.
+
+    Silently: the resource manager would be answered against a band it never declared, so a
+    factor under one is refused where it is configured rather than where it has an effect.
+    """
+    with pytest.raises(ValueError, match="safety_rail_factor has to be at least 1"):
+        FRBCSimple(
+            power_sensor_id=1,
+            price_sensor_id=2,
+            soc_sensor_id=3,
+            rm_discharge_sensor_id=4,
+            safety_rail_factor=0.9,
+        )
+
+
+@pytest.mark.asyncio
 async def test_nothing_is_asked_against_a_sensor_that_was_never_configured(
     system_description,
 ):
@@ -236,6 +273,7 @@ async def test_nothing_is_asked_against_a_sensor_that_was_never_configured(
 
     for absent in ("soc-minima", "soc-maxima", "soc-usage", "storage-efficiency"):
         assert absent not in flex_model
+    assert "relax-soc-constraints" not in flex_context
     # The rails, the start state and the unit are not a resource manager's to declare, so they
     # are asked for whatever it configured.
     assert flex_model["soc-min"] == 0.0

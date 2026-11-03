@@ -102,6 +102,13 @@ class FRBCSimple(FRBC):
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._timezone = ZoneInfo(timezone)
         self._fill_level_scale = fill_level_scale
+        if safety_rail_factor < 1:
+            # Below one, the rail sits inside the declared range, and FlexMeasures clips the
+            # band into the hard bounds, so the comfort band would be silently narrowed to
+            # something the resource manager never asked for.
+            raise ValueError(
+                f"safety_rail_factor has to be at least 1, so that the hard upper bound sits at or above the declared fill-level range, but {safety_rail_factor} was given."
+            )
         self._safety_rail_factor = safety_rail_factor
         self.power_unit = power_unit
         self.energy_unit = energy_unit
@@ -326,10 +333,22 @@ class FRBCSimple(FRBC):
         # the scheduler plan against nothing at all. Recording these was the first half of
         # this (see send_fill_level_target_profile and the two handlers after it); naming them
         # here is what makes a schedule answer them.
-        if self._soc_minima_sensor_id is not None:
+        # Both sides or neither, as when the band is recorded: one side alone is not the band
+        # the resource manager declared but an open-ended push in one direction, and only the
+        # pair of sensors holds what it asked for.
+        has_band = (
+            self._soc_minima_sensor_id is not None
+            and self._soc_maxima_sensor_id is not None
+        )
+        if has_band:
             flex_model["soc-minima"] = {"sensor": self._soc_minima_sensor_id}
-        if self._soc_maxima_sensor_id is not None:
             flex_model["soc-maxima"] = {"sensor": self._soc_maxima_sensor_id}
+        elif self._soc_minima_sensor_id or self._soc_maxima_sensor_id:
+            self._logger.info(
+                "Not asking for a schedule against a fill-level band: a band needs both a soc-minima and a soc-maxima sensor, and this handler was given %s and %s.",
+                self._soc_minima_sensor_id,
+                self._soc_maxima_sensor_id,
+            )
         if self._usage_forecast_sensor_id is not None:
             flex_model["soc-usage"] = [{"sensor": self._usage_forecast_sensor_id}]
         if self._leakage_behaviour_sensor_id is not None:
@@ -338,20 +357,24 @@ class FRBCSimple(FRBC):
             }
         self._logger.debug("flex model: %s", flex_model)
 
+        flex_context: dict = {
+            "production-price": {"sensor": self._price_sensor_id},
+            "consumption-price": {"sensor": self._price_sensor_id},
+            "site-power-capacity": f"{3 * 25 * 230} VA",
+        }
+        if has_band:
+            # Without this, the minima and maxima above are hard bounds again, and the band is
+            # back to making reachable states infeasible. It prices a breach at FlexMeasures'
+            # own default rather than at a price stated here, since what a breach of comfort is
+            # worth is the deployment's judgement, not the protocol's. Asked for only where
+            # there is a band, so the flex context says no more than what this schedule needs.
+            flex_context["relax-soc-constraints"] = True
+
         # call schedule
         schedule = await self._fm_client.trigger_and_get_schedule(
             start=self.schedule_start(system_description.valid_from),
             sensor_id=self._power_sensor_id,
-            flex_context={
-                "production-price": {"sensor": self._price_sensor_id},
-                "consumption-price": {"sensor": self._price_sensor_id},
-                "site-power-capacity": f"{3 * 25 * 230} VA",
-                # Without this, a minimum or a maximum above is a hard bound again, and the
-                # band is back to making reachable states infeasible. It prices a breach at
-                # FlexMeasures' own default rather than at a price stated here, since what a
-                # breach of comfort is worth is the deployment's judgement, not the protocol's.
-                "relax-soc-constraints": True,
-            },
+            flex_context=flex_context,
             flex_model=flex_model,
             duration=self._schedule_duration,
             prior=self.now(),
