@@ -56,6 +56,12 @@ API_VERSIONS_LIST = ["v3_0"]
 JOB_POLLING_INTERVAL = 2.0  # seconds, first wait between job status polls
 JOB_POLLING_MAX_INTERVAL = 30.0  # seconds, cap on the backing-off wait
 JOB_POLLING_TIMEOUT = 600.0  # seconds, total budget for a job to finish
+# Ingestion of posted sensor data is polled on a tighter profile than the jobs above,
+# because it is usually done within milliseconds, and because a caller waits for it inline,
+# where a schedule or a report is asked for and collected later.
+INGESTION_POLLING_INTERVAL = 0.1  # seconds, first wait between ingestion job status polls
+INGESTION_POLLING_MAX_INTERVAL = 5.0  # seconds, cap on the backing-off wait
+INGESTION_POLLING_TIMEOUT = 60.0  # seconds, total budget for ingestion to finish
 
 # Terminal job states, as reported by GET /api/v3_0/jobs/<uuid>
 JOB_STATUS_FINISHED = "FINISHED"
@@ -171,7 +177,8 @@ class FlexMeasuresClient:
     # These govern the HTTP request/retry loop used throughout the client: auth,
     # version discovery, assets and sensors, data I/O, trigger requests, result
     # retrieval, and each individual job-status lookup. They do not control how
-    # often or how long a background job is polled; the job_polling_* fields do.
+    # often or how long a background job is polled; the job_polling_* fields do,
+    # and the ingestion_polling_* fields do for the ingestion of posted sensor data.
     max_request_attempts: int = MAX_REQUEST_ATTEMPTS
     request_retry_timeout: float = REQUEST_RETRY_TIMEOUT  # total loop budget
     request_timeout: float = REQUEST_TIMEOUT  # seconds
@@ -189,6 +196,9 @@ class FlexMeasuresClient:
     job_polling_interval: float = JOB_POLLING_INTERVAL  # seconds
     job_polling_max_interval: float = JOB_POLLING_MAX_INTERVAL  # seconds
     job_polling_timeout: float = JOB_POLLING_TIMEOUT  # seconds
+    ingestion_polling_interval: float = INGESTION_POLLING_INTERVAL  # seconds
+    ingestion_polling_max_interval: float = INGESTION_POLLING_MAX_INTERVAL  # seconds
+    ingestion_polling_timeout: float = INGESTION_POLLING_TIMEOUT  # seconds
     max_polling_steps: InitVar[int | None] = None
     polling_timeout: InitVar[float | None] = None
     polling_interval: InitVar[float | None] = None
@@ -635,15 +645,16 @@ class FlexMeasuresClient:
 
         The method automatically chooses the appropriate API endpoint based on the provided parameters.
 
-        Since FlexMeasures 1.1.0, a server with an ingestion worker available answers ``202 Accepted`` with the id of a background job,
+        Since FlexMeasures 0.33.0, a server with an ingestion worker available answers ``202 Accepted`` with the id of a background job,
         rather than ``200 OK``, and ingests the data after the request has returned.
         By default this method then waits for that job to finish,
         so that a caller which reads the data back, or asks for a schedule over it, sees what it just posted.
 
         :param await_ingestion: whether to wait for asynchronous ingestion to finish,
             when the server answered ``202 Accepted`` with a job id.
+            Waiting is polled on the ``ingestion_polling_*`` profile, which is tighter than the one other jobs are polled on.
             A job that fails raises :class:`JobFailedError`.
-            A job still pending when ``self.job_polling_timeout`` is reached is logged as an error and otherwise ignored,
+            A job still pending when ``self.ingestion_polling_timeout`` is reached is logged as an error and otherwise ignored,
             since the data may well land moments later, and a caller that has waited that long is better served by carrying on than by failing.
             Pass ``False`` to return as soon as the server has accepted the data.
             A synchronous ``200 OK`` response is unaffected either way.
@@ -716,8 +727,9 @@ class FlexMeasuresClient:
     def _ingestion_job_id(response) -> str | None:
         """The id of the background job a sensor-data post was accepted for, if the response names one.
 
-        FlexMeasures settled on ``job`` as the field naming an asynchronous job;
-        ``job_id`` is the earlier spelling, still read here so that this client also works against a server predating that change.
+        FlexMeasures standardised asynchronous job responses on a ``job`` field in 1.0.0.
+        ``job_id`` is the spelling 0.33.0 used, which is also the first version to answer a sensor-data post asynchronously,
+        so both have to be read for every server that can queue an ingestion job at all.
         """
         if not isinstance(response, dict):
             return None
@@ -727,14 +739,19 @@ class FlexMeasuresClient:
     async def _await_sensor_data_ingestion(self, job_id: str) -> None:
         """Wait for an ingestion job to finish, so that the data it carries can be read back.
 
-        Waiting is left to :func:`wait_for_job`, so ingestion is polled and backed off like every other job this client waits for,
-        and reported through the same ``job_status_notifier``.
+        Waiting is left to :func:`wait_for_job`, so ingestion is backed off like every other job this client waits for,
+        and reported through the same ``job_status_notifier``, on the ``ingestion_polling_*`` intervals rather than the ``job_polling_*`` ones.
 
         A failed job propagates as :class:`JobFailedError`, for the caller to handle like any other failed post.
         A timeout does not: it is logged as an error and otherwise ignored, for the reason given in :func:`post_sensor_data`.
         """
         try:
-            await self.wait_for_job(job_id)
+            await self.wait_for_job(
+                job_id,
+                timeout=self.ingestion_polling_timeout,
+                polling_interval=self.ingestion_polling_interval,
+                max_polling_interval=self.ingestion_polling_max_interval,
+            )
         except JobTimeoutError as e:
             self.logger.error(
                 f"Ingestion of the data posted as job {job_id} is unconfirmed, so a read of it may come back without it. {e}"

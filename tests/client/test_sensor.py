@@ -1031,8 +1031,8 @@ async def test_post_sensor_data_await_ingestion_timeout(caplog):
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
         # Wait briefly, rather than out the default timeout.
-        client.job_polling_timeout = 0.05
-        client.job_polling_interval = 0.01
+        client.ingestion_polling_timeout = 0.05
+        client.ingestion_polling_interval = 0.01
         sensor_id = 5
         m.post(
             f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
@@ -1124,4 +1124,40 @@ async def test_post_sensor_data_await_ingestion_false_is_not_polled():
         )
 
         assert status == 202
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_await_ingestion_polls_on_the_ingestion_profile():
+    """Ingestion is polled on the ingestion_polling_* settings, not on the slower job_polling_* ones."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.ingestion_polling_interval = 0.25
+        client.ingestion_polling_max_interval = 1.5
+        client.ingestion_polling_timeout = 30.0
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-5"},
+        )
+
+        with patch.object(
+            client, "wait_for_job", AsyncMock(return_value={"status": "FINISHED"})
+        ) as wait_for_job:
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        wait_for_job.assert_awaited_once_with(
+            "job-5",
+            timeout=30.0,
+            polling_interval=0.25,
+            max_polling_interval=1.5,
+        )
         await client.close()
