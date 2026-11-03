@@ -196,9 +196,16 @@ class FlexMeasuresClient:
     job_polling_interval: float = JOB_POLLING_INTERVAL  # seconds
     job_polling_max_interval: float = JOB_POLLING_MAX_INTERVAL  # seconds
     job_polling_timeout: float = JOB_POLLING_TIMEOUT  # seconds
-    ingestion_polling_interval: float = INGESTION_POLLING_INTERVAL  # seconds
-    ingestion_polling_max_interval: float = INGESTION_POLLING_MAX_INTERVAL  # seconds
-    ingestion_polling_timeout: float = INGESTION_POLLING_TIMEOUT  # seconds
+    # Keyword-only, so that adding them leaves the positional order of everything after them alone.
+    ingestion_polling_interval: float = field(
+        default=INGESTION_POLLING_INTERVAL, kw_only=True  # seconds
+    )
+    ingestion_polling_max_interval: float = field(
+        default=INGESTION_POLLING_MAX_INTERVAL, kw_only=True  # seconds
+    )
+    ingestion_polling_timeout: float = field(
+        default=INGESTION_POLLING_TIMEOUT, kw_only=True  # seconds
+    )
     max_polling_steps: InitVar[int | None] = None
     polling_timeout: InitVar[float | None] = None
     polling_interval: InitVar[float | None] = None
@@ -743,7 +750,13 @@ class FlexMeasuresClient:
         and reported through the same ``job_status_notifier``, on the ``ingestion_polling_*`` intervals rather than the ``job_polling_*`` ones.
 
         A failed job propagates as :class:`JobFailedError`, for the caller to handle like any other failed post.
-        A timeout does not: it is logged as an error and otherwise ignored, for the reason given in :func:`post_sensor_data`.
+        Nothing else does.
+        A timeout is logged as an error and otherwise ignored, for the reason given in :func:`post_sensor_data`,
+        and so is a failure to look the job up at all, which says nothing about the data:
+        the server accepted that, and a job record can be gone, or answered for by something in front of the server, by the time it is asked about.
+        Raising there would report a post that succeeded as a post that failed.
+        A lookup that 404s is reported as a ``ConnectionError`` by :func:`request`, which wraps every client error that way,
+        so that is among the ones caught here, alongside the ``ValueError`` an unexpected status code raises.
         """
         try:
             await self.wait_for_job(
@@ -755,6 +768,16 @@ class FlexMeasuresClient:
         except JobTimeoutError as e:
             self.logger.error(
                 f"Ingestion of the data posted as job {job_id} is unconfirmed, so a read of it may come back without it. {e}"
+            )
+        except (
+            ConnectionError,
+            TimeoutError,
+            ValueError,
+            ContentTypeError,
+            ClientError,
+        ) as e:
+            self.logger.error(
+                f"Ingestion of the data posted as job {job_id} is unconfirmed, because looking that job up failed, so a read of it may come back without it. {e}"
             )
 
     async def _post_sensor_data_json(
@@ -905,7 +928,7 @@ class FlexMeasuresClient:
             raise
 
         # Wait for ingestion outside the request timeout above, and outside the error handler that names this an upload failure:
-        # a job takes as long as self.job_polling_timeout allows, which is no concern of the request that queued it.
+        # a job takes as long as self.ingestion_polling_timeout allows, which is no concern of the request that queued it.
         job_id = self._ingestion_job_id(response_data)
         if await_ingestion and status == 202 and job_id:
             await self._await_sensor_data_ingestion(job_id)
@@ -921,10 +944,13 @@ class FlexMeasuresClient:
         values: list[float],
         unit: str,
         prior: str | datetime | None = None,
+        await_ingestion: bool = True,
     ):
         """
         Post sensor data for the given time range.
         This function raises a ValueError when an unhandled status code is returned.
+
+        Waits for asynchronous ingestion exactly as :func:`post_sensor_data` does, which this is the old name for.
 
         DEPRECATED: Use post_sensor_data() instead.
         """
@@ -942,6 +968,7 @@ class FlexMeasuresClient:
             values=values,
             unit=unit,
             prior=prior,
+            await_ingestion=await_ingestion,
         )
 
     async def get_schedule(

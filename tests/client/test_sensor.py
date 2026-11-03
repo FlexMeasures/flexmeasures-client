@@ -1161,3 +1161,102 @@ async def test_post_sensor_data_await_ingestion_polls_on_the_ingestion_profile()
             max_polling_interval=1.5,
         )
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_await_ingestion_job_lookup_fails(caplog):
+    """A job that cannot be looked up is logged as an error, and the post returns: the data was accepted."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-6"},
+        )
+        # The job record is gone, or something in front of the server answers for it.
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-6",
+            status=404,
+            payload={"message": "Job not found."},
+            repeat=True,
+        )
+
+        with caplog.at_level(logging.ERROR):
+            response, status = await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        assert status == 202
+        assert any(
+            "looking that job up failed" in record.message for record in caplog.records
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_measurements_awaits_ingestion_and_can_opt_out():
+    """The deprecated alias waits like post_sensor_data, and takes the same opt-out."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-7"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-7",
+            status=200,
+            payload={"status": "FINISHED", "message": "ok", "result": None},
+        )
+
+        with pytest.warns(DeprecationWarning):
+            await client.post_measurements(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        assert any(
+            method == "GET" and url.path == "/api/v3_0/jobs/job-7"
+            for method, url in m.requests
+        )
+
+        # And opting out skips the poll: no job endpoint is registered for this one.
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-8"},
+        )
+        with pytest.warns(DeprecationWarning):
+            await client.post_measurements(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+                await_ingestion=False,
+            )
+        await client.close()
+
+
+def test_ingestion_polling_settings_are_keyword_only():
+    """Adding them must not shift the positional order of the arguments after them."""
+    import inspect
+
+    parameters = inspect.signature(FlexMeasuresClient).parameters
+    for name in (
+        "ingestion_polling_interval",
+        "ingestion_polling_max_interval",
+        "ingestion_polling_timeout",
+    ):
+        assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
