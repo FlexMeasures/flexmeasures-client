@@ -16,6 +16,8 @@ Other changes: see `Unreleased in the changelog <https://github.com/FlexMeasures
 Fixed
 -----
 
+* The example CEM server answers an S2 handshake at once, instead of after configuring its site with FlexMeasures, which took longer than the timeout a resource manager waits for that answer [`#241 <https://github.com/FlexMeasures/flexmeasures-client/pull/241>`__]
+* The example CEM server seeds its demo prices from the current day, instead of from a date hardcoded when it was written, so that the window it schedules for has prices [`#241 <https://github.com/FlexMeasures/flexmeasures-client/pull/241>`__]
 * ``FRBCSimple`` reports the power of the operation mode the actuator is actually in, taken from the mode's power range, and posts it to the power sensor [`#236 <https://github.com/FlexMeasures/flexmeasures-client/pull/236>`__]
 * A control-type handler can log before it is registered, and one without its own ``close()`` no longer breaks CEM teardown [`#236 <https://github.com/FlexMeasures/flexmeasures-client/pull/236>`__]
 
