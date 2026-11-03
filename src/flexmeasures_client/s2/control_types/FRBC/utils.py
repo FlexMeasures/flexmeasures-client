@@ -299,33 +299,36 @@ def clip_fill_level_target_profile(
     range_bottom: float,
     range_top: float,
 ) -> tuple[pd.Series, pd.Series, int]:
-    """Clip a translated fill-level target profile into the declared fill-level range.
+    """Hold a translated fill-level target profile inside the declared fill-level range.
 
-    The target profile steers comfort as breach-priced SOFT constraints
-    server-side, while the declared range itself is no longer declared as a
-    hard soc-min/soc-max (those became wide safety rails). A target outside
-    the declared range (e.g. a night setback dropping below the range bottom)
-    would therefore price the scheduler into states the RM declared out of
-    range, so:
+    A resource manager declares a range its storage may be in, and separately asks for a target
+    profile within it. The two do not have to agree: a night setback can aim below the range,
+    and a profile sent before a description that narrowed the range can fall outside it.
+    Where they disagree, the range wins, since that is what the resource manager says its
+    storage can actually do, so minima are raised to the bottom of it and maxima lowered to
+    the top.
 
-    - minima are clipped up to the range bottom,
-    - maxima are clipped down to the range top,
-    - where the clipped bounds cross (i.e. the target band lies entirely
-      outside the declared range), both collapse to the midpoint of the
-      clipped pair, keeping minima <= maxima pointwise.
+    That alone can leave a minimum above its maximum, where the whole target band lies outside
+    the range. Those two bounds collapse to their midpoint, which keeps minima at or below
+    maxima at every step, as whatever consumes them will expect. The midpoint of a crossed pair
+    lies outside the range itself, though, since it sits between a bound that was clipped and
+    one that was not, so it is held inside the range too: a band wholly below the range collapses
+    onto the bottom of it, and one wholly above onto the top.
 
-    Returns the clipped (minima, maxima) and the number of time steps on
-    which the bounds crossed (so the caller can log a warning).
+    :returns: the clipped minima and maxima, and on how many steps the two had crossed,
+              so that a caller can report it.
     """
     soc_minima = soc_minima.clip(lower=range_bottom)
     soc_maxima = soc_maxima.clip(upper=range_top)
     crossed = soc_maxima < soc_minima
-    n_crossed = int(crossed.sum())
-    if n_crossed:
-        midpoint = (soc_minima + soc_maxima) / 2
+    number_crossed = int(crossed.sum())
+    if number_crossed:
+        midpoint = ((soc_minima + soc_maxima) / 2).clip(
+            lower=range_bottom, upper=range_top
+        )
         soc_minima = soc_minima.mask(crossed, midpoint)
         soc_maxima = soc_maxima.mask(crossed, midpoint)
-    return soc_minima, soc_maxima, n_crossed
+    return soc_minima, soc_maxima, number_crossed
 
 
 def power_to_fill_rate_with_metrics(

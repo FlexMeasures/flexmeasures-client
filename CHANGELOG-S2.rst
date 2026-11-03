@@ -13,16 +13,29 @@ Unreleased
 
 Other changes: see `Unreleased in the changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG.rst#unreleased>`__.
 
+Added
+-----
+
+* ``FRBCSimple`` takes an optional ``soc_minima_sensor_id``, ``soc_maxima_sensor_id``, ``usage_forecast_sensor_id`` and ``leakage_behaviour_sensor_id``, and records on them what a resource manager declares about its storage: the fill levels it asks to be kept between, the usage it expects, and what its storage leaks. Without a sensor, that declaration is not recorded, rather than being posted somewhere else [`#244 <https://github.com/FlexMeasures/flexmeasures-client/pull/244>`__]
+* ``FRBCSimple`` takes an ``energy_unit``, which a state of charge and the fill-level minima and maxima around it are all recorded in [`#244 <https://github.com/FlexMeasures/flexmeasures-client/pull/244>`__]
+
 Changed
 -------
 
 * ``FRBC.trigger_schedule()`` takes the number of the request it answers as a keyword argument, so a subclass that overrides it has to accept that argument [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
 * ``FRBC.send_storage_status()`` likewise takes the number of the planning request it answers, since a storage status is now what asks for a schedule [`#240 <https://github.com/FlexMeasures/flexmeasures-client/pull/240>`__]
 * ``FRBCSimple`` takes a ``resolution``, defaulting to fifteen minutes, which a schedule's start is lined up with [`#240 <https://github.com/FlexMeasures/flexmeasures-client/pull/240>`__]
+* ``FRBCSimple`` posts a state of charge in ``kWh`` rather than ``MWh``, since S2 is a residential protocol and the example server's own state-of-charge sensor is in kilowatt hours. A deployment whose state-of-charge sensor is in megawatt hours has to pass ``energy_unit="MWh"`` to keep its readings a thousand times smaller than they would otherwise become [`#244 <https://github.com/FlexMeasures/flexmeasures-client/pull/244>`__]
 
 Fixed
 -----
 
+* A state of charge is posted in the unit the handler records fill levels in, instead of a hardcoded ``MWh``, which stopped FlexMeasures converting it: the example server creates its state-of-charge sensor in ``kWh``, so a fill level of 10 was being recorded as 10,000. A schedule is asked for in that same unit, so the bounds the scheduler plans against and the measurements it plans from agree [`#244 <https://github.com/FlexMeasures/flexmeasures-client/pull/244>`__]
+* A state of charge, and the whole flex-model a schedule is asked for with, are scaled by ``fill_level_scale`` like every other fill level the handler records. The scale is applied where the data reaches FlexMeasures and nowhere else: translating a schedule back into instructions keeps the resource manager's own units, since it matches fill levels against the operation modes stated in them [`#244 <https://github.com/FlexMeasures/flexmeasures-client/pull/244>`__]
+* A fill rate is recorded as a rate of fill level, in ``<energy_unit>/s``, instead of in the power unit. S2 states both an actuator's fill rate and a usage forecast as fill level per second, which for a heat buffer is not electricity at all, and which even for a battery differs from kilowatts by the seconds in an hour [`#244 <https://github.com/FlexMeasures/flexmeasures-client/pull/244>`__]
+* A fill-level target profile is posted from the resolution boundary its translation lined it up with, rather than from the moment the resource manager sent it, which shifted every value by the difference [`#244 <https://github.com/FlexMeasures/flexmeasures-client/pull/244>`__]
+* An ``FRBCSimple`` handler accepts an ``FRBC.FillLevelTargetProfile``, an ``FRBC.UsageForecast`` and an ``FRBC.LeakageBehaviour`` instead of raising ``NotImplementedError`` for each. The CEM dispatches these as tasks nobody awaits, so every connection by a resource manager that sends all three logged three "Task exception was never retrieved" tracebacks, and recorded none of what they declared [`#244 <https://github.com/FlexMeasures/flexmeasures-client/pull/244>`__]
+* A fill-level target profile is held inside the fill-level range the latest system description declared, so a target reaching past either end of it, such as a night setback below the range, is recorded as the range allows rather than as asked [`#244 <https://github.com/FlexMeasures/flexmeasures-client/pull/244>`__]
 * The example CEM server answers an S2 handshake at once, instead of after configuring its site with FlexMeasures, which took longer than the timeout a resource manager waits for that answer [`#241 <https://github.com/FlexMeasures/flexmeasures-client/pull/241>`__]
 * The example CEM server seeds its demo prices from the current day, instead of from a date hardcoded when it was written, so that the window it schedules for has prices [`#241 <https://github.com/FlexMeasures/flexmeasures-client/pull/241>`__]
 * An FRBC handler asks for a schedule when a storage status reports a new state of charge, instead of when a system description arrives, so a resource manager that sends its description before its first status is planned for at all [`#240 <https://github.com/FlexMeasures/flexmeasures-client/pull/240>`__]

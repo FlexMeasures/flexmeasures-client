@@ -67,15 +67,15 @@ def test_maxima_clip_down_to_the_range_top():
 
 
 def test_target_band_entirely_outside_the_range_collapses_to_midpoint():
-    # Target band entirely below the range bottom: clipped bounds cross
-    # (minima -> bottom, maxima stays below it), so both collapse to the
-    # midpoint of the clipped pair, keeping minima <= maxima pointwise.
+    # Target band entirely below the range bottom: the clipped bounds cross
+    # (minima -> bottom, maxima stays below it), so both collapse to the midpoint of the
+    # clipped pair, which is itself held inside the range: for a band wholly below the
+    # range that is the bottom of it.
     minima, maxima, n_crossed = clip_fill_level_target_profile(
         series([250, 300]), series([260, 330]), RANGE_BOTTOM, RANGE_TOP
     )
-    expected_midpoint = (RANGE_BOTTOM + 260) / 2
-    assert minima.tolist() == [expected_midpoint, 300]
-    assert maxima.tolist() == [expected_midpoint, 330]
+    assert minima.tolist() == [RANGE_BOTTOM, 300]
+    assert maxima.tolist() == [RANGE_BOTTOM, 330]
     assert (minima <= maxima).all()
     assert n_crossed == 1
 
