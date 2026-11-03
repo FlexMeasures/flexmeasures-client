@@ -106,6 +106,20 @@ class FRBCSimple(FRBC):
     def now(self):
         return datetime.now(self._timezone)
 
+    def fill_rate_unit(self) -> str:
+        """The unit a rate of change of the fill level is recorded in.
+
+        S2 states a fill rate, and a usage forecast, as fill level per second, so this follows
+        whatever unit the fill level itself is recorded in. It is not the power unit: a fill rate
+        is what an actuator delivers into its buffer, which for a heat buffer is not electricity
+        at all, and which even for a battery differs from kilowatts by the seconds in an hour.
+
+        A method rather than a property, because S2 Handler's discover() walks dir(self) and
+        getattrs every name during __init__, before a subclass has assigned its own attributes.
+        A property would be evaluated there and raise on the energy_unit it reads.
+        """
+        return f"{self.energy_unit}/s"
+
     def align_to_resolution(self, moment: datetime) -> datetime:
         """The last resolution boundary at or before that moment.
 
@@ -241,7 +255,7 @@ class FRBCSimple(FRBC):
                 start=start,
                 prior=self.now(),
                 values=[rate],
-                unit=self.power_unit,
+                unit=self.fill_rate_unit(),
                 duration=timedelta(minutes=15),
             )
 
@@ -394,7 +408,8 @@ class FRBCSimple(FRBC):
             start=self.align_to_resolution(usage_forecast.start_time),
             prior=self.now(),
             values=translated.tolist(),
-            unit=self.power_unit,
+            # translate_usage_forecast_to_fm returns fill level per second, scaled.
+            unit=self.fill_rate_unit(),
             duration=pd.Timedelta(self._resolution) * len(translated),
         )
 

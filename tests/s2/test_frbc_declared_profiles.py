@@ -24,6 +24,7 @@ from s2python.common import (
 )
 from s2python.frbc import (
     FRBCActuatorDescription,
+    FRBCActuatorStatus,
     FRBCFillLevelTargetProfile,
     FRBCFillLevelTargetProfileElement,
     FRBCLeakageBehaviour,
@@ -254,7 +255,8 @@ async def test_usage_forecast_is_recorded_from_a_resolution_boundary(
     posted = _posted(frbc, USAGE_FORECAST_SENSOR_ID)
     assert posted["start"] == frbc.align_to_resolution(usage_forecast.start_time)
     assert posted["start"].minute % 15 == 0 and posted["start"].second == 0
-    assert posted["unit"] == frbc.power_unit
+    # A usage forecast is a rate of fill level, not a power.
+    assert posted["unit"] == frbc.fill_rate_unit() == "kWh/s"
 
 
 @pytest.mark.asyncio
@@ -521,3 +523,70 @@ async def test_the_instruction_translation_stays_in_the_resource_managers_units(
         await frbc.trigger_schedule(system_description.message_id)
 
     assert translate.call_args.kwargs["initial_fill_level"] == 30.0
+
+
+def test_a_fill_rate_is_not_recorded_as_a_power():
+    """S2 states a fill rate as fill level per second, which is not the power unit.
+
+    For a heat buffer the quantity is not electricity at all, and even for a battery kWh/s
+    differs from kW by the number of seconds in an hour.
+    """
+    frbc = FRBCSimple(
+        power_sensor_id=1,
+        price_sensor_id=2,
+        soc_sensor_id=3,
+        rm_discharge_sensor_id=4,
+        energy_unit="kWh",
+        power_unit="W",
+    )
+    assert frbc.fill_rate_unit() == "kWh/s"
+    assert frbc.fill_rate_unit() != frbc.power_unit
+
+    megawatt_hours = FRBCSimple(
+        power_sensor_id=1,
+        price_sensor_id=2,
+        soc_sensor_id=3,
+        rm_discharge_sensor_id=4,
+        energy_unit="MWh",
+    )
+    assert megawatt_hours.fill_rate_unit() == "MWh/s"
+
+
+@pytest.mark.asyncio
+async def test_an_actuator_s_fill_rate_is_posted_in_the_fill_rate_unit(
+    system_description,
+):
+    """The other half of the same point: what the actuator delivers into its buffer is a rate.
+
+    The comment above this code on main says the quantity "simply is not power", and it was
+    nonetheless posted in the power unit.
+    """
+    fill_rate_sensor_id = 20
+    frbc = FRBCSimple(
+        power_sensor_id=1,
+        price_sensor_id=2,
+        soc_sensor_id=3,
+        rm_discharge_sensor_id=4,
+        fill_rate_sensor_id=fill_rate_sensor_id,
+    )
+    frbc._fm_client = AsyncMock(FlexMeasuresClient)
+    frbc._logger = logging.getLogger(__name__)
+    frbc._system_description_history = {
+        system_description.message_id: system_description
+    }
+    actuator = system_description.actuators[0]
+
+    await frbc.send_actuator_status(
+        FRBCActuatorStatus(
+            message_id=get_unique_id(),
+            actuator_id=actuator.id,
+            active_operation_mode_id=actuator.operation_modes[0].id,
+            operation_mode_factor=0.5,
+        )
+    )
+
+    assert (
+        _posted(frbc, fill_rate_sensor_id)["unit"] == frbc.fill_rate_unit() == "kWh/s"
+    )
+    # The power sensor really does carry a power, and is untouched by this.
+    assert _posted(frbc, 1)["unit"] == frbc.power_unit
