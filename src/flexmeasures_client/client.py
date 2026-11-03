@@ -812,9 +812,17 @@ class FlexMeasuresClient:
         )
         # 202 is as ordinary an answer here as 200 is: it says the server queued a job for the data rather than ingesting it inline.
         check_for_status(status, (200, 202))
-        self.logger.info("Sensor data sent successfully via JSON.")
 
         job_id = self._ingestion_job_id(response)
+        # What to say depends on what the server did with the data, because "sent successfully" on
+        # a 202 would read, to whoever is looking at these logs, as though the data had landed.
+        if status == 202 and job_id:
+            self.logger.info(
+                f"Sensor data accepted via JSON for ingestion as job {job_id}."
+            )
+        else:
+            self.logger.info("Sensor data sent successfully via JSON.")
+
         if await_ingestion and status == 202 and job_id:
             await self._await_sensor_data_ingestion(job_id)
 
@@ -923,10 +931,18 @@ class FlexMeasuresClient:
                     # Parse response
                     response_data = await response.json()
                     status = response.status
-                    self.logger.info(
-                        f"File uploaded successfully: {os.path.basename(file_path)} "
-                        f"(status {status})"
-                    )
+                    uploaded_name = os.path.basename(file_path)
+                    # As above: a 202 means accepted, not ingested, and the log should say which.
+                    if status == 202 and self._ingestion_job_id(response_data):
+                        self.logger.info(
+                            f"File accepted for ingestion as job "
+                            f"{self._ingestion_job_id(response_data)}: {uploaded_name}"
+                        )
+                    else:
+                        self.logger.info(
+                            f"File uploaded successfully: {uploaded_name} "
+                            f"(status {status})"
+                        )
 
         except Exception as e:
             self.logger.error(f"Error uploading file {file_path}: {e}")

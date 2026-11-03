@@ -1293,3 +1293,64 @@ async def test_post_sensor_data_202_is_not_logged_as_unexpected(caplog):
             "instead of expected" in record.message for record in caplog.records
         )
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_log_says_accepted_not_sent_on_202(caplog):
+    """A 202 means the data was accepted, not that it landed, and the log says so."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-10"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-10",
+            status=200,
+            payload={"status": "FINISHED", "message": "ok", "result": None},
+        )
+
+        with caplog.at_level(logging.INFO):
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        messages = [record.message for record in caplog.records]
+        assert any(
+            "accepted via JSON for ingestion as job job-10" in m for m in messages
+        )
+        assert not any("sent successfully" in m for m in messages)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_log_still_says_sent_on_200(caplog):
+    """A synchronous 200 did land the data, so that log is unchanged."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=200,
+            payload={"status": "PROCESSED", "message": "ok"},
+        )
+
+        with caplog.at_level(logging.INFO):
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        assert any("sent successfully" in r.message for r in caplog.records)
+        await client.close()
