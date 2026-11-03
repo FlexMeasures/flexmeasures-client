@@ -343,7 +343,10 @@ class FRBCSimple(FRBC):
         if has_band:
             flex_model["soc-minima"] = {"sensor": self._soc_minima_sensor_id}
             flex_model["soc-maxima"] = {"sensor": self._soc_maxima_sensor_id}
-        elif self._soc_minima_sensor_id or self._soc_maxima_sensor_id:
+        elif (
+            self._soc_minima_sensor_id is not None
+            or self._soc_maxima_sensor_id is not None
+        ):
             self._logger.info(
                 "Not asking for a schedule against a fill-level band: a band needs both a soc-minima and a soc-maxima sensor, and this handler was given %s and %s.",
                 self._soc_minima_sensor_id,
