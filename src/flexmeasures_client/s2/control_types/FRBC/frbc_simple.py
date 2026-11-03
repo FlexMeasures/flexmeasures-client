@@ -385,7 +385,17 @@ class FRBCSimple(FRBC):
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
         instructions = fm_schedule_to_instructions(
-            schedule, system_description, initial_fill_level=fill_level_at_start
+            schedule,
+            system_description,
+            initial_fill_level=fill_level_at_start,
+            # The rails the schedule was planned against, back in the resource manager's own
+            # units. The declared range is no longer what bounds a schedule, so it is no longer
+            # what should bound the walk that reads one: a scheduler free to plan above the
+            # range would otherwise be answered with modes chosen for a storage held at its top.
+            fill_level_bounds=(
+                soc_min / self._fill_level_scale,
+                soc_max / self._fill_level_scale,
+            ),
         )
 
         await self.send_instruction_batch(

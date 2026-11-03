@@ -10,8 +10,9 @@ makes the states a storage really reaches infeasible.
 from __future__ import annotations
 
 import logging
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
+import pandas as pd
 import pytest
 from s2python.common import Commodity, CommodityQuantity, NumberRange, PowerRange
 from s2python.frbc import (
@@ -25,6 +26,7 @@ from s2python.frbc import (
 
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
+from flexmeasures_client.s2.control_types.FRBC.utils import fm_schedule_to_instructions
 from flexmeasures_client.s2.utils import get_unique_id
 
 SOC_MINIMA_SENSOR_ID = 10
@@ -279,3 +281,122 @@ async def test_nothing_is_asked_against_a_sensor_that_was_never_configured(
     assert flex_model["soc-min"] == 0.0
     assert flex_model["soc-max"] == pytest.approx(RANGE_TOP * 1.5)
     assert flex_model["soc-at-start"] == pytest.approx(FILL_LEVEL_AT_START)
+
+
+@pytest.mark.asyncio
+async def test_a_schedule_is_read_back_against_the_rails_it_was_planned_against(
+    system_description,
+):
+    """The handler hands the translation the same bounds it asked for the schedule with."""
+    frbc = _frbc(system_description)
+
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.fm_schedule_to_instructions",
+        return_value=[],
+    ) as translate:
+        flex_model, _ = await _asked_for(frbc, system_description)
+
+    bounds = translate.call_args.kwargs["fill_level_bounds"]
+    scale = frbc._fill_level_scale
+    assert bounds == (flex_model["soc-min"] / scale, flex_model["soc-max"] / scale)
+
+
+def _two_band_system_description() -> FRBCSystemDescription:
+    """A storage declaring [20, 80], with one operation mode per half of [0, 160].
+
+    Which mode the translation picks says which fill level its walk had reached, since the two
+    ranges do not overlap and a mode is penalised by how far the fill level is outside its own.
+    """
+    low = FRBCOperationMode(
+        id=get_unique_id(),
+        diagnostic_label="low",
+        elements=[
+            FRBCOperationModeElement(
+                fill_level_range=NumberRange(start_of_range=0.0, end_of_range=80.0),
+                fill_rate=NumberRange(start_of_range=0.0, end_of_range=100.0),
+                power_ranges=[
+                    PowerRange(
+                        start_of_range=0.0,
+                        end_of_range=1000.0,
+                        commodity_quantity=CommodityQuantity.ELECTRIC_POWER_L1,
+                    )
+                ],
+            )
+        ],
+        abnormal_condition_only=False,
+    )
+    high = FRBCOperationMode(
+        id=get_unique_id(),
+        diagnostic_label="high",
+        elements=[
+            FRBCOperationModeElement(
+                fill_level_range=NumberRange(start_of_range=80.0, end_of_range=160.0),
+                fill_rate=NumberRange(start_of_range=0.0, end_of_range=100.0),
+                power_ranges=[
+                    PowerRange(
+                        start_of_range=0.0,
+                        end_of_range=1000.0,
+                        commodity_quantity=CommodityQuantity.ELECTRIC_POWER_L1,
+                    )
+                ],
+            )
+        ],
+        abnormal_condition_only=False,
+    )
+    actuator = FRBCActuatorDescription(
+        id=get_unique_id(),
+        supported_commodities=[Commodity.ELECTRICITY],
+        operation_modes=[low, high],
+        transitions=[],
+        timers=[],
+    )
+    return FRBCSystemDescription(
+        message_id=get_unique_id(),
+        valid_from="2024-01-01T00:00:00+00:00",
+        actuators=[actuator],
+        storage=FRBCStorageDescription(
+            provides_leakage_behaviour=False,
+            provides_fill_level_target_profile=True,
+            provides_usage_forecast=False,
+            fill_level_range=NumberRange(
+                start_of_range=RANGE_BOTTOM, end_of_range=RANGE_TOP
+            ),
+        ),
+    )
+
+
+def _modes_chosen(instructions, system_description) -> list[str]:
+    labels = {
+        mode.id: mode.diagnostic_label
+        for mode in system_description.actuators[0].operation_modes
+    }
+    return [labels[instruction.operation_mode] for instruction in instructions]
+
+
+def test_the_walk_that_reads_a_schedule_is_bounded_as_the_schedule_was_planned():
+    """The declared range no longer bounds a schedule, so it no longer bounds reading one.
+
+    Given a schedule that charges hard for hours, the walk's own fill level climbs past the
+    declared range. Held at the top of that range it keeps choosing the low mode; held at the
+    rails the schedule was planned against it crosses into the high one, which is the mode for
+    the state the scheduler actually planned.
+    """
+    system_description = _two_band_system_description()
+    # Twelve hours of charging, enough to climb well past the declared top of 80.
+    index = pd.date_range("2024-01-01T00:00:00+00:00", periods=48, freq="15min")
+    schedule = pd.DataFrame({"schedule": [1000.0] * 48}, index=index)
+    # Alternating, so each step is a fresh choice of mode rather than a repeat of the last.
+    schedule["schedule"] = [1000.0 if i % 2 else 999.0 for i in range(48)]
+
+    held_at_the_declared_range = fm_schedule_to_instructions(
+        schedule, system_description, initial_fill_level=RANGE_BOTTOM
+    )
+    held_at_the_rails = fm_schedule_to_instructions(
+        schedule,
+        system_description,
+        initial_fill_level=RANGE_BOTTOM,
+        fill_level_bounds=(0.0, RANGE_TOP * 1.5),
+    )
+
+    assert set(_modes_chosen(held_at_the_declared_range, system_description)) == {"low"}
+    assert "high" in _modes_chosen(held_at_the_rails, system_description)

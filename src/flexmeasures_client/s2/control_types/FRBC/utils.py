@@ -127,7 +127,17 @@ def fm_schedule_to_instructions(
     system_description: FRBCSystemDescription,
     initial_fill_level: float,
     logger: logging.Logger = LOGGER,
+    fill_level_bounds: tuple[float, float] | None = None,
 ) -> List[FRBCInstruction]:
+    """Walk a FlexMeasures schedule and say which operation mode each step asks for.
+
+    :param fill_level_bounds: the fill levels this walk keeps its own running fill level
+                              between, in the resource manager's units. These have to be the
+                              bounds the schedule was planned against, or the walk picks modes
+                              for a storage state the scheduler never planned. Without them the
+                              declared fill-level range is used, which is right only for a
+                              caller that asked for the schedule against that same range.
+    """
 
     if len(schedule) == 0 or len(system_description.actuators) == 0:
         return []
@@ -235,10 +245,15 @@ def fm_schedule_to_instructions(
             usage=usage,
         )
 
-        # Clamp to fill level limits
-        fill_level_range: NumberRange = system_description.storage.fill_level_range
-        fill_level_min = fill_level_range.start_of_range
-        fill_level_max = fill_level_range.end_of_range
+        # Hold the running fill level between the bounds the schedule was planned against,
+        # so that the mode chosen for each step is the one for the storage state the scheduler
+        # planned. Falling back to the declared range keeps every other caller as it was.
+        if fill_level_bounds is None:
+            fill_level_range: NumberRange = system_description.storage.fill_level_range
+            fill_level_min = fill_level_range.start_of_range
+            fill_level_max = fill_level_range.end_of_range
+        else:
+            fill_level_min, fill_level_max = fill_level_bounds
         fill_level = max(fill_level_min, min(fill_level_max, fill_level))
 
         previous_power = power
