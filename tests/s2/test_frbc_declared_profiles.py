@@ -141,7 +141,10 @@ def _target_profile(bottom: float, top: float) -> FRBCFillLevelTargetProfile:
 
 def _posted(frbc: FRBCSimple, sensor_id: int) -> dict:
     for call in frbc._fm_client.post_sensor_data.await_args_list:
-        if call.kwargs.get("sensor_id", call.args[0] if call.args else None) == sensor_id:
+        if (
+            call.kwargs.get("sensor_id", call.args[0] if call.args else None)
+            == sensor_id
+        ):
             return call.kwargs
     raise AssertionError(f"nothing was posted to sensor {sensor_id}")
 
@@ -208,7 +211,9 @@ async def test_fill_level_target_profile_is_recorded_clipped(system_description)
 
 
 @pytest.mark.asyncio
-async def test_usage_forecast_is_recorded_from_a_resolution_boundary(system_description):
+async def test_usage_forecast_is_recorded_from_a_resolution_boundary(
+    system_description,
+):
     frbc = _frbc(system_description, with_sensors=True)
     usage_forecast = FRBCUsageForecast(
         message_id=get_unique_id(),
@@ -231,7 +236,9 @@ async def test_usage_forecast_is_recorded_from_a_resolution_boundary(system_desc
 
 
 @pytest.mark.asyncio
-async def test_leakage_behaviour_is_recorded_as_a_storage_efficiency(system_description):
+async def test_leakage_behaviour_is_recorded_as_a_storage_efficiency(
+    system_description,
+):
     frbc = _frbc(system_description, with_sensors=True)
     leakage = FRBCLeakageBehaviour(
         message_id=get_unique_id(),
