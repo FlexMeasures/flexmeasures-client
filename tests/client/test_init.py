@@ -107,6 +107,9 @@ async def test__init__(
         "job_polling_interval": 2.0,
         "job_polling_max_interval": 30.0,
         "job_polling_timeout": 600.0,
+        "ingestion_polling_interval": 0.1,
+        "ingestion_polling_max_interval": 5.0,
+        "ingestion_polling_timeout": 60.0,
     }
     init_dict = flexmeasures_client.__dict__
     init_dict.pop("session")

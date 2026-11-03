@@ -1213,3 +1213,37 @@ async def test_get_schedule_failed_job_raises() -> None:
                 sensor_id=1, schedule_id="some-uuid", duration="PT45M"
             )
     await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_202_is_not_logged_as_unexpected(caplog) -> None:
+    """202 is the standard answer to a trigger since FlexMeasures 1.0.0, so it is not reported as a surprise."""
+    with aioresponses() as m:
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        flexmeasures_client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/3",
+            status=200,
+            payload={"id": 3, "generic_asset_id": 5, "name": "test-sensor"},
+        )
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
+            status=202,
+            payload={"job": "some-schedule-job-id"},
+        )
+
+        with caplog.at_level(logging.INFO):
+            schedule_id = await flexmeasures_client.trigger_schedule(
+                sensor_id=3,
+                start="2023-03-03T09:00+02:00",
+                duration="PT24H",
+                flex_model={"soc-at-start": 50},
+            )
+
+        assert schedule_id == "some-schedule-job-id"
+        assert not any(
+            "instead of expected" in record.message for record in caplog.records
+        )
+        await flexmeasures_client.close()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Callable
@@ -173,17 +174,25 @@ def check_content_type(response):
         )
 
 
-def check_for_status(status, expected_status):
+def check_for_status(status, expected_status: int | Iterable[int]):
     """Check if status is an acceptable 2xx status code.
 
     Accepts any 2xx status code as success. Logs at INFO level if the status
     differs from the expected status but is still a 2xx success code.
     Raises ValueError for non-2xx status codes.
+
+    Several statuses can be expected, where an endpoint answers more than one of them in the ordinary course of things,
+    such as a sensor-data post, which a server answers 200 where it ingests the data itself and 202 where it queues a job for it.
+    Naming them all keeps the log for the case where something really was unexpected.
     """
+    expected = (
+        {expected_status} if isinstance(expected_status, int) else set(expected_status)
+    )
     if 200 <= status < 300:
-        if status != expected_status:
+        if status not in expected:
             logger.info(
-                f"Received HTTP status {status} instead of expected {expected_status}."
+                f"Received HTTP status {status} instead of expected "
+                f"{', '.join(str(code) for code in sorted(expected))}."
             )
     else:
         raise ValueError(f"Request failed with status code {status}")

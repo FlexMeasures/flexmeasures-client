@@ -56,6 +56,12 @@ API_VERSIONS_LIST = ["v3_0"]
 JOB_POLLING_INTERVAL = 2.0  # seconds, first wait between job status polls
 JOB_POLLING_MAX_INTERVAL = 30.0  # seconds, cap on the backing-off wait
 JOB_POLLING_TIMEOUT = 600.0  # seconds, total budget for a job to finish
+# Ingestion of posted sensor data is polled on a tighter profile than the jobs above,
+# because it is usually done within milliseconds, and because a caller waits for it inline,
+# where a schedule or a report is asked for and collected later.
+INGESTION_POLLING_INTERVAL = 0.1  # seconds, first wait between ingestion polls
+INGESTION_POLLING_MAX_INTERVAL = 5.0  # seconds, cap on the backing-off wait
+INGESTION_POLLING_TIMEOUT = 60.0  # seconds, total budget for ingestion to finish
 
 # Terminal job states, as reported by GET /api/v3_0/jobs/<uuid>
 JOB_STATUS_FINISHED = "FINISHED"
@@ -171,7 +177,8 @@ class FlexMeasuresClient:
     # These govern the HTTP request/retry loop used throughout the client: auth,
     # version discovery, assets and sensors, data I/O, trigger requests, result
     # retrieval, and each individual job-status lookup. They do not control how
-    # often or how long a background job is polled; the job_polling_* fields do.
+    # often or how long a background job is polled; the job_polling_* fields do,
+    # and the ingestion_polling_* fields do for the ingestion of posted sensor data.
     max_request_attempts: int = MAX_REQUEST_ATTEMPTS
     request_retry_timeout: float = REQUEST_RETRY_TIMEOUT  # total loop budget
     request_timeout: float = REQUEST_TIMEOUT  # seconds
@@ -189,6 +196,16 @@ class FlexMeasuresClient:
     job_polling_interval: float = JOB_POLLING_INTERVAL  # seconds
     job_polling_max_interval: float = JOB_POLLING_MAX_INTERVAL  # seconds
     job_polling_timeout: float = JOB_POLLING_TIMEOUT  # seconds
+    # Keyword-only, so that adding them leaves the positional order of everything after them alone.
+    ingestion_polling_interval: float = field(
+        default=INGESTION_POLLING_INTERVAL, kw_only=True  # seconds
+    )
+    ingestion_polling_max_interval: float = field(
+        default=INGESTION_POLLING_MAX_INTERVAL, kw_only=True  # seconds
+    )
+    ingestion_polling_timeout: float = field(
+        default=INGESTION_POLLING_TIMEOUT, kw_only=True  # seconds
+    )
     max_polling_steps: InitVar[int | None] = None
     polling_timeout: InitVar[float | None] = None
     polling_interval: InitVar[float | None] = None
@@ -622,6 +639,7 @@ class FlexMeasuresClient:
         # Parameters for file upload
         file_path: str | None = None,
         belief_time_measured_instantly: bool = False,
+        await_ingestion: bool = True,
     ):
         """
         Post sensor data for the given time range.
@@ -633,6 +651,20 @@ class FlexMeasuresClient:
            as earlier servers ignore it and read the file in the sensor's own unit)
 
         The method automatically chooses the appropriate API endpoint based on the provided parameters.
+
+        Since FlexMeasures 0.33.0, a server with an ingestion worker available answers ``202 Accepted`` with the id of a background job,
+        rather than ``200 OK``, and ingests the data after the request has returned.
+        By default this method then waits for that job to finish,
+        so that a caller which reads the data back, or asks for a schedule over it, sees what it just posted.
+
+        :param await_ingestion: whether to wait for asynchronous ingestion to finish,
+            when the server answered ``202 Accepted`` with a job id.
+            Waiting is polled on the ``ingestion_polling_*`` profile, which is tighter than the one other jobs are polled on.
+            A job that fails raises :class:`JobFailedError`.
+            A job still pending when ``self.ingestion_polling_timeout`` is reached is logged as an error and otherwise ignored,
+            since the data may well land moments later, and a caller that has waited that long is better served by carrying on than by failing.
+            Pass ``False`` to return as soon as the server has accepted the data.
+            A synchronous ``200 OK`` response is unaffected either way.
 
         This function raises a ValueError when an unhandled status code is returned.
         """
@@ -683,6 +715,7 @@ class FlexMeasuresClient:
                 values=values,
                 unit=unit,
                 prior=prior,
+                await_ingestion=await_ingestion,
             )
         else:
             # Type assertion to help the type checker understand that file_path is not None
@@ -694,6 +727,57 @@ class FlexMeasuresClient:
                 file_path=file_path,
                 belief_time_measured_instantly=belief_time_measured_instantly,
                 unit=unit,
+                await_ingestion=await_ingestion,
+            )
+
+    @staticmethod
+    def _ingestion_job_id(response) -> str | None:
+        """The id of the background job a sensor-data post was accepted for, if the response names one.
+
+        FlexMeasures standardised asynchronous job responses on a ``job`` field in 1.0.0.
+        ``job_id`` is the spelling 0.33.0 used, which is also the first version to answer a sensor-data post asynchronously,
+        so both have to be read for every server that can queue an ingestion job at all.
+        """
+        if not isinstance(response, dict):
+            return None
+        job_id = response.get("job") or response.get("job_id")
+        return job_id if isinstance(job_id, str) else None
+
+    async def _await_sensor_data_ingestion(self, job_id: str) -> None:
+        """Wait for an ingestion job to finish, so that the data it carries can be read back.
+
+        Waiting is left to :func:`wait_for_job`, so ingestion is backed off like every other job this client waits for,
+        and reported through the same ``job_status_notifier``, on the ``ingestion_polling_*`` intervals rather than the ``job_polling_*`` ones.
+
+        A failed job propagates as :class:`JobFailedError`, for the caller to handle like any other failed post.
+        Nothing else does.
+        A timeout is logged as an error and otherwise ignored, for the reason given in :func:`post_sensor_data`,
+        and so is a failure to look the job up at all, which says nothing about the data:
+        the server accepted that, and a job record can be gone, or answered for by something in front of the server, by the time it is asked about.
+        Raising there would report a post that succeeded as a post that failed.
+        A lookup that 404s is reported as a ``ConnectionError`` by :func:`request`, which wraps every client error that way,
+        so that is among the ones caught here, alongside the ``ValueError`` an unexpected status code raises.
+        """
+        try:
+            await self.wait_for_job(
+                job_id,
+                timeout=self.ingestion_polling_timeout,
+                polling_interval=self.ingestion_polling_interval,
+                max_polling_interval=self.ingestion_polling_max_interval,
+            )
+        except JobTimeoutError as e:
+            self.logger.error(
+                f"Ingestion of the data posted as job {job_id} is unconfirmed, so a read of it may come back without it. {e}"
+            )
+        except (
+            ConnectionError,
+            TimeoutError,
+            ValueError,
+            ContentTypeError,
+            ClientError,
+        ) as e:
+            self.logger.error(
+                f"Ingestion of the data posted as job {job_id} is unconfirmed, because looking that job up failed, so a read of it may come back without it. {e}"
             )
 
     async def _post_sensor_data_json(
@@ -704,6 +788,7 @@ class FlexMeasuresClient:
         values: list[float],
         unit: str,
         prior: str | datetime | None = None,
+        await_ingestion: bool = True,
     ):
         """
         Post sensor data using JSON payload.
@@ -725,8 +810,23 @@ class FlexMeasuresClient:
             minimum_server_version="0.28.0",
             minimum_server_version_msg="Upgrade FlexMeasures or alternatively install client v0.7.0, where the deprecated endpoint is supported.",
         )
-        check_for_status(status, 200)
-        self.logger.info("Sensor data sent successfully via JSON.")
+        # 202 is as ordinary an answer here as 200 is: it says the server queued a job for the data rather than ingesting it inline.
+        check_for_status(status, (200, 202))
+
+        job_id = self._ingestion_job_id(response)
+        # What to say depends on what the server did with the data, because "sent successfully" on
+        # a 202 would read, to whoever is looking at these logs, as though the data had landed.
+        # The status decides that on its own: a 202 that names no job is still only accepted, and
+        # saying so is also what explains why nothing was waited for.
+        if status == 202:
+            named = f" as job {job_id}" if job_id else " as an unnamed job"
+            self.logger.info(f"Sensor data accepted via JSON for ingestion{named}.")
+        else:
+            self.logger.info("Sensor data sent successfully via JSON.")
+
+        if await_ingestion and status == 202 and job_id:
+            await self._await_sensor_data_ingestion(job_id)
+
         return response, status
 
     async def _post_sensor_data_file(
@@ -735,6 +835,7 @@ class FlexMeasuresClient:
         file_path: str,
         belief_time_measured_instantly: bool = False,
         unit: str | None = None,
+        await_ingestion: bool = True,
     ):
         """
         Post sensor data using file upload.
@@ -802,39 +903,63 @@ class FlexMeasuresClient:
 
         try:
             async with async_timeout.timeout(self.request_timeout):
-                response = await cast(ClientSession, self.session).post(
+                # As a context manager, so that the response is released on every path out of
+                # this block, the error path below included: a response whose body is never read
+                # keeps its connection out of the pool until it is garbage collected.
+                # Reading the body, which the success path does, already hands the connection
+                # back before anything is waited for.
+                async with cast(ClientSession, self.session).post(
                     url=url,
                     data=form_data,
                     headers=headers,
                     ssl=self.ssl,
                     allow_redirects=False,
-                )
+                ) as response:
+                    # Check response status (any 2xx is success, e.g. 202 Accepted
+                    # for asynchronous processing, matching check_for_status()'s
+                    # convention used elsewhere in this client)
+                    if not (200 <= response.status < 300):
+                        try:
+                            error_data = await response.json()
+                            error_message = f"Request failed with status code {response.status}: {error_data}"
+                        except Exception as e:
+                            self.logger.error(f"Error parsing response: {e}")
+                            error_message = (
+                                f"Request failed with status code {response.status}"
+                            )
+                        raise ValueError(error_message)
 
-                # Check response status (any 2xx is success, e.g. 202 Accepted
-                # for asynchronous processing, matching check_for_status()'s
-                # convention used elsewhere in this client)
-                if not (200 <= response.status < 300):
-                    try:
-                        error_data = await response.json()
-                        error_message = f"Request failed with status code {response.status}: {error_data}"
-                    except Exception as e:
-                        self.logger.error(f"Error parsing response: {e}")
-                        error_message = (
-                            f"Request failed with status code {response.status}"
+                    # Parse response
+                    response_data = await response.json()
+                    status = response.status
+                    uploaded_name = os.path.basename(file_path)
+                    upload_job_id = self._ingestion_job_id(response_data)
+                    # As above: a 202 means accepted, not ingested, named job or not.
+                    if status == 202:
+                        named = (
+                            f" as job {upload_job_id}"
+                            if upload_job_id
+                            else " as an unnamed job"
                         )
-                    raise ValueError(error_message)
-
-                # Parse response
-                response_data = await response.json()
-                self.logger.info(
-                    f"File uploaded successfully: {os.path.basename(file_path)} "
-                    f"(status {response.status})"
-                )
-                return response_data, response.status
+                        self.logger.info(
+                            f"File accepted for ingestion{named}: {uploaded_name}"
+                        )
+                    else:
+                        self.logger.info(
+                            f"File uploaded successfully: {uploaded_name} "
+                            f"(status {status})"
+                        )
 
         except Exception as e:
             self.logger.error(f"Error uploading file {file_path}: {e}")
             raise
+
+        # Wait for ingestion outside the request timeout above, and outside the error handler that names this an upload failure:
+        # a job takes as long as self.ingestion_polling_timeout allows, which is no concern of the request that queued it.
+        if await_ingestion and status == 202 and upload_job_id:
+            await self._await_sensor_data_ingestion(upload_job_id)
+
+        return response_data, status
 
     # Keep the old method name for backward compatibility
     async def post_measurements(
@@ -845,10 +970,13 @@ class FlexMeasuresClient:
         values: list[float],
         unit: str,
         prior: str | datetime | None = None,
+        await_ingestion: bool = True,
     ):
         """
         Post sensor data for the given time range.
         This function raises a ValueError when an unhandled status code is returned.
+
+        Waits for asynchronous ingestion exactly as :func:`post_sensor_data` does, which this is the old name for.
 
         DEPRECATED: Use post_sensor_data() instead.
         """
@@ -866,6 +994,7 @@ class FlexMeasuresClient:
             values=values,
             unit=unit,
             prior=prior,
+            await_ingestion=await_ingestion,
         )
 
     async def get_schedule(
@@ -1729,7 +1858,10 @@ class FlexMeasuresClient:
                 json_payload=message,
                 minimum_server_version="v0.27.0",
             )
-        check_for_status(status, 200)
+        # 202 is the standard answer here since FlexMeasures 1.0.0, and 200 is what a host serving
+        # legacy job responses answers, so neither is a surprise. The line below already reads the
+        # job out of a 202, which is what makes logging it as unexpected wrong rather than merely noisy.
+        check_for_status(status, (200, 202))
 
         if not isinstance(response, dict):
             raise ContentTypeError(
