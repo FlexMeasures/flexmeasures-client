@@ -76,9 +76,11 @@ class FRBCSimple(FRBC):
         valid_from_shift: timedelta = timedelta(days=1),
         fill_level_scale: float = 1,
         power_unit: str = "W",
-        # The unit a fill level is recorded in, which is what send_storage_status posts a state
-        # of charge in, and so is what the minima and maxima around it are posted in too.
-        energy_unit: str = "MWh",
+        # The unit a fill level is recorded in: a state of charge and the minima and maxima
+        # bounding it all go out in this one unit, so that they can be compared at all.
+        # Kilowatt hours, because S2 is a residential protocol and a home battery or heat buffer
+        # is of that order; a deployment at another scale says so here.
+        energy_unit: str = "kWh",
     ) -> None:
         super().__init__(max_size)
         self._power_sensor_id = power_sensor_id
@@ -134,7 +136,7 @@ class FRBCSimple(FRBC):
             self._soc_sensor_id,
             start=self.now(),
             values=[status.present_fill_level],
-            unit="MWh",
+            unit=self.energy_unit,
             duration=timedelta(minutes=1),
         )
 

@@ -31,6 +31,7 @@ from s2python.frbc import (
     FRBCOperationMode,
     FRBCOperationModeElement,
     FRBCStorageDescription,
+    FRBCStorageStatus,
     FRBCSystemDescription,
     FRBCUsageForecast,
     FRBCUsageForecastElement,
@@ -149,6 +150,17 @@ def _posted(frbc: FRBCSimple, sensor_id: int) -> dict:
     raise AssertionError(f"nothing was posted to sensor {sensor_id}")
 
 
+def _posted_measurement(frbc: FRBCSimple, sensor_id: int) -> dict:
+    """A state of charge still goes out through the deprecated post_measurements alias."""
+    for call in frbc._fm_client.post_measurements.await_args_list:
+        if (
+            call.kwargs.get("sensor_id", call.args[0] if call.args else None)
+            == sensor_id
+        ):
+            return call.kwargs
+    raise AssertionError(f"nothing was posted to sensor {sensor_id}")
+
+
 def _posted_sensor_ids(frbc: FRBCSimple) -> list[int]:
     return [
         call.kwargs.get("sensor_id", call.args[0] if call.args else None)
@@ -204,7 +216,7 @@ async def test_fill_level_target_profile_is_recorded_clipped(system_description)
     maxima = _posted(frbc, SOC_MAXIMA_SENSOR_ID)
     assert set(minima["values"]) == {RANGE_BOTTOM}
     assert set(maxima["values"]) == {RANGE_TOP}
-    assert minima["unit"] == frbc.energy_unit == "MWh"
+    assert minima["unit"] == frbc.energy_unit == "kWh"
     # One hour on quarter-hour steps.
     assert len(minima["values"]) == 4
     assert minima["duration"] == pd.Timedelta("1h")
@@ -311,3 +323,54 @@ async def test_a_target_profile_needs_both_bounds_to_be_recorded(system_descript
     await frbc.send_fill_level_target_profile(_target_profile(30.0, 60.0))
 
     assert _posted_sensor_ids(frbc) == []
+
+
+# --- One unit for a fill level and the bounds around it ---
+
+
+@pytest.mark.asyncio
+async def test_a_state_of_charge_and_its_bounds_share_one_unit(system_description):
+    """A band in one unit around a level in another would be read a thousandfold out.
+
+    The example server creates its state-of-charge sensor in kWh, while this handler used to
+    post that level declaring MWh, so FlexMeasures converted a fill level of 10 into 10,000.
+    """
+    frbc = _frbc(system_description, with_sensors=True)
+    frbc._soc_sensor_id = 3
+
+    await frbc.send_storage_status(
+        FRBCStorageStatus(message_id=get_unique_id(), present_fill_level=10.0)
+    )
+    await frbc.send_fill_level_target_profile(_target_profile(30.0, 60.0))
+
+    level_unit = _posted_measurement(frbc, 3)["unit"]
+    minima_unit = _posted(frbc, SOC_MINIMA_SENSOR_ID)["unit"]
+    maxima_unit = _posted(frbc, SOC_MAXIMA_SENSOR_ID)["unit"]
+    assert level_unit == minima_unit == maxima_unit == "kWh"
+
+
+@pytest.mark.asyncio
+async def test_the_energy_unit_is_the_deployment_s_to_choose(system_description):
+    """A deployment at another scale says so once, and everything follows it."""
+    frbc = FRBCSimple(
+        power_sensor_id=1,
+        price_sensor_id=2,
+        soc_sensor_id=3,
+        rm_discharge_sensor_id=4,
+        soc_minima_sensor_id=SOC_MINIMA_SENSOR_ID,
+        soc_maxima_sensor_id=SOC_MAXIMA_SENSOR_ID,
+        energy_unit="MWh",
+    )
+    frbc._fm_client = AsyncMock(FlexMeasuresClient)
+    frbc._logger = logging.getLogger(__name__)
+    frbc._system_description_history = {
+        system_description.message_id: system_description
+    }
+
+    await frbc.send_storage_status(
+        FRBCStorageStatus(message_id=get_unique_id(), present_fill_level=10.0)
+    )
+    await frbc.send_fill_level_target_profile(_target_profile(30.0, 60.0))
+
+    assert _posted_measurement(frbc, 3)["unit"] == "MWh"
+    assert _posted(frbc, SOC_MINIMA_SENSOR_ID)["unit"] == "MWh"
