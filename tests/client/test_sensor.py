@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 from unittest.mock import AsyncMock, patch
@@ -12,7 +13,10 @@ from aioresponses import aioresponses
 from flexmeasures_client import __version__
 from flexmeasures_client.client import ContentTypeError, FlexMeasuresClient
 from flexmeasures_client.constants import CLIENT_VERSION_HEADER
-from flexmeasures_client.exceptions import InsufficientServerVersionError
+from flexmeasures_client.exceptions import (
+    InsufficientServerVersionError,
+    JobFailedError,
+)
 
 
 @pytest.mark.asyncio
@@ -496,6 +500,12 @@ async def test_post_sensor_data_json_accepted_returns_ingestion_job() -> None:
                 "status": "ACCEPTED",
             },
         )
+        # The post waits for the job it is told about, so that job has to answer.
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/ingestion-job-id",
+            status=200,
+            payload={"status": "FINISHED", "message": "ok", "result": None},
+        )
 
         response, status = await client.post_sensor_data(
             sensor_id=5,
@@ -756,6 +766,12 @@ async def test_post_sensor_data_with_file_accepted():
                     "status": "ACCEPTED",
                 },
             )
+            # This one answers with the older "job_id" spelling, which is read too.
+            m.get(
+                "http://localhost:5000/api/v3_0/jobs/test-job-id",
+                status=200,
+                payload={"status": "FINISHED", "message": "ok", "result": None},
+            )
             response_data, status = await client.post_sensor_data(
                 sensor_id=1,
                 file_path=csv_path,
@@ -920,4 +936,192 @@ async def test_get_sensor_data_content_type_error():
                 unit="MW",
                 resolution="PT15M",
             )
+        await client.close()
+
+
+# --- Waiting for asynchronous ingestion ---
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_await_ingestion_finished():
+    """A post accepted for a job that finishes returns normally, once that job has."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={
+                "status": "ACCEPTED",
+                "message": "Sensor data has been accepted for processing.",
+                "job_monitor_url": "http://localhost:5000/api/v3_0/jobs/job-1",
+                "job": "job-1",
+            },
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-1",
+            status=200,
+            payload={
+                "status": "FINISHED",
+                "message": "Sensor data ingestion job has finished.",
+                "result": None,
+            },
+        )
+
+        response, status = await client.post_sensor_data(
+            sensor_id=sensor_id,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            values=[1.0],
+            unit="MW",
+        )
+
+        assert status == 202
+        # The job really was polled, and not merely offered for polling.
+        assert any(
+            method == "GET" and url.path == "/api/v3_0/jobs/job-1"
+            for method, url in m.requests
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_await_ingestion_failed():
+    """A post accepted for a job that fails raises, rather than reporting success."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={
+                "status": "ACCEPTED",
+                "message": "Sensor data has been accepted for processing.",
+                "job_monitor_url": "http://localhost:5000/api/v3_0/jobs/job-2",
+                "job": "job-2",
+            },
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-2",
+            status=200,
+            payload={
+                "status": "FAILED",
+                "message": "Sensor data ingestion job failed with ValueError: boom",
+                "result": None,
+            },
+        )
+
+        with pytest.raises(JobFailedError, match="job-2"):
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_await_ingestion_timeout(caplog):
+    """A job still pending when the timeout is reached is logged as an error, and the post returns."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        # Wait briefly, rather than out the default timeout.
+        client.job_polling_timeout = 0.05
+        client.job_polling_interval = 0.01
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={
+                "status": "ACCEPTED",
+                "message": "Sensor data has been accepted for processing.",
+                "job_monitor_url": "http://localhost:5000/api/v3_0/jobs/job-3",
+                "job": "job-3",
+            },
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-3",
+            status=200,
+            payload={
+                "status": "QUEUED",
+                "message": "Sensor data ingestion job waiting to be processed.",
+                "result": None,
+            },
+            repeat=True,
+        )
+
+        with caplog.at_level(logging.ERROR):
+            response, status = await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        assert status == 202
+        assert any("unconfirmed" in record.message for record in caplog.records)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_synchronous_response_is_not_polled():
+    """A synchronous 200 OK answer names no job, so nothing is polled."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=200,
+            payload={"status": "PROCESSED", "message": "ok"},
+        )
+        # No job endpoint is registered, so a poll would fail the test by raising here.
+
+        response, status = await client.post_sensor_data(
+            sensor_id=sensor_id,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            values=[1.0],
+            unit="MW",
+        )
+
+        assert status == 200
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_await_ingestion_false_is_not_polled():
+    """Opting out returns as soon as the data is accepted, without waiting for the job."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={
+                "status": "ACCEPTED",
+                "message": "Sensor data has been accepted for processing.",
+                "job_monitor_url": "http://localhost:5000/api/v3_0/jobs/job-4",
+                "job": "job-4",
+            },
+        )
+        # No job endpoint is registered, so a poll would fail the test by raising here.
+
+        response, status = await client.post_sensor_data(
+            sensor_id=sensor_id,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            values=[1.0],
+            unit="MW",
+            await_ingestion=False,
+        )
+
+        assert status == 202
         await client.close()
