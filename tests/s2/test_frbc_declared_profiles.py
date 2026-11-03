@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pandas as pd
 import pytest
@@ -473,3 +473,51 @@ async def test_every_fill_level_follows_the_same_scale(system_description):
     ]
     assert flex_model["soc-min"] == RANGE_BOTTOM * scale
     assert flex_model["soc-max"] == RANGE_TOP * scale
+    # The whole flex-model is in one scale, soc-at-start included: a starting point outside the
+    # bounds around it would be infeasible, or silently clamped.
+    assert flex_model["soc-at-start"] == 30.0 * scale
+    assert flex_model["soc-min"] <= flex_model["soc-at-start"] <= flex_model["soc-max"]
+
+
+@pytest.mark.asyncio
+async def test_the_instruction_translation_stays_in_the_resource_managers_units(
+    system_description,
+):
+    """The scale applies at the FlexMeasures edge only.
+
+    Translating a schedule back into instructions matches the fill level against the operation
+    modes own fill_level_range, which a resource manager states unscaled, so handing that step
+    a scaled fill level would pick the wrong operation mode.
+    """
+    scale = 1000.0
+    frbc = FRBCSimple(
+        power_sensor_id=1,
+        price_sensor_id=2,
+        soc_sensor_id=3,
+        rm_discharge_sensor_id=4,
+        fill_level_scale=scale,
+    )
+    frbc._fm_client = AsyncMock(FlexMeasuresClient)
+    frbc._logger = logging.getLogger(__name__)
+    frbc._system_description_history = {
+        system_description.message_id: system_description
+    }
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=30.0
+    )
+    frbc._fm_client.trigger_and_get_schedule = AsyncMock(
+        return_value={
+            "values": [0.0] * 48,
+            "start": "2024-01-01T00:00:00+00:00",
+            "duration": "PT12H",
+        }
+    )
+    frbc.send_instruction_batch = AsyncMock(return_value=0)
+
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.fm_schedule_to_instructions",
+        return_value=[],
+    ) as translate:
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert translate.call_args.kwargs["initial_fill_level"] == 30.0

@@ -260,7 +260,11 @@ class FRBCSimple(FRBC):
         ]
 
         if len(self._storage_status_history) > 0:
-            soc_at_start = list(self._storage_status_history.values())[
+            # In the resource manager's own fill-level units. The scale is applied at the
+            # FlexMeasures edge below, and nowhere else: the instruction translation further down
+            # matches this against the operation modes' fill-level ranges, which the resource
+            # manager also states in its own units.
+            fill_level_at_start = list(self._storage_status_history.values())[
                 -1
             ].present_fill_level
         else:
@@ -283,7 +287,9 @@ class FRBCSimple(FRBC):
                 # The same unit the fill level is recorded in, or the scheduler would plan
                 # against bounds a thousand times the measurements it plans from.
                 "soc-unit": self.energy_unit,
-                "soc-at-start": soc_at_start,  # TODO: use forecast of the SOC instead
+                # Scaled, like the bounds below it and like the state of charge this reads.
+                "soc-at-start": fill_level_at_start
+                * self._fill_level_scale,  # TODO: use forecast of the SOC instead
                 "soc-min": soc_min,
                 "soc-max": soc_max,
             },
@@ -295,7 +301,7 @@ class FRBCSimple(FRBC):
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
         instructions = fm_schedule_to_instructions(
-            schedule, system_description, initial_fill_level=soc_at_start
+            schedule, system_description, initial_fill_level=fill_level_at_start
         )
 
         await self.send_instruction_batch(
