@@ -1833,7 +1833,10 @@ class FlexMeasuresClient:
                 json_payload=message,
                 minimum_server_version="v0.27.0",
             )
-        check_for_status(status, 200)
+        # 202 is the standard answer here since FlexMeasures 1.0.0, and 200 is what a host serving
+        # legacy job responses answers, so neither is a surprise. The line below already reads the
+        # job out of a 202, which is what makes logging it as unexpected wrong rather than merely noisy.
+        check_for_status(status, (200, 202))
 
         if not isinstance(response, dict):
             raise ContentTypeError(
