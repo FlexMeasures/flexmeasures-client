@@ -1,7 +1,9 @@
 """Tests for how the FRBC handler keeps track of outstanding work:
 
+- a storage status is the planning request, a system description is only stored,
+- a re-sent system description is acknowledged and otherwise ignored,
 - only state-changing instructions are sent, and the outstanding batch is tracked,
-- the newest request supersedes older ones that are still waiting to run.
+- the newest request supersedes older ones, without ever dropping a measurement.
 """
 
 from __future__ import annotations
@@ -11,11 +13,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from s2python.common import InstructionStatus, InstructionStatusUpdate, RevokeObject
-from s2python.frbc import FRBCInstruction, FRBCSystemDescription
+from s2python.frbc import FRBCInstruction, FRBCStorageStatus, FRBCSystemDescription
 
 from flexmeasures_client.s2.control_types.FRBC import (
     FRBC,
-    SYSTEM_DESCRIPTION_REQUESTS,
+    STORAGE_STATUS_REQUESTS,
     FRBCTest,
 )
 from flexmeasures_client.s2.utils import get_unique_id
@@ -26,14 +28,28 @@ class RecordingFRBC(FRBCTest):
 
     The handler is not registered with a CEM here, so there is no sending queue to put
     messages on; recording them is also what lets a test assert on what went out.
+    It plans the way FRBCSimple does, on a storage status.
     """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.sent: list = []
+        self.measurements: list[float] = []
 
     async def send_message(self, message):
         self.sent.append(message)
+
+    async def send_storage_status(self, status, request_number=None):
+        self.measurements.append(status.present_fill_level)  # data, never skipped
+        if not self._system_description_history:
+            return
+        if request_number is not None and not self._is_latest_request(
+            STORAGE_STATUS_REQUESTS, request_number
+        ):
+            return
+        await self.trigger_schedule(
+            list(self._system_description_history)[-1], request_number=request_number
+        )
 
 
 def make_instruction(
@@ -53,13 +69,57 @@ def make_instruction(
     )
 
 
+def make_storage_status(fill_level: float) -> FRBCStorageStatus:
+    return FRBCStorageStatus(message_id=get_unique_id(), present_fill_level=fill_level)
+
+
 @pytest.mark.asyncio
-async def test_a_changed_system_description_is_acted_on(frbc_system_description):
+async def test_a_system_description_is_stored_and_asks_for_nothing(
+    frbc_system_description,
+):
+    """A description says what the device can do, which is not a reason to plan."""
+    frbc = RecordingFRBC()
+
+    response = await frbc.handle_message(frbc_system_description)
+    await asyncio.gather(*frbc.background_tasks)
+
+    assert str(response.status) == "ReceptionStatusValues.OK"
+    assert len(frbc._system_description_history) == 1
+    assert frbc.sent == [], "a description alone must not produce instructions"
+
+
+@pytest.mark.asyncio
+async def test_a_resent_system_description_is_acknowledged_but_not_stored_again(
+    frbc_system_description,
+):
+    """A resource manager has no way to say "unchanged", so it re-sends the whole thing."""
+    frbc = RecordingFRBC()
+
+    first = await frbc.handle_message(frbc_system_description)
+    await asyncio.gather(*frbc.background_tasks)
+    history_size = len(frbc._system_description_history)
+
+    resent = FRBCSystemDescription(
+        message_id=get_unique_id(),  # a fresh message id, carrying identical content
+        valid_from=frbc_system_description.valid_from,
+        actuators=frbc_system_description.actuators,
+        storage=frbc_system_description.storage,
+    )
+    second = await frbc.handle_message(resent)
+    await asyncio.gather(*frbc.background_tasks)
+
+    assert str(first.status) == "ReceptionStatusValues.OK"
+    assert (
+        str(second.status) == "ReceptionStatusValues.OK"
+    ), "a resend must still be acknowledged, or the resource manager will retry it"
+    assert len(frbc._system_description_history) == history_size
+
+
+@pytest.mark.asyncio
+async def test_a_changed_system_description_is_stored(frbc_system_description):
     frbc = RecordingFRBC()
 
     await frbc.handle_message(frbc_system_description)
-    await asyncio.gather(*frbc.background_tasks)
-
     changed = FRBCSystemDescription(
         message_id=get_unique_id(),
         valid_from=frbc_system_description.valid_from + timedelta(hours=1),
@@ -70,7 +130,33 @@ async def test_a_changed_system_description_is_acted_on(frbc_system_description)
     await asyncio.gather(*frbc.background_tasks)
 
     assert len(frbc._system_description_history) == 2
-    assert len(frbc.sent) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_storage_status_asks_for_a_schedule(frbc_system_description):
+    """A status reports the state of charge a schedule starts from, so it is the request."""
+    frbc = RecordingFRBC()
+
+    await frbc.handle_message(frbc_system_description)
+    await asyncio.gather(*frbc.background_tasks)
+    await frbc.handle_message(make_storage_status(12.5))
+    await asyncio.gather(*frbc.background_tasks)
+
+    assert frbc.measurements == [12.5]
+    assert len(frbc.sent) == 1, "the status is what produces an instruction"
+
+
+@pytest.mark.asyncio
+async def test_a_storage_status_without_a_description_is_still_recorded():
+    """The two can go out of step; the measurement must not be lost with the plan."""
+    frbc = RecordingFRBC()
+
+    response = await frbc.handle_message(make_storage_status(3.0))
+    await asyncio.gather(*frbc.background_tasks)
+
+    assert str(response.status) == "ReceptionStatusValues.OK"
+    assert frbc.measurements == [3.0]
+    assert frbc.sent == []
 
 
 class TestTransitionFilter:
@@ -188,6 +274,18 @@ class SlowRecordingFRBC(RecordingFRBC):
         self.round_trip = round_trip
         self.answered_requests: list[int] = []
 
+    async def send_storage_status(self, status, request_number=None):
+        self.measurements.append(status.present_fill_level)  # data, never skipped
+        if not self._system_description_history:
+            return
+        if request_number is not None and not self._is_latest_request(
+            STORAGE_STATUS_REQUESTS, request_number
+        ):
+            return
+        await self.trigger_schedule(
+            list(self._system_description_history)[-1], request_number=request_number
+        )
+
     async def trigger_schedule(
         self, system_description_id: str, request_number: int | None = None
     ):
@@ -201,36 +299,33 @@ class SlowRecordingFRBC(RecordingFRBC):
         ]
         sent = await self.send_instruction_batch(
             batch,
-            request_kind=SYSTEM_DESCRIPTION_REQUESTS,
+            request_kind=STORAGE_STATUS_REQUESTS,
             request_number=request_number,
         )
         if sent:
             self.answered_requests.append(request_number)
 
 
-def change_of(description: FRBCSystemDescription, hours: int) -> FRBCSystemDescription:
-    """The same system description, said to be valid from a different time."""
-    return FRBCSystemDescription(
-        message_id=get_unique_id(),
-        valid_from=description.valid_from + timedelta(hours=hours),
-        actuators=description.actuators,
-        storage=description.storage,
-    )
-
-
 @pytest.mark.asyncio
-async def test_only_the_newest_schedule_request_is_answered(frbc_system_description):
-    """A burst of system descriptions: the older requests stand down before they run."""
+async def test_only_the_newest_planning_request_is_answered(frbc_system_description):
+    """A burst of storage statuses: the older requests stand down, the data does not."""
     frbc = SlowRecordingFRBC()
+    await frbc.handle_message(frbc_system_description)
+    await asyncio.gather(*frbc.background_tasks)
 
-    for hours in range(3):
-        await frbc.handle_message(change_of(frbc_system_description, hours))
+    for fill_level in (10.0, 11.0, 12.0):
+        await frbc.handle_message(make_storage_status(fill_level))
     await asyncio.gather(*frbc.background_tasks)
 
     assert frbc.answered_requests == [
         3
     ], "only the newest of the three requests may be answered"
     assert len(frbc.sent) == 1, "and only its batch may reach the resource manager"
+    assert frbc.measurements == [
+        10.0,
+        11.0,
+        12.0,
+    ], "every reported fill level is still recorded"
 
 
 @pytest.mark.asyncio
@@ -239,12 +334,12 @@ async def test_a_batch_is_dropped_when_its_request_was_superseded_meanwhile(
 ):
     """The re-check at sending time: the schedule came back, but it answers an old question."""
     frbc = RecordingFRBC()
-    request_number = frbc._count_request(SYSTEM_DESCRIPTION_REQUESTS)
-    frbc._count_request(SYSTEM_DESCRIPTION_REQUESTS)  # a newer request arrives
+    request_number = frbc._count_request(STORAGE_STATUS_REQUESTS)
+    frbc._count_request(STORAGE_STATUS_REQUESTS)  # a newer request arrives
 
     sent = await frbc.send_instruction_batch(
         [make_instruction(get_unique_id(), 1.0, 0, get_unique_id())],
-        request_kind=SYSTEM_DESCRIPTION_REQUESTS,
+        request_kind=STORAGE_STATUS_REQUESTS,
         request_number=request_number,
     )
 

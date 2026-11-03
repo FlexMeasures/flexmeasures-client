@@ -17,12 +17,17 @@ Changed
 -------
 
 * ``FRBC.trigger_schedule()`` takes the number of the request it answers as a keyword argument, so a subclass that overrides it has to accept that argument [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
+* ``FRBC.send_storage_status()`` likewise takes the number of the planning request it answers, since a storage status is now what asks for a schedule [`#240 <https://github.com/FlexMeasures/flexmeasures-client/pull/240>`__]
+* ``FRBCSimple`` takes a ``resolution``, defaulting to fifteen minutes, which a schedule's start is lined up with [`#240 <https://github.com/FlexMeasures/flexmeasures-client/pull/240>`__]
 
 Fixed
 -----
 
+* An FRBC handler asks for a schedule when a storage status reports a new state of charge, instead of when a system description arrives, so a resource manager that sends its description before its first status is planned for at all [`#240 <https://github.com/FlexMeasures/flexmeasures-client/pull/240>`__]
+* A schedule is asked for from a resolution boundary, instead of from whichever moment a resource manager happened to send its system description, which left FlexMeasures without prices for the window [`#240 <https://github.com/FlexMeasures/flexmeasures-client/pull/240>`__]
+* An FRBC handler ignores a re-sent system description whose content is unchanged, instead of storing it again [`#240 <https://github.com/FlexMeasures/flexmeasures-client/pull/240>`__]
 * An FRBC handler answers only the newest schedule request, instead of letting every request in a backlog complete its own round trip and send its own instruction batch [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
-* An FRBC handler sends an instruction only where it changes what the actuator does, instead of one per quarter hour of the schedule, most of which repeat their predecessor [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
+* An FRBC handler sends an instruction only where it changes what the actuator does, which holds at the sending boundary for every producer of instructions [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
 * The instruction-status history is keyed by a string, as its type declares, instead of by the ``UUID`` that a no-op ``cast`` let through, which made every lookup miss [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
 * ``FRBCSimple`` reports the power of the operation mode the actuator is actually in, taken from the mode's power range, and posts it to the power sensor [`#236 <https://github.com/FlexMeasures/flexmeasures-client/pull/236>`__]
 * A control-type handler can log before it is registered, and one without its own ``close()`` no longer breaks CEM teardown [`#236 <https://github.com/FlexMeasures/flexmeasures-client/pull/236>`__]
