@@ -198,7 +198,11 @@ class FillRateBasedControlTUNES(FRBC):
     def now(self):
         return datetime.now(self._timezone)
 
-    async def send_storage_status(self, status: FRBCStorageStatus):
+    async def send_storage_status(
+        self, status: FRBCStorageStatus, request_number: int | None = None
+    ):
+        # request_number is accepted and ignored: this handler throttles on its own timers and
+        # asks for a schedule itself, below, rather than leaving that to the base class.
         if not self._is_timer_due("storage_status"):
             return
 
@@ -215,7 +219,7 @@ class FillRateBasedControlTUNES(FRBC):
                 subject_message_id=status.message_id,
                 status=ReceptionStatusValues.PERMANENT_ERROR,
             )
-            await self._sending_queue.put(response)
+            await self.send_message(response)
         await self.trigger_schedule()
 
     async def send_leakage_behaviour(self, leakage: FRBCLeakageBehaviour):
@@ -246,7 +250,7 @@ class FillRateBasedControlTUNES(FRBC):
                 subject_message_id=leakage.message_id,
                 status=ReceptionStatusValues.PERMANENT_ERROR,
             )
-            await self._sending_queue.put(response)
+            await self.send_message(response)
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         if not self._is_timer_due("actuator_status"):
@@ -514,12 +518,12 @@ class FillRateBasedControlTUNES(FRBC):
                 object_id=message_id,
             )
             self._logger.debug(f"Sending revoke instruction for {message_id}")
-            await self._sending_queue.put(revoke_instruction)
+            await self.send_message(revoke_instruction)
         self._datastore["instructions"] = {}
 
         # Put the instruction in the sending queue
         for instruction in instructions:
-            await self._sending_queue.put(instruction)
+            await self.send_message(instruction)
 
         # Store instructions
         for instruction in instructions:

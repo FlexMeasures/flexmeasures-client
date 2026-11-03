@@ -19,7 +19,7 @@ except ImportError:
     )
 
 
-from flexmeasures_client.s2.control_types.FRBC import FRBC
+from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     fm_schedule_to_instructions,
     get_soc_min_max,
@@ -32,6 +32,7 @@ class FRBCSimple(FRBC):
     _soc_sensor_id: int
     _rm_discharge_sensor_id: int
     _fill_rate_sensor_id: int | None
+    _resolution: timedelta
     _schedule_duration: timedelta
     _valid_from_shift: timedelta
     _fill_level_scale: float
@@ -47,6 +48,8 @@ class FRBCSimple(FRBC):
         fill_rate_sensor_id: int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
+        # The resolution a schedule is planned on, which a schedule's start has to line up with.
+        resolution: timedelta = timedelta(minutes=15),
         max_size: int = 100,
         valid_from_shift: timedelta = timedelta(days=1),
         fill_level_scale: float = 1,
@@ -56,6 +59,7 @@ class FRBCSimple(FRBC):
         self._power_sensor_id = power_sensor_id
         self._price_sensor_id = price_sensor_id
         self._schedule_duration = schedule_duration
+        self._resolution = resolution
         self._soc_sensor_id = soc_sensor_id
         self._rm_discharge_sensor_id = rm_discharge_sensor_id
         self._fill_rate_sensor_id = fill_rate_sensor_id
@@ -70,13 +74,60 @@ class FRBCSimple(FRBC):
     def now(self):
         return datetime.now(self._timezone)
 
-    async def send_storage_status(self, status: FRBCStorageStatus):
+    def schedule_start(self, valid_from: datetime) -> datetime:
+        """Where a schedule asked for at valid_from starts: shifted, then floored to a boundary.
+
+        FlexMeasures plans on whole resolution steps, and reads the prices for the window on the
+        same steps, so a start that falls between two of them leaves it with an empty price
+        series and the job fails with UnknownPricesException.
+        A resource manager's valid_from is whatever moment it sent its description, so it is
+        almost never on a boundary of its own accord.
+        """
+        start = valid_from + self._valid_from_shift
+        resolution_seconds = int(self._resolution.total_seconds())
+        if resolution_seconds <= 0:
+            return start
+        seconds_into_the_day = (
+            start.hour * 3600 + start.minute * 60 + start.second
+        ) % resolution_seconds
+        return start.replace(microsecond=0) - timedelta(seconds=seconds_into_the_day)
+
+    async def send_storage_status(
+        self, status: FRBCStorageStatus, request_number: int | None = None
+    ):
         await self._fm_client.post_measurements(
             self._soc_sensor_id,
             start=self.now(),
             values=[status.present_fill_level],
             unit="MWh",
             duration=timedelta(minutes=1),
+        )
+
+        # The state of charge this status reports is what a schedule starts from, so this is
+        # where a schedule is asked for.
+        # A system description is needed to turn that schedule into instructions, and a resource
+        # manager sends one before its first status, so its absence here means the two have gone
+        # out of step rather than that nothing has arrived yet.
+        if not self._system_description_history:
+            self._logger.warning(
+                "Cannot ask for a schedule: no FRBC.SystemDescription has arrived yet."
+            )
+            return
+
+        # The measurement above is posted whatever happens, because it is data.
+        # The planning below is skipped where a newer status has arrived in the meantime,
+        # since that newer status reports the state of charge a schedule should start from.
+        if request_number is not None and not self._is_latest_request(
+            STORAGE_STATUS_REQUESTS, request_number
+        ):
+            self._logger.info(
+                f"Skipping a superseded planning request (number {request_number})."
+            )
+            return
+
+        system_description_id = list(self._system_description_history)[-1]
+        await self.trigger_schedule(
+            system_description_id, request_number=request_number
         )
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
@@ -155,8 +206,15 @@ class FRBCSimple(FRBC):
                 duration=timedelta(minutes=15),
             )
 
-    async def trigger_schedule(self, system_description_id: str):
-        """Translates S2 System Description into FM API calls"""
+    async def trigger_schedule(
+        self, system_description_id: str, request_number: int | None = None
+    ):
+        """Translates S2 System Description into FM API calls.
+
+        :param system_description_id: system description to base the schedule on
+        :param request_number:        which planning request this schedule answers, which is
+                                      checked once more before the instructions go out
+        """
 
         system_description: FRBCSystemDescription = self._system_description_history[
             system_description_id
@@ -174,8 +232,7 @@ class FRBCSimple(FRBC):
 
         # call schedule
         schedule = await self._fm_client.trigger_and_get_schedule(
-            start=system_description.valid_from
-            + self._valid_from_shift,  # TODO: localize datetime
+            start=self.schedule_start(system_description.valid_from),
             sensor_id=self._power_sensor_id,
             flex_context={
                 "production-price": {"sensor": self._price_sensor_id},
@@ -199,6 +256,8 @@ class FRBCSimple(FRBC):
             schedule, system_description, initial_fill_level=soc_at_start
         )
 
-        # put instructions to sending queue
-        for instruction in instructions:
-            await self._sending_queue.put(instruction)
+        await self.send_instruction_batch(
+            instructions,
+            request_kind=STORAGE_STATUS_REQUESTS,
+            request_number=request_number,
+        )

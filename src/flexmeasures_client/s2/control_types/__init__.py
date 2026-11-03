@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from asyncio import Queue
 from logging import Logger, getLogger
-from typing import cast
 
 from pydantic import BaseModel
 from s2python.common import (
@@ -36,6 +35,14 @@ class ControlTypeHandler(Handler):
         # replaces it with its own logger on registration.
         self._logger = getLogger(self.__class__.__name__)
 
+    async def send_message(self, message: BaseModel) -> None:
+        """Hand a message to the CEM, which sends it to the resource manager.
+
+        Handlers send through this method rather than putting messages on _sending_queue themselves,
+        so that how a message leaves the CEM is one decision in one place.
+        """
+        await self._sending_queue.put(message)
+
     async def close(self):
         """Release any resources / stop recurring tasks for this handler.
 
@@ -49,7 +56,10 @@ class ControlTypeHandler(Handler):
 
     @register(InstructionStatusUpdate)
     def handle_instruction_status_update(self, message: InstructionStatusUpdate):
-        instruction_id: str = cast(str, message.instruction_id)
+        # instruction_id is a UUID, and the cast that claimed otherwise did nothing at runtime,
+        # so the history was keyed by UUID objects while it declared string keys.
+        # A lookup by the instruction's id, written as a string, therefore always missed.
+        instruction_id = str(message.instruction_id)
 
         self._instruction_status_history[instruction_id] = message.status_type
 
