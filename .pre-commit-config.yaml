@@ -9,6 +9,11 @@ repos:
   - id: check-ast
   - id: check-json
   - id: check-merge-conflict
+    # An RST title is underlined with a row of "=", which this hook reads as the
+    # "=======" that git writes between the two sides of a conflict. It scans the
+    # whole tree whenever a merge is in progress, so every merge commit is blocked
+    # by docs/license.rst, whose title happens to be exactly seven characters long.
+    exclude: ^docs/license\.rst$
   - id: check-xml
   - id: check-yaml
   - id: debug-statements
