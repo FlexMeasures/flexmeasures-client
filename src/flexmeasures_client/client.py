@@ -816,10 +816,11 @@ class FlexMeasuresClient:
         job_id = self._ingestion_job_id(response)
         # What to say depends on what the server did with the data, because "sent successfully" on
         # a 202 would read, to whoever is looking at these logs, as though the data had landed.
-        if status == 202 and job_id:
-            self.logger.info(
-                f"Sensor data accepted via JSON for ingestion as job {job_id}."
-            )
+        # The status decides that on its own: a 202 that names no job is still only accepted, and
+        # saying so is also what explains why nothing was waited for.
+        if status == 202:
+            named = f" as job {job_id}" if job_id else " as an unnamed job"
+            self.logger.info(f"Sensor data accepted via JSON for ingestion{named}.")
         else:
             self.logger.info("Sensor data sent successfully via JSON.")
 
@@ -932,11 +933,16 @@ class FlexMeasuresClient:
                     response_data = await response.json()
                     status = response.status
                     uploaded_name = os.path.basename(file_path)
-                    # As above: a 202 means accepted, not ingested, and the log should say which.
-                    if status == 202 and self._ingestion_job_id(response_data):
+                    upload_job_id = self._ingestion_job_id(response_data)
+                    # As above: a 202 means accepted, not ingested, named job or not.
+                    if status == 202:
+                        named = (
+                            f" as job {upload_job_id}"
+                            if upload_job_id
+                            else " as an unnamed job"
+                        )
                         self.logger.info(
-                            f"File accepted for ingestion as job "
-                            f"{self._ingestion_job_id(response_data)}: {uploaded_name}"
+                            f"File accepted for ingestion{named}: {uploaded_name}"
                         )
                     else:
                         self.logger.info(
@@ -950,9 +956,8 @@ class FlexMeasuresClient:
 
         # Wait for ingestion outside the request timeout above, and outside the error handler that names this an upload failure:
         # a job takes as long as self.ingestion_polling_timeout allows, which is no concern of the request that queued it.
-        job_id = self._ingestion_job_id(response_data)
-        if await_ingestion and status == 202 and job_id:
-            await self._await_sensor_data_ingestion(job_id)
+        if await_ingestion and status == 202 and upload_job_id:
+            await self._await_sensor_data_ingestion(upload_job_id)
 
         return response_data, status
 

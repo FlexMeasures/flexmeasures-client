@@ -1354,3 +1354,33 @@ async def test_post_sensor_data_log_still_says_sent_on_200(caplog):
 
         assert any("sent successfully" in r.message for r in caplog.records)
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_202_without_a_job_is_still_only_accepted(caplog):
+    """A 202 that names no job means the data was accepted, so the log must not claim it landed."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "message": "accepted, no job named"},
+        )
+        # No job endpoint is registered: there is no job to wait for, and a poll would raise here.
+
+        with caplog.at_level(logging.INFO):
+            response, status = await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+            )
+
+        assert status == 202
+        messages = [record.message for record in caplog.records]
+        assert any("accepted via JSON for ingestion" in m for m in messages)
+        assert not any("sent successfully" in m for m in messages)
+        await client.close()
