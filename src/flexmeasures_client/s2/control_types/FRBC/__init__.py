@@ -5,7 +5,7 @@ import pydantic
 try:
     from s2python.common import (
         ControlType,
-        InstructionStatusUpdate,
+        InstructionStatus,
         ReceptionStatus,
         ReceptionStatusValues,
         RevokableObjects,
@@ -32,6 +32,16 @@ from flexmeasures_client.s2 import SizeLimitOrderedDict, register
 from flexmeasures_client.s2.control_types import ControlTypeHandler
 from flexmeasures_client.s2.utils import get_reception_status, get_unique_id
 
+# An instruction the resource manager has not started yet can still be called off.
+# One it has started, finished or already refused cannot, and a revocation for it would only be
+# noise on the link, or an error from a strict resource manager.
+PENDING_INSTRUCTION_STATUSES = (InstructionStatus.NEW, InstructionStatus.ACCEPTED)
+
+# The kind of request that storage statuses are, for the purpose of superseding:
+# each one reports a new state of charge and so asks for a schedule from that state,
+# and only the newest such request is worth answering.
+STORAGE_STATUS_REQUESTS = "storage_status"
+
 
 class FRBC(ControlTypeHandler):
     _control_type = ControlType.FILL_RATE_BASED_CONTROL
@@ -48,6 +58,10 @@ class FRBC(ControlTypeHandler):
     _actuator_status_history: SizeLimitOrderedDict[str, FRBCActuatorStatus]
     _storage_status_history: SizeLimitOrderedDict[str, FRBCStorageStatus]
     background_tasks: set
+    _sent_instructions: dict[str, FRBCInstruction]
+    send_revocations: bool
+    _request_counts: dict[str, int]
+    _last_system_description_fingerprint: int | None
 
     def __init__(self, max_size: int = 100) -> None:
         super().__init__(max_size)
@@ -69,64 +83,56 @@ class FRBC(ControlTypeHandler):
         self._usage_forecast_history = SizeLimitOrderedDict(max_size=max_size)
         self.background_tasks = set()
 
-        # --- Outstanding-work registry (2026-07, instruction-storm fix) ---
-        # Supersession counters: one per request kind (e.g. "storage_status").
-        # Every incoming request bumps its counter; a spawned handler task
-        # records the value and no-ops if a newer request has arrived by the
-        # time it runs (or, for long chains, re-checks before queueing
-        # instructions). In co-simulation, retrigger rounds share one
-        # simulated timestamp while steering signals change server-side, so
-        # time-based throttles (live-system style, see the TUNES handler's
-        # timers) cannot distinguish stale work from fresh work - only
-        # request ordering can. Without this, backlogged handler tasks each
-        # completed a full FlexMeasures round trip and dumped a full
-        # instruction batch, hours-stale batches included (observed in vivo:
-        # 96 -> 2,225 instructions per burst, ack starvation on the shared
-        # sending queue, RM retry storms, and 800 s control timeouts).
-        self._supersession_counters: dict[str, int] = {}
-        # Instructions of the CURRENT batch, by message_id (cleared when a
-        # new batch replaces them), plus any status updates the RM reports.
-        # Modeled after the flexmeasures-s2 plugin's ConnectionState registry.
-        self._sent_instructions: dict[str, FRBCInstruction] = {}
-        self._instruction_statuses: dict[str, str] = {}
-        # Whether replacing a batch also sends RevokeObject for the previous
-        # batch's instructions. Off by default: not every RM implements
-        # RevokeObject handling (the FLEXED co-simulation RM does not; it
-        # keys instructions to its current request and drops late ones).
-        # Live deployments with a compliant RM should enable this.
-        self.send_revocations: bool = False
+        # The instructions of the batch the resource manager is currently working from, by their
+        # instruction id, which is also the id it reports status updates against.
+        # A new batch replaces them, because an FRBC schedule is sent whole rather than amended.
+        self._sent_instructions = {}
+        # Whether replacing a batch also revokes the instructions of the batch before it.
+        # Off by default: a resource manager is not required to implement RevokeObject,
+        # and one that keys instructions to its current request discards the old batch by itself
+        # (the FLEXED co-simulation resource manager does exactly that).
+        # A deployment against a resource manager that honours revocations should turn it on.
+        self.send_revocations = False
+        # One counter per kind of request, counting the requests of that kind received so far.
+        # A task spawned for a request notes the count at the time, and stands down if a newer
+        # request of the same kind has arrived by the time it runs, or by the time it has an
+        # answer to act on (see _is_latest_request).
+        self._request_counts = {}
+        self._last_system_description_fingerprint = None
 
-    def _bump_generation(self, key: str) -> int:
-        """Register a new request of the given kind; newer requests supersede
-        older ones (see _is_current_generation)."""
-        generation = self._supersession_counters.get(key, 0) + 1
-        self._supersession_counters[key] = generation
-        return generation
+    def _count_request(self, kind: str) -> int:
+        """Count a newly received request of the given kind, and return its number."""
+        number = self._request_counts.get(kind, 0) + 1
+        self._request_counts[kind] = number
+        return number
 
-    def _is_current_generation(self, key: str, generation: int) -> bool:
-        return self._supersession_counters.get(key, 0) == generation
+    def _is_latest_request(self, kind: str, number: int) -> bool:
+        """Whether that numbered request is still the latest of its kind."""
+        return self._request_counts.get(kind, 0) == number
 
     @staticmethod
     def filter_instruction_transitions(
         instructions: list[FRBCInstruction],
     ) -> list[FRBCInstruction]:
-        """Keep only instructions that CHANGE the actuator's state.
+        """Keep only the instructions that change what an actuator is doing.
 
-        FRBC instructions are switch commands: an instruction that repeats
-        the previous instruction's (actuator, operation mode, factor) is a
-        no-op for the RM, which holds its state until told otherwise (the
-        flexmeasures-s2 plugin applies the same filter server-side). One
-        instruction per 15-min slot of a 24 h schedule is thus typically
-        90%+ redundant traffic on the serial S2 link.
+        An FRBC instruction is a switch command, not a setpoint sample: the resource manager holds
+        the operation mode and factor it was last given until it is told otherwise.
+        An instruction repeating its predecessor's actuator, operation mode and factor therefore
+        asks for nothing, and a schedule expressed as one instruction per quarter hour over a day
+        is mostly made of such repeats.
+        Instructions for different actuators are independent, so each actuator is followed
+        separately, and the first instruction for an actuator is always kept, since it is what
+        establishes that actuator's state.
         """
         filtered: list[FRBCInstruction] = []
-        last_state: dict = {}
+        last_state: dict[str, tuple[str, float]] = {}
         for instruction in instructions:
+            actuator = str(instruction.actuator_id)
             state = (
                 str(instruction.operation_mode),
                 float(instruction.operation_mode_factor),
             )
-            actuator = str(instruction.actuator_id)
             if last_state.get(actuator) == state:
                 continue
             last_state[actuator] = state
@@ -136,100 +142,105 @@ class FRBC(ControlTypeHandler):
     async def send_instruction_batch(
         self,
         instructions: list[FRBCInstruction],
-        supersession_key: str | None = None,
-        generation: int | None = None,
+        request_kind: str | None = None,
+        request_number: int | None = None,
     ) -> int:
-        """Replace the outstanding instruction batch with a new one.
+        """Replace the outstanding instruction batch with a new one, and return what was sent.
 
-        Applies the transition filter, optionally revokes the previous
-        batch (send_revocations), checks supersession one last time right
-        before queueing (a newer request may have arrived while the
-        schedule was being computed - queueing a stale batch would let the
-        RM file it under its CURRENT request), sends, and records the new
-        batch in the registry. Returns the number of instructions sent.
+        The transition filter is applied first.
+        A batch computed for a request that has since been superseded is then dropped rather than
+        sent: the resource manager would file it under its current request, which is not the
+        request this batch answers (see _is_latest_request).
+        What remains is sent, after the previous batch has been revoked where this handler is
+        configured to revoke, and is recorded as the outstanding batch.
         """
         filtered = self.filter_instruction_transitions(instructions)
+
         if (
-            supersession_key is not None
-            and generation is not None
-            and not self._is_current_generation(supersession_key, generation)
+            request_kind is not None
+            and request_number is not None
+            and not self._is_latest_request(request_kind, request_number)
         ):
             self._logger.info(
-                f"Dropping stale instruction batch ({len(filtered)} instructions "
-                f"after transition-filtering {len(instructions)}): a newer "
-                f"'{supersession_key}' request has since arrived."
+                f"Dropping an instruction batch of {len(filtered)} instructions: "
+                f"a newer '{request_kind}' request arrived while it was being computed."
             )
             return 0
+
         if self.send_revocations:
-            for message_id in list(self._sent_instructions):
-                status = self._instruction_statuses.get(message_id, "NEW")
-                if status in ("NEW", "ACCEPTED"):
-                    await self.send_message(
-                        RevokeObject(
-                            message_id=get_unique_id(),
-                            object_type=RevokableObjects.FRBC_Instruction,
-                            object_id=self._sent_instructions[message_id].id,
-                        )
+            for instruction_id, instruction in self._sent_instructions.items():
+                status = self._instruction_status_history.get(
+                    instruction_id, InstructionStatus.NEW
+                )
+                if status not in PENDING_INSTRUCTION_STATUSES:
+                    continue
+                await self.send_message(
+                    RevokeObject(
+                        message_id=get_unique_id(),
+                        object_type=RevokableObjects.FRBC_Instruction,
+                        object_id=instruction.id,
                     )
+                )
+
         self._sent_instructions = {}
-        self._instruction_statuses = {}
         for instruction in filtered:
             await self.send_message(instruction)
-            self._sent_instructions[str(instruction.message_id)] = instruction
+            self._sent_instructions[str(instruction.id)] = instruction
+
         self._logger.debug(
-            f"Sent instruction batch: {len(filtered)} instructions "
-            f"({len(instructions)} before transition-filtering)."
+            f"Sent an instruction batch of {len(filtered)} instructions, "
+            f"out of {len(instructions)} before transition-filtering."
         )
         return len(filtered)
 
-    @register(InstructionStatusUpdate)
-    def handle_instruction_status_update(
-        self, message: InstructionStatusUpdate
-    ) -> pydantic.BaseModel:
-        """Track the RM's reported status of outstanding instructions, so a
-        batch replacement only revokes instructions that are still pending."""
-        self._instruction_statuses[str(message.instruction_id)] = str(
-            getattr(message.status_type, "value", message.status_type)
-        )
-        return get_reception_status(message, status=ReceptionStatusValues.OK)
+    @staticmethod
+    def system_description_fingerprint(message: FRBCSystemDescription) -> int:
+        """Hash what a system description says, ignoring which message said it.
+
+        A resource manager commonly re-sends its system description with every request,
+        under a fresh message id each time, because the specification offers no other way to say
+        "unchanged".
+        The fingerprint is therefore what distinguishes a genuine change from a resend.
+        """
+        content = message.to_dict()
+        content.pop("message_id", None)
+        return hash(str(content))
 
     @register(FRBCSystemDescription)
     def handle_system_description(
         self, message: FRBCSystemDescription
     ) -> pydantic.BaseModel:
-        # Content-hash dedupe (lifted from the TUNES handler): RMs commonly
-        # re-send their (static) system description with every request
-        # payload, under a fresh message_id each time. Re-processing an
-        # unchanged description would spawn a redundant schedule trigger
-        # per request on top of the storage status's trigger - half of the
-        # instruction-storm amplification observed in co-simulation.
-        message_dict = message.to_dict()
-        message_dict.pop("message_id")
-        system_description_hash = hash(str(message_dict))
-        if getattr(self, "_last_system_description_hash", 0) == system_description_hash:
+        # A resend is acknowledged, and otherwise ignored: storing it again would push a
+        # description out of a bounded history for no reason, and a handler that did act on a
+        # description would act on it twice.
+        # Acknowledging it still matters, or the resource manager retries.
+        # Ignoring a resend is safe now that planning hangs off storage statuses rather than
+        # descriptions, and not before: it would otherwise have dropped a planning request.
+        # The TUNES handler has fingerprinted its descriptions this way all along, and can adopt
+        # this shared helper separately.
+        fingerprint = self.system_description_fingerprint(message)
+        if fingerprint == self._last_system_description_fingerprint:
             self._logger.debug(
-                "Ignoring re-sent system description (content unchanged)."
+                "Ignoring a re-sent FRBC.SystemDescription: its content is unchanged."
             )
             return get_reception_status(message, status=ReceptionStatusValues.OK)
-        self._last_system_description_hash = system_description_hash
+        self._last_system_description_fingerprint = fingerprint
 
         system_description_id = str(message.message_id)
 
         # store system_description message for later
         self._system_description_history[system_description_id] = message
 
-        # schedule trigger_schedule to run soon concurrently
-        task = asyncio.create_task(self.trigger_schedule(system_description_id))
-        self.background_tasks.add(
-            task
-        )  # important to avoid a task disappearing mid-execution.
-        task.add_done_callback(self.background_tasks.discard)
+        # A description says what the device can do, not what it is doing, so it is stored and
+        # no schedule is asked for here.
+        # Planning happens on a storage status, which is what carries a new state of charge,
+        # and which is the only one of the two a resource manager is required to keep sending
+        # (see handle_storage_status).
 
         # schedule send_conversion_efficiencies to run soon concurrently
         task = asyncio.create_task(self.send_conversion_efficiencies(message))
         self.background_tasks.add(task)
         task.add_done_callback(self.background_tasks.discard)
-
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
     def _get_operation_mode_efficiency_sensor_map(
@@ -353,26 +364,19 @@ class FRBC(ControlTypeHandler):
 
         self._storage_status_history[message_id] = message
 
-        # Latest-request-wins: each storage status is a (re)planning request;
-        # if several arrive while earlier ones still await the event loop
-        # (backlog under load, or an RM retry re-sending under a fresh
-        # message_id), only the newest may do the heavy work - the older
-        # requests are superseded and their tasks no-op. Subclasses whose
-        # send_storage_status runs a long chain should re-check with
-        # _is_current_generation before queueing instructions (see
-        # send_instruction_batch).
-        generation = self._bump_generation("storage_status")
+        # Each storage status is a planning request: it reports the state of charge a schedule
+        # has to start from, and answering it means a round trip to FlexMeasures and an
+        # instruction batch to the resource manager.
+        # Requests are counted so that a handler can tell its own request from a newer one and
+        # drop work that answers a question already out of date (see send_instruction_batch).
+        # Request order is the only signal available: in co-simulation a retrigger round shares
+        # one simulated timestamp while the steering signals behind it change, so the
+        # time-based throttling the TUNES handler uses cannot tell stale work from fresh work.
+        request_number = self._count_request(STORAGE_STATUS_REQUESTS)
 
-        async def run_if_current():
-            if not self._is_current_generation("storage_status", generation):
-                self._logger.info(
-                    "Skipping superseded storage-status request "
-                    f"(generation {generation})."
-                )
-                return
-            await self.send_storage_status(message)
-
-        task = asyncio.create_task(run_if_current())
+        task = asyncio.create_task(
+            self.send_storage_status(message, request_number=request_number)
+        )
         self.background_tasks.add(
             task
         )  # important to avoid a task disappearing mid-execution.
@@ -431,7 +435,17 @@ class FRBC(ControlTypeHandler):
     def handle_frbc_timer_status(self, message: FRBCTimerStatus) -> pydantic.BaseModel:
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
-    async def send_storage_status(self, status: FRBCStorageStatus):
+    async def send_storage_status(
+        self, status: FRBCStorageStatus, request_number: int | None = None
+    ):
+        """Record the reported state of charge, and ask for a schedule starting from it.
+
+        :param status:         the storage status to act on
+        :param request_number: which planning request this status is,
+                               to be passed on to trigger_schedule and from there to
+                               send_instruction_batch, so that a batch answering a superseded
+                               request is dropped rather than sent
+        """
         raise NotImplementedError()
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
@@ -448,14 +462,29 @@ class FRBC(ControlTypeHandler):
     ):
         raise NotImplementedError()
 
+    async def trigger_schedule(
+        self, system_description_id: str, request_number: int | None = None
+    ):
+        """Ask FlexMeasures for a schedule, and send the resulting instructions.
+
+        :param system_description_id: system description to base the schedule on
+        :param request_number:        which request this schedule answers,
+                                      to be passed on to send_instruction_batch so that a batch
+                                      answering a superseded request is dropped
+        """
+        raise NotImplementedError()
+
 
 class FRBCTest(FRBC):
     """Dummy class to simulate the triggering of a schedule."""
 
-    async def trigger_schedule(self, system_description_id: str):
+    async def trigger_schedule(
+        self, system_description_id: str, request_number: int | None = None
+    ):
         """Creates schedule consisting on just a dummy instruction
 
         :param system_description_id: system description to based the schedule on
+        :param request_number:        which request this schedule answers
         """
 
         system_description: FRBCSystemDescription = self._system_description_history[
@@ -474,5 +503,4 @@ class FRBCTest(FRBC):
             abnormal_condition=False,
         )
 
-        # put instruction into the sending queue
         await self.send_message(instruction)

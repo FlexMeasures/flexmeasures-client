@@ -193,7 +193,11 @@ class FillRateBasedControlTUNES(FRBC):
     def now(self):
         return datetime.now(self._timezone)
 
-    async def send_storage_status(self, status: FRBCStorageStatus):
+    async def send_storage_status(
+        self, status: FRBCStorageStatus, request_number: int | None = None
+    ):
+        # request_number is accepted and ignored: this handler throttles on its own timers and
+        # asks for a schedule itself, below, rather than leaving that to the base class.
         if not self._is_timer_due("storage_status"):
             return
 

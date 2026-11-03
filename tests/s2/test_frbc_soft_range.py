@@ -116,7 +116,10 @@ async def test_flex_model_declares_wide_safety_rails(frbc_system_description):
         side_effect=RuntimeError("stop after capturing the flex model")
     )
     with pytest.raises(RuntimeError, match="stop after capturing"):
-        await frbc.trigger_schedule(datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc))
+        await frbc.trigger_schedule(
+            list(frbc._system_description_history)[-1],
+            start=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc),
+        )
 
     kwargs = frbc._fm_client.trigger_and_get_schedule.call_args.kwargs
     flex_model = kwargs["flex_model"]
@@ -149,7 +152,10 @@ async def test_safety_rails_still_widen_to_include_the_start_state(
         side_effect=RuntimeError("stop after capturing the flex model")
     )
     with pytest.raises(RuntimeError, match="stop after capturing"):
-        await frbc.trigger_schedule(datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc))
+        await frbc.trigger_schedule(
+            list(frbc._system_description_history)[-1],
+            start=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc),
+        )
 
     flex_model = frbc._fm_client.trigger_and_get_schedule.call_args.kwargs["flex_model"]
     assert flex_model["soc-max"] == pytest.approx(range_top * 2)
@@ -240,7 +246,10 @@ async def test_a_failed_job_reported_through_the_job_status_api_is_retried(
     )
 
     with pytest.raises(RuntimeError, match="stop after the retry"):
-        await frbc.trigger_schedule(datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc))
+        await frbc.trigger_schedule(
+            list(frbc._system_description_history)[-1],
+            start=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc),
+        )
 
     assert frbc._fm_client.trigger_and_get_schedule.call_count == 2
 
@@ -265,7 +274,10 @@ async def test_a_deterministic_job_failure_is_still_not_retried(
     )
 
     with pytest.raises(JobFailedError):
-        await frbc.trigger_schedule(datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc))
+        await frbc.trigger_schedule(
+            list(frbc._system_description_history)[-1],
+            start=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc),
+        )
 
     assert frbc._fm_client.trigger_and_get_schedule.call_count == 1
 
@@ -285,6 +297,9 @@ async def test_retries_on_job_failure_are_bounded(frbc_system_description, monke
     )
 
     with pytest.raises(JobFailedError):
-        await frbc.trigger_schedule(datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc))
+        await frbc.trigger_schedule(
+            list(frbc._system_description_history)[-1],
+            start=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc),
+        )
 
     assert frbc._fm_client.trigger_and_get_schedule.call_count == 5

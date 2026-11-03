@@ -195,9 +195,6 @@ class CEM(Handler):
         # triggering a schedule (realized-power posts run concurrently)
         control_type_handler._cem = self
 
-        # add send_message method so the handler can send messages
-        control_type_handler.send_message = self.send_message
-
         # Add logger
         control_type_handler._logger = self._logger
 

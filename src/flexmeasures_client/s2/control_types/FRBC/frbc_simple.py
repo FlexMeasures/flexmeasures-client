@@ -28,7 +28,7 @@ except ImportError:
     )
 
 
-from flexmeasures_client.s2.control_types.FRBC import FRBC
+from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     clip_fill_level_target_profile,
     fm_schedule_to_instructions,
@@ -53,9 +53,10 @@ class FRBCSimple(FRBC):
     _leakage_behaviour_sensor_id: int
     _charging_efficiency_sensor_id: int
     _fill_rate_sensor_id: int | None
+    _resolution: timedelta
     _schedule_duration: timedelta
+    _valid_from_shift: timedelta
     _fill_level_scale: float
-    _resolution = "15min"
 
     def __init__(
         self,
@@ -74,7 +75,10 @@ class FRBCSimple(FRBC):
         fill_rate_sensor_id: int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=24),
+        # The resolution a schedule is planned on, which a schedule's start has to line up with.
+        resolution: timedelta = timedelta(minutes=15),
         max_size: int = 100,
+        valid_from_shift: timedelta = timedelta(days=1),
         fill_level_scale: float = 1,
         power_unit: str = "W",
         energy_unit: str = "J",
@@ -84,6 +88,7 @@ class FRBCSimple(FRBC):
         self._price_sensor_id = price_sensor_id
         self._production_price_sensor_id = production_price_sensor_id
         self._schedule_duration = schedule_duration
+        self._resolution = resolution
         self._soc_sensor_id = soc_sensor_id
         self._rm_discharge_sensor_id = rm_discharge_sensor_id
         self._soc_minima_sensor_id = soc_minima_sensor_id
@@ -93,6 +98,9 @@ class FRBCSimple(FRBC):
         self.charging_efficiency_sensor_id = charging_efficiency_sensor_id
         self._fill_rate_sensor_id = fill_rate_sensor_id
         self._timezone = ZoneInfo(timezone)
+        # How far after a system description's valid_from a schedule starts, where the caller
+        # gives no start of its own (see schedule_start).
+        self._valid_from_shift = valid_from_shift
         self._fill_level_scale = fill_level_scale
         self.power_unit = power_unit
         self.energy_unit = energy_unit
@@ -118,40 +126,68 @@ class FRBCSimple(FRBC):
 
         return efficiency_map
 
-    async def send_storage_status(self, status: FRBCStorageStatus):
-        # HANGDEBUG: this runs as a fire-and-forget asyncio.create_task (see
-        # handle_storage_status), so any exception here is normally silently
-        # dropped (only surfacing as "Task exception was never retrieved" once
-        # the task is garbage collected). Log explicitly so nothing is missed.
+    def align_to_resolution(self, moment: datetime) -> datetime:
+        """The last resolution boundary at or before that moment.
+
+        FlexMeasures plans on whole resolution steps, and reads the prices for the window on the
+        same steps, so a start that falls between two of them leaves it with an empty price
+        series and the job fails with UnknownPricesException.
+        Neither a resource manager's valid_from nor the moment a status arrives is on a boundary
+        of its own accord, so every start a schedule is asked for goes through here.
+        """
+        resolution_seconds = int(self._resolution.total_seconds())
+        if resolution_seconds <= 0:
+            return moment
+        seconds_into_the_day = (
+            moment.hour * 3600 + moment.minute * 60 + moment.second
+        ) % resolution_seconds
+        return moment.replace(microsecond=0) - timedelta(seconds=seconds_into_the_day)
+
+    def schedule_start(self, valid_from: datetime) -> datetime:
+        """Where a schedule starts when no caller says: shifted from valid_from, then aligned."""
+        return self.align_to_resolution(valid_from + self._valid_from_shift)
+
+    async def send_storage_status(
+        self, status: FRBCStorageStatus, request_number: int | None = None
+    ):
         now = self.now()
-        # Snapshot this request's generation: the schedule round trip below
-        # takes tens of seconds, during which a newer storage status (= a
-        # newer planning request) may arrive. The batch send re-checks this
-        # so a stale batch is dropped instead of being filed by the RM under
-        # its CURRENT request (see FRBC.send_instruction_batch).
-        generation = self._supersession_counters.get("storage_status", 0)
-        try:
-            self._logger.debug(
-                f"HANGDEBUG send_storage_status: posting SoC to sensor {self._soc_sensor_id}"
+        await self._fm_client.post_sensor_data(
+            self._soc_sensor_id,
+            start=now,
+            prior=now,
+            values=[status.present_fill_level * self._fill_level_scale],
+            unit=self.energy_unit,
+            duration=timedelta(minutes=1),
+        )
+
+        # The state of charge this status reports is what a schedule starts from, so this is
+        # where a schedule is asked for.
+        # A system description is needed to turn that schedule into instructions, and a resource
+        # manager sends one before its first status, so its absence here means the two have gone
+        # out of step rather than that nothing has arrived yet.
+        if not self._system_description_history:
+            self._logger.warning(
+                "Cannot ask for a schedule: no FRBC.SystemDescription has arrived yet."
             )
-            await self._fm_client.post_sensor_data(
-                self._soc_sensor_id,
-                start=now,
-                prior=now,
-                values=[status.present_fill_level * self._fill_level_scale],
-                unit=self.energy_unit,
-                duration=timedelta(minutes=1),
+            return
+
+        # The measurement above is posted whatever happens, because it is data.
+        # The planning below is skipped where a newer status has arrived in the meantime,
+        # since that newer status reports the state of charge a schedule should start from.
+        if request_number is not None and not self._is_latest_request(
+            STORAGE_STATUS_REQUESTS, request_number
+        ):
+            self._logger.info(
+                f"Skipping a superseded planning request (number {request_number})."
             )
-            self._logger.debug(
-                "HANGDEBUG send_storage_status: SoC posted, calling trigger_schedule"
-            )
-            await self.trigger_schedule(now, generation=generation)
-            self._logger.debug(
-                "HANGDEBUG send_storage_status: trigger_schedule returned"
-            )
-        except Exception:
-            self._logger.exception("HANGDEBUG send_storage_status: raised")
-            raise
+            return
+
+        system_description_id = list(self._system_description_history)[-1]
+        await self.trigger_schedule(
+            system_description_id,
+            request_number=request_number,
+            start=self.align_to_resolution(now),
+        )
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
@@ -231,12 +267,19 @@ class FRBCSimple(FRBC):
 
     async def trigger_schedule(
         self,
-        start: datetime,
-        system_description_id: str | None = None,
-        generation: int | None = None,
+        system_description_id: str,
+        request_number: int | None = None,
+        start: datetime | None = None,
     ):
-        """
-        Ask FlexMeasures for a new schedule and create FRBC.Instructions to send back to the ResourceManager
+        """Translates S2 System Description into FM API calls.
+
+        :param system_description_id: system description to base the schedule on
+        :param request_number:        which planning request this schedule answers, which is
+                                      checked once more before the instructions go out
+        :param start:                 where the schedule starts; a caller on this branch passes
+                                      the simulated moment the request arrived, and without one
+                                      the description's own valid_from is used, lined up with
+                                      the resolution (see schedule_start)
         """
 
         # Barrier: realized-power posts run concurrently (see
@@ -379,6 +422,8 @@ class FRBCSimple(FRBC):
             energy_unit = self.energy_unit
 
         # call schedule
+        if start is None:
+            start = self.schedule_start(system_description.valid_from)
         if isinstance(start, str):
             start = pd.Timestamp(start)
         flex_context = {
@@ -524,12 +569,14 @@ class FRBCSimple(FRBC):
                 "saved server-side. Investigate the infeasibility."
             )
 
-        if generation is not None and not self._is_current_generation(
-            "storage_status", generation
+        # send_instruction_batch checks this once more, but building the instructions first is
+        # wasted work when the request they answer is already out of date.
+        if request_number is not None and not self._is_latest_request(
+            STORAGE_STATUS_REQUESTS, request_number
         ):
             self._logger.info(
-                "HANGDEBUG trigger_schedule: superseded while awaiting the "
-                "schedule; not building instructions."
+                f"Skipping a superseded planning request (number {request_number}): "
+                "a newer storage status arrived while the schedule was being computed."
             )
             return
 
@@ -549,15 +596,10 @@ class FRBCSimple(FRBC):
             f"HANGDEBUG trigger_schedule: built {len(instructions)} instructions"
         )
 
-        # Replace the outstanding batch (transition-filtered; supersession
-        # re-checked right before queueing - see FRBC.send_instruction_batch).
-        sent = await self.send_instruction_batch(
+        await self.send_instruction_batch(
             instructions,
-            supersession_key="storage_status" if generation is not None else None,
-            generation=generation,
-        )
-        self._logger.debug(
-            f"HANGDEBUG trigger_schedule: {sent} instructions queued for sending"
+            request_kind=STORAGE_STATUS_REQUESTS,
+            request_number=request_number,
         )
 
     async def send_fill_level_target_profile(
