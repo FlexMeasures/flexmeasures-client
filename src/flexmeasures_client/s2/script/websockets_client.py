@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -20,6 +20,8 @@ from s2python.common import (
 )
 from s2python.frbc import (
     FRBCActuatorDescription,
+    FRBCActuatorStatus,
+    FRBCInstruction,
     FRBCOperationMode,
     FRBCOperationModeElement,
     FRBCStorageDescription,
@@ -28,6 +30,60 @@ from s2python.frbc import (
 )
 
 from flexmeasures_client.s2.utils import get_unique_id
+
+
+async def apply_at_execution_time(
+    ws, instruction: FRBCInstruction, previous_operation_mode_id=None
+) -> None:
+    """Enter the operation mode an instruction asks for, at the moment it asks for it.
+
+    An instruction carries an execution_time,
+    which is when the resource manager is to be in that mode, not when the instruction happens to arrive.
+    A resource manager that answers on arrival reports a mode it is not in yet,
+    and a customer energy manager recording that status has a measurement of a power the device is not drawing,
+    timestamped now.
+    """
+
+    delay = (instruction.execution_time - datetime.now(timezone.utc)).total_seconds()
+    if delay > 0:
+        print(f"WAITING: {delay:.0f}s until this instruction is due")
+        await asyncio.sleep(delay)
+
+    status = FRBCActuatorStatus(
+        message_id=get_unique_id(),
+        actuator_id=instruction.actuator_id,
+        active_operation_mode_id=instruction.operation_mode,
+        operation_mode_factor=instruction.operation_mode_factor,
+        previous_operation_mode_id=previous_operation_mode_id,
+        # The moment the transition happened, so that what is recorded about it is placed there,
+        # rather than wherever the message is read.
+        transition_timestamp=datetime.now(timezone.utc),
+    )
+    print("SENDING: FRBC.ActuatorStatus")
+    await ws.send_str(status.model_dump_json())
+
+
+async def answer_instructions(ws) -> None:
+    """Acknowledge every instruction, and report the transition each one asks for when it is due."""
+
+    active_operation_mode_id = None
+    async for msg in ws:
+        payload = msg.json()
+        print("RECEIVED: ", payload)
+        if payload.get("message_type") != "FRBC.Instruction":
+            continue
+        instruction = FRBCInstruction.model_validate(payload)
+        await ws.send_str(
+            ReceptionStatus(
+                subject_message_id=instruction.message_id,
+                status=ReceptionStatusValues.OK,
+            ).model_dump_json()
+        )
+        # In a task of its own, so that an instruction due later does not hold up the ones behind it.
+        asyncio.create_task(
+            apply_at_execution_time(ws, instruction, active_operation_mode_id)
+        )
+        active_operation_mode_id = instruction.operation_mode
 
 
 async def main_s2():
@@ -156,8 +212,7 @@ async def main_s2():
 
             await ws.send_str(system_description_message)
 
-            async for msg in ws:
-                print("RECEIVED: ", msg.json())
+            await answer_instructions(ws)
 
 
 async def main_websocket():
@@ -172,4 +227,5 @@ async def main_websocket():
                 await ws.close()
 
 
-asyncio.run(main_s2())
+if __name__ == "__main__":
+    asyncio.run(main_s2())
