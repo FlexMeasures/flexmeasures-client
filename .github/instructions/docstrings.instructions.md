@@ -20,8 +20,8 @@ def function_name(param1: str, param2: int) -> bool:
     """One-line summary ending with a period.
 
     Longer description explaining purpose and usage when needed.
-    Parameter descriptions are aligned and separated from the colon
-    with at least one space.
+    Parameter descriptions are aligned,
+    and separated from the colon with at least one space.
 
     :param param1:      Description of param1.
     :param param2:      Description of param2.
