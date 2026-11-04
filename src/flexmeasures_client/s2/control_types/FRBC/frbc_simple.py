@@ -258,9 +258,22 @@ class FRBCSimple(FRBC):
                         else "production"
                     ),
                 )
-            except (ValueError, KeyError, ConnectionError) as exc:
+            except ConnectionError as exc:
+                # Nothing is remembered from a connection that failed:
+                # the next status asks again, since the sensor may well answer then.
                 self._logger.warning(
-                    "Could not read what sign power sensor %s records, so posting an actuator's power as S2 states it, with consumption positive: %s",
+                    "Could not reach power sensor %s to read which sign it records, so posting an actuator's power as S2 states it, with consumption positive: %s",
+                    self._power_sensor_id,
+                    exc,
+                )
+                return power
+            except (ValueError, KeyError) as exc:
+                # A sensor that cannot be read at all, or whose answer makes no sense,
+                # will not read any better on the next status,
+                # so S2's own convention is remembered and the reason is said once.
+                self._power_sensor_takes_consumption_as_positive = True
+                self._logger.warning(
+                    "Could not read which sign power sensor %s records, so an actuator's power is posted as S2 states it, with consumption positive: %s",
                     self._power_sensor_id,
                     exc,
                 )
@@ -351,8 +364,13 @@ class FRBCSimple(FRBC):
                 recorded_at = last_recorded_at + timedelta(seconds=1)
         self._last_power_recorded = (event, recorded_at)
 
-        value = self._in_the_power_unit(await self._as_the_power_sensor_reads_it(power))
+        value = power
         try:
+            # Inside the try, because turning a power into what the sensor means by it can fail too:
+            # a unit nothing converts between raises, and so does a sensor that cannot be reached.
+            value = self._in_the_power_unit(
+                await self._as_the_power_sensor_reads_it(power)
+            )
             await self._fm_client.post_sensor_data(
                 self._power_sensor_id,
                 start=start,
@@ -361,7 +379,7 @@ class FRBCSimple(FRBC):
                 unit=self.power_unit,
                 duration=timedelta(minutes=15),
             )
-        except (JobFailedError, ValueError):
+        except (JobFailedError, ValueError, ConnectionError, NotImplementedError):
             # This runs in a task nobody awaits,
             # so an exception here is logged by asyncio at best and lost at worst.
             # Say which measurement went missing,

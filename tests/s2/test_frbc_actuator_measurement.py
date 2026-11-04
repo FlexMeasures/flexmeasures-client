@@ -174,7 +174,7 @@ async def test_a_sensor_that_cannot_be_read_is_posted_as_s2_states_it(
         await frbc.send_actuator_status(_status(system_description, 1))
 
     assert _posts_to_the_power_sensor(frbc)[0]["values"] == [ON_W]
-    assert "could not read what sign" in caplog.text.lower()
+    assert "could not read which sign" in caplog.text.lower()
 
 
 @pytest.mark.asyncio
@@ -294,3 +294,53 @@ async def test_zero_is_posted_as_zero(system_description):
 
     assert _posts_to_the_power_sensor(frbc)[0]["values"] == [0.0]
     assert str(_posts_to_the_power_sensor(frbc)[0]["values"][0]) == "0.0"
+
+
+@pytest.mark.asyncio
+async def test_a_sensor_that_will_never_answer_is_asked_once(
+    system_description, caplog
+):
+    """A sensor that cannot be read at all will not read any better on the next status."""
+    frbc = _frbc(system_description, consumption_as_positive=False)
+    frbc._fm_client.get_sensor = AsyncMock(side_effect=ValueError("no such sensor"))
+
+    with caplog.at_level(logging.WARNING):
+        await frbc.send_actuator_status(_status(system_description, 1))
+        await frbc.send_actuator_status(_status(system_description, 1))
+
+    assert frbc._fm_client.get_sensor.await_count == 1
+    assert caplog.text.lower().count("could not read which sign") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_sensor_that_could_not_be_reached_is_asked_again(system_description):
+    """A connection that failed says nothing about the sensor, so the next status asks again."""
+    frbc = _frbc(system_description, consumption_as_positive=False)
+    frbc._fm_client.get_sensor = AsyncMock(
+        side_effect=[
+            ConnectionError("no route"),
+            power_sensor_recording(False, sensor_id=POWER_SENSOR_ID),
+        ]
+    )
+
+    await frbc.send_actuator_status(_status(system_description, 1))
+    await frbc.send_actuator_status(_status(system_description, 1))
+
+    assert frbc._fm_client.get_sensor.await_count == 2
+    # The first went out as S2 states it, the second the way the sensor reads it.
+    assert [post["values"][0] for post in _posts_to_the_power_sensor(frbc)] == [
+        ON_W,
+        -ON_W,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_unit_nothing_converts_between_is_reported(system_description, caplog):
+    """Everything on the way to a recorded measurement is reported, not only the post itself."""
+    frbc = _frbc(system_description, consumption_as_positive=True, power_unit="hp")
+
+    with caplog.at_level(logging.ERROR):
+        await frbc.send_actuator_status(_status(system_description, 1))
+
+    assert "could not record" in caplog.text.lower()
+    frbc._fm_client.post_sensor_data.assert_not_awaited()

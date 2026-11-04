@@ -85,7 +85,7 @@ def _frbc(system_description) -> FRBCSimple:
     )
     frbc._fm_client = AsyncMock(FlexMeasuresClient)
     # The handler asks the power sensor which sign it records consumption in.
-    # S2's own convention, so that these tests read in the units S2 states.
+    # S2's own, so that a posted power reads here as S2 states it.
     frbc._fm_client.get_sensor = AsyncMock(
         return_value={
             "id": POWER_SENSOR_ID,
