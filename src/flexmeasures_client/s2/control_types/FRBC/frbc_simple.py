@@ -37,7 +37,6 @@ from flexmeasures_client.s2.control_types.translations import (
     translate_usage_forecast_to_fm,
 )
 
-
 #: The unit S2 states a power value in, and so the unit of an operation mode's power ranges.
 #: What goes out to FlexMeasures in this unit is what came in from a resource manager in it.
 S2_POWER_UNIT = "W"
