@@ -1,10 +1,11 @@
 """A schedule is asked for against what the actuator converts drawn power into stored energy at.
 
-An operation mode states a fill rate and a power range, and the ratio between the two is what the
-actuator converts with: for a heat pump, delivering 3800 W of heat into its buffer while drawing
-883.7 W of electricity, that ratio is a coefficient of performance of 4.3.
-Left unsaid, the scheduler plans the storage as if the actuator converted power one for one, so it
-plans to reach a fill-level target at a power the actuator cannot deliver it at.
+An operation mode states a fill rate and a power range,
+and the ratio between the two is what the actuator converts with:
+for a heat pump, delivering 3800 W of heat into its buffer while drawing 883.7 W of electricity,
+that ratio is a coefficient of performance of 4.3.
+Left unsaid, the scheduler plans the storage as if the actuator converted power one for one,
+so it plans to reach a fill-level target at a power the actuator cannot deliver it at.
 These tests pin what is recorded for the scheduler to read, and when it is not.
 """
 
@@ -271,7 +272,7 @@ async def test_a_changed_efficiency_is_recorded_again():
 
 @pytest.mark.asyncio
 async def test_a_refused_recording_leaves_the_schedule_to_be_planned_without_it(caplog):
-    """A plan that assumes a lossless actuator beats no plan at all, as long as it is said out loud."""
+    """A plan that assumes the actuator converts power one for one beats no plan at all, as long as it is said out loud."""
     system_description = _heater()
     frbc = _frbc(system_description)
     frbc._fm_client.post_sensor_data = AsyncMock(
@@ -328,9 +329,9 @@ def test_a_fill_rate_is_stated_in_watts_by_the_unit_the_fill_level_is_in():
 def test_an_efficiency_is_taken_at_the_top_of_the_last_element():
     """A mode states an element per stretch of fill level, and the efficiency is the one at full tilt.
 
-    The ratio, and not the slope over the element's range: a mode's ranges can be degenerate, where
-    the actuator runs at one power and one fill rate only, and a slope over such a range is zero
-    while the ratio is the efficiency the mode really runs at.
+    The ratio, and not the slope over the element's range:
+    a mode's ranges can be degenerate, where the actuator runs at one power and one fill rate only,
+    and a slope over such a range is zero while the ratio is the efficiency the mode really runs at.
     """
     mode = _operation_mode(HEATER_POWER, HEATER_FILL_RATE, "on")
     # A second stretch of fill level, converting half as well as the first, nearer the top of the storage.

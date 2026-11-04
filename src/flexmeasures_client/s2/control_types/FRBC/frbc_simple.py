@@ -481,7 +481,7 @@ class FRBCSimple(FRBC):
         FlexMeasures reads a charging efficiency from a sensor rather than taking a value in the flex model,
         so what the operation modes say about it is recorded here, by the call that is about to plan with it.
         Recorded before the schedule is asked for, and not alongside it:
-        a schedule planned against a sensor holding nothing for its window is planned as if the actuator were lossless.
+        a schedule planned against a sensor holding nothing for its window is planned as if the actuator converted power one for one.
 
         :param start: where the schedule starts, which is where the value is recorded from.
         :returns: whether that schedule may be planned against the sensor,
@@ -545,8 +545,9 @@ class FRBCSimple(FRBC):
                 duration=self._schedule_duration,
             )
         except (JobFailedError, ValueError, ConnectionError, NotImplementedError):
-            # A schedule planned as if the actuator were lossless beats no schedule at all,
-            # as long as it is said out loud: that plan is optimistic about what the storage gains.
+            # A schedule planned as if the actuator converted power one for one beats no schedule at all,
+            # as long as it is said out loud:
+            # that plan overstates what a lossy storage gains from a given power, and understates what a heat pump puts in.
             self._logger.exception(
                 "Not asking for a schedule against a charging efficiency: could not record %s on sensor %s for %s.",
                 efficiency,
@@ -623,8 +624,8 @@ class FRBCSimple(FRBC):
         soc_min = min(soc_min, soc_at_start)
         soc_max = max(soc_max, soc_at_start)
 
-        # Where this schedule starts, which is both what it is asked for and the window
-        # a charging efficiency has to be recorded over to be planned against.
+        # Where this schedule starts, which is both what it is asked for,
+        # and the window a charging efficiency has to be recorded over to be planned against.
         start = self.schedule_start(system_description.valid_from)
 
         flex_model: dict = {
