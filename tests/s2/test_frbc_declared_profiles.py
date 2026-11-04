@@ -45,6 +45,8 @@ from flexmeasures_client.s2.control_types.FRBC.utils import (
 )
 from flexmeasures_client.s2.utils import get_unique_id
 
+from .conftest import power_sensor_recording
+
 SOC_MINIMA_SENSOR_ID = 10
 SOC_MAXIMA_SENSOR_ID = 11
 USAGE_FORECAST_SENSOR_ID = 12
@@ -374,6 +376,9 @@ async def test_the_energy_unit_is_the_deployment_s_to_choose(system_description)
         energy_unit="MWh",
     )
     frbc._fm_client = AsyncMock(FlexMeasuresClient)
+    frbc._fm_client.get_sensor = AsyncMock(
+        return_value=power_sensor_recording(consumption_as_positive=True)
+    )
     frbc._logger = logging.getLogger(__name__)
     frbc._system_description_history = {
         system_description.message_id: system_description
@@ -573,6 +578,9 @@ async def test_an_actuator_s_fill_rate_is_posted_in_the_fill_rate_unit(
         fill_rate_sensor_id=fill_rate_sensor_id,
     )
     frbc._fm_client = AsyncMock(FlexMeasuresClient)
+    frbc._fm_client.get_sensor = AsyncMock(
+        return_value=power_sensor_recording(consumption_as_positive=True)
+    )
     frbc._logger = logging.getLogger(__name__)
     frbc._system_description_history = {
         system_description.message_id: system_description

@@ -7,8 +7,6 @@ import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from flexmeasures_client.exceptions import JobFailedError
-
 try:
     from s2python.frbc import (
         FRBCActuatorStatus,
@@ -27,6 +25,8 @@ except ImportError:
 
 import pandas as pd
 
+from flexmeasures_client.client import convert_units
+from flexmeasures_client.exceptions import JobFailedError
 from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     clip_fill_level_target_profile,
@@ -108,6 +108,13 @@ class FRBCSimple(FRBC):
     _valid_from_shift: timedelta
     _fill_level_scale: float
     _hard_bound_factor: float
+    #: Whether the power sensor records consumption as positive, as S2 does.
+    #: Read from the sensor itself the first time a power value is posted, and remembered after that.
+    #: None until it has been read.
+    _power_sensor_takes_consumption_as_positive: bool | None
+    #: When a power value was last recorded for the actuator, and for which moment,
+    #: so that a second status inside one event does not collide with the first.
+    _last_power_recorded: tuple[datetime, datetime] | None
 
     def __init__(
         self,
@@ -175,6 +182,8 @@ class FRBCSimple(FRBC):
                 f"fill_level_scale has to be greater than zero, since it converts a fill level into the unit it is recorded in, but {fill_level_scale} was given."
             )
         self._fill_level_scale = fill_level_scale
+        self._power_sensor_takes_consumption_as_positive = None
+        self._last_power_recorded = None
         if hard_bound_factor < 1:
             # Below one, the hard upper bound sits inside the declared range,
             # and FlexMeasures clips the band into the hard bounds,
@@ -290,6 +299,78 @@ class FRBCSimple(FRBC):
             start=self.align_to_resolution(now),
         )
 
+    async def _as_the_power_sensor_reads_it(self, power: float) -> float:
+        """Turn a power value S2 states into one the power sensor means the same thing by.
+
+        S2 fixes one sign convention, where positive means consumption.
+        FlexMeasures leaves it to the sensor, through its ``consumption_is_positive`` attribute,
+        and for a plain power sensor the default is the other way round:
+        a schedule saved onto such a sensor has its sign flipped on the way in,
+        so a plan to consume is stored negative.
+        Posting a consumption as positive onto that same sensor puts the measurement and the plan in opposite directions,
+        which reads as a device doing the reverse of what was planned.
+
+        The sensor is asked once, and the answer is kept:
+        a sensor's convention is a property of how it was set up, not of the moment.
+        Where the sensor cannot be read, the value is posted as S2 states it, which is this handler's own convention,
+        and the reason is logged.
+        """
+
+        if self._power_sensor_takes_consumption_as_positive is None:
+            try:
+                sensor = await self._fm_client.get_sensor(
+                    self._power_sensor_id, parse_json_fields=True
+                )
+                attributes = sensor.get("attributes") or {}
+                self._power_sensor_takes_consumption_as_positive = bool(
+                    attributes.get("consumption_is_positive", False)
+                )
+                self._logger.info(
+                    "Power sensor %s records %s as positive, so that is how an actuator's power is posted.",
+                    self._power_sensor_id,
+                    (
+                        "consumption"
+                        if self._power_sensor_takes_consumption_as_positive
+                        else "production"
+                    ),
+                )
+            except ConnectionError as exc:
+                # Nothing is remembered from a connection that failed:
+                # the next status asks again, since the sensor may well answer then.
+                self._logger.warning(
+                    "Could not reach power sensor %s to read which sign it records, so posting an actuator's power as S2 states it, with consumption positive: %s",
+                    self._power_sensor_id,
+                    exc,
+                )
+                return power
+            except (ValueError, KeyError) as exc:
+                # A sensor that cannot be read at all, or whose answer makes no sense,
+                # will not read any better on the next status,
+                # so S2's own convention is remembered and the reason is said once.
+                self._power_sensor_takes_consumption_as_positive = True
+                self._logger.warning(
+                    "Could not read which sign power sensor %s records, so an actuator's power is posted as S2 states it, with consumption positive: %s",
+                    self._power_sensor_id,
+                    exc,
+                )
+                return power
+        if self._power_sensor_takes_consumption_as_positive or not power:
+            return power
+        return -power
+
+    def _in_the_power_unit(self, power: float) -> float:
+        """Convert a power value S2 states, which is in watts, into the unit this handler posts in.
+
+        S2 states a power value in watts, while power_unit says what a posted value is labelled with,
+        and nothing converted between the two:
+        a deployment recording its power sensor in kW had 883.7 W posted as 883.7 kW,
+        which FlexMeasures stored as the thousandfold it says it is.
+        """
+
+        if self.power_unit == S2_POWER_UNIT:
+            return power
+        return convert_units([power], S2_POWER_UNIT, self.power_unit)[0]
+
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
         sd: FRBCSystemDescription = list(self._system_description_history.values())[-1]
@@ -340,14 +421,59 @@ class FRBCSimple(FRBC):
 
         start = status.transition_timestamp or self.now()
 
-        await self._fm_client.post_sensor_data(
-            self._power_sensor_id,
-            start=start,
-            prior=self.now(),
-            values=[power],
-            unit=self.power_unit,
-            duration=timedelta(minutes=15),
-        )
+        # A belief time that supersedes the one before it, rather than colliding with it.
+        # FlexMeasures keys a belief on its sensor, its source, the event and the moment it was formed,
+        # and it floors the event to the sensor's resolution.
+        # Two statuses inside one resolution step, milliseconds apart, were refused in practice,
+        # with a duplicate key whose belief time had lost its sub-second part.
+        # Posting two such beliefs by hand does not reproduce that,
+        # so the exact rule is the server's to state.
+        # Either way, a second apart is unambiguous: the later status supersedes the earlier one,
+        # which is what a resource manager reporting twice in a second means.
+        # A resource manager sends a status for each instruction it applies,
+        # and this handler sends several at once, so that is the ordinary case rather than an edge.
+        # The comparison is on the event as FlexMeasures keys it,
+        # since two statuses seconds apart still land on the same resolution step.
+        event = self.align_to_resolution(start)
+        recorded_at = self.now()
+        if self._last_power_recorded is not None:
+            last_event, last_recorded_at = self._last_power_recorded
+            if last_event == event and recorded_at - last_recorded_at < timedelta(
+                seconds=1
+            ):
+                recorded_at = last_recorded_at + timedelta(seconds=1)
+        self._last_power_recorded = (event, recorded_at)
+
+        # The value and the unit it is in travel together,
+        # so that what is reported below is a pair that agrees even where the conversion is what failed.
+        value, unit = power, S2_POWER_UNIT
+        try:
+            # Inside the try, because turning a power into what the sensor means by it can fail too:
+            # a unit nothing converts between raises, and so does a sensor that cannot be reached.
+            value = self._in_the_power_unit(
+                await self._as_the_power_sensor_reads_it(power)
+            )
+            unit = self.power_unit
+            await self._fm_client.post_sensor_data(
+                self._power_sensor_id,
+                start=start,
+                prior=recorded_at,
+                values=[value],
+                unit=unit,
+                duration=timedelta(minutes=15),
+            )
+        except (JobFailedError, ValueError, ConnectionError, NotImplementedError):
+            # This runs in a task nobody awaits,
+            # so an exception here is logged by asyncio at best and lost at worst.
+            # Say which measurement went missing,
+            # since a power sensor silently holding a plan and no measurement is the hardest state to notice.
+            self._logger.exception(
+                "Could not record %s %s on power sensor %s for %s.",
+                value,
+                unit,
+                self._power_sensor_id,
+                start,
+            )
 
         # The fill rate goes to its own sensor rather than being discarded. It is a real and
         # useful quantity - what the actuator delivers into its buffer - it simply is not power.
