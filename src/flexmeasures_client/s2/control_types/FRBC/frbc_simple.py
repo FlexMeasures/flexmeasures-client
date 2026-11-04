@@ -384,8 +384,8 @@ class FRBCSimple(FRBC):
             flex_model=flex_model,
             duration=self._schedule_duration,
             prior=self.now(),
-            # In the unit this handler reads power in, not in whatever unit the power sensor
-            # happens to be recorded in:
+            # In the unit this handler reads power in,
+            # rather than in whatever unit the power sensor happens to be recorded in:
             # the translation below matches these values against the power ranges of the operation modes,
             # which S2 states in watts.
             unit=self.power_unit,

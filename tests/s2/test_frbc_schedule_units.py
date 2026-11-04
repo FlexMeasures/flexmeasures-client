@@ -1,7 +1,8 @@
 """A schedule is read back in the unit the operation modes state power in.
 
-S2 states an operation mode's power ranges in watts, while a FlexMeasures power sensor is in
-whatever unit it was created in, and the example server creates its power sensor in kW.
+S2 states an operation mode's power ranges in watts,
+while a FlexMeasures power sensor is in whatever unit it was created in,
+and the example server creates its power sensor in kW.
 Read back in the sensor's unit, every scheduled power is a thousandth of what it is,
 so it sits nearest the operation mode that draws nothing,
 and the resource manager is told to idle through a schedule that asked it to run.
