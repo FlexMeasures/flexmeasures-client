@@ -55,3 +55,14 @@ repos:
     language: system
     entry: uv run poe type-check
     verbose: true
+
+- repo: local
+  hooks:
+    - id: no-image-files
+      name: Block image files from being committed
+      language: fail
+      entry: >-
+        Image files must not be committed to this repo (they bloat .git forever).
+        Put screenshots in the FlexMeasures/screenshots repo, or leave them
+        untracked and attach them to the PR/issue manually.
+      files: '\.(png|jpe?g|gif|bmp|tiff?|webp|ico|psd)$'
