@@ -146,8 +146,8 @@ async def test_a_handler_posting_power_in_another_unit_still_asks_for_watts(
 ):
     """power_unit says how a posted power value is labelled, not what S2 states its ranges in.
 
-    A handler recording its power sensor in kW still has to compare a schedule against power
-    ranges stated in watts, so the unit asked for does not follow that one.
+    A handler recording its power sensor in kW still has to compare a schedule against power ranges stated in watts,
+    so the unit asked for does not follow that one.
     """
     frbc = _frbc(system_description, power_unit="kW")
 

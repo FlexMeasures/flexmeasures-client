@@ -84,9 +84,11 @@ class FRBCSimple(FRBC):
         # Half again as high, so that a storage overshooting its declared range stays feasible.
         # A deployment whose storage cannot overshoot at all can bring this down to 1.
         hard_bound_factor: float = 1.5,
-        # The unit a power value is labelled with when this handler posts one.
-        # S2 states power in watts, so that is the default,
-        # and a deployment recording its power sensor in another unit says so here, for FlexMeasures to convert.
+        # The unit a power value this handler posts is labelled with.
+        # Those values come straight from the operation modes' power ranges, which S2 states in watts,
+        # and nothing converts them on the way out,
+        # so a deployment that sets another unit here has them recorded at the wrong magnitude.
+        # todo: either convert a power value into this unit before posting it, or drop this and post watts, as S2 states them.
         power_unit: str = "W",
         # The unit a fill level is recorded in: a state of charge and the minima and maxima
         # bounding it all go out in this one unit, so that they can be compared at all.
