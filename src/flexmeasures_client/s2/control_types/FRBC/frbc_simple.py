@@ -3,6 +3,7 @@ This control type is in a very EXPERIMENTAL stage.
 Used it at your own risk :)
 """
 
+import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -43,6 +44,31 @@ from flexmeasures_client.s2.control_types.translations import (
 #: A schedule is read back in this unit, whatever unit the power sensor holding it is recorded in,
 #: and what goes out to FlexMeasures in it is what came in from a resource manager in it.
 S2_POWER_UNIT = "W"
+
+#: How many times a schedule is asked for before the storage is left without an instruction for its window.
+#: Every attempt costs the server a solve, so this is a handful rather than a vigil.
+SCHEDULE_ATTEMPTS = 5
+
+#: How long to wait between two attempts at a schedule.
+#: Flat rather than backed off: what it waits out is a post landing or a worker taking the job up,
+#: and a resource manager is waiting on an instruction for the whole of it.
+SCHEDULE_RETRY_INTERVAL = timedelta(seconds=2)
+
+#: Causes of a failed scheduling job that fail the same way however often the job is asked for again.
+#: Asking again only multiplies failed jobs over the server's workers, so these are never asked again.
+NON_RETRYABLE_SCHEDULE_FAILURES = (
+    # A scheduler that records a belief twice collides with its own first write on every attempt.
+    "UniqueViolation",
+    "duplicate key value violates unique constraint",
+    # An infeasible problem is planned from the same flex model and context every time, so it stays infeasible.
+    # FlexMeasures answered one with a fallback scheduler until v1.0.0 retired it, and fails the job itself since.
+    "InfeasibleProblemException",
+)
+
+#: The refusal of a trigger, rather than a failure of the job behind it, that is worth asking again about.
+#: A schedule can be asked for before the state of charge it is to be planned from has landed,
+#: and FlexMeasures refuses to plan from one it considers too old.
+RETRYABLE_TRIGGER_REFUSALS = ("No recent state-of-charge value found",)
 
 
 def _operation_mode_power_bands(
@@ -119,6 +145,9 @@ class FRBCSimple(FRBC):
     #: The charging efficiency last recorded, and the window it was recorded for,
     #: so that the same value for the same window is not recorded again on every schedule.
     _charging_efficiency_recorded: tuple[datetime, float] | None
+    #: How many times a schedule is asked for, and how long between two attempts.
+    _schedule_attempts: int
+    _schedule_retry_interval: timedelta
 
     def __init__(
         self,
@@ -139,6 +168,11 @@ class FRBCSimple(FRBC):
         charging_efficiency_sensor_id: int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
+        # How many times a schedule is asked for before the storage is left without an instruction,
+        # and how long between two attempts.
+        # One attempt means a failure is never answered by another, as it was before this was bounded at all.
+        schedule_attempts: int = SCHEDULE_ATTEMPTS,
+        schedule_retry_interval: timedelta = SCHEDULE_RETRY_INTERVAL,
         # The resolution a schedule is planned on, which a schedule's start has to line up with.
         resolution: timedelta = timedelta(minutes=15),
         max_size: int = 100,
@@ -174,6 +208,13 @@ class FRBCSimple(FRBC):
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._charging_efficiency_sensor_id = charging_efficiency_sensor_id
         self._charging_efficiency_recorded = None
+        if schedule_attempts < 1:
+            # A schedule is asked for at least once, or no schedule is asked for at all.
+            raise ValueError(
+                f"schedule_attempts has to be at least one, since it counts the attempts at a schedule rather than the retries, but {schedule_attempts} was given."
+            )
+        self._schedule_attempts = schedule_attempts
+        self._schedule_retry_interval = schedule_retry_interval
         self._timezone = ZoneInfo(timezone)
         if fill_level_scale <= 0:
             # Every fill level this handler records is multiplied by the scale,
@@ -559,6 +600,81 @@ class FRBCSimple(FRBC):
         self._charging_efficiency_recorded = (start, efficiency)
         return True
 
+    def _is_worth_asking_again(self, failure: Exception) -> bool:
+        """Whether a failed attempt at a schedule is worth making again.
+
+        A job that reached the server and failed inside it is,
+        unless its cause is one that fails identically on every attempt (see NON_RETRYABLE_SCHEDULE_FAILURES).
+        A job can fail on a transient of its own, from a worker crashing out of its solver,
+        to a pandas error over windows that overlap for as long as two of these schedules do.
+
+        A trigger the server refused outright is not, bar the one refusal that answers a race:
+        a flex model or context FlexMeasures will not take is not one it will take two seconds later.
+
+        :param failure: what the attempt raised.
+        """
+        message = str(failure)
+        if any(marker in message for marker in NON_RETRYABLE_SCHEDULE_FAILURES):
+            return False
+        if isinstance(failure, JobFailedError):
+            return True
+        return any(marker in message for marker in RETRYABLE_TRIGGER_REFUSALS)
+
+    async def _ask_for_a_schedule(
+        self, start: datetime, flex_context: dict, flex_model: dict
+    ) -> dict | list[dict]:
+        """Ask FlexMeasures for a schedule, and ask again where the attempt is worth making again.
+
+        One failed scheduling job otherwise leaves the storage without an instruction for its window.
+        The resource manager is told nothing, and goes on polling,
+        and since this runs as a task whose exception is logged and dropped, nothing else notices either.
+        That is what one failed job did in a co-simulation:
+        a worker crashed inside its solver,
+        and the resource manager it belonged to polled until its round timed out, every round, for the rest of the run.
+
+        :param start: the window the schedule is asked for, which every attempt asks for again.
+        :raises JobFailedError: where the last attempt worth making failed inside the server.
+        :raises ValueError:     where the trigger itself was refused.
+        """
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                return await self._fm_client.trigger_and_get_schedule(
+                    start=start,
+                    sensor_id=self._power_sensor_id,
+                    flex_context=flex_context,
+                    flex_model=flex_model,
+                    duration=self._schedule_duration,
+                    # Each attempt says what is known now, rather than what was known when the first was made.
+                    prior=self.now(),
+                    # In watts, which is what S2 states an operation mode's power ranges in,
+                    # and the translation below matches a schedule against those ranges.
+                    # Not in power_unit, which says how a power value this handler posts is labelled,
+                    # and not in the power sensor's own unit, which is what a schedule comes back in by default.
+                    unit=S2_POWER_UNIT,
+                )
+            except (JobFailedError, ValueError) as failure:
+                if (
+                    attempt >= self._schedule_attempts
+                    or not self._is_worth_asking_again(failure)
+                ):
+                    self._logger.exception(
+                        "The storage is left without an instruction for the window starting %s: asking for a schedule failed on attempt %s of %s.",
+                        start,
+                        attempt,
+                        self._schedule_attempts,
+                    )
+                    raise
+                self._logger.warning(
+                    "Asking for a schedule for the window starting %s failed on attempt %s of %s, and is worth asking again: %s",
+                    start,
+                    attempt,
+                    self._schedule_attempts,
+                    failure,
+                )
+                await asyncio.sleep(self._schedule_retry_interval.total_seconds())
+
     async def trigger_schedule(
         self, system_description_id: str, request_number: int | None = None
     ):
@@ -717,20 +833,7 @@ class FRBCSimple(FRBC):
             # since what a breach of comfort is worth is the deployment's judgement, not the protocol's.
             flex_context["relax-soc-constraints"] = True
 
-        # call schedule
-        schedule = await self._fm_client.trigger_and_get_schedule(
-            start=start,
-            sensor_id=self._power_sensor_id,
-            flex_context=flex_context,
-            flex_model=flex_model,
-            duration=self._schedule_duration,
-            prior=self.now(),
-            # In watts, which is what S2 states an operation mode's power ranges in,
-            # and the translation below matches a schedule against those ranges.
-            # Not in power_unit, which says how a power value this handler posts is labelled,
-            # and not in the power sensor's own unit, which is what a schedule comes back in by default.
-            unit=S2_POWER_UNIT,
-        )
+        schedule = await self._ask_for_a_schedule(start, flex_context, flex_model)
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
         instructions = fm_schedule_to_instructions(
