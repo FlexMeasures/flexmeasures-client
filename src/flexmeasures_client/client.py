@@ -303,6 +303,20 @@ class FlexMeasuresClient:
             self.server_version = version_info["server_version"]
         return self.server_version
 
+    async def server_version_at_least(self, minimum: str) -> bool:
+        """Whether the server is of this version or newer, looking its version up if it is not known yet.
+
+        Release generations are compared, so a development build such as ``0.33.0.dev26`` counts as ``0.33.0``:
+        a server reporting one already exposes that release's API.
+        Use this to send a field or call an endpoint only where the server has it,
+        and ``ensure_minimum_server_version`` where the caller cannot carry on without it.
+
+        :param minimum: the oldest server version that has what the caller is about to use.
+        :returns:       whether this server has it.
+        """
+
+        return _server_version_at_least(await self._resolve_server_version(), minimum)
+
     async def ensure_minimum_server_version(
         self,
         minimum_server_version: str,

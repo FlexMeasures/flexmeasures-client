@@ -6,12 +6,12 @@ HEMS tutorial
 We wrote a complete tutorial with the client*, which sets up a HEMS from scratch (from nothing but a FlexMeasures account).
 
 - It creates the whole structure - with PV, battery and a heat pump.
-- It loads two weeks of historical data and creates forecasts through the forecasting API.
-- It goes through one week in 4h steps, forecasting and scheduling all flexible assets.
+- It loads two weeks of historical data, plus the measurements of the simulated days, and creates forecasts through the forecasting API.
+- It goes through two days in 4h steps, scheduling all flexible assets.
 
 This is the resulting dashboard:
 
-.. image:: https://github.com/FlexMeasures/flexmeasures-client/blob/main/docs/_static/HEMS-tutorial-dashboard.png
+.. image:: https://raw.githubusercontent.com/FlexMeasures/screenshots/main/HEMS-tutorial-dashboard.png
     :align: center
 |
 
@@ -149,6 +149,24 @@ Now run the client script using the `/examples/HEMS` folder as the current worki
 .. code-block:: bash
 
     python3 HEMS_setup.py
+
+Reading the results
+===================
+
+The tutorial uploads the measured consumption, PV production and heat usage for the whole period up front, including the simulated days.
+Each measurement is recorded as known at the end of its event,
+so a forecast or schedule made during the simulation only uses the measurements that would have been available at that moment.
+Measured data is never used before it is "known".
+
+This means that a graph of the simulated days shows measurements (solid lines) and forecasts (dotted lines) on top of each other.
+To see what was known as the simulation progressed, press the replay button on a site's graphs page (or hit **p**, or **n** to step one hour at a time).
+Replay only shows data that had been recorded by the time on the replay clock,
+so measurements and executed schedules (left of the replay line) fill in behind the forecasts and planned schedules (dotted and dashed lines, right of it).
+Prices and capacity limits stay visible for the whole period, because they were uploaded as known in advance.
+
+.. image:: https://raw.githubusercontent.com/FlexMeasures/screenshots/main/HEMS-tutorial-replay.png
+    :align: center
+
 
 Rerunning or resuming the tutorial
 ==================================

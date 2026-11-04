@@ -926,3 +926,34 @@ async def test_every_request_sends_the_client_version(tmp_path) -> None:
         for request in requests:
             assert request.kwargs["headers"][CLIENT_VERSION_HEADER] == __version__
         await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_server_version_at_least_looks_the_version_up() -> None:
+    """A caller that has not talked to the server yet still gets an answer.
+
+    The version arrives on a response header, or, for a server too old to send one, from the API root,
+    so a feature check before the first request would otherwise read None and answer no.
+    """
+
+    with aioresponses() as m:
+        m.get(
+            url="http://localhost:5000/api/",
+            status=200,
+            payload={
+                "flexmeasures_version": "1.0.0.dev26",
+                "versions": ["v3_0"],
+            },
+            repeat=True,
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="skip-auth",
+        )
+
+        # A development build of a release already exposes that release's API, so it counts as it.
+        assert await flexmeasures_client.server_version_at_least("1.0.0") is True
+        assert await flexmeasures_client.server_version_at_least("0.27.0") is True
+        assert await flexmeasures_client.server_version_at_least("1.1.0") is False
+        await flexmeasures_client.close()
