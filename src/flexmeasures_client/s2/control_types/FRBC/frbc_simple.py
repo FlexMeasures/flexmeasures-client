@@ -41,6 +41,50 @@ from flexmeasures_client.s2.control_types.translations import (
 )
 
 
+def _operation_mode_power_bands(
+    power_ranges: list[tuple[float, float]], power_unit: str
+) -> list[dict[str, list[str]]]:
+    """Turn the power ranges an actuator states into the bands FlexMeasures plans within.
+
+    A device with operation modes may only run inside one of its bands,
+    so an on/off heater is asked for as {0 W} and {883.7 W} rather than as everything in between,
+    which the resource manager would have to round into a full-on block,
+    overshooting whatever capacity the site is held to.
+
+    S2 states one signed range, where positive means consumption,
+    while FlexMeasures asks for the two directions separately, each non-negative.
+    So a range is split at zero: its non-negative part is the consumption range,
+    its negative part is the production range with the sign flipped,
+    and a range spanning zero becomes both, each starting at zero.
+
+    :param power_ranges: lower and upper bound of each range the actuator states, signed as S2 states them.
+    :param power_unit:   the unit those bounds are in.
+    :returns:            one band per distinct range, in the order the actuator stated them.
+    """
+
+    # Zero is the first argument of each max() below, so that a bound of exactly zero is stated as zero,
+    # rather than as the negative zero that flipping a sign leaves behind.
+    bands: list[dict[str, list[str]]] = []
+    for lower, upper in power_ranges:
+        band: dict[str, list[str]] = {}
+        if upper > 0:
+            band["consumption-range"] = [
+                f"{max(0.0, lower)} {power_unit}",
+                f"{upper} {power_unit}",
+            ]
+        if lower < 0:
+            band["production-range"] = [
+                f"{max(0.0, -upper)} {power_unit}",
+                f"{-lower} {power_unit}",
+            ]
+        if not band:
+            # A range of exactly {0}: the mode in which the actuator draws nothing either way.
+            band["consumption-range"] = [f"0 {power_unit}", f"0 {power_unit}"]
+        if band not in bands:
+            bands.append(band)
+    return bands
+
+
 class FRBCSimple(FRBC):
     _power_sensor_id: int
     _price_sensor_id: int
@@ -59,6 +103,7 @@ class FRBCSimple(FRBC):
     _schedule_duration: timedelta
     _valid_from_shift: timedelta
     _fill_level_scale: float
+    _hard_bound_factor: float
 
     def __init__(
         self,
@@ -87,6 +132,10 @@ class FRBCSimple(FRBC):
         max_size: int = 100,
         valid_from_shift: timedelta = timedelta(days=1),
         fill_level_scale: float = 1,
+        # How far above the declared fill-level range the hard upper bound of a schedule sits.
+        # Half again as high, so that a storage overshooting its declared range stays feasible.
+        # A deployment whose storage cannot overshoot at all can bring this down to 1.
+        hard_bound_factor: float = 1.5,
         power_unit: str = "W",
         # The unit a fill level is recorded in: a state of charge and the minima and maxima
         # bounding it all go out in this one unit, so that they can be compared at all.
@@ -109,7 +158,22 @@ class FRBCSimple(FRBC):
         self._usage_forecast_sensor_id = usage_forecast_sensor_id
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._timezone = ZoneInfo(timezone)
+        if fill_level_scale <= 0:
+            # Every fill level this handler records is multiplied by the scale,
+            # and the hard bounds a schedule was planned against are divided back by it,
+            # so zero divides by zero and a negative scale turns the bounds upside down.
+            raise ValueError(
+                f"fill_level_scale has to be greater than zero, since it converts a fill level into the unit it is recorded in, but {fill_level_scale} was given."
+            )
         self._fill_level_scale = fill_level_scale
+        if hard_bound_factor < 1:
+            # Below one, the hard upper bound sits inside the declared range,
+            # and FlexMeasures clips the band into the hard bounds,
+            # so the band would be narrowed to something the resource manager never asked for.
+            raise ValueError(
+                f"hard_bound_factor has to be at least 1, so that the hard upper bound sits at or above the declared fill-level range, but {hard_bound_factor} was given."
+            )
+        self._hard_bound_factor = hard_bound_factor
         self.power_unit = power_unit
         self.energy_unit = energy_unit
 
@@ -178,7 +242,7 @@ class FRBCSimple(FRBC):
         self, status: FRBCStorageStatus, request_number: int | None = None
     ):
         now = self.now()
-        await self._fm_client.post_sensor_data(
+        await self._fm_client.post_measurements(
             self._soc_sensor_id,
             start=self.now(),
             # Scaled like every other fill level this handler records, or the level and the
@@ -350,101 +414,44 @@ class FRBCSimple(FRBC):
             print("Can't trigger schedule without knowing the status of the storage...")
             return
 
-        # Assume a single actuator
-        actuator = system_description.actuators[0]
-
-        # Derive the overall power range.
-        # NB an S2 PowerRange runs from start_of_range (lower bound) to
-        # end_of_range (upper bound). The device can only produce if some
-        # range extends below zero; a consumption-only device (e.g. a heat
-        # pump) must get a zero production-capacity, or the scheduler will
-        # happily "discharge" its thermal storage as if it were an electric
-        # battery.
-        overall_min = None
-        overall_max = None
-        for operation_mode in actuator.operation_modes:
-            for element in operation_mode.elements:
-                for power_range in element.power_ranges:
-                    # todo: distinguish power range per commodity
-                    lo = power_range.start_of_range
-                    hi = power_range.end_of_range
-                    overall_min = lo if overall_min is None else min(overall_min, lo)
-                    overall_max = hi if overall_max is None else max(overall_max, hi)
-        charging_capacity = max(overall_max, 0)
-        discharging_capacity = max(-min(overall_min, 0), 0)
-
-        # Translate the S2 operation modes into FM power bands (the flex-model's
-        # "operation-modes" field): one band per operation-mode element power
-        # range, so FlexMeasures only schedules power values the device can
-        # actually run at (e.g. {0 W} U {883.7 W} for an on/off heater, instead
-        # of a fractional power that the RM would have to round to a full-on
-        # block, overshooting site capacity limits). Only sent when the bands
-        # actually restrict the power range (more than one distinct band).
-        # Which shape the power bands take depends on the server: FlexMeasures from
-        # v1.0.0 wants consumption and production stated separately and rejects the
-        # single signed field, while older servers want only that signed field. Asking
-        # the server rather than pinning it per branch keeps one client working against
-        # both.
-        split_power_ranges = _server_version_at_least(
-            await self._fm_client._resolve_server_version(), "1.0.0"
-        )
-        operation_mode_bands: list[dict] = []
-        for operation_mode in actuator.operation_modes:
-            for element in operation_mode.elements:
-                for power_range in element.power_ranges:
-                    band_min, band_max = sorted(
-                        (power_range.start_of_range, power_range.end_of_range)
-                    )
-                    # S2 fixes one sign convention for power (positive means
-                    # consumption), while FlexMeasures asks for the two
-                    # directions separately, each non-negative. Split the S2
-                    # range by sign: its non-negative part is the consumption
-                    # range, and its negative part becomes the production range
-                    # with the sign flipped. A band spanning zero maps onto
-                    # both, and each of those then starts at zero.
-                    band: dict[str, list[str]] = {}
-                    if not split_power_ranges:
-                        band["power-range"] = [
-                            f"{band_min} {self.power_unit}",
-                            f"{band_max} {self.power_unit}",
-                        ]
-                    elif band_max > 0:
-                        band["consumption-range"] = [
-                            f"{max(band_min, 0)} {self.power_unit}",
-                            f"{band_max} {self.power_unit}",
-                        ]
-                    if band_min < 0:
-                        band["production-range"] = [
-                            f"{max(-band_max, 0)} {self.power_unit}",
-                            f"{-band_min} {self.power_unit}",
-                        ]
-                    if not band:
-                        # A band of exactly {0} on a v1 server: no power either way.
-                        band["consumption-range"] = [
-                            f"0 {self.power_unit}",
-                            f"0 {self.power_unit}",
-                        ]
-                    if band not in operation_mode_bands:
-                        operation_mode_bands.append(band)
-
-        # The RM's declared fill-level range is a comfort band, steered SOFTLY
-        # via the soc-minima/-maxima profiles (breach-priced server-side under
-        # relax-soc-constraints; see send_fill_level_target_profile, which
-        # clips those profiles into the declared range). The scalar
-        # soc-min/soc-max, by contrast, are HARD bounds server-side, and a
-        # hard bound at the declared range made physically-reachable states
-        # infeasible: free-float above "full", or a time-capped incumbent
-        # left below "empty" for the next day (a deterministically infeasible
-        # job). Declare wide safety rails instead; they only exist to keep
-        # the LP bounded (e.g. negative-price hours combined with a
-        # soc-value-at-end incentive).
-        _, range_top = get_soc_min_max(system_description, self._fill_level_scale)
-        soc_min = 0.0
-        soc_max = range_top * 1.5
-
-        # The state of charge the scheduler plans from, scaled here at the FlexMeasures edge,
-        # like the bounds around it, so that a level and the band holding it are comparable.
+        # Scaled at the FlexMeasures edge, like every bound and level below it.
         soc_at_start = fill_level_at_start * self._fill_level_scale
+
+        # The declared range is where a resource manager wants its storage kept, not where its storage can be:
+        # S2 calls it the range in which the fill level should remain,
+        # and has a resource manager free to ignore instructions while the fill level is outside it.
+        # So the range goes out as a band whose breach FlexMeasures prices,
+        # rather than as the hard soc-min and soc-max, which made states a storage really reaches infeasible,
+        # and an infeasible job is answered by the fallback scheduler, which ignores the band altogether.
+        # Hard bounds are still sent, but wide ones:
+        # a fill-level target profile need not cover the whole schedule,
+        # and over the part it does not cover there is nothing to price a breach of,
+        # so nothing else keeps a plan within reach of the storage it is planned for.
+        _, range_top = get_soc_min_max(system_description, self._fill_level_scale)
+        # Zero below, since a stock cannot be negative and FlexMeasures accepts no lower floor.
+        soc_min = 0.0
+        soc_max = range_top * self._hard_bound_factor
+        # A state of charge outside the hard bounds is infeasible before the first step,
+        # so the bounds widen to take it in.
+        # A storage outside its declared range is not an error:
+        # a resource manager is free to report one, and a schedule still has to be planned from where it says its storage is.
+        soc_min = min(soc_min, soc_at_start)
+        soc_max = max(soc_max, soc_at_start)
+
+        # One actuator, as everywhere else in this handler.
+        actuator = system_description.actuators[0]
+        # Every power range the actuator states, over all of its operation modes and their elements.
+        # An S2 power range runs from its lower bound to its upper one, and S2 fixes one sign convention,
+        # where positive means consumption,
+        # so an actuator can only produce where one of its ranges reaches below zero.
+        # todo: an element states one power range per commodity quantity, and no distinction is made between them here,
+        # as the schedule translation does not make one either (see power_to_fill_rate_with_metrics).
+        power_ranges = [
+            tuple(sorted((power_range.start_of_range, power_range.end_of_range)))
+            for operation_mode in actuator.operation_modes
+            for element in operation_mode.elements
+            for power_range in element.power_ranges
+        ]
 
         # Support for J energy unit (FM server scheduling trigger endpoint only accepts kWh and MWh)
         if self.energy_unit == "J":
@@ -456,6 +463,77 @@ class FRBCSimple(FRBC):
         else:
             energy_unit = self.energy_unit
 
+        flex_model: dict = {
+            # The same unit the fill level is recorded in, or the scheduler would plan against bounds a thousandfold off the measurements it plans from.
+            "soc-unit": energy_unit,
+            "soc-at-start": soc_at_start,
+            "soc-min": soc_min,
+            "soc-max": soc_max,
+            "state-of-charge": {"sensor": self._soc_sensor_id},
+        }
+        # What the resource manager declared about its storage, each entry only where a sensor holds it:
+        # an entry naming a sensor that was never configured has the scheduler plan against nothing at all.
+        # Both band sensors or neither, as when the band is recorded:
+        # one side alone is an open-ended push in one direction, not the band the resource manager declared.
+        has_soc_band = (
+            self._soc_minima_sensor_id is not None
+            and self._soc_maxima_sensor_id is not None
+        )
+        if has_soc_band:
+            flex_model["soc-minima"] = {"sensor": self._soc_minima_sensor_id}
+            flex_model["soc-maxima"] = {"sensor": self._soc_maxima_sensor_id}
+        elif (
+            self._soc_minima_sensor_id is not None
+            or self._soc_maxima_sensor_id is not None
+        ):
+            self._logger.info(
+                "Not asking for a schedule against a fill-level band: a band needs both a soc-minima and a soc-maxima sensor, and this handler was given %s and %s.",
+                self._soc_minima_sensor_id,
+                self._soc_maxima_sensor_id,
+            )
+        if self._usage_forecast_sensor_id is not None:
+            flex_model["soc-usage"] = [{"sensor": self._usage_forecast_sensor_id}]
+        if self._leakage_behaviour_sensor_id is not None:
+            flex_model["storage-efficiency"] = {
+                "sensor": self._leakage_behaviour_sensor_id
+            }
+        if self.charging_efficiency_sensor_id is not None:
+            flex_model["charging-efficiency"] = {
+                "sensor": self.charging_efficiency_sensor_id
+            }
+        if power_ranges:
+            # What the actuator can draw and what it can feed back, each non-negative,
+            # as FlexMeasures states the two directions separately.
+            # A resource manager that cannot produce at all has to say so:
+            # left out, the capacity falls back to whatever the asset carries,
+            # and a heat pump is then planned as if its buffer could be discharged into the grid.
+            consumption_capacity = max(0.0, max(upper for _, upper in power_ranges))
+            production_capacity = max(0.0, -min(lower for lower, _ in power_ranges))
+            flex_model["consumption-capacity"] = (
+                f"{consumption_capacity} {self.power_unit}"
+            )
+            flex_model["production-capacity"] = (
+                f"{production_capacity} {self.power_unit}"
+            )
+            operation_modes = _operation_mode_power_bands(power_ranges, self.power_unit)
+            # Only where the bands say more than the two capacities above already do,
+            # which takes more than one of them:
+            # a single band is the capacity range itself.
+            # And only to a server that has the field.
+            # FlexMeasures added operation-modes in v1.0.0,
+            # and a flex model naming a field the server does not know is refused outright,
+            # which would leave the resource manager with no schedule at all.
+            if len(operation_modes) > 1:
+                if _server_version_at_least(
+                    await self._fm_client._resolve_server_version(), "1.0.0"
+                ):
+                    flex_model["operation-modes"] = operation_modes
+                else:
+                    self._logger.info(
+                        "Not asking for a schedule against the operation modes' power bands: FlexMeasures has the operation-modes flex-model field from v1.0.0, and this server reports %s.",
+                        self._fm_client.server_version,
+                    )
+        self._logger.debug(f"flex_model: {flex_model}")
         # call schedule
         if start is None:
             start = self.schedule_start(system_description.valid_from)
@@ -467,7 +545,6 @@ class FRBCSimple(FRBC):
                 "sensor": self._production_price_sensor_id or self._price_sensor_id
             },
             "site-power-capacity": f"{3 * 25 * 230} VA",
-            "relax-soc-constraints": True,
             # Also relax site-level capacity specifically (not the broader
             # relax-constraints/relax-capacity-constraints, which additionally soften
             # *device*-level capacity constraints): this fills in a default
@@ -482,40 +559,14 @@ class FRBCSimple(FRBC):
             # via py-spy: time was spent inside the solver itself, not a Python hang).
             "relax-site-capacity-constraints": True,
         }
-        # Last-resort rail: a start state outside the hard bounds would make
-        # the whole problem infeasible, so widen them to include it.
-        soc_min = min(soc_min, soc_at_start)
-        soc_max = max(soc_max, soc_at_start)
-        flex_model: dict = {
-            "soc-unit": energy_unit,
-            "soc-at-start": soc_at_start,
-            "soc-min": soc_min,
-            "soc-max": soc_max,
-            "state-of-charge": {"sensor": self._soc_sensor_id},
-            "consumption-capacity": f"{charging_capacity} {self.power_unit}",
-            "production-capacity": f"{discharging_capacity} {self.power_unit}",
-        }
-        # What the resource manager declared about its storage, each entry only where there is
-        # a sensor holding it: an entry naming a sensor that was never configured would have
-        # the scheduler plan against nothing at all.
-        if self._soc_minima_sensor_id is not None:
-            flex_model["soc-minima"] = {"sensor": self._soc_minima_sensor_id}
-        if self._soc_maxima_sensor_id is not None:
-            flex_model["soc-maxima"] = {"sensor": self._soc_maxima_sensor_id}
-        if self._usage_forecast_sensor_id is not None:
-            flex_model["soc-usage"] = [{"sensor": self._usage_forecast_sensor_id}]
-        if self._leakage_behaviour_sensor_id is not None:
-            flex_model["storage-efficiency"] = {
-                "sensor": self._leakage_behaviour_sensor_id
-            }
-        if self.charging_efficiency_sensor_id is not None:
-            flex_model["charging-efficiency"] = {
-                "sensor": self.charging_efficiency_sensor_id
-            }
-        if len(operation_mode_bands) > 1:
-            flex_model["operation-modes"] = operation_mode_bands
+        if has_soc_band:
+            # Without this, the minima and maxima above are hard bounds again,
+            # and the band is back to making reachable states infeasible.
+            # The breach price is left to FlexMeasures' own default,
+            # since what a breach of comfort is worth is the deployment's judgement, not the protocol's.
+            flex_context["relax-soc-constraints"] = True
+
         self._logger.debug(f"flex_context: {flex_context}")
-        self._logger.debug(f"flex_model: {flex_model}")
         self._logger.debug(
             f"HANGDEBUG trigger_schedule: about to call trigger_and_get_schedule "
             f"(power_sensor_id={self._power_sensor_id})"
@@ -631,7 +682,17 @@ class FRBCSimple(FRBC):
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
         instructions = fm_schedule_to_instructions(
-            schedule, system_description, initial_fill_level=fill_level_at_start
+            schedule,
+            system_description,
+            initial_fill_level=fill_level_at_start,
+            # The hard bounds this schedule was planned against, back in the resource manager's own units.
+            # Read back against the declared range instead,
+            # a schedule planned outside that range would be answered with the operation modes for a fill level pinned to the range's nearest edge,
+            # which is not where the scheduler planned the storage to be.
+            fill_level_bounds=(
+                soc_min / self._fill_level_scale,
+                soc_max / self._fill_level_scale,
+            ),
         )
 
         await self.send_instruction_batch(

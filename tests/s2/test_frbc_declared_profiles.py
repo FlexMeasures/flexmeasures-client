@@ -120,8 +120,6 @@ def _frbc(system_description, *, with_sensors: bool) -> FRBCSimple:
         **sensors,
     )
     frbc._fm_client = AsyncMock(FlexMeasuresClient)
-    # The flex model's power bands take a different shape per server version, so the handler asks.
-    frbc._fm_client._resolve_server_version = AsyncMock(return_value="1.1.0")
     frbc._logger = logging.getLogger(__name__)
     frbc._system_description_history = {
         system_description.message_id: system_description
@@ -145,6 +143,17 @@ def _target_profile(bottom: float, top: float) -> FRBCFillLevelTargetProfile:
 
 def _posted(frbc: FRBCSimple, sensor_id: int) -> dict:
     for call in frbc._fm_client.post_sensor_data.await_args_list:
+        if (
+            call.kwargs.get("sensor_id", call.args[0] if call.args else None)
+            == sensor_id
+        ):
+            return call.kwargs
+    raise AssertionError(f"nothing was posted to sensor {sensor_id}")
+
+
+def _posted_measurement(frbc: FRBCSimple, sensor_id: int) -> dict:
+    """A state of charge still goes out through the deprecated post_measurements alias."""
+    for call in frbc._fm_client.post_measurements.await_args_list:
         if (
             call.kwargs.get("sensor_id", call.args[0] if call.args else None)
             == sensor_id
@@ -346,7 +355,7 @@ async def test_a_state_of_charge_and_its_bounds_share_one_unit(system_descriptio
     )
     await frbc.send_fill_level_target_profile(_target_profile(30.0, 60.0))
 
-    level_unit = _posted(frbc, 3)["unit"]
+    level_unit = _posted_measurement(frbc, 3)["unit"]
     minima_unit = _posted(frbc, SOC_MINIMA_SENSOR_ID)["unit"]
     maxima_unit = _posted(frbc, SOC_MAXIMA_SENSOR_ID)["unit"]
     assert level_unit == minima_unit == maxima_unit == "kWh"
@@ -365,8 +374,6 @@ async def test_the_energy_unit_is_the_deployment_s_to_choose(system_description)
         energy_unit="MWh",
     )
     frbc._fm_client = AsyncMock(FlexMeasuresClient)
-    # The flex model's power bands take a different shape per server version, so the handler asks.
-    frbc._fm_client._resolve_server_version = AsyncMock(return_value="1.1.0")
     frbc._logger = logging.getLogger(__name__)
     frbc._system_description_history = {
         system_description.message_id: system_description
@@ -377,7 +384,7 @@ async def test_the_energy_unit_is_the_deployment_s_to_choose(system_description)
     )
     await frbc.send_fill_level_target_profile(_target_profile(30.0, 60.0))
 
-    assert _posted(frbc, 3)["unit"] == "MWh"
+    assert _posted_measurement(frbc, 3)["unit"] == "MWh"
     assert _posted(frbc, SOC_MINIMA_SENSOR_ID)["unit"] == "MWh"
 
 
@@ -439,8 +446,6 @@ async def test_every_fill_level_follows_the_same_scale(system_description):
         fill_level_scale=scale,
     )
     frbc._fm_client = AsyncMock(FlexMeasuresClient)
-    # The flex model's power bands take a different shape per server version, so the handler asks.
-    frbc._fm_client._resolve_server_version = AsyncMock(return_value="1.1.0")
     frbc._logger = logging.getLogger(__name__)
     frbc._system_description_history = {
         system_description.message_id: system_description
@@ -463,18 +468,18 @@ async def test_every_fill_level_follows_the_same_scale(system_description):
     await frbc.send_fill_level_target_profile(_target_profile(30.0, 60.0))
     await frbc.trigger_schedule(system_description.message_id)
 
-    assert _posted(frbc, 3)["values"] == [30.0 * scale]
+    assert _posted_measurement(frbc, 3)["values"] == [30.0 * scale]
     assert min(_posted(frbc, SOC_MINIMA_SENSOR_ID)["values"]) == 30.0 * scale
     flex_model = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
         "flex_model"
     ]
-    # The hard bounds are wide safety rails rather than the declared range itself, which is
-    # steered softly through the minima and maxima above (see trigger_schedule), but they are
-    # derived from that range, so they carry its scale.
+    # The hard bounds are wider than the declared range itself,
+    # which the minima and maxima above now carry (see test_frbc_soft_band),
+    # but they are derived from that range, so they are in its scale too.
     assert flex_model["soc-min"] == 0.0
     assert flex_model["soc-max"] == RANGE_TOP * scale * 1.5
-    # The whole flex-model is in one scale, soc-at-start included: a starting point outside the
-    # bounds around it would be infeasible, or silently clamped.
+    # The whole flex model is in one scale, soc-at-start included:
+    # a starting point outside the bounds around it would be infeasible, or silently clamped.
     assert flex_model["soc-at-start"] == 30.0 * scale
     assert flex_model["soc-min"] <= flex_model["soc-at-start"] <= flex_model["soc-max"]
 
@@ -498,8 +503,6 @@ async def test_the_instruction_translation_stays_in_the_resource_managers_units(
         fill_level_scale=scale,
     )
     frbc._fm_client = AsyncMock(FlexMeasuresClient)
-    # The flex model's power bands take a different shape per server version, so the handler asks.
-    frbc._fm_client._resolve_server_version = AsyncMock(return_value="1.1.0")
     frbc._logger = logging.getLogger(__name__)
     frbc._system_description_history = {
         system_description.message_id: system_description
@@ -570,8 +573,6 @@ async def test_an_actuator_s_fill_rate_is_posted_in_the_fill_rate_unit(
         fill_rate_sensor_id=fill_rate_sensor_id,
     )
     frbc._fm_client = AsyncMock(FlexMeasuresClient)
-    # The flex model's power bands take a different shape per server version, so the handler asks.
-    frbc._fm_client._resolve_server_version = AsyncMock(return_value="1.1.0")
     frbc._logger = logging.getLogger(__name__)
     frbc._system_description_history = {
         system_description.message_id: system_description

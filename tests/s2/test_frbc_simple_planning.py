@@ -121,7 +121,7 @@ async def test_a_storage_status_asks_for_a_schedule():
 
     frbc._fm_client.trigger_and_get_schedule.assert_awaited_once()
     assert frbc._sending_queue.qsize() > 0, "the schedule must become instructions"
-    posted = frbc._fm_client.post_sensor_data.await_args
+    posted = frbc._fm_client.post_measurements.await_args
     assert posted.args[0] == SOC_SENSOR_ID
     assert posted.kwargs["values"] == [0.4]
 
@@ -154,7 +154,7 @@ async def test_the_state_of_charge_is_recorded_even_when_the_plan_is_superseded(
     # carries), so only what reached the state-of-charge sensor is counted here.
     soc_posts = [
         call
-        for call in frbc._fm_client.post_sensor_data.await_args_list
+        for call in frbc._fm_client.post_measurements.await_args_list
         if call.args and call.args[0] == SOC_SENSOR_ID
     ]
     assert len(soc_posts) == 2
@@ -169,7 +169,7 @@ async def test_a_storage_status_before_any_description_still_records_the_measure
     await frbc.handle_message(storage_status(0.3))
     await settle(frbc)
 
-    frbc._fm_client.post_sensor_data.assert_awaited_once()
+    frbc._fm_client.post_measurements.assert_awaited_once()
     frbc._fm_client.trigger_and_get_schedule.assert_not_awaited()
 
 
