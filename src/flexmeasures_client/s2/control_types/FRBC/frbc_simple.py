@@ -37,8 +37,53 @@ from flexmeasures_client.s2.control_types.translations import (
 )
 
 #: The unit S2 states a power value in, and so the unit of an operation mode's power ranges.
-#: A schedule is read back in this unit, whatever unit the power sensor holding it is recorded in.
+#: A schedule is read back in this unit, whatever unit the power sensor holding it is recorded in,
+#: and what goes out to FlexMeasures in it is what came in from a resource manager in it.
 S2_POWER_UNIT = "W"
+
+
+def _operation_mode_power_bands(
+    power_ranges: list[tuple[float, float]], power_unit: str
+) -> list[dict[str, list[str]]]:
+    """Turn the power ranges an actuator states into the bands FlexMeasures plans within.
+
+    A device with operation modes may only run inside one of its bands,
+    so an on/off heater is asked for as {0 W} and {883.7 W} rather than as everything in between,
+    which the resource manager would have to round into a full-on block,
+    overshooting whatever capacity the site is held to.
+
+    S2 states one signed range, where positive means consumption,
+    while FlexMeasures asks for the two directions separately, each non-negative.
+    So a range is split at zero: its non-negative part is the consumption range,
+    its negative part is the production range with the sign flipped,
+    and a range spanning zero becomes both, each starting at zero.
+
+    :param power_ranges: lower and upper bound of each range the actuator states, signed as S2 states them.
+    :param power_unit:   the unit those bounds are in.
+    :returns:            one band per distinct range, in the order the actuator stated them.
+    """
+
+    # Zero is the first argument of each max() below, so that a bound of exactly zero is stated as zero,
+    # rather than as the negative zero that flipping a sign leaves behind.
+    bands: list[dict[str, list[str]]] = []
+    for lower, upper in power_ranges:
+        band: dict[str, list[str]] = {}
+        if upper > 0:
+            band["consumption-range"] = [
+                f"{max(0.0, lower)} {power_unit}",
+                f"{upper} {power_unit}",
+            ]
+        if lower < 0:
+            band["production-range"] = [
+                f"{max(0.0, -upper)} {power_unit}",
+                f"{-lower} {power_unit}",
+            ]
+        if not band:
+            # A range of exactly {0}: the mode in which the actuator draws nothing either way.
+            band["consumption-range"] = [f"0 {power_unit}", f"0 {power_unit}"]
+        if band not in bands:
+            bands.append(band)
+    return bands
 
 
 class FRBCSimple(FRBC):
@@ -317,6 +362,21 @@ class FRBCSimple(FRBC):
         # Scaled at the FlexMeasures edge, like every bound and level below it.
         soc_at_start = fill_level_at_start * self._fill_level_scale
 
+        # One actuator, as everywhere else in this handler.
+        actuator = system_description.actuators[0]
+        # Every power range the actuator states, over all of its operation modes and their elements.
+        # An S2 power range runs from its lower bound to its upper one, and S2 fixes one sign convention,
+        # where positive means consumption,
+        # so an actuator can only produce where one of its ranges reaches below zero.
+        # TODO: an element states one power range per commodity quantity, and no distinction is made between them here,
+        # as the schedule translation does not make one either (see power_to_fill_rate_with_metrics).
+        power_ranges = [
+            tuple(sorted((power_range.start_of_range, power_range.end_of_range)))
+            for operation_mode in actuator.operation_modes
+            for element in operation_mode.elements
+            for power_range in element.power_ranges
+        ]
+
         # The declared range is where a resource manager wants its storage kept, not where its storage can be:
         # S2 calls it the range in which the fill level should remain,
         # and has a resource manager free to ignore instructions while the fill level is outside it.
@@ -371,6 +431,41 @@ class FRBCSimple(FRBC):
             flex_model["storage-efficiency"] = {
                 "sensor": self._leakage_behaviour_sensor_id
             }
+        if power_ranges:
+            # What the actuator can draw and what it can feed back, each non-negative,
+            # as FlexMeasures states the two directions separately.
+            # A resource manager that cannot produce at all has to say so:
+            # left out, the capacity falls back to whatever the asset carries,
+            # and a heat pump is then planned as if its buffer could be discharged into the grid.
+            consumption_capacity = max(0.0, max(upper for _, upper in power_ranges))
+            production_capacity = max(0.0, -min(lower for lower, _ in power_ranges))
+            # In watts, since these are the resource manager's own numbers and S2 states them in watts.
+            # Not in power_unit, which says how a power value this handler posts is labelled.
+            flex_model["consumption-capacity"] = (
+                f"{consumption_capacity} {S2_POWER_UNIT}"
+            )
+            flex_model["production-capacity"] = f"{production_capacity} {S2_POWER_UNIT}"
+            operation_modes = _operation_mode_power_bands(power_ranges, S2_POWER_UNIT)
+            # Only where the bands say more than the two capacities above already do.
+            # The capacities say the actuator can run at any power from minus its production capacity to its consumption capacity,
+            # so a single band running through zero is exactly that and says nothing new.
+            # Any other single band does: an actuator that runs at 200 W or not at all rules out everything in between,
+            # and so does one that only ever feeds back.
+            # And only to a server that has the field.
+            # FlexMeasures added operation-modes in v1.0.0,
+            # and a flex model naming a field the server does not know is refused outright,
+            # which would leave the resource manager with no schedule at all.
+            says_more_than_the_capacities = len(operation_modes) > 1 or not any(
+                lower <= 0 <= upper for lower, upper in power_ranges
+            )
+            if says_more_than_the_capacities:
+                if await self._fm_client.server_version_at_least("1.0.0"):
+                    flex_model["operation-modes"] = operation_modes
+                else:
+                    self._logger.info(
+                        "Not asking for a schedule against the operation modes' power bands: FlexMeasures has the operation-modes flex-model field from v1.0.0, and this server reports %s.",
+                        self._fm_client.server_version,
+                    )
         self._logger.debug("flex model: %s", flex_model)
 
         flex_context: dict = {
