@@ -13,3 +13,8 @@ Most-missed rules, called out so they are not forgotten:
   See [`milestones.instructions.md`](.github/instructions/milestones.instructions.md).
 - **Add a changelog entry** under **Unreleased** for changes users notice,
   in `CHANGELOG.rst`, or in `CHANGELOG-S2.rst` for the S2 integration.
+- **Docstrings and comments break lines only after punctuation** — never wrap in the middle of a phrase.
+  Each physical line ends at a comma, semicolon, colon, or period.
+  `E501` is ignored, so prefer a long clause on one line over a mid-phrase break.
+  This keeps review comments and text search stable.
+  See [`docstrings.instructions.md`](.github/instructions/docstrings.instructions.md).
