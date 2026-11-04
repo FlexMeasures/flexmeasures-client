@@ -84,6 +84,15 @@ def _frbc(system_description) -> FRBCSimple:
         rm_discharge_sensor_id=4,
     )
     frbc._fm_client = AsyncMock(FlexMeasuresClient)
+    # The handler asks the power sensor which sign it records consumption in.
+    # S2's own, so that a posted power reads here as S2 states it.
+    frbc._fm_client.get_sensor = AsyncMock(
+        return_value={
+            "id": POWER_SENSOR_ID,
+            "unit": "W",
+            "attributes": {"consumption_is_positive": True},
+        }
+    )
     frbc._system_description_history = {
         system_description.message_id: system_description
     }

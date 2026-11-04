@@ -209,6 +209,11 @@ async def configure_site(
             unit="kW",
             generic_asset_id=site_asset["id"],
             timezone=SITE_TIMEZONE,
+            # S2 states a power as positive when it is consumed,
+            # and this sensor holds both an actuator's power and the schedule planned for it.
+            # Left unsaid, FlexMeasures reads a power sensor the other way round,
+            # and flips a schedule's sign on the way in, which puts the two in opposite directions.
+            attributes={"consumption_is_positive": True},
         )
     if soc_sensor is None:
         soc_sensor = await fm_client.add_sensor(
@@ -257,4 +262,6 @@ app = web.Application()
 app.on_startup.append(configure_site_once)
 app.on_cleanup.append(close_fm_client)
 app.add_routes([web.get("/ws", websocket_handler)])
-web.run_app(app)
+
+if __name__ == "__main__":
+    web.run_app(app)
