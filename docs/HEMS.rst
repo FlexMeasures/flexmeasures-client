@@ -158,10 +158,15 @@ Each measurement is recorded as known at the end of its event,
 so a forecast or schedule made during the simulation only uses the measurements that would have been available at that moment.
 Measured data is never used before it is "known".
 
-This means that a graph of the simulated days shows measurements and forecasts side by side.
-To see what was known as the simulation progressed, press the replay button on the asset page (or hit **p**).
+This means that a graph of the simulated days shows measurements (solid lines) and forecasts (dotted lines) on top of each other.
+To see what was known as the simulation progressed, press the replay button on a site's graphs page (or hit **p**, or **n** to step one hour at a time).
 Replay only shows data that had been recorded by the time on the replay clock,
-so the measurements fill in behind the forecasts and schedules, step by step.
+so measurements and executed schedules (left of the replay line) fill in behind the forecasts and planned schedules (dotted and dashed lines, right of it).
+Prices and capacity limits stay visible for the whole period, because they were uploaded as known in advance.
+
+.. image:: https://raw.githubusercontent.com/FlexMeasures/screenshots/main/HEMS-tutorial-replay.png
+    :align: center
+
 
 Rerunning or resuming the tutorial
 ==================================
