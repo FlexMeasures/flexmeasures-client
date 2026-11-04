@@ -25,6 +25,7 @@ except ImportError:
 import pandas as pd
 
 from flexmeasures_client.client import convert_units
+from flexmeasures_client.exceptions import JobFailedError
 from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     clip_fill_level_target_profile,
@@ -63,6 +64,9 @@ class FRBCSimple(FRBC):
     #: Read from the sensor itself the first time a power value is posted, and remembered after that.
     #: None until it has been read.
     _power_sensor_takes_consumption_as_positive: bool | None
+    #: When a power value was last recorded for the actuator, and for which moment,
+    #: so that a second status inside one event does not collide with the first.
+    _last_power_recorded: tuple[datetime, datetime] | None
 
     def __init__(
         self,
@@ -123,6 +127,7 @@ class FRBCSimple(FRBC):
             )
         self._fill_level_scale = fill_level_scale
         self._power_sensor_takes_consumption_as_positive = None
+        self._last_power_recorded = None
         if hard_bound_factor < 1:
             # Below one, the hard upper bound sits inside the declared range,
             # and FlexMeasures clips the band into the hard bounds,
@@ -327,16 +332,43 @@ class FRBCSimple(FRBC):
 
         start = status.transition_timestamp or self.now()
 
-        await self._fm_client.post_sensor_data(
-            self._power_sensor_id,
-            start=start,
-            prior=self.now(),
-            values=[
-                self._in_the_power_unit(await self._as_the_power_sensor_reads_it(power))
-            ],
-            unit=self.power_unit,
-            duration=timedelta(minutes=15),
-        )
+        # A belief time that supersedes the one before it, rather than colliding with it.
+        # FlexMeasures keys a belief on its sensor, its source, the event and the moment it was formed,
+        # and rounds that moment down to the second,
+        # so two statuses inside one second are one belief and the later one is refused.
+        # A resource manager sends a status for each instruction it applies,
+        # and this handler sends several at once, so two in a second is the ordinary case rather than an edge.
+        recorded_at = self.now()
+        if self._last_power_recorded is not None:
+            last_start, last_recorded_at = self._last_power_recorded
+            if last_start == start and recorded_at - last_recorded_at < timedelta(
+                seconds=1
+            ):
+                recorded_at = last_recorded_at + timedelta(seconds=1)
+        self._last_power_recorded = (start, recorded_at)
+
+        value = self._in_the_power_unit(await self._as_the_power_sensor_reads_it(power))
+        try:
+            await self._fm_client.post_sensor_data(
+                self._power_sensor_id,
+                start=start,
+                prior=recorded_at,
+                values=[value],
+                unit=self.power_unit,
+                duration=timedelta(minutes=15),
+            )
+        except (JobFailedError, ValueError):
+            # This runs in a task nobody awaits,
+            # so an exception here is logged by asyncio at best and lost at worst.
+            # Say which measurement went missing,
+            # since a power sensor silently holding a plan and no measurement is the hardest state to notice.
+            self._logger.exception(
+                "Could not record %s %s on power sensor %s for %s.",
+                value,
+                self.power_unit,
+                self._power_sensor_id,
+                start,
+            )
 
         # The fill rate goes to its own sensor rather than being discarded. It is a real and
         # useful quantity - what the actuator delivers into its buffer - it simply is not power.

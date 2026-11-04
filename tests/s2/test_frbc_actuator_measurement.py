@@ -12,6 +12,7 @@ so the later one was refused and, being posted from a task nobody awaits, lost w
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -26,6 +27,7 @@ from s2python.frbc import (
 )
 
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.exceptions import JobFailedError
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 from flexmeasures_client.s2.utils import get_unique_id
 
@@ -204,3 +206,59 @@ async def test_watts_are_posted_unconverted(system_description):
     posted = _posts_to_the_power_sensor(frbc)[0]
     assert posted["unit"] == "W"
     assert posted["values"] == [ON_W]
+
+
+@pytest.mark.asyncio
+async def test_a_second_status_in_one_second_supersedes_the_first(system_description):
+    """FlexMeasures rounds the moment a belief was formed down to the second.
+
+    Two statuses inside one second are then one belief,
+    and the later one is refused rather than replacing the earlier,
+    so the value that survives is the one the actuator has already left behind.
+    """
+    frbc = _frbc(system_description, consumption_as_positive=True)
+    transition = datetime(2024, 1, 1, 12, 7, 13, tzinfo=timezone.utc)
+
+    # Both statuses are for the same moment, as a resource manager echoing two instructions sends them.
+    for mode_index in (1, 0):
+        status = _status(system_description, mode_index)
+        status.transition_timestamp = transition
+        await frbc.send_actuator_status(status)
+
+    posts = _posts_to_the_power_sensor(frbc)
+    assert [post["values"][0] for post in posts] == [ON_W, 0.0]
+    first, second = (post["prior"] for post in posts)
+    assert second - first >= timedelta(seconds=1)
+
+
+@pytest.mark.asyncio
+async def test_a_status_for_another_moment_keeps_its_own_belief_time(
+    system_description,
+):
+    """Only a collision is worth stepping around; everything else is recorded as it happened."""
+    frbc = _frbc(system_description, consumption_as_positive=True)
+
+    for minute in (7, 23):
+        status = _status(system_description, 1)
+        status.transition_timestamp = datetime(
+            2024, 1, 1, 12, minute, 0, tzinfo=timezone.utc
+        )
+        await frbc.send_actuator_status(status)
+
+    first, second = (post["prior"] for post in _posts_to_the_power_sensor(frbc))
+    assert second - first < timedelta(seconds=1)
+
+
+@pytest.mark.asyncio
+async def test_a_refused_measurement_is_reported(system_description, caplog):
+    """The post runs in a task nobody awaits, so a failure here is otherwise lost."""
+    frbc = _frbc(system_description, consumption_as_positive=True)
+    frbc._fm_client.post_sensor_data = AsyncMock(
+        side_effect=JobFailedError("ingestion job failed")
+    )
+
+    with caplog.at_level(logging.ERROR):
+        await frbc.send_actuator_status(_status(system_description, 1))
+
+    assert "could not record" in caplog.text.lower()
+    assert str(POWER_SENSOR_ID) in caplog.text
