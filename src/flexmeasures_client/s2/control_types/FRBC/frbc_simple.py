@@ -88,7 +88,7 @@ class FRBCSimple(FRBC):
         # Those values come straight from the operation modes' power ranges, which S2 states in watts,
         # and nothing converts them on the way out,
         # so a deployment that sets another unit here has them recorded at the wrong magnitude.
-        # todo: either convert a power value into this unit before posting it, or drop this and post watts, as S2 states them.
+        # TODO: either convert a power value into this unit before posting it, or drop this and post watts, as S2 states them.
         power_unit: str = "W",
         # The unit a fill level is recorded in: a state of charge and the minima and maxima
         # bounding it all go out in this one unit, so that they can be compared at all.
