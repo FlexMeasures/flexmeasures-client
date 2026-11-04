@@ -7,7 +7,6 @@ import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from flexmeasures_client.client import _server_version_at_least
 from flexmeasures_client.exceptions import JobFailedError
 
 try:
@@ -44,50 +43,6 @@ from flexmeasures_client.s2.control_types.translations import (
 #: A schedule is read back in this unit, whatever unit the power sensor holding it is recorded in,
 #: and what goes out to FlexMeasures in it is what came in from a resource manager in it.
 S2_POWER_UNIT = "W"
-
-
-def _operation_mode_power_bands(
-    power_ranges: list[tuple[float, float]], power_unit: str
-) -> list[dict[str, list[str]]]:
-    """Turn the power ranges an actuator states into the bands FlexMeasures plans within.
-
-    A device with operation modes may only run inside one of its bands,
-    so an on/off heater is asked for as {0 W} and {883.7 W} rather than as everything in between,
-    which the resource manager would have to round into a full-on block,
-    overshooting whatever capacity the site is held to.
-
-    S2 states one signed range, where positive means consumption,
-    while FlexMeasures asks for the two directions separately, each non-negative.
-    So a range is split at zero: its non-negative part is the consumption range,
-    its negative part is the production range with the sign flipped,
-    and a range spanning zero becomes both, each starting at zero.
-
-    :param power_ranges: lower and upper bound of each range the actuator states, signed as S2 states them.
-    :param power_unit:   the unit those bounds are in.
-    :returns:            one band per distinct range, in the order the actuator stated them.
-    """
-
-    # Zero is the first argument of each max() below, so that a bound of exactly zero is stated as zero,
-    # rather than as the negative zero that flipping a sign leaves behind.
-    bands: list[dict[str, list[str]]] = []
-    for lower, upper in power_ranges:
-        band: dict[str, list[str]] = {}
-        if upper > 0:
-            band["consumption-range"] = [
-                f"{max(0.0, lower)} {power_unit}",
-                f"{upper} {power_unit}",
-            ]
-        if lower < 0:
-            band["production-range"] = [
-                f"{max(0.0, -upper)} {power_unit}",
-                f"{-lower} {power_unit}",
-            ]
-        if not band:
-            # A range of exactly {0}: the mode in which the actuator draws nothing either way.
-            band["consumption-range"] = [f"0 {power_unit}", f"0 {power_unit}"]
-        if band not in bands:
-            bands.append(band)
-    return bands
 
 
 def _operation_mode_power_bands(
