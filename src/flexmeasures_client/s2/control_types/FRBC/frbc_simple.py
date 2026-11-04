@@ -32,6 +32,7 @@ from flexmeasures_client.s2.control_types.FRBC.utils import (
     clip_fill_level_target_profile,
     fm_schedule_to_instructions,
     get_soc_min_max,
+    operation_mode_conversion_efficiency,
 )
 from flexmeasures_client.s2.control_types.translations import (
     leakage_behaviour_to_storage_efficiency,
@@ -95,7 +96,6 @@ class FRBCSimple(FRBC):
     _production_price_sensor_id: int | None
     _soc_sensor_id: int
     _rm_discharge_sensor_id: int
-    _charging_efficiency_sensor_id: int | None
     _fill_rate_sensor_id: int | None
     #: Where what a resource manager declares about its storage is recorded, each optional:
     #: without one, that declaration is not recorded, rather than being posted somewhere else.
@@ -103,6 +103,9 @@ class FRBCSimple(FRBC):
     _soc_maxima_sensor_id: int | None
     _usage_forecast_sensor_id: int | None
     _leakage_behaviour_sensor_id: int | None
+    #: Where what the operation modes say about converting drawn power into stored energy is recorded,
+    #: for the scheduler to plan the storage's conversion with.
+    _charging_efficiency_sensor_id: int | None
     _resolution: timedelta
     _schedule_duration: timedelta
     _valid_from_shift: timedelta
@@ -115,6 +118,9 @@ class FRBCSimple(FRBC):
     #: When a power value was last recorded for the actuator, and for which moment,
     #: so that a second status inside one event does not collide with the first.
     _last_power_recorded: tuple[datetime, datetime] | None
+    #: The charging efficiency last recorded, and the window it was recorded for,
+    #: so that the same value for the same window is not recorded again on every schedule.
+    _charging_efficiency_recorded: tuple[datetime, float] | None
 
     def __init__(
         self,
@@ -125,9 +131,6 @@ class FRBCSimple(FRBC):
         # Optional, and falling back to the consumption price, since a tariff that pays the
         # same for export as it charges for import is the common residential case.
         production_price_sensor_id: int | None = None,
-        # Optional: without one, no charging efficiency is declared and the scheduler assumes
-        # a lossless actuator, rather than being handed a sensor that holds nothing.
-        charging_efficiency_sensor_id: int | None = None,
         # Optional so existing callers keep working; when absent the actuator's fill rate is
         # simply not recorded, rather than being posted onto the power sensor.
         fill_rate_sensor_id: int | None = None,
@@ -136,6 +139,9 @@ class FRBCSimple(FRBC):
         soc_maxima_sensor_id: int | None = None,
         usage_forecast_sensor_id: int | None = None,
         leakage_behaviour_sensor_id: int | None = None,
+        # Likewise optional: without a sensor to record it on, no charging efficiency is declared,
+        # and the scheduler plans the storage as if the actuator converted power into stored energy one for one.
+        charging_efficiency_sensor_id: int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=24),
         # The resolution a schedule is planned on, which a schedule's start has to line up with.
@@ -167,12 +173,13 @@ class FRBCSimple(FRBC):
         self._resolution = resolution
         self._soc_sensor_id = soc_sensor_id
         self._rm_discharge_sensor_id = rm_discharge_sensor_id
-        self.charging_efficiency_sensor_id = charging_efficiency_sensor_id
         self._fill_rate_sensor_id = fill_rate_sensor_id
         self._soc_minima_sensor_id = soc_minima_sensor_id
         self._soc_maxima_sensor_id = soc_maxima_sensor_id
         self._usage_forecast_sensor_id = usage_forecast_sensor_id
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
+        self._charging_efficiency_sensor_id = charging_efficiency_sensor_id
+        self._charging_efficiency_recorded = None
         self._timezone = ZoneInfo(timezone)
         if fill_level_scale <= 0:
             # Every fill level this handler records is multiplied by the scale,
@@ -201,23 +208,6 @@ class FRBCSimple(FRBC):
 
     def now(self):
         return datetime.now(self._timezone)
-
-    def _get_operation_mode_efficiency_sensor_map(self, system_description) -> dict:
-        """Map operation mode IDs to the charging efficiency sensor.
-
-        For FRBCSimple, all operation modes report their efficiency to the single
-        charging_efficiency_sensor_id.
-        """
-        efficiency_map = {}
-        if self.charging_efficiency_sensor_id is None:
-            return efficiency_map
-
-        # Map each operation mode to the charging efficiency sensor.
-        actuator = system_description.actuators[0]
-        for operation_mode in actuator.operation_modes:
-            efficiency_map[operation_mode.id] = self.charging_efficiency_sensor_id
-
-        return efficiency_map
 
     def fill_rate_unit(self) -> str:
         """The unit a rate of change of the fill level is recorded in.
@@ -492,6 +482,92 @@ class FRBCSimple(FRBC):
                 duration=timedelta(minutes=15),
             )
 
+    async def _record_charging_efficiency(
+        self, system_description: FRBCSystemDescription, start: datetime
+    ) -> bool:
+        """Record what the actuator converts drawn power into stored energy at, over the window a schedule covers.
+
+        FlexMeasures reads a charging efficiency from a sensor rather than taking a value in the flex model,
+        so what the operation modes say about it is recorded here, by the call that is about to plan with it.
+        Recorded before the schedule is asked for, and not alongside it:
+        a schedule planned against a sensor holding nothing for its window is planned as if the actuator converted power one for one.
+
+        :param start: where the schedule starts, which is where the value is recorded from.
+        :returns: whether that schedule may be planned against the sensor,
+                  which it may not where nothing is recorded on it for this window.
+        """
+        if self._charging_efficiency_sensor_id is None:
+            return False
+
+        # One actuator, as everywhere else in this handler.
+        actuator = system_description.actuators[0]
+        efficiencies: dict[str, float] = {}
+        try:
+            for operation_mode in actuator.operation_modes:
+                efficiency = operation_mode_conversion_efficiency(
+                    operation_mode, self._fill_level_scale, self.energy_unit
+                )
+                if efficiency is not None:
+                    efficiencies[operation_mode.id] = efficiency
+        except NotImplementedError:
+            self._logger.exception(
+                "Not asking for a schedule against a charging efficiency: a fill rate in %s cannot be compared against the watts S2 states a power range in.",
+                self.fill_rate_unit(),
+            )
+            return False
+
+        if not efficiencies:
+            # Every mode is idle, or every mode only feeds back, and neither converts drawn power into anything.
+            self._logger.info(
+                "Not asking for a schedule against a charging efficiency: no operation mode of actuator %s draws power to convert.",
+                actuator.id,
+            )
+            return False
+
+        efficiency = min(efficiencies.values())
+        if len(set(efficiencies.values())) > 1:
+            # FlexMeasures takes one charging efficiency for the whole device, and the modes disagree.
+            # The lowest goes out: a plan that converts less than the actuator really does reaches its target early,
+            # where one that converts more reaches it late, and late is what a fill-level band is there to prevent.
+            self._logger.warning(
+                "The operation modes of actuator %s convert power at different efficiencies (%s), and FlexMeasures takes one for the whole device, so the schedule is asked for against the lowest of them, %s.",
+                actuator.id,
+                efficiencies,
+                efficiency,
+            )
+
+        if self._charging_efficiency_recorded == (start, efficiency):
+            # The same value for the same window is already on the sensor.
+            # Recording it again would add a belief saying exactly what the one before it says,
+            # and two of those inside one second collide on the belief's own key.
+            return True
+
+        try:
+            await self._fm_client.post_sensor_data(
+                self._charging_efficiency_sensor_id,
+                start=start,
+                prior=self.now(),
+                values=[efficiency],
+                # Dimensionless, not a percentage: it is the ratio between two powers,
+                # and for a heat pump, whose fill rate is the heat it delivers, it is well above one.
+                unit="dimensionless",
+                duration=self._schedule_duration,
+            )
+        except (JobFailedError, ValueError, ConnectionError, NotImplementedError):
+            # A schedule planned as if the actuator converted power one for one beats no schedule at all,
+            # as long as it is said out loud:
+            # that plan overstates what a lossy storage gains from a given power, and understates what a heat pump puts in.
+            self._logger.exception(
+                "Not asking for a schedule against a charging efficiency: could not record %s on sensor %s for %s.",
+                efficiency,
+                self._charging_efficiency_sensor_id,
+                start,
+            )
+            return False
+
+        self._charging_efficiency_recorded = (start, efficiency)
+        return True
+
     async def trigger_schedule(
         self,
         system_description_id: str,
@@ -613,6 +689,14 @@ class FRBCSimple(FRBC):
         else:
             energy_unit = self.energy_unit
 
+        # Where this schedule starts, which is both what it is asked for,
+        # and the window a charging efficiency has to be recorded over to be planned against.
+        # The caller may hand one in, which is why this is not simply schedule_start.
+        if start is None:
+            start = self.schedule_start(system_description.valid_from)
+        if isinstance(start, str):
+            start = pd.Timestamp(start)
+
         flex_model: dict = {
             # The same unit the fill level is recorded in, or the scheduler would plan against bounds a thousandfold off the measurements it plans from.
             "soc-unit": energy_unit,
@@ -647,9 +731,12 @@ class FRBCSimple(FRBC):
             flex_model["storage-efficiency"] = {
                 "sensor": self._leakage_behaviour_sensor_id
             }
-        if self.charging_efficiency_sensor_id is not None:
+        # What the operation modes say about converting drawn power into stored energy.
+        # Recorded first, since FlexMeasures reads it from the sensor named here and not from the flex model,
+        # and named only where it was recorded.
+        if await self._record_charging_efficiency(system_description, start):
             flex_model["charging-efficiency"] = {
-                "sensor": self.charging_efficiency_sensor_id
+                "sensor": self._charging_efficiency_sensor_id
             }
         if power_ranges:
             # What the actuator can draw and what it can feed back, each non-negative,
@@ -688,11 +775,6 @@ class FRBCSimple(FRBC):
                     )
         self._logger.debug("flex model: %s", flex_model)
 
-        # call schedule
-        if start is None:
-            start = self.schedule_start(system_description.valid_from)
-        if isinstance(start, str):
-            start = pd.Timestamp(start)
         flex_context: dict = {
             "consumption-price": {"sensor": self._price_sensor_id},
             "production-price": {
@@ -754,18 +836,16 @@ class FRBCSimple(FRBC):
         for attempt in range(1, max_attempts + 1):
             try:
                 schedule = await self._fm_client.trigger_and_get_schedule(
-                    start=start.replace(
-                        minute=(start.minute // 15) * 15, second=0, microsecond=0
-                    ),
-                    prior=start,
+                    start=start,
+                    prior=self.now(),
                     sensor_id=self._power_sensor_id,
                     flex_context=flex_context,
                     flex_model=flex_model,
-                    duration=self._schedule_duration,  # next 12 hours
-                    # TODO: add SOC MAX AND SOC MIN FROM fill_level_range,
-                    # this needs changes on the client
+                    duration=self._schedule_duration,
                     # In watts, which is what S2 states an operation mode's power ranges in,
                     # and the translation below matches a schedule against those ranges.
+                    # Not in power_unit, which says how a power value this handler posts is labelled,
+                    # and not in the power sensor's own unit, which is what a schedule comes back in by default.
                     unit=S2_POWER_UNIT,
                 )
                 break

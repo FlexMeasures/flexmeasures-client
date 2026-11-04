@@ -316,6 +316,78 @@ def get_soc_min_max(
     return soc_min, soc_max
 
 
+#: What one unit of energy per second is in watts, for the units a fill level can be recorded in.
+#: A joule per second is a watt by definition,
+#: and an hour's worth of a watt is 3600 times as much energy as a watt-second.
+WATTS_PER_ENERGY_UNIT_PER_SECOND = {
+    "J": 1.0,
+    "kJ": 1e3,
+    "MJ": 1e6,
+    "Wh": 3600.0,
+    "kWh": 3.6e6,
+    "MWh": 3.6e9,
+}
+
+
+def fill_rate_in_watts(fill_rate: float, energy_unit: str) -> float:
+    """A fill rate, stated per second in the unit a fill level is recorded in, as watts.
+
+    S2 states a fill rate as fill level per second, so what it is in watts depends on the unit the fill level itself is in:
+    a kilowatt hour per second is 3.6 million watts.
+    The conversion is needed wherever a fill rate is compared against a power value,
+    which S2 always states in watts.
+
+    :raises NotImplementedError: for an energy unit this does not know,
+                                 rather than returning a number that is wrong by a factor of thousands.
+    """
+    try:
+        return fill_rate * WATTS_PER_ENERGY_UNIT_PER_SECOND[energy_unit]
+    except KeyError:
+        raise NotImplementedError(
+            f"A fill rate in {energy_unit}/s cannot be stated in watts: "
+            f"the energy units this supports are {', '.join(WATTS_PER_ENERGY_UNIT_PER_SECOND)}."
+        )
+
+
+def operation_mode_conversion_efficiency(
+    operation_mode: FRBCOperationMode, fill_level_scale: float, energy_unit: str
+) -> float | None:
+    """How much energy an operation mode puts into the storage for each unit of power it draws.
+
+    An operation mode states a fill rate and a power range,
+    so the ratio between the two is what the mode converts drawn power into stored energy at:
+    a heat pump's coefficient of performance, or a battery's charging efficiency.
+    Both sides are taken in watts, since FlexMeasures asks for a charging efficiency as a dimensionless ratio,
+    and for a thermal actuator that ratio is well above one.
+
+    The ratio is taken at the top of the last element's range, rather than as the slope over that range.
+    An actuator may well declare degenerate ranges,
+    where a mode runs at one power and one fill rate only (the heaters in our own smoke tests state on as [883.7, 883.7] W),
+    and a slope is zero over such a range while the ratio is the efficiency the mode really runs at.
+    Where an efficiency varies over a mode's range, this is the one it reaches at full tilt.
+
+    :param fill_level_scale: converts a fill level, and so a fill rate,
+                             from the resource manager's own units into the unit it is recorded in.
+    :param energy_unit:      the unit a fill level is recorded in, which the fill rate is per second of.
+    :returns: the efficiency, or None where the mode states no power to convert.
+              An idle mode draws nothing, and a mode that only feeds power back is discharging,
+              which FlexMeasures takes as a separate discharging efficiency that this does not state.
+    """
+    if not operation_mode.elements:
+        return None
+    element = operation_mode.elements[-1]
+    if not element.power_ranges:
+        return None
+    # todo: an element states one power range per commodity quantity,
+    # and no distinction is made between them here,
+    # as the rest of this handler does not make one either (see power_to_fill_rate_with_metrics).
+    power = element.power_ranges[0].end_of_range
+    if power <= 0:
+        return None
+    fill_rate = element.fill_rate.end_of_range * fill_level_scale
+    return fill_rate_in_watts(fill_rate, energy_unit) / power
+
+
 def clip_fill_level_target_profile(
     soc_minima: pd.Series,
     soc_maxima: pd.Series,
