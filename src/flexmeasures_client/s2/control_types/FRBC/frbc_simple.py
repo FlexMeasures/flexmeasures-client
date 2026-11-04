@@ -363,7 +363,7 @@ class FRBCSimple(FRBC):
         # An S2 power range runs from its lower bound to its upper one, and S2 fixes one sign convention,
         # where positive means consumption,
         # so an actuator can only produce where one of its ranges reaches below zero.
-        # todo: an element states one power range per commodity quantity, and no distinction is made between them here,
+        # TODO: an element states one power range per commodity quantity, and no distinction is made between them here,
         # as the schedule translation does not make one either (see power_to_fill_rate_with_metrics).
         power_ranges = [
             tuple(sorted((power_range.start_of_range, power_range.end_of_range)))
