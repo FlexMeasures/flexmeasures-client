@@ -6,8 +6,8 @@ HEMS tutorial
 We wrote a complete tutorial with the client*, which sets up a HEMS from scratch (from nothing but a FlexMeasures account).
 
 - It creates the whole structure - with PV, battery and a heat pump.
-- It loads two weeks of historical data and creates forecasts through the forecasting API.
-- It goes through one week in 4h steps, forecasting and scheduling all flexible assets.
+- It loads two weeks of historical data, plus the measurements of the simulated days, and creates forecasts through the forecasting API.
+- It goes through two days in 4h steps, scheduling all flexible assets.
 
 This is the resulting dashboard:
 
@@ -149,6 +149,19 @@ Now run the client script using the `/examples/HEMS` folder as the current worki
 .. code-block:: bash
 
     python3 HEMS_setup.py
+
+Reading the results
+===================
+
+The tutorial uploads the measured consumption, PV production and heat usage for the whole period up front, including the simulated days.
+Each measurement is recorded as known at the end of its event,
+so a forecast or schedule made during the simulation only uses the measurements that would have been available at that moment.
+Measured data is never used before it is "known".
+
+This means that a graph of the simulated days shows measurements and forecasts side by side.
+To see what was known as the simulation progressed, press the replay button on the asset page (or hit **p**).
+Replay only shows data that had been recorded by the time on the replay clock,
+so the measurements fill in behind the forecasts and schedules, step by step.
 
 Rerunning or resuming the tutorial
 ==================================

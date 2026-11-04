@@ -172,7 +172,13 @@ async def find_sensors_by_asset(
 async def upload_data_for_first_two_weeks(
     client: FlexMeasuresClient, community_name: str, site_names: list[str]
 ):
-    """Upload historical data for the first two weeks."""
+    """Upload historical data for the first two weeks, and measurements for the simulated days.
+
+    Measurements are uploaded beyond the forecasting start on purpose.
+    Their belief times lie at the end of each event,
+    so the rolling forecasts and the simulated schedules only see what was known at their own belief time.
+    Leaving them out would leave every forecast after the first without recent measurements to go on.
+    """
     print("Uploading data for first two weeks...")
     pending_ingestion_jobs: list[str] = []
 
