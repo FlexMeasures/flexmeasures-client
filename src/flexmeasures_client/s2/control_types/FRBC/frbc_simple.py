@@ -24,6 +24,7 @@ except ImportError:
 
 import pandas as pd
 
+from flexmeasures_client.client import convert_units
 from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     clip_fill_level_target_profile,
@@ -263,6 +264,19 @@ class FRBCSimple(FRBC):
             return power
         return -power
 
+    def _in_the_power_unit(self, power: float) -> float:
+        """Convert a power value S2 states, which is in watts, into the unit this handler posts in.
+
+        S2 states a power value in watts, while power_unit says what a posted value is labelled with,
+        and nothing converted between the two:
+        a deployment recording its power sensor in kW had 883.7 W posted as 883.7 kW,
+        which FlexMeasures stored as the thousandfold it says it is.
+        """
+
+        if self.power_unit == S2_POWER_UNIT:
+            return power
+        return convert_units([power], S2_POWER_UNIT, self.power_unit)[0]
+
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
         sd: FRBCSystemDescription = list(self._system_description_history.values())[-1]
@@ -317,7 +331,9 @@ class FRBCSimple(FRBC):
             self._power_sensor_id,
             start=start,
             prior=self.now(),
-            values=[await self._as_the_power_sensor_reads_it(power)],
+            values=[
+                self._in_the_power_unit(await self._as_the_power_sensor_reads_it(power))
+            ],
             unit=self.power_unit,
             duration=timedelta(minutes=15),
         )

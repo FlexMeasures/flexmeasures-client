@@ -173,3 +173,34 @@ async def test_a_sensor_that_cannot_be_read_is_posted_as_s2_states_it(
 
     assert _posts_to_the_power_sensor(frbc)[0]["values"] == [ON_W]
     assert "could not read what sign" in caplog.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_a_power_value_is_converted_into_the_unit_it_is_labelled_with(
+    system_description,
+):
+    """S2 states a power in watts, and power_unit says what a posted value is labelled with.
+
+    Nothing converted between the two,
+    so a deployment recording its power sensor in kW had 883.7 W posted as 883.7 kW,
+    which FlexMeasures stored as the thousandfold it says it is.
+    """
+    frbc = _frbc(system_description, consumption_as_positive=True, power_unit="kW")
+
+    await frbc.send_actuator_status(_status(system_description, 1))
+
+    posted = _posts_to_the_power_sensor(frbc)[0]
+    assert posted["unit"] == "kW"
+    assert posted["values"] == [pytest.approx(ON_W / 1000)]
+
+
+@pytest.mark.asyncio
+async def test_watts_are_posted_unconverted(system_description):
+    """The default, and the only unit S2 itself states, so there is nothing to convert."""
+    frbc = _frbc(system_description, consumption_as_positive=True)
+
+    await frbc.send_actuator_status(_status(system_description, 1))
+
+    posted = _posts_to_the_power_sensor(frbc)[0]
+    assert posted["unit"] == "W"
+    assert posted["values"] == [ON_W]
