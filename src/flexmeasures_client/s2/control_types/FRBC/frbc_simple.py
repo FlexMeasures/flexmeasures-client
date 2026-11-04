@@ -675,6 +675,34 @@ class FRBCSimple(FRBC):
                 )
                 await asyncio.sleep(self._schedule_retry_interval.total_seconds())
 
+    def _warn_where_a_fallback_scheduler_answered(
+        self, schedule: dict | list[dict], start: datetime
+    ) -> None:
+        """Say so where a schedule was planned by a scheduler this handler did not ask for.
+
+        FlexMeasures answered an infeasible problem with a fallback scheduler until v1.0.0 retired it.
+        Against an older server, the schedule endpoint follows that fallback job rather than reporting the failure,
+        or redirects to it where the server sets FLEXMEASURES_FALLBACK_REDIRECT, which this client follows,
+        so either way a schedule nobody asked for arrives looking like the one that was.
+        It is a coarse charging policy rather than a plan,
+        and it records no state of charge, so a later window has nothing to resolve its soc-at-start against:
+        that is how a house in a co-simulation starved mid-run.
+
+        :param schedule: what came back, which names the scheduler that planned it.
+        :param start:    the window it was asked for.
+        """
+        if not isinstance(schedule, dict):
+            # A schedule per device, which only an asset-wide trigger is answered with.
+            return
+        scheduler = str((schedule.get("scheduler_info") or {}).get("scheduler", ""))
+        if "fallback" not in scheduler.lower():
+            return
+        self._logger.error(
+            "The schedule for the window starting %s was planned by %s, which is a fallback scheduler: the problem this handler asked about was infeasible. The schedule is a coarse charging policy, and no state of charge was recorded for a later window to be planned from.",
+            start,
+            scheduler,
+        )
+
     async def trigger_schedule(
         self, system_description_id: str, request_number: int | None = None
     ):
@@ -834,6 +862,7 @@ class FRBCSimple(FRBC):
             flex_context["relax-soc-constraints"] = True
 
         schedule = await self._ask_for_a_schedule(start, flex_context, flex_model)
+        self._warn_where_a_fallback_scheduler_answered(schedule, start)
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
         instructions = fm_schedule_to_instructions(

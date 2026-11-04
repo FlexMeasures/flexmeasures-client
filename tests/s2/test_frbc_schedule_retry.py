@@ -333,3 +333,58 @@ async def test_two_attempts_are_separated_by_the_configured_wait(monkeypatch):
     await frbc.trigger_schedule(system_description.message_id)
 
     assert waits == [0.25]
+
+
+@pytest.mark.asyncio
+async def test_a_schedule_from_a_fallback_scheduler_is_said_out_loud(caplog):
+    """Against a FlexMeasures older than v1.0.0, it arrives looking like the schedule that was asked for."""
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    frbc._fm_client.trigger_and_get_schedule = AsyncMock(
+        return_value=SCHEDULE
+        | {"scheduler_info": {"scheduler": "StorageFallbackScheduler"}}
+    )
+
+    with caplog.at_level(logging.ERROR):
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert "StorageFallbackScheduler" in caplog.text
+    assert "no state of charge was recorded" in caplog.text
+    # The schedule is still followed: a coarse policy beats leaving the actuator to itself.
+    frbc.send_instruction_batch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_schedule_from_the_scheduler_asked_for_is_not_flagged(caplog):
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    frbc._fm_client.trigger_and_get_schedule = AsyncMock(
+        return_value=SCHEDULE | {"scheduler_info": {"scheduler": "StorageScheduler"}}
+    )
+
+    with caplog.at_level(logging.ERROR):
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert caplog.text == ""
+
+
+@pytest.mark.asyncio
+async def test_a_schedule_that_names_no_scheduler_is_not_flagged(caplog):
+    """Which is what every server answers that has no fallback scheduler to substitute."""
+    system_description = _heater()
+    frbc = _frbc(system_description)
+
+    with caplog.at_level(logging.ERROR):
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert caplog.text == ""
+
+
+def test_a_schedule_per_device_names_no_scheduler_to_check(caplog):
+    """An asset-wide trigger is answered with one schedule per device, and none of them says."""
+    frbc = _frbc(_heater())
+
+    with caplog.at_level(logging.ERROR):
+        frbc._warn_where_a_fallback_scheduler_answered([SCHEDULE, SCHEDULE], VALID_FROM)
+
+    assert caplog.text == ""
