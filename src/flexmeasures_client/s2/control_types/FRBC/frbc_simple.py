@@ -364,8 +364,8 @@ class FRBCSimple(FRBC):
                 recorded_at = last_recorded_at + timedelta(seconds=1)
         self._last_power_recorded = (event, recorded_at)
 
-        # The value and the unit it is in travel together, so that what is reported below is a
-        # pair that agrees even where the conversion is what failed.
+        # The value and the unit it is in travel together,
+        # so that what is reported below is a pair that agrees even where the conversion is what failed.
         value, unit = power, S2_POWER_UNIT
         try:
             # Inside the try, because turning a power into what the sensor means by it can fail too:
