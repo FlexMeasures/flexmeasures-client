@@ -64,6 +64,12 @@ After the sub-agent completes, **verify yourself** that:
 
 Do not accept the sub-agent's output at face value — run both checks yourself and iterate if needed.
 
+## Docstrings and Comments
+
+Break a docstring or comment only after punctuation, never in the middle of a phrase,
+and report a mid-phrase wrap when reviewing a change.
+See `.github/instructions/docstrings.instructions.md`.
+
 ## Milestones
 
 Give each pull request a milestone: the first release that will ship it.
