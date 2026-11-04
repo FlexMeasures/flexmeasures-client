@@ -130,7 +130,7 @@ def _frbc(system_description, **kwargs) -> FRBCSimple:
 
 
 @pytest.mark.asyncio
-async def test_a_schedule_is_asked_for_in_watts_by_default(system_description):
+async def test_a_schedule_is_asked_for_in_watts(system_description):
     """S2 states power in watts, so that is what this handler compares a schedule against."""
     frbc = _frbc(system_description)
 
@@ -138,20 +138,23 @@ async def test_a_schedule_is_asked_for_in_watts_by_default(system_description):
 
     kwargs = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs
     assert kwargs["unit"] == "W"
-    assert kwargs["unit"] == frbc.power_unit
 
 
 @pytest.mark.asyncio
-async def test_a_handler_that_reads_power_in_another_unit_asks_for_that_one(
+async def test_a_handler_posting_power_in_another_unit_still_asks_for_watts(
     system_description,
 ):
-    """The unit asked for follows the handler's power unit, which the instructions also use."""
+    """power_unit says how a posted power value is labelled, not what S2 states its ranges in.
+
+    A handler recording its power sensor in kW still has to compare a schedule against power
+    ranges stated in watts, so the unit asked for does not follow that one.
+    """
     frbc = _frbc(system_description, power_unit="kW")
 
     await frbc.trigger_schedule(system_description.message_id)
 
     kwargs = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs
-    assert kwargs["unit"] == "kW"
+    assert kwargs["unit"] == "W"
 
 
 @pytest.mark.asyncio

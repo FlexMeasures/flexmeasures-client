@@ -36,6 +36,10 @@ from flexmeasures_client.s2.control_types.translations import (
     translate_usage_forecast_to_fm,
 )
 
+#: The unit S2 states a power value in, and so the unit of an operation mode's power ranges.
+#: A schedule is read back in this unit, whatever unit the power sensor holding it is recorded in.
+S2_POWER_UNIT = "W"
+
 
 class FRBCSimple(FRBC):
     _power_sensor_id: int
@@ -80,6 +84,9 @@ class FRBCSimple(FRBC):
         # Half again as high, so that a storage overshooting its declared range stays feasible.
         # A deployment whose storage cannot overshoot at all can bring this down to 1.
         hard_bound_factor: float = 1.5,
+        # The unit a power value is labelled with when this handler posts one.
+        # S2 states power in watts, so that is the default,
+        # and a deployment recording its power sensor in another unit says so here, for FlexMeasures to convert.
         power_unit: str = "W",
         # The unit a fill level is recorded in: a state of charge and the minima and maxima
         # bounding it all go out in this one unit, so that they can be compared at all.
@@ -384,11 +391,11 @@ class FRBCSimple(FRBC):
             flex_model=flex_model,
             duration=self._schedule_duration,
             prior=self.now(),
-            # In the unit this handler reads power in,
-            # rather than in whatever unit the power sensor happens to be recorded in:
-            # the translation below matches these values against the power ranges of the operation modes,
-            # which S2 states in watts.
-            unit=self.power_unit,
+            # In watts, which is what S2 states an operation mode's power ranges in,
+            # and the translation below matches a schedule against those ranges.
+            # Not in power_unit, which says how a power value this handler posts is labelled,
+            # and not in the power sensor's own unit, which is what a schedule comes back in by default.
+            unit=S2_POWER_UNIT,
         )
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
