@@ -364,19 +364,22 @@ class FRBCSimple(FRBC):
                 recorded_at = last_recorded_at + timedelta(seconds=1)
         self._last_power_recorded = (event, recorded_at)
 
-        value = power
+        # The value and the unit it is in travel together, so that what is reported below is a
+        # pair that agrees even where the conversion is what failed.
+        value, unit = power, S2_POWER_UNIT
         try:
             # Inside the try, because turning a power into what the sensor means by it can fail too:
             # a unit nothing converts between raises, and so does a sensor that cannot be reached.
             value = self._in_the_power_unit(
                 await self._as_the_power_sensor_reads_it(power)
             )
+            unit = self.power_unit
             await self._fm_client.post_sensor_data(
                 self._power_sensor_id,
                 start=start,
                 prior=recorded_at,
                 values=[value],
-                unit=self.power_unit,
+                unit=unit,
                 duration=timedelta(minutes=15),
             )
         except (JobFailedError, ValueError, ConnectionError, NotImplementedError):
@@ -387,7 +390,7 @@ class FRBCSimple(FRBC):
             self._logger.exception(
                 "Could not record %s %s on power sensor %s for %s.",
                 value,
-                self.power_unit,
+                unit,
                 self._power_sensor_id,
                 start,
             )

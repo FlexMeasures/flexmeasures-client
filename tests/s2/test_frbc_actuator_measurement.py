@@ -344,3 +344,7 @@ async def test_a_unit_nothing_converts_between_is_reported(system_description, c
 
     assert "could not record" in caplog.text.lower()
     frbc._fm_client.post_sensor_data.assert_not_awaited()
+    # The value is still in watts, since converting it is what failed,
+    # so that is the unit it is reported in: a pair that disagrees is worse than none.
+    assert f"{ON_W} W" in caplog.text
+    assert f"{ON_W} hp" not in caplog.text
