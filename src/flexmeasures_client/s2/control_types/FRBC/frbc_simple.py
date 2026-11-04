@@ -36,6 +36,10 @@ from flexmeasures_client.s2.control_types.translations import (
     translate_usage_forecast_to_fm,
 )
 
+#: The unit S2 states a power value in, and so the unit of an operation mode's power ranges.
+#: A schedule is read back in this unit, whatever unit the power sensor holding it is recorded in.
+S2_POWER_UNIT = "W"
+
 
 class FRBCSimple(FRBC):
     _power_sensor_id: int
@@ -80,6 +84,11 @@ class FRBCSimple(FRBC):
         # Half again as high, so that a storage overshooting its declared range stays feasible.
         # A deployment whose storage cannot overshoot at all can bring this down to 1.
         hard_bound_factor: float = 1.5,
+        # The unit a power value this handler posts is labelled with.
+        # Those values come straight from the operation modes' power ranges, which S2 states in watts,
+        # and nothing converts them on the way out,
+        # so a deployment that sets another unit here has them recorded at the wrong magnitude.
+        # TODO: either convert a power value into this unit before posting it, or drop this and post watts, as S2 states them.
         power_unit: str = "W",
         # The unit a fill level is recorded in: a state of charge and the minima and maxima
         # bounding it all go out in this one unit, so that they can be compared at all.
@@ -384,6 +393,11 @@ class FRBCSimple(FRBC):
             flex_model=flex_model,
             duration=self._schedule_duration,
             prior=self.now(),
+            # In watts, which is what S2 states an operation mode's power ranges in,
+            # and the translation below matches a schedule against those ranges.
+            # Not in power_unit, which says how a power value this handler posts is labelled,
+            # and not in the power sensor's own unit, which is what a schedule comes back in by default.
+            unit=S2_POWER_UNIT,
         )
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
