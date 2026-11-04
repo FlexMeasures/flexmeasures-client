@@ -437,14 +437,19 @@ class FRBCSimple(FRBC):
                 f"{production_capacity} {self.power_unit}"
             )
             operation_modes = _operation_mode_power_bands(power_ranges, self.power_unit)
-            # Only where the bands say more than the two capacities above already do,
-            # which takes more than one of them:
-            # a single band is the capacity range itself.
+            # Only where the bands say more than the two capacities above already do.
+            # The capacities say the actuator can run at any power from minus its production capacity to its consumption capacity,
+            # so a single band running through zero is exactly that and says nothing new.
+            # Any other single band does: an actuator that runs at 200 W or not at all rules out everything in between,
+            # and so does one that only ever feeds back.
             # And only to a server that has the field.
             # FlexMeasures added operation-modes in v1.0.0,
             # and a flex model naming a field the server does not know is refused outright,
             # which would leave the resource manager with no schedule at all.
-            if len(operation_modes) > 1:
+            says_more_than_the_capacities = len(operation_modes) > 1 or not any(
+                lower <= 0 <= upper for lower, upper in power_ranges
+            )
+            if says_more_than_the_capacities:
                 if _server_version_at_least(
                     await self._fm_client._resolve_server_version(), "1.0.0"
                 ):

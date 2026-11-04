@@ -211,15 +211,52 @@ async def test_the_same_power_range_twice_is_one_band():
 
 
 @pytest.mark.asyncio
-async def test_one_band_is_the_capacity_range_itself():
-    """The bands are asked for only where they say more than the capacities already do."""
-    system_description = _system_description((200.0, 1000.0))
+async def test_one_band_through_zero_is_the_capacity_range_itself():
+    """The bands are asked for only where they say more than the capacities already do.
+
+    The capacities already say the actuator can run at any power between them,
+    so a single band from zero upwards is exactly that.
+    """
+    system_description = _system_description((0.0, 1000.0))
     frbc = _frbc(system_description)
 
     flex_model = await _asked_for(frbc, system_description)
 
     assert "operation-modes" not in flex_model
     assert flex_model["consumption-capacity"] == "1000.0 W"
+
+
+@pytest.mark.asyncio
+async def test_one_band_that_cannot_run_at_zero_is_asked_for():
+    """An actuator that runs at 200 W or not at all rules out everything in between.
+
+    The capacities cannot say that: they would leave the scheduler free to plan 50 W,
+    which the actuator has no operation mode for.
+    """
+    system_description = _system_description((200.0, 1000.0))
+    frbc = _frbc(system_description)
+
+    flex_model = await _asked_for(frbc, system_description)
+
+    assert flex_model["operation-modes"] == [
+        {"consumption-range": ["200.0 W", "1000.0 W"]}
+    ]
+    assert flex_model["consumption-capacity"] == "1000.0 W"
+
+
+@pytest.mark.asyncio
+async def test_one_band_that_only_feeds_back_is_asked_for():
+    """A mode that only ever produces, and not down to zero, is the same case mirrored."""
+    system_description = _system_description((-2000.0, -500.0))
+    frbc = _frbc(system_description)
+
+    flex_model = await _asked_for(frbc, system_description)
+
+    assert flex_model["operation-modes"] == [
+        {"production-range": ["500.0 W", "2000.0 W"]}
+    ]
+    assert flex_model["production-capacity"] == "2000.0 W"
+    assert flex_model["consumption-capacity"] == "0.0 W"
 
 
 @pytest.mark.asyncio
