@@ -53,7 +53,7 @@ class FRBCSimple(FRBC):
     _schedule_duration: timedelta
     _valid_from_shift: timedelta
     _fill_level_scale: float
-    _safety_rail_factor: float
+    _hard_bound_factor: float
 
     def __init__(
         self,
@@ -76,11 +76,10 @@ class FRBCSimple(FRBC):
         max_size: int = 100,
         valid_from_shift: timedelta = timedelta(days=1),
         fill_level_scale: float = 1,
-        # How far above the declared fill-level range the hard upper bound sits.
-        # Half again as high: far enough that a storage overshooting its range stays feasible,
-        # near enough that the problem is still bounded. A deployment that knows its storage
-        # cannot overshoot at all can bring this down to 1.
-        safety_rail_factor: float = 1.5,
+        # How far above the declared fill-level range the hard upper bound of a schedule sits.
+        # Half again as high, so that a storage overshooting its declared range stays feasible.
+        # A deployment whose storage cannot overshoot at all can bring this down to 1.
+        hard_bound_factor: float = 1.5,
         power_unit: str = "W",
         # The unit a fill level is recorded in: a state of charge and the minima and maxima
         # bounding it all go out in this one unit, so that they can be compared at all.
@@ -102,21 +101,21 @@ class FRBCSimple(FRBC):
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._timezone = ZoneInfo(timezone)
         if fill_level_scale <= 0:
-            # Every fill level this handler records is multiplied by the scale, and the bounds
-            # a schedule was planned against are divided back by it, so zero divides by zero
-            # and a negative scale turns a band upside down.
+            # Every fill level this handler records is multiplied by the scale,
+            # and the hard bounds a schedule was planned against are divided back by it,
+            # so zero divides by zero and a negative scale turns the bounds upside down.
             raise ValueError(
                 f"fill_level_scale has to be greater than zero, since it converts a fill level into the unit it is recorded in, but {fill_level_scale} was given."
             )
         self._fill_level_scale = fill_level_scale
-        if safety_rail_factor < 1:
-            # Below one, the rail sits inside the declared range, and FlexMeasures clips the
-            # band into the hard bounds, so the comfort band would be silently narrowed to
-            # something the resource manager never asked for.
+        if hard_bound_factor < 1:
+            # Below one, the hard upper bound sits inside the declared range,
+            # and FlexMeasures clips the band into the hard bounds,
+            # so the band would be narrowed to something the resource manager never asked for.
             raise ValueError(
-                f"safety_rail_factor has to be at least 1, so that the hard upper bound sits at or above the declared fill-level range, but {safety_rail_factor} was given."
+                f"hard_bound_factor has to be at least 1, so that the hard upper bound sits at or above the declared fill-level range, but {hard_bound_factor} was given."
             )
-        self._safety_rail_factor = safety_rail_factor
+        self._hard_bound_factor = hard_bound_factor
         self.power_unit = power_unit
         self.energy_unit = energy_unit
 
@@ -309,45 +308,43 @@ class FRBCSimple(FRBC):
         # Scaled at the FlexMeasures edge, like every bound and level below it.
         soc_at_start = fill_level_at_start * self._fill_level_scale
 
-        # The range a resource manager declares is where it wants its storage kept, not the
-        # only place its storage can physically be, so it is asked for as a soft band: the
-        # minima and maxima series above, which FlexMeasures prices a breach of rather than
-        # refusing. Asked for as the hard soc-min and soc-max instead, it made states the
-        # storage really reaches infeasible, and an infeasible job is answered by the fallback
-        # scheduler, which ignores the band altogether. So the hard bounds become wide safety
-        # rails, there only to keep the problem bounded where nothing else does, such as an
-        # hour of negative prices.
+        # The declared range is where a resource manager wants its storage kept, not where its storage can be:
+        # S2 calls it the range in which the fill level should remain,
+        # and has a resource manager free to ignore instructions while the fill level is outside it.
+        # So the range goes out as a band whose breach FlexMeasures prices,
+        # rather than as the hard soc-min and soc-max, which made states a storage really reaches infeasible,
+        # and an infeasible job is answered by the fallback scheduler, which ignores the band altogether.
+        # Hard bounds are still sent, but wide ones:
+        # a fill-level target profile need not cover the whole schedule,
+        # and over the part it does not cover there is nothing to price a breach of,
+        # so nothing else keeps a plan within reach of the storage it is planned for.
         _, range_top = get_soc_min_max(system_description, self._fill_level_scale)
+        # Zero below, since a stock cannot be negative and FlexMeasures accepts no lower floor.
         soc_min = 0.0
-        soc_max = range_top * self._safety_rail_factor
-        # A start state outside the rails would make the whole problem infeasible before the
-        # first step, so they widen to take it in. A storage above its declared range is not
-        # an error: a resource manager is free to report one, and a schedule still has to be
-        # planned from where it says the storage is.
+        soc_max = range_top * self._hard_bound_factor
+        # A state of charge outside the hard bounds is infeasible before the first step,
+        # so the bounds widen to take it in.
+        # A storage outside its declared range is not an error:
+        # a resource manager is free to report one, and a schedule still has to be planned from where it says its storage is.
         soc_min = min(soc_min, soc_at_start)
         soc_max = max(soc_max, soc_at_start)
 
         flex_model: dict = {
-            # The same unit the fill level is recorded in, or the scheduler would plan
-            # against bounds a thousand times the measurements it plans from.
+            # The same unit the fill level is recorded in, or the scheduler would plan against bounds a thousandfold off the measurements it plans from.
             "soc-unit": self.energy_unit,
             "soc-at-start": soc_at_start,  # TODO: use forecast of the SOC instead
             "soc-min": soc_min,
             "soc-max": soc_max,
         }
-        # What the resource manager declared about its storage, each entry only where there is
-        # a sensor holding it: an entry naming a sensor that was never configured would have
-        # the scheduler plan against nothing at all. Recording these was the first half of
-        # this (see send_fill_level_target_profile and the two handlers after it); naming them
-        # here is what makes a schedule answer them.
-        # Both sides or neither, as when the band is recorded: one side alone is not the band
-        # the resource manager declared but an open-ended push in one direction, and only the
-        # pair of sensors holds what it asked for.
-        has_band = (
+        # What the resource manager declared about its storage, each entry only where a sensor holds it:
+        # an entry naming a sensor that was never configured has the scheduler plan against nothing at all.
+        # Both band sensors or neither, as when the band is recorded:
+        # one side alone is an open-ended push in one direction, not the band the resource manager declared.
+        has_soc_band = (
             self._soc_minima_sensor_id is not None
             and self._soc_maxima_sensor_id is not None
         )
-        if has_band:
+        if has_soc_band:
             flex_model["soc-minima"] = {"sensor": self._soc_minima_sensor_id}
             flex_model["soc-maxima"] = {"sensor": self._soc_maxima_sensor_id}
         elif (
@@ -372,12 +369,11 @@ class FRBCSimple(FRBC):
             "consumption-price": {"sensor": self._price_sensor_id},
             "site-power-capacity": f"{3 * 25 * 230} VA",
         }
-        if has_band:
-            # Without this, the minima and maxima above are hard bounds again, and the band is
-            # back to making reachable states infeasible. It prices a breach at FlexMeasures'
-            # own default rather than at a price stated here, since what a breach of comfort is
-            # worth is the deployment's judgement, not the protocol's. Asked for only where
-            # there is a band, so the flex context says no more than what this schedule needs.
+        if has_soc_band:
+            # Without this, the minima and maxima above are hard bounds again,
+            # and the band is back to making reachable states infeasible.
+            # The breach price is left to FlexMeasures' own default,
+            # since what a breach of comfort is worth is the deployment's judgement, not the protocol's.
             flex_context["relax-soc-constraints"] = True
 
         # call schedule
@@ -395,10 +391,10 @@ class FRBCSimple(FRBC):
             schedule,
             system_description,
             initial_fill_level=fill_level_at_start,
-            # The rails the schedule was planned against, back in the resource manager's own
-            # units. The declared range is no longer what bounds a schedule, so it is no longer
-            # what should bound the walk that reads one: a scheduler free to plan above the
-            # range would otherwise be answered with modes chosen for a storage held at its top.
+            # The hard bounds this schedule was planned against, back in the resource manager's own units.
+            # Read back against the declared range instead,
+            # a schedule planned outside that range would be answered with the operation modes for a fill level pinned to the range's nearest edge,
+            # which is not where the scheduler planned the storage to be.
             fill_level_bounds=(
                 soc_min / self._fill_level_scale,
                 soc_max / self._fill_level_scale,

@@ -1,10 +1,11 @@
 """What a resource manager declared about its storage is what a schedule is asked against.
 
-A resource manager says where it wants its storage kept, what it expects to draw from it and
-what it leaks; recording all of that changed nothing about the schedule that came back, because
-the flex model named none of it. These tests pin what the flex model now carries, and that the
-declared range is asked for as a band a breach of which is priced, rather than as a bound that
-makes the states a storage really reaches infeasible.
+A resource manager says where it wants its storage kept, what it expects to draw from it and what it leaks;
+recording all of that changed nothing about the schedule that came back,
+because the flex model named none of it.
+These tests pin what the flex model now carries,
+and that the declared range is asked for as a band whose breach is priced,
+rather than as a bound that makes the states a storage really reaches infeasible.
 """
 
 from __future__ import annotations
@@ -145,8 +146,8 @@ async def test_the_declared_band_is_what_a_schedule_is_asked_against(
 
     assert flex_model["soc-minima"] == {"sensor": SOC_MINIMA_SENSOR_ID}
     assert flex_model["soc-maxima"] == {"sensor": SOC_MAXIMA_SENSOR_ID}
-    # A minimum or maximum FlexMeasures may not breach is a hard bound by another name, and
-    # the whole point of the band is that it is soft.
+    # A minimum or maximum FlexMeasures may not breach is a hard bound by another name,
+    # and the whole point of the band is that it is soft.
     assert flex_context["relax-soc-constraints"] is True
 
 
@@ -164,15 +165,15 @@ async def test_the_usage_and_the_leakage_a_resource_manager_declares_are_planned
 
 
 @pytest.mark.asyncio
-async def test_the_hard_bounds_are_safety_rails_rather_than_the_declared_range(
+async def test_the_hard_bounds_are_wider_than_the_declared_range(
     system_description,
 ):
     """The declared range as a hard bound makes reachable states infeasible.
 
-    A storage left above its range by a previous day, or free-floating past the top of it, is
-    where a resource manager says its storage is; a bound refusing that is a job that fails
-    before its first step, and an infeasible job is answered by the fallback scheduler, which
-    ignores the band altogether.
+    A storage left above its range by a previous day, or free-floating past the top of it,
+    is where a resource manager says its storage is.
+    A bound refusing that is a job that fails before its first step,
+    and an infeasible job is answered by the fallback scheduler, which ignores the band altogether.
     """
     frbc = _frbc(system_description)
 
@@ -186,26 +187,28 @@ async def test_the_hard_bounds_are_safety_rails_rather_than_the_declared_range(
 
 
 @pytest.mark.asyncio
-async def test_the_rails_widen_to_take_in_a_start_state_beyond_them(
+async def test_the_hard_bounds_widen_to_take_in_a_start_state_beyond_them(
     system_description,
 ):
     """A start state outside the bounds is infeasible before the first step, so they give way."""
     frbc = _frbc(system_description)
-    beyond_the_rails = RANGE_TOP * 1.5 + 100.0
+    beyond_the_bounds = RANGE_TOP * 1.5 + 100.0
     frbc._storage_status_history.clear()
     frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
-        message_id=get_unique_id(), present_fill_level=beyond_the_rails
+        message_id=get_unique_id(), present_fill_level=beyond_the_bounds
     )
 
     flex_model, _ = await _asked_for(frbc, system_description)
 
-    assert flex_model["soc-max"] == pytest.approx(beyond_the_rails)
+    assert flex_model["soc-max"] == pytest.approx(beyond_the_bounds)
     assert flex_model["soc-min"] <= flex_model["soc-at-start"] <= flex_model["soc-max"]
 
 
 @pytest.mark.asyncio
-async def test_the_rails_are_in_the_same_scale_as_everything_else(system_description):
-    """A rail in another scale than the level it holds is read a thousandfold out."""
+async def test_the_hard_bounds_are_in_the_same_scale_as_everything_else(
+    system_description,
+):
+    """A bound in another scale than the level it holds is read a thousandfold out."""
     scale = 1000.0
     frbc = _frbc(system_description, fill_level_scale=scale)
 
@@ -216,11 +219,11 @@ async def test_the_rails_are_in_the_same_scale_as_everything_else(system_descrip
 
 
 @pytest.mark.asyncio
-async def test_how_far_the_rails_sit_from_the_range_is_the_deployments_to_choose(
+async def test_how_far_the_hard_bounds_sit_from_the_range_is_the_deployments_to_choose(
     system_description,
 ):
     """A deployment whose storage cannot overshoot its range can close the gap entirely."""
-    frbc = _frbc(system_description, safety_rail_factor=1.0)
+    frbc = _frbc(system_description, hard_bound_factor=1.0)
 
     flex_model, _ = await _asked_for(frbc, system_description)
 
@@ -231,8 +234,8 @@ async def test_how_far_the_rails_sit_from_the_range_is_the_deployments_to_choose
 async def test_one_side_of_a_band_is_not_a_band(system_description):
     """One side alone is an open-ended push, not what the resource manager declared.
 
-    A band needs both sides, which is also the rule the recording half goes by: a fill-level
-    target profile is recorded only where both sensors are there to hold it.
+    A band needs both sides, which is also the rule the recording half goes by:
+    a fill-level target profile is recorded only where both sensors are there to hold it.
     """
     frbc = _frbc(
         system_description,
@@ -248,19 +251,19 @@ async def test_one_side_of_a_band_is_not_a_band(system_description):
     assert "relax-soc-constraints" not in flex_context
 
 
-def test_a_rail_inside_the_declared_range_is_refused():
-    """FlexMeasures clips the band into the hard bounds, so a rail below one narrows the band.
+def test_a_hard_bound_inside_the_declared_range_is_refused():
+    """FlexMeasures clips the band into the hard bounds, so a factor below one narrows the band.
 
-    Silently: the resource manager would be answered against a band it never declared, so a
-    factor under one is refused where it is configured rather than where it has an effect.
+    Silently, and the resource manager would be answered against a band it never declared,
+    so a factor under one is refused where it is configured rather than where it has an effect.
     """
-    with pytest.raises(ValueError, match="safety_rail_factor has to be at least 1"):
+    with pytest.raises(ValueError, match="hard_bound_factor has to be at least 1"):
         FRBCSimple(
             power_sensor_id=1,
             price_sensor_id=2,
             soc_sensor_id=3,
             rm_discharge_sensor_id=4,
-            safety_rail_factor=0.9,
+            hard_bound_factor=0.9,
         )
 
 
@@ -276,15 +279,15 @@ async def test_nothing_is_asked_against_a_sensor_that_was_never_configured(
     for absent in ("soc-minima", "soc-maxima", "soc-usage", "storage-efficiency"):
         assert absent not in flex_model
     assert "relax-soc-constraints" not in flex_context
-    # The rails, the start state and the unit are not a resource manager's to declare, so they
-    # are asked for whatever it configured.
+    # The hard bounds, the start state and the unit are not a resource manager's to declare,
+    # so they are asked for whatever the deployment configured.
     assert flex_model["soc-min"] == 0.0
     assert flex_model["soc-max"] == pytest.approx(RANGE_TOP * 1.5)
     assert flex_model["soc-at-start"] == pytest.approx(FILL_LEVEL_AT_START)
 
 
 @pytest.mark.asyncio
-async def test_a_schedule_is_read_back_against_the_rails_it_was_planned_against(
+async def test_a_schedule_is_read_back_against_the_bounds_it_was_planned_against(
     system_description,
 ):
     """The handler hands the translation the same bounds it asked for the schedule with."""
@@ -304,8 +307,9 @@ async def test_a_schedule_is_read_back_against_the_rails_it_was_planned_against(
 def _two_band_system_description() -> FRBCSystemDescription:
     """A storage declaring [20, 80], with one operation mode per half of [0, 160].
 
-    Which mode the translation picks says which fill level its walk had reached, since the two
-    ranges do not overlap and a mode is penalised by how far the fill level is outside its own.
+    Which mode the translation picks says which fill level it had reached,
+    since the two ranges do not overlap,
+    and a mode is penalised by how far the fill level is outside its own range.
     """
     low = FRBCOperationMode(
         id=get_unique_id(),
@@ -373,13 +377,13 @@ def _modes_chosen(instructions, system_description) -> list[str]:
     return [labels[instruction.operation_mode] for instruction in instructions]
 
 
-def test_the_walk_that_reads_a_schedule_is_bounded_as_the_schedule_was_planned():
+def test_a_schedule_is_read_back_as_it_was_planned():
     """The declared range no longer bounds a schedule, so it no longer bounds reading one.
 
-    Given a schedule that charges hard for hours, the walk's own fill level climbs past the
-    declared range. Held at the top of that range it keeps choosing the low mode; held at the
-    rails the schedule was planned against it crosses into the high one, which is the mode for
-    the state the scheduler actually planned.
+    Given a schedule that charges hard for hours, the running fill level climbs past the declared range.
+    Held at the top of that range, the translation keeps choosing the low mode.
+    Held at the hard bounds the schedule was planned against, it crosses into the high one,
+    which is the mode for the state the scheduler actually planned.
     """
     system_description = _two_band_system_description()
     # Twelve hours of charging, enough to climb well past the declared top of 80.
@@ -391,7 +395,7 @@ def test_the_walk_that_reads_a_schedule_is_bounded_as_the_schedule_was_planned()
     held_at_the_declared_range = fm_schedule_to_instructions(
         schedule, system_description, initial_fill_level=RANGE_BOTTOM
     )
-    held_at_the_rails = fm_schedule_to_instructions(
+    held_at_the_hard_bounds = fm_schedule_to_instructions(
         schedule,
         system_description,
         initial_fill_level=RANGE_BOTTOM,
@@ -399,11 +403,11 @@ def test_the_walk_that_reads_a_schedule_is_bounded_as_the_schedule_was_planned()
     )
 
     assert set(_modes_chosen(held_at_the_declared_range, system_description)) == {"low"}
-    assert "high" in _modes_chosen(held_at_the_rails, system_description)
+    assert "high" in _modes_chosen(held_at_the_hard_bounds, system_description)
 
 
 def test_a_scale_that_cannot_convert_a_fill_level_is_refused():
-    """The scale multiplies on the way out and divides on the way back, so zero divides by zero."""
+    """The scale multiplies on the way out and divides on the way back, so zero would divide by zero."""
     with pytest.raises(
         ValueError, match="fill_level_scale has to be greater than zero"
     ):
@@ -417,7 +421,7 @@ def test_a_scale_that_cannot_convert_a_fill_level_is_refused():
 
 
 def test_bounds_that_run_backwards_are_refused():
-    """Held between a lower bound above its upper one, the walk would never leave the lower."""
+    """Held between a lower bound above its upper one, the running fill level would never leave the lower one."""
     system_description = _two_band_system_description()
     index = pd.date_range("2024-01-01T00:00:00+00:00", periods=4, freq="15min")
     schedule = pd.DataFrame({"schedule": [1000.0] * 4}, index=index)

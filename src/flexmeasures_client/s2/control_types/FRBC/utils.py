@@ -129,19 +129,20 @@ def fm_schedule_to_instructions(
     logger: logging.Logger = LOGGER,
     fill_level_bounds: tuple[float, float] | None = None,
 ) -> List[FRBCInstruction]:
-    """Walk a FlexMeasures schedule and say which operation mode each step asks for.
+    """Turn a FlexMeasures schedule into the instructions that follow it.
 
-    :param fill_level_bounds: the fill levels this walk keeps its own running fill level
-                              between, in the resource manager's units. These have to be the
-                              bounds the schedule was planned against, or the walk picks modes
-                              for a storage state the scheduler never planned. Without them the
-                              declared fill-level range is used, which is right only for a
-                              caller that asked for the schedule against that same range.
+    :param fill_level_bounds: the fill levels this conversion holds its own running fill level between,
+                              in the resource manager's units.
+                              These have to be the hard bounds the schedule was planned against,
+                              or a step is answered with the operation mode for a fill level the scheduler never planned.
+                              Without them the declared fill-level range is used,
+                              which is right only for a caller that asked for a schedule against that same range.
     """
 
     if fill_level_bounds is not None and fill_level_bounds[0] > fill_level_bounds[1]:
-        # Held between a lower bound above its upper one, the walk would sit at the lower one
-        # for every step and choose every mode for a fill level the storage is never at.
+        # A mistake in the caller, which computes these, rather than anything a resource manager sent:
+        # held between a lower bound above its upper one, the running fill level would sit at the lower one,
+        # and every step would be answered with the operation mode for a fill level the storage is never at.
         raise ValueError(
             f"fill_level_bounds runs from its lower bound to its upper one, but {fill_level_bounds} was given."
         )
@@ -252,9 +253,9 @@ def fm_schedule_to_instructions(
             usage=usage,
         )
 
-        # Hold the running fill level between the bounds the schedule was planned against,
-        # so that the mode chosen for each step is the one for the storage state the scheduler
-        # planned. Falling back to the declared range keeps every other caller as it was.
+        # Hold the running fill level between the hard bounds the schedule was planned against,
+        # so that each step is answered with the operation mode for the fill level the scheduler planned.
+        # Falling back to the declared range keeps every other caller as it was.
         if fill_level_bounds is None:
             fill_level_range: NumberRange = system_description.storage.fill_level_range
             fill_level_min = fill_level_range.start_of_range

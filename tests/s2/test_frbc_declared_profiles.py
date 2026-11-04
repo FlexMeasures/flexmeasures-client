@@ -473,13 +473,13 @@ async def test_every_fill_level_follows_the_same_scale(system_description):
     flex_model = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
         "flex_model"
     ]
-    # The hard bounds are wide safety rails rather than the declared range itself, which the
-    # minima and maxima above now carry (see test_frbc_soft_band), but they are derived from
-    # that range, so they are in its scale too.
+    # The hard bounds are wider than the declared range itself,
+    # which the minima and maxima above now carry (see test_frbc_soft_band),
+    # but they are derived from that range, so they are in its scale too.
     assert flex_model["soc-min"] == 0.0
     assert flex_model["soc-max"] == RANGE_TOP * scale * 1.5
-    # The whole flex-model is in one scale, soc-at-start included: a starting point outside the
-    # bounds around it would be infeasible, or silently clamped.
+    # The whole flex model is in one scale, soc-at-start included:
+    # a starting point outside the bounds around it would be infeasible, or silently clamped.
     assert flex_model["soc-at-start"] == 30.0 * scale
     assert flex_model["soc-min"] <= flex_model["soc-at-start"] <= flex_model["soc-max"]
 
