@@ -11,7 +11,7 @@ We wrote a complete tutorial with the client*, which sets up a HEMS from scratch
 
 This is the resulting dashboard:
 
-.. image:: https://github.com/FlexMeasures/flexmeasures-client/blob/main/docs/_static/HEMS-tutorial-dashboard.png
+.. image:: https://raw.githubusercontent.com/FlexMeasures/screenshots/main/HEMS-tutorial-dashboard.png
     :align: center
 |
 
