@@ -216,3 +216,18 @@ def system_with_transitions():
         actuators=[actuator],
         storage=storage,
     )
+
+
+def power_sensor_recording(consumption_as_positive: bool, sensor_id: int = 1) -> dict:
+    """A power sensor as the API returns one, saying which sign it records consumption in.
+
+    ``FRBCSimple`` reads this before posting an actuator's power,
+    so a mocked client needs an answer for it:
+    an ``AsyncMock`` would otherwise hand back a mock whose every attribute is awaitable.
+    """
+
+    return {
+        "id": sensor_id,
+        "unit": "W",
+        "attributes": {"consumption_is_positive": consumption_as_positive},
+    }

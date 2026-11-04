@@ -58,6 +58,10 @@ class FRBCSimple(FRBC):
     _valid_from_shift: timedelta
     _fill_level_scale: float
     _hard_bound_factor: float
+    #: Whether the power sensor records consumption as positive, as S2 does.
+    #: Read from the sensor itself the first time a power value is posted, and remembered after that.
+    #: None until it has been read.
+    _power_sensor_takes_consumption_as_positive: bool | None
 
     def __init__(
         self,
@@ -117,6 +121,7 @@ class FRBCSimple(FRBC):
                 f"fill_level_scale has to be greater than zero, since it converts a fill level into the unit it is recorded in, but {fill_level_scale} was given."
             )
         self._fill_level_scale = fill_level_scale
+        self._power_sensor_takes_consumption_as_positive = None
         if hard_bound_factor < 1:
             # Below one, the hard upper bound sits inside the declared range,
             # and FlexMeasures clips the band into the hard bounds,
@@ -212,6 +217,52 @@ class FRBCSimple(FRBC):
             system_description_id, request_number=request_number
         )
 
+    async def _as_the_power_sensor_reads_it(self, power: float) -> float:
+        """Turn a power value S2 states into one the power sensor means the same thing by.
+
+        S2 fixes one sign convention, where positive means consumption.
+        FlexMeasures leaves it to the sensor, through its ``consumption_is_positive`` attribute,
+        and for a plain power sensor the default is the other way round:
+        a schedule saved onto such a sensor has its sign flipped on the way in,
+        so a plan to consume is stored negative.
+        Posting a consumption as positive onto that same sensor puts the measurement and the plan in opposite directions,
+        which reads as a device doing the reverse of what was planned.
+
+        The sensor is asked once, and the answer is kept:
+        a sensor's convention is a property of how it was set up, not of the moment.
+        Where the sensor cannot be read, the value is posted as S2 states it, which is this handler's own convention,
+        and the reason is logged.
+        """
+
+        if self._power_sensor_takes_consumption_as_positive is None:
+            try:
+                sensor = await self._fm_client.get_sensor(
+                    self._power_sensor_id, parse_json_fields=True
+                )
+                attributes = sensor.get("attributes") or {}
+                self._power_sensor_takes_consumption_as_positive = bool(
+                    attributes.get("consumption_is_positive", False)
+                )
+                self._logger.info(
+                    "Power sensor %s records %s as positive, so that is how an actuator's power is posted.",
+                    self._power_sensor_id,
+                    (
+                        "consumption"
+                        if self._power_sensor_takes_consumption_as_positive
+                        else "production"
+                    ),
+                )
+            except (ValueError, KeyError, ConnectionError) as exc:
+                self._logger.warning(
+                    "Could not read what sign power sensor %s records, so posting an actuator's power as S2 states it, with consumption positive: %s",
+                    self._power_sensor_id,
+                    exc,
+                )
+                return power
+        if self._power_sensor_takes_consumption_as_positive:
+            return power
+        return -power
+
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
         sd: FRBCSystemDescription = list(self._system_description_history.values())[-1]
@@ -266,7 +317,7 @@ class FRBCSimple(FRBC):
             self._power_sensor_id,
             start=start,
             prior=self.now(),
-            values=[power],
+            values=[await self._as_the_power_sensor_reads_it(power)],
             unit=self.power_unit,
             duration=timedelta(minutes=15),
         )
