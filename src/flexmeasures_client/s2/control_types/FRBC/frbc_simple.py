@@ -265,7 +265,7 @@ class FRBCSimple(FRBC):
                     exc,
                 )
                 return power
-        if self._power_sensor_takes_consumption_as_positive:
+        if self._power_sensor_takes_consumption_as_positive or not power:
             return power
         return -power
 
@@ -333,19 +333,23 @@ class FRBCSimple(FRBC):
         start = status.transition_timestamp or self.now()
 
         # A belief time that supersedes the one before it, rather than colliding with it.
-        # FlexMeasures keys a belief on its sensor, its source, the event and the moment it was formed,
-        # and rounds that moment down to the second,
-        # so two statuses inside one second are one belief and the later one is refused.
+        # FlexMeasures keys a belief on its sensor, its source, the event and the moment it was formed.
+        # It floors the event to the sensor's resolution and that moment to the second,
+        # so two statuses inside one resolution step and one second are a single belief,
+        # and the later one is refused.
         # A resource manager sends a status for each instruction it applies,
-        # and this handler sends several at once, so two in a second is the ordinary case rather than an edge.
+        # and this handler sends several at once, so that is the ordinary case rather than an edge.
+        # The comparison is on the event as FlexMeasures keys it,
+        # since two statuses seconds apart still land on the same resolution step.
+        event = self.align_to_resolution(start)
         recorded_at = self.now()
         if self._last_power_recorded is not None:
-            last_start, last_recorded_at = self._last_power_recorded
-            if last_start == start and recorded_at - last_recorded_at < timedelta(
+            last_event, last_recorded_at = self._last_power_recorded
+            if last_event == event and recorded_at - last_recorded_at < timedelta(
                 seconds=1
             ):
                 recorded_at = last_recorded_at + timedelta(seconds=1)
-        self._last_power_recorded = (start, recorded_at)
+        self._last_power_recorded = (event, recorded_at)
 
         value = self._in_the_power_unit(await self._as_the_power_sensor_reads_it(power))
         try:

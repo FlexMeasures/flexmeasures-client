@@ -262,3 +262,35 @@ async def test_a_refused_measurement_is_reported(system_description, caplog):
 
     assert "could not record" in caplog.text.lower()
     assert str(POWER_SENSOR_ID) in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_two_statuses_a_few_seconds_apart_still_supersede(system_description):
+    """FlexMeasures floors an event to the sensor's resolution, so seconds apart is the same event.
+
+    A resource manager timestamps each status as it happens,
+    so two of them never carry the same moment to the microsecond,
+    and comparing the moments themselves would have missed every real collision.
+    """
+    frbc = _frbc(system_description, consumption_as_positive=True)
+
+    for seconds, mode_index in ((52, 1), (55, 0)):
+        status = _status(system_description, mode_index)
+        status.transition_timestamp = datetime(
+            2024, 1, 1, 12, 7, seconds, tzinfo=timezone.utc
+        )
+        await frbc.send_actuator_status(status)
+
+    first, second = (post["prior"] for post in _posts_to_the_power_sensor(frbc))
+    assert second - first >= timedelta(seconds=1)
+
+
+@pytest.mark.asyncio
+async def test_zero_is_posted_as_zero(system_description):
+    """Zero has no direction, so flipping its sign leaves a negative zero and nothing else."""
+    frbc = _frbc(system_description, consumption_as_positive=False)
+
+    await frbc.send_actuator_status(_status(system_description, 0))
+
+    assert _posts_to_the_power_sensor(frbc)[0]["values"] == [0.0]
+    assert str(_posts_to_the_power_sensor(frbc)[0]["values"][0]) == "0.0"
