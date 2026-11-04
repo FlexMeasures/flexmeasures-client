@@ -391,10 +391,14 @@ class FRBCSimple(FRBC):
         start = status.transition_timestamp or self.now()
 
         # A belief time that supersedes the one before it, rather than colliding with it.
-        # FlexMeasures keys a belief on its sensor, its source, the event and the moment it was formed.
-        # It floors the event to the sensor's resolution and that moment to the second,
-        # so two statuses inside one resolution step and one second are a single belief,
-        # and the later one is refused.
+        # FlexMeasures keys a belief on its sensor, its source, the event and the moment it was formed,
+        # and it floors the event to the sensor's resolution.
+        # Two statuses inside one resolution step, milliseconds apart, were refused in practice,
+        # with a duplicate key whose belief time had lost its sub-second part.
+        # Posting two such beliefs by hand does not reproduce that,
+        # so the exact rule is the server's to state.
+        # Either way, a second apart is unambiguous: the later status supersedes the earlier one,
+        # which is what a resource manager reporting twice in a second means.
         # A resource manager sends a status for each instruction it applies,
         # and this handler sends several at once, so that is the ordinary case rather than an edge.
         # The comparison is on the event as FlexMeasures keys it,
