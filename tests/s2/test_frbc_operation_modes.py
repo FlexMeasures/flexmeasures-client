@@ -292,18 +292,23 @@ async def test_a_development_build_of_the_release_has_the_field():
 
 
 @pytest.mark.asyncio
-async def test_the_bands_are_in_the_unit_the_handler_states_power_in():
-    """A band in another unit than the capacities beside it is read a thousandfold out."""
-    system_description = _system_description((0.0, 0.0), (0.8837, 0.8837))
+async def test_the_bands_are_in_watts_whatever_the_handler_posts_power_in():
+    """These are the resource manager's own numbers, and S2 states power in watts.
+
+    Labelled with the unit this handler posts a power value in,
+    a band of 883.7 W would reach FlexMeasures as 883.7 kW,
+    and the scheduler would plan against a device a thousand times the size.
+    """
+    system_description = _system_description((0.0, 0.0), (883.7, 883.7))
     frbc = _frbc(system_description, power_unit="kW")
 
     flex_model = await _asked_for(frbc, system_description)
 
     assert flex_model["operation-modes"] == [
-        {"consumption-range": ["0 kW", "0 kW"]},
-        {"consumption-range": ["0.8837 kW", "0.8837 kW"]},
+        {"consumption-range": ["0 W", "0 W"]},
+        {"consumption-range": ["883.7 W", "883.7 W"]},
     ]
-    assert flex_model["consumption-capacity"] == "0.8837 kW"
+    assert flex_model["consumption-capacity"] == "883.7 W"
 
 
 @pytest.mark.asyncio

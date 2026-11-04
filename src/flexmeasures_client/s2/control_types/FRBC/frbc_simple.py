@@ -38,6 +38,11 @@ from flexmeasures_client.s2.control_types.translations import (
 )
 
 
+#: The unit S2 states a power value in, and so the unit of an operation mode's power ranges.
+#: What goes out to FlexMeasures in this unit is what came in from a resource manager in it.
+S2_POWER_UNIT = "W"
+
+
 def _operation_mode_power_bands(
     power_ranges: list[tuple[float, float]], power_unit: str
 ) -> list[dict[str, list[str]]]:
@@ -430,13 +435,13 @@ class FRBCSimple(FRBC):
             # and a heat pump is then planned as if its buffer could be discharged into the grid.
             consumption_capacity = max(0.0, max(upper for _, upper in power_ranges))
             production_capacity = max(0.0, -min(lower for lower, _ in power_ranges))
+            # In watts, since these are the resource manager's own numbers and S2 states them in watts.
+            # Not in power_unit, which says how a power value this handler posts is labelled.
             flex_model["consumption-capacity"] = (
-                f"{consumption_capacity} {self.power_unit}"
+                f"{consumption_capacity} {S2_POWER_UNIT}"
             )
-            flex_model["production-capacity"] = (
-                f"{production_capacity} {self.power_unit}"
-            )
-            operation_modes = _operation_mode_power_bands(power_ranges, self.power_unit)
+            flex_model["production-capacity"] = f"{production_capacity} {S2_POWER_UNIT}"
+            operation_modes = _operation_mode_power_bands(power_ranges, S2_POWER_UNIT)
             # Only where the bands say more than the two capacities above already do.
             # The capacities say the actuator can run at any power from minus its production capacity to its consumption capacity,
             # so a single band running through zero is exactly that and says nothing new.
