@@ -24,7 +24,6 @@ except ImportError:
 
 import pandas as pd
 
-from flexmeasures_client.client import _server_version_at_least
 from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     clip_fill_level_target_profile,
@@ -454,9 +453,7 @@ class FRBCSimple(FRBC):
                 lower <= 0 <= upper for lower, upper in power_ranges
             )
             if says_more_than_the_capacities:
-                if _server_version_at_least(
-                    await self._fm_client._resolve_server_version(), "1.0.0"
-                ):
+                if await self._fm_client.server_version_at_least("1.0.0"):
                     flex_model["operation-modes"] = operation_modes
                 else:
                     self._logger.info(

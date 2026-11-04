@@ -25,7 +25,7 @@ from s2python.frbc import (
     FRBCSystemDescription,
 )
 
-from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.client import FlexMeasuresClient, _server_version_at_least
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 from flexmeasures_client.s2.utils import get_unique_id
 
@@ -99,8 +99,10 @@ def _frbc(
         **kwargs,
     )
     frbc._fm_client = AsyncMock(FlexMeasuresClient)
-    frbc._fm_client._resolve_server_version = AsyncMock(return_value=server_version)
     frbc._fm_client.server_version = server_version
+    frbc._fm_client.server_version_at_least = AsyncMock(
+        side_effect=lambda minimum: _server_version_at_least(server_version, minimum)
+    )
     frbc._logger = logging.getLogger(__name__)
     frbc._system_description_history = {
         system_description.message_id: system_description
