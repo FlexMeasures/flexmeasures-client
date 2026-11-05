@@ -28,13 +28,20 @@ class SizeLimitOrderedDict(OrderedDict, Mapping[KT, VT]):
         super(SizeLimitOrderedDict, self).__init__(*args, **kwargs)
         self._max_size = max_size
 
-        # deleting values to make the dictionary of length _max_size at most
+        # deleting values to make the dictionary of length _max_size at most, oldest first
         while len(self) > self._max_size:
-            self.popitem()
+            self.popitem(last=False)
 
     def __setitem__(self, __key: KT, __value: VT) -> None:
-        if len(self) == self._max_size:
-            self.popitem()
+        # The oldest entry makes room, not the newest, which popitem() takes by default:
+        # a full history otherwise kept a session's first entries and lost every later one but the last.
+        # A key already present takes no room of its own.
+        if (
+            self._max_size is not None
+            and __key not in self
+            and len(self) >= self._max_size
+        ):
+            self.popitem(last=False)
 
         return super().__setitem__(__key, __value)
 

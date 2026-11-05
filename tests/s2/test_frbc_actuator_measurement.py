@@ -348,3 +348,18 @@ async def test_a_unit_nothing_converts_between_is_reported(system_description, c
     # so that is the unit it is reported in: a pair that disagrees is worse than none.
     assert f"{ON_W} W" in caplog.text
     assert f"{ON_W} hp" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_an_actuator_status_before_any_description_is_said_and_skipped(
+    system_description, caplog
+):
+    """After a reconnection one can arrive first; indexing the empty history raised an IndexError in a task nobody awaited."""
+    frbc = _frbc(system_description, consumption_as_positive=True)
+    status = _status(system_description, 0)
+    frbc._system_description_history.clear()
+
+    await frbc.send_actuator_status(status)
+
+    assert _posts_to_the_power_sensor(frbc) == []
+    assert "no FRBC.SystemDescription has arrived yet" in caplog.text

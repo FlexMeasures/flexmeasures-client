@@ -631,6 +631,13 @@ class FRBCSimple(FRBC):
 
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
+        # After a reconnection an actuator status can come before any description,
+        # which this needs to tell what power the status stands for.
+        if not self._system_description_history:
+            self._logger.warning(
+                "Not recording the power of an FRBC.ActuatorStatus: no FRBC.SystemDescription has arrived yet to tell what its operation mode draws."
+            )
+            return
         sd: FRBCSystemDescription = list(self._system_description_history.values())[-1]
 
         # Report the mode the actuator is ACTUALLY in, not whichever the system description happens

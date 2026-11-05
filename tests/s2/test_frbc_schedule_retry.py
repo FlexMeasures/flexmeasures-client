@@ -388,3 +388,38 @@ def test_a_schedule_per_device_names_no_scheduler_to_check(caplog):
         frbc._warn_where_a_fallback_scheduler_answered([SCHEDULE, SCHEDULE], VALID_FROM)
 
     assert caplog.text == ""
+
+
+@pytest.mark.asyncio
+async def test_a_schedule_is_asked_for_five_times_by_default():
+    """Pinned here, since every other test imports the default rather than stating it."""
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    frbc._fm_client.trigger_and_get_schedule.side_effect = A_FAILED_JOB
+
+    with pytest.raises(JobFailedError):
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert _attempts(frbc) == 5
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scale", [1.0, 10.0])
+async def test_the_bounds_a_schedule_is_read_back_against_are_in_the_resource_manager_s_units(
+    scale,
+):
+    """At a scale of ten, read back unscaled, the translation clamped at ten times the true hard maximum."""
+    from unittest.mock import patch
+
+    system_description = _heater()
+    frbc = _frbc(system_description, fill_level_scale=scale)
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.fm_schedule_to_instructions",
+        return_value=[],
+    ) as translate:
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert translate.call_args.kwargs["fill_level_bounds"] == (
+        0.0,
+        pytest.approx(RANGE_TOP * 1.5),
+    )
