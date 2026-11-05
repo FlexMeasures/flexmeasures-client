@@ -25,6 +25,8 @@ Added
 * ``FRBCSimple`` takes an optional ``production_price_sensor_id``, for a site where feeding back is priced differently from drawing, as under a feed-in tariff. Without it, both directions are priced by ``price_sensor_id``, as before [`#261 <https://github.com/FlexMeasures/flexmeasures-client/pull/261>`__]
 * ``FRBCSimple`` takes ``relax_site_capacity``: ``True`` lets a schedule breach the site's connection capacity at a price, for a site whose capacity is a target set by others, and ``False`` keeps it a hard limit. Unset, it is left to FlexMeasures, which since v1.0 relaxes it by default, so a home whose connection is a physical limit has to pass ``False`` [`#261 <https://github.com/FlexMeasures/flexmeasures-client/pull/261>`__]
 * An FRBC handler logs the instructions of a batch once, at debug level, by operation-mode name [`#261 <https://github.com/FlexMeasures/flexmeasures-client/pull/261>`__]
+* ``flexmeasures_client.s2.clock``, with a ``WallClock`` and a ``SimulatedClock``, and ``CEM(clock=...)``: the time a CEM and every handler it registers go by, timers included [`#264 <https://github.com/FlexMeasures/flexmeasures-client/pull/264>`__]
+* ``CEM(accept_simulation_metadata=True)``, which takes a co-simulation's messages wrapped with the simulated time (``S2Wrapper``) and sets its clock from them. Off by default, a wrapped message is refused as invalid. The example server turns it on with ``S2_ACCEPT_SIMULATION_METADATA`` [`#264 <https://github.com/FlexMeasures/flexmeasures-client/pull/264>`__]
 
 Changed
 -------
