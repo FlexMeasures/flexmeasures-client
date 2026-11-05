@@ -4,6 +4,7 @@ Used it at your own risk :)
 """
 
 import asyncio
+import math
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -395,6 +396,13 @@ class FRBCSimple(FRBC):
             return power
         return convert_units([power], S2_POWER_UNIT, self.power_unit)[0]
 
+    def _latest_fill_level(self) -> float | None:
+        """The fill level the latest storage status reported, in the resource manager's own units, if it reported a number."""
+        if not self._storage_status_history:
+            return None
+        fill_level = list(self._storage_status_history.values())[-1].present_fill_level
+        return None if math.isnan(fill_level) else fill_level
+
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
         sd: FRBCSystemDescription = list(self._system_description_history.values())[-1]
@@ -431,17 +439,15 @@ class FRBCSimple(FRBC):
 
         # The element the actuator runs on depends on the fill level, as a heat pump derates while its buffer warms,
         # so it is the one that applies at the latest fill level reported, not whichever the mode happens to list first.
-        if self._storage_status_history:
-            fill_level = list(self._storage_status_history.values())[
-                -1
-            ].present_fill_level
+        fill_level = self._latest_fill_level()
+        if fill_level is not None:
             element = element_for_fill_level(operation_mode.elements, fill_level)
         else:
             # As if at the bottom of the range, which is as good a guess as any, and is said to be one below.
             element = element_for_fill_level(operation_mode.elements, float("-inf"))
             if len(operation_mode.elements) > 1:
                 self._logger.warning(
-                    "FRBC.ActuatorStatus for operation mode %s arrived with no FRBC.StorageStatus yet, "
+                    "FRBC.ActuatorStatus for operation mode %s arrived with no usable FRBC.StorageStatus yet, "
                     "so its power is recorded as the element at the bottom of the fill-level range states it, "
                     "which need not be the element the actuator runs on.",
                     om_label(operation_mode),
@@ -534,7 +540,10 @@ class FRBCSimple(FRBC):
             )
 
     async def _record_charging_efficiency(
-        self, system_description: FRBCSystemDescription, start: datetime
+        self,
+        system_description: FRBCSystemDescription,
+        start: datetime,
+        fill_level: float,
     ) -> bool:
         """Record what the actuator converts drawn power into stored energy at, over the window a schedule covers.
 
@@ -544,6 +553,8 @@ class FRBCSimple(FRBC):
         a schedule planned against a sensor holding nothing for its window is planned as if the actuator converted power one for one.
 
         :param start: where the schedule starts, which is where the value is recorded from.
+        :param fill_level: the fill level the schedule starts from, in the resource manager's own units,
+                           which picks the element of each mode that answers.
         :returns: whether that schedule may be planned against the sensor,
                   which it may not where nothing is recorded on it for this window.
         """
@@ -556,7 +567,7 @@ class FRBCSimple(FRBC):
         try:
             for operation_mode in actuator.operation_modes:
                 efficiency = operation_mode_conversion_efficiency(
-                    operation_mode, self._fill_level_scale, self.energy_unit
+                    operation_mode, self._fill_level_scale, self.energy_unit, fill_level
                 )
                 if efficiency is not None:
                     efficiencies[operation_mode.id] = efficiency
@@ -829,7 +840,9 @@ class FRBCSimple(FRBC):
         # What the operation modes say about converting drawn power into stored energy.
         # Recorded first, since FlexMeasures reads it from the sensor named here and not from the flex model,
         # and named only where it was recorded.
-        if await self._record_charging_efficiency(system_description, start):
+        if await self._record_charging_efficiency(
+            system_description, start, fill_level_at_start
+        ):
             flex_model["charging-efficiency"] = {
                 "sensor": self._charging_efficiency_sensor_id
             }
@@ -1007,6 +1020,7 @@ class FRBCSimple(FRBC):
             message=leakage_behaviour,
             resolution=self._resolution,
             fill_level_scale=self._fill_level_scale,
+            fill_level=self._latest_fill_level(),
         )
 
         now = self.now()

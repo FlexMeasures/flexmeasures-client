@@ -75,7 +75,9 @@ COLD = _element(0, 40, power=2000.0, heat_in_watts=8000.0)
 WARM = _element(40, RANGE_TOP, power=1200.0, heat_in_watts=3600.0)
 
 
-def _mode(*elements: FRBCOperationModeElement, label: str = "heat") -> FRBCOperationMode:
+def _mode(
+    *elements: FRBCOperationModeElement, label: str = "heat"
+) -> FRBCOperationMode:
     return FRBCOperationMode(
         id=get_unique_id(),
         diagnostic_label=label,
@@ -164,7 +166,8 @@ def test_a_fill_level_in_a_gap_is_answered_by_the_nearer_element_and_on_a_tie_th
 
 def test_leakage_elements_are_selected_the_same_way():
     low = FRBCLeakageBehaviourElement(
-        fill_level_range=NumberRange(start_of_range=0, end_of_range=40), leakage_rate=1e-5
+        fill_level_range=NumberRange(start_of_range=0, end_of_range=40),
+        leakage_rate=1e-5,
     )
     high = FRBCLeakageBehaviourElement(
         fill_level_range=NumberRange(start_of_range=40, end_of_range=RANGE_TOP),
@@ -260,7 +263,8 @@ async def test_without_a_fill_level_the_measured_power_is_a_guess_said_out_loud(
     with caplog.at_level(logging.WARNING, logger="FRBCSimple"):
         assert await _measured_power(frbc, mode, factor=1.0) == pytest.approx(2000.0)
     assert any(
-        "no FRBC.StorageStatus" in record.getMessage() for record in caplog.records
+        "no usable FRBC.StorageStatus" in record.getMessage()
+        for record in caplog.records
     ), caplog.records
 
 
@@ -279,27 +283,48 @@ def test_a_schedule_is_translated_the_same_whichever_order_the_elements_come_in(
 # ---------------------------------------------------------------------------
 
 
-def _efficiency(mode: FRBCOperationMode) -> float | None:
+def _efficiency(mode: FRBCOperationMode, fill_level: float) -> float | None:
     return operation_mode_conversion_efficiency(
-        mode, fill_level_scale=1, energy_unit="kWh"
+        mode, fill_level_scale=1, energy_unit="kWh", fill_level=fill_level
     )
 
 
-def test_the_conversion_efficiency_does_not_depend_on_the_order_listed():
-    assert _efficiency(_mode(COLD, WARM)) == pytest.approx(
-        _efficiency(_mode(WARM, COLD))
+@pytest.mark.parametrize("fill_level", [-5.0, 20.0, 40.0, 60.0, 95.0])
+def test_the_conversion_efficiency_does_not_depend_on_the_order_listed(fill_level):
+    assert _efficiency(_mode(COLD, WARM), fill_level) == _efficiency(
+        _mode(WARM, COLD), fill_level
     )
 
 
-def test_a_mode_whose_elements_convert_differently_states_the_lowest():
-    """A COP of 4 when cold and 3 when warm plans as 3: a plan that converts less reaches its target early."""
-    assert _efficiency(_mode(COLD, WARM)) == pytest.approx(3.0)
+@pytest.mark.parametrize("fill_level, cop", [(20.0, 4.0), (60.0, 3.0)])
+def test_a_mode_states_the_efficiency_of_the_element_where_the_schedule_starts(
+    fill_level, cop
+):
+    """A COP of 4 when cold and 3 when warm is 4 for a schedule starting cold, and 3 for one starting warm.
+
+    Not the lowest of the two for both: that overstates what a cold buffer needs,
+    so the plan overshoots its upper band and buys more than it uses,
+    and against a usage it cannot relax it can find a problem the heat pump can meet infeasible.
+    The start is what matters most, since it runs before the next storage status asks for a new plan.
+    """
+    assert _efficiency(_mode(COLD, WARM), fill_level) == pytest.approx(cop)
+
+
+def test_an_element_that_tapers_off_applies_only_where_it_applies():
+    """Near its highest flow temperature a heat pump may barely fill its buffer, and that does not hold for a cold one."""
+    tapering = _element(50, 60, power=1200.0, heat_in_watts=10.0)
+    mode = _mode(_element(0, 50, power=1200.0, heat_in_watts=4800.0), tapering)
+    assert _efficiency(mode, 30.0) == pytest.approx(4.0)
+    assert _efficiency(mode, 55.0) == pytest.approx(10.0 / 1200.0)
 
 
 @pytest.mark.parametrize(
     "heat_in_watts",
     [0.0, -50.0],
-    ids=["standby, drawing power and delivering nothing", "circulation, drawing power and losing heat"],
+    ids=[
+        "standby, drawing power and delivering nothing",
+        "circulation, drawing power and losing heat",
+    ],
 )
 def test_a_mode_that_draws_power_without_filling_states_no_efficiency(heat_in_watts):
     """Drawing power while the storage does not fill is not a conversion one ratio can state."""
@@ -317,7 +342,7 @@ def test_a_mode_that_draws_power_without_filling_states_no_efficiency(heat_in_wa
             )
         ],
     )
-    assert _efficiency(_mode(standby)) is None
+    assert _efficiency(_mode(standby), 10.0) is None
 
 
 @pytest.mark.asyncio
@@ -346,7 +371,9 @@ async def test_a_standby_mode_does_not_drag_the_recorded_efficiency_to_zero():
         system_description, charging_efficiency_sensor_id=CHARGING_EFFICIENCY_SENSOR
     )
     start = datetime(2024, 1, 2, tzinfo=timezone.utc)
-    assert await frbc._record_charging_efficiency(system_description, start) is True
+    assert (
+        await frbc._record_charging_efficiency(system_description, start, 30.0) is True
+    )
     recorded = [
         call.kwargs["values"]
         for call in frbc._fm_client.post_sensor_data.await_args_list
@@ -413,3 +440,102 @@ def test_the_storage_efficiency_states_the_leakiest_element():
     )
     assert together == top_only
     assert leakiest != top_only
+
+
+# ---------------------------------------------------------------------------
+# Which fill level: the latest, as the resource manager states it
+# ---------------------------------------------------------------------------
+
+
+def _report_fill_level(frbc: FRBCSimple, fill_level: float) -> None:
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=fill_level
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_measured_power_follows_the_latest_storage_status():
+    """A buffer that has warmed since its first status runs on the derated element now."""
+    mode = _mode(COLD, WARM)
+    frbc = _frbc(_system_description(mode))
+    _report_fill_level(frbc, 10.0)
+    _report_fill_level(frbc, 70.0)
+    assert await _measured_power(frbc, mode, factor=1.0) == pytest.approx(1200.0)
+
+
+@pytest.mark.asyncio
+async def test_the_fill_level_is_compared_in_the_resource_managers_own_units():
+    """The scale converts fill levels for FlexMeasures; the elements' ranges are still in the resource manager's units.
+
+    At 7 in its own units the buffer is cold, though scaled by 10 it would read as 70, which is warm.
+    """
+    mode = _mode(COLD, WARM)
+    frbc = _frbc(_system_description(mode), fill_level_scale=10)
+    _report_fill_level(frbc, 7.0)
+    assert await _measured_power(frbc, mode, factor=1.0) == pytest.approx(2000.0)
+
+
+@pytest.mark.asyncio
+async def test_with_one_element_there_is_nothing_to_guess(caplog):
+    mode = _mode(_element(0, RANGE_TOP, power=2000.0, heat_in_watts=8000.0))
+    frbc = _frbc(_system_description(mode))
+    with caplog.at_level(logging.WARNING, logger="FRBCSimple"):
+        await _measured_power(frbc, mode, factor=1.0)
+    assert not caplog.records, caplog.records
+
+
+@pytest.mark.asyncio
+async def test_a_fill_level_that_is_not_a_number_counts_as_unknown(caplog):
+    """s2python lets a NaN fill level through, and no element applies at it, so it is treated as no fill level at all."""
+    mode = _mode(WARM, COLD)
+    frbc = _frbc(_system_description(mode))
+    _report_fill_level(frbc, float("nan"))
+    with caplog.at_level(logging.WARNING, logger="FRBCSimple"):
+        assert await _measured_power(frbc, mode, factor=1.0) == pytest.approx(2000.0)
+    assert any("no usable FRBC.StorageStatus" in r.getMessage() for r in caplog.records)
+
+
+def test_no_element_applies_at_a_fill_level_that_is_not_a_number():
+    with pytest.raises(ValueError, match="not a number"):
+        element_for_fill_level([COLD, WARM], float("nan"))
+
+
+def test_the_storage_efficiency_at_a_fill_level_is_that_elements():
+    """Where the fill level is known, the leakage element that applies there answers, not the leakiest."""
+    leakage = _leakage(LEAKS_LITTLE, LEAKS_MOST, LEAKS_SOME)
+    at_20 = leakage_behaviour_to_storage_efficiency(
+        leakage, resolution=timedelta(minutes=15), fill_level=20.0
+    )
+    only_little = leakage_behaviour_to_storage_efficiency(
+        _leakage(
+            FRBCLeakageBehaviourElement(
+                fill_level_range=NumberRange(start_of_range=0, end_of_range=RANGE_TOP),
+                leakage_rate=LEAKS_LITTLE.leakage_rate,
+            )
+        ),
+        resolution=timedelta(minutes=15),
+    )
+    assert at_20 == only_little
+    assert at_20 != leakage_behaviour_to_storage_efficiency(
+        leakage, resolution=timedelta(minutes=15)
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_handler_records_leakage_at_the_latest_fill_level():
+    leakage = _leakage(LEAKS_LITTLE, LEAKS_MOST, LEAKS_SOME)
+    frbc = _frbc(_system_description(_mode(COLD, WARM)), leakage_behaviour_sensor_id=9)
+    _report_fill_level(frbc, 20.0)
+    await frbc.send_leakage_behaviour(leakage)
+    posted = [
+        call.kwargs["values"]
+        for call in frbc._fm_client.post_sensor_data.await_args_list
+        if call.kwargs.get("sensor_id") == 9
+    ]
+    assert posted == [
+        [
+            leakage_behaviour_to_storage_efficiency(
+                leakage, resolution=timedelta(minutes=15), fill_level=20.0
+            )
+        ]
+    ]

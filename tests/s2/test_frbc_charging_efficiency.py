@@ -326,8 +326,8 @@ def test_a_fill_rate_is_stated_in_watts_by_the_unit_the_fill_level_is_in():
         fill_rate_in_watts(1, "therm")
 
 
-def test_an_efficiency_is_taken_at_the_top_of_the_last_element():
-    """A mode states an element per stretch of fill level, and the efficiency is the one at full tilt.
+def test_an_efficiency_is_taken_at_the_top_of_the_element_that_applies():
+    """A mode states an element per stretch of fill level, and the efficiency is that element's, at full tilt.
 
     The ratio, and not the slope over the element's range:
     a mode's ranges can be degenerate, where the actuator runs at one power and one fill rate only,
@@ -353,6 +353,47 @@ def test_an_efficiency_is_taken_at_the_top_of_the_last_element():
         )
     )
 
-    efficiency = operation_mode_conversion_efficiency(mode, 1, "kWh")
+    below, above = (
+        operation_mode_conversion_efficiency(mode, 1, "kWh", fill_level)
+        for fill_level in (RANGE_TOP / 2, 1.5 * RANGE_TOP)
+    )
 
-    assert efficiency == pytest.approx(HEATER_HEAT_IN_WATTS / HEATER_POWER / 2)
+    assert below == pytest.approx(HEATER_HEAT_IN_WATTS / HEATER_POWER)
+    assert above == pytest.approx(HEATER_HEAT_IN_WATTS / HEATER_POWER / 2)
+
+
+@pytest.mark.asyncio
+async def test_a_schedule_is_asked_for_against_the_efficiency_where_it_starts():
+    """A heat pump that converts less once its buffer is warm is planned with the warm efficiency for a warm start."""
+    cold = HEATER_HEAT_IN_WATTS / HEATER_POWER
+    warm = cold / 2
+    mode = _operation_mode(HEATER_POWER, HEATER_FILL_RATE, "on")
+    mode.elements[0].fill_level_range.end_of_range = RANGE_TOP / 2
+    mode.elements.append(
+        FRBCOperationModeElement(
+            fill_level_range=NumberRange(
+                start_of_range=RANGE_TOP / 2, end_of_range=RANGE_TOP
+            ),
+            fill_rate=NumberRange(
+                start_of_range=HEATER_FILL_RATE / 2, end_of_range=HEATER_FILL_RATE / 2
+            ),
+            power_ranges=[
+                PowerRange(
+                    start_of_range=HEATER_POWER,
+                    end_of_range=HEATER_POWER,
+                    commodity_quantity=CommodityQuantity.ELECTRIC_POWER_L1,
+                )
+            ],
+        )
+    )
+    system_description = _system_description(mode)
+    frbc = _frbc(system_description)
+    # The latest status: a buffer warmed past the middle of its range since the one _frbc recorded.
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=0.75 * RANGE_TOP
+    )
+
+    await _asked_for(frbc, system_description)
+
+    assert _recordings(frbc)[0]["values"] == [pytest.approx(warm)]
+    assert warm != pytest.approx(cold)

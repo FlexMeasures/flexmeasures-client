@@ -1,4 +1,5 @@
 import logging
+import math
 from datetime import timedelta
 from math import isclose
 from typing import List, Sequence, TypeVar
@@ -318,9 +319,12 @@ def fill_rate_in_watts(fill_rate: float, energy_unit: str) -> float:
 
 
 def operation_mode_conversion_efficiency(
-    operation_mode: FRBCOperationMode, fill_level_scale: float, energy_unit: str
+    operation_mode: FRBCOperationMode,
+    fill_level_scale: float,
+    energy_unit: str,
+    fill_level: float,
 ) -> float | None:
-    """How much energy an operation mode puts into the storage for each unit of power it draws.
+    """How much energy an operation mode puts into the storage for each unit of power it draws, at a fill level.
 
     An operation mode states a fill rate and a power range,
     so the ratio between the two is what the mode converts drawn power into stored energy at:
@@ -328,38 +332,38 @@ def operation_mode_conversion_efficiency(
     Both sides are taken in watts, since FlexMeasures asks for a charging efficiency as a dimensionless ratio,
     and for a thermal actuator that ratio is well above one.
 
-    Each element's ratio is taken at the top of its range, rather than as the slope over that range.
+    A mode may convert differently at different fill levels, as a heat pump does when its buffer warms,
+    and FlexMeasures takes one charging efficiency for a whole schedule.
+    The element that applies at the fill level the schedule starts from answers,
+    since the start of a schedule is the part that runs before the next storage status asks for a new one.
+    Not the lowest element over the whole range:
+    that overstates what the actuator needs to fill the storage, so the plan overshoots its upper band and buys more than it uses,
+    and against a usage the plan cannot relax it can turn a problem the actuator can meet into one the scheduler finds infeasible.
+
+    The ratio is taken at the top of that element's range, rather than as the slope over it.
     An actuator may well declare degenerate ranges,
     where a mode runs at one power and one fill rate only (the heaters in our own smoke tests state on as [883.7, 883.7] W),
     and a slope is zero over such a range while the ratio is the efficiency the mode really runs at.
 
-    A mode whose elements convert differently, as a heat pump does when its buffer warms, states the lowest of them.
-    FlexMeasures takes one charging efficiency for a whole schedule, and does not know which fill levels it will pass through,
-    so the most cautious element answers, for the same reason the lowest mode answers across modes:
-    a plan that converts less than the actuator really does reaches its target early, where one that converts more reaches it late.
-    That also makes the answer independent of the order the elements were listed in, which S2 does not fix.
-
     :param fill_level_scale: converts a fill level, and so a fill rate,
                              from the resource manager's own units into the unit it is recorded in.
     :param energy_unit:      the unit a fill level is recorded in, which the fill rate is per second of.
-    :returns: the efficiency, or None where no element of the mode converts drawn power into stored energy.
-              An element converts nothing where it draws no power, as an idle mode does,
+    :param fill_level:       where the schedule starts, in the resource manager's own units, as the elements' ranges are.
+    :returns: the efficiency, or None where the element that applies converts no drawn power into stored energy.
+              It converts nothing where it draws no power, as an idle mode does,
               where it only feeds power back, which FlexMeasures takes as a separate discharging efficiency,
               or where it draws power while the storage does not fill, as a standby or circulation mode does:
               no single ratio states that, and a ratio of zero would tell the scheduler the storage cannot be filled at all.
     """
-    efficiencies = []
-    # S2 gives every operation mode at least one element, and every element at least one power range.
-    for element in operation_mode.elements:
-        # todo: an element states one power range per commodity quantity,
-        # and no distinction is made between them here,
-        # as the rest of this handler does not make one either (see power_to_fill_rate_with_metrics).
-        power = element.power_ranges[0].end_of_range
-        fill_rate = element.fill_rate.end_of_range * fill_level_scale
-        if power <= 0 or fill_rate <= 0:
-            continue
-        efficiencies.append(fill_rate_in_watts(fill_rate, energy_unit) / power)
-    return min(efficiencies) if efficiencies else None
+    element = element_for_fill_level(operation_mode.elements, fill_level)
+    # todo: an element states one power range per commodity quantity,
+    # and no distinction is made between them here,
+    # as the rest of this handler does not make one either (see power_to_fill_rate_with_metrics).
+    power = element.power_ranges[0].end_of_range
+    fill_rate = element.fill_rate.end_of_range * fill_level_scale
+    if power <= 0 or fill_rate <= 0:
+        return None
+    return fill_rate_in_watts(fill_rate, energy_unit) / power
 
 
 def clip_fill_level_target_profile(
@@ -472,15 +476,25 @@ def element_for_fill_level(
 ) -> ElementWithFillLevelRange:
     """The element that applies at a fill level, whatever order the elements were listed in.
 
-    S2 lets the elements of an operation mode, or of a leakage behaviour, cover the fill-level range in pieces,
-    and s2python checks that they are contiguous on a sorted copy, so the list itself may arrive in any order.
+    S2 lets the elements of an operation mode, or of a leakage behaviour, cover the fill-level range in pieces, in any order.
+    s2python checks that an operation mode's elements are contiguous, on a sorted copy, and leaves the list as it was sent;
+    it checks nothing of the kind for a leakage behaviour, whose elements may leave gaps or overlap.
+
     Two neighbouring elements share a boundary, which belongs to the upper of the two:
     of every element whose range holds the fill level, the one starting highest applies, and of two starting together, the one reaching higher.
-    That includes an element whose range is a single point at the top, which no half-open rule could ever select.
+    A range that is a single point therefore applies only at the very top.
+    The standard says a range starts below where it ends, so such a range is outside it, though s2python lets it through.
+    Two elements with the same range are ambiguous, which overlapping elements always are, and the first listed answers.
+
     A fill level outside the range the elements cover is answered as the nearest end of that range is,
     since a storage may be outside its declared range, and the answer should not jump as it crosses that end.
-    Elements with a gap between them, which S2 rules out, answer a fill level in the gap with the nearer, and on a tie the lower.
+    A fill level in a gap between elements is answered by the nearer, and on a tie the lower.
+
+    :raises ValueError: for a fill level that is not a number, which no element applies at.
     """
+    if math.isnan(fill_level):
+        raise ValueError("No element applies at a fill level that is not a number.")
+
     def bounds(e: ElementWithFillLevelRange) -> tuple[float, float]:
         return e.fill_level_range.start_of_range, e.fill_level_range.end_of_range
 

@@ -17,11 +17,14 @@ except ImportError:
         "Install it using `pip install flexmeasures-client[s2]`."
     )
 
+from flexmeasures_client.s2.control_types.FRBC.utils import element_for_fill_level
+
 
 def leakage_behaviour_to_storage_efficiency(
     message: FRBCLeakageBehaviour,
     resolution=timedelta(minutes=15),
     fill_level_scale: float = 1,
+    fill_level: float | None = None,
 ) -> float:
     """
     Convert a FRBC.LeakageBehaviour message into a FlexMeasures compatible storage efficiency.
@@ -56,15 +59,18 @@ def leakage_behaviour_to_storage_efficiency(
 
     """
 
-    # FlexMeasures takes one storage efficiency here, and does not know which fill levels a schedule will pass through,
-    # so the leakiest element answers, as the most cautious: a plan that expects to lose more reaches its target early.
-    # It is looked for rather than assumed to come last, since S2 does not fix the order the elements are listed in,
-    # and the leakiest is not always the top one.
-    leakiest = max(message.elements, key=lambda e: e.leakage_rate)
+    # FlexMeasures takes one storage efficiency here, for the whole window it covers.
+    # Where the fill level is known, the element that applies at it answers, as for a charging efficiency.
+    # Where it is not, the leakiest answers, looked for rather than assumed to come last,
+    # since S2 does not fix the order the elements are listed in, and the leakiest is not always the top one.
+    if fill_level is not None:
+        element = element_for_fill_level(message.elements, fill_level)
+    else:
+        element = max(message.elements, key=lambda e: e.leakage_rate)
     max_fill_level = max(
         e.fill_level_range.end_of_range * fill_level_scale for e in message.elements
     )
-    leakage = leakiest.leakage_rate * fill_level_scale
+    leakage = element.leakage_rate * fill_level_scale
     base_resolution = timedelta(hours=1)  # TODO: use timedelta(seconds=1)
 
     # Discuss conversions
