@@ -796,3 +796,30 @@ async def test_a_session_ends_with_its_connection():
         in ("websocket_producer", "rm_details_watchdog")
     ]
     assert leftover == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("accept", [False, True])
+async def test_the_server_hands_its_simulation_flag_to_each_cem(accept):
+    from unittest.mock import patch
+
+    made = []
+    real = server.CEM
+
+    def capture(**kwargs):
+        made.append(kwargs)
+        return real(**kwargs)
+
+    resource_manager, cem_end = _connected()
+    sensors = {name: {"id": i} for i, name in enumerate(server.SITE_SENSORS, start=1)}
+    with (
+        patch.object(server, "CEM", side_effect=capture),
+        patch.object(server, "ACCEPT_SIMULATION_METADATA", accept),
+    ):
+        serving = asyncio.create_task(
+            server.serve_resource_manager(cem_end, _flexmeasures(), sensors)
+        )
+        await _until(lambda: made)
+        await cem_end._inbox.put(_CLOSED)
+        await asyncio.wait_for(serving, timeout=5)
+    assert made[0]["accept_simulation_metadata"] is accept

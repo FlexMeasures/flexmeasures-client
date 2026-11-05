@@ -32,6 +32,13 @@ SITE_TIMEZONE = "Europe/Amsterdam"
 # Enough days of demo prices to cover what the CEM plans for, which is twelve hours from now,
 # with the seeding repeated every SEED_PRICES_EVERY so that a demo left running never runs out.
 SEED_PRICE_DAYS = 3
+
+#: Whether resource managers may send messages wrapped with a simulated time, as a co-simulation does.
+ACCEPT_SIMULATION_METADATA = os.getenv("S2_ACCEPT_SIMULATION_METADATA", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 SEED_PRICES_EVERY = timedelta(hours=12)
 
 #: Each sensor the site needs: its unit, its resolution, and any attributes.
@@ -141,6 +148,8 @@ async def serve_resource_manager(
         sensor_id=sensors["power"]["id"],
         fm_client=fm_client,
         logger=LOGGER,
+        # A co-simulation's resource manager sends its messages wrapped with the simulated time, which this sets the clock to.
+        accept_simulation_metadata=ACCEPT_SIMULATION_METADATA,
     )
     frbc = FRBCSimple(
         power_sensor_id=sensors["power"]["id"],

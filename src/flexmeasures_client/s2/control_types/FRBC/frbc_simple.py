@@ -284,9 +284,6 @@ class FRBCSimple(FRBC):
         # of the FRBC.SystemDescription.
         self._valid_from_shift = valid_from_shift
 
-    def now(self):
-        return datetime.now(self._timezone)
-
     def fill_rate_unit(self) -> str:
         """The unit a rate of change of the fill level is recorded in.
 

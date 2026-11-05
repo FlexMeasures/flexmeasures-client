@@ -21,6 +21,7 @@ except ImportError:
     )
 
 
+from flexmeasures_client.s2.clock import Clock, WallClock
 from flexmeasures_client.s2.utils import SizeLimitOrderedDict, get_message_id
 
 
@@ -126,6 +127,8 @@ class Handler:
         self.outgoing_messages_status = SizeLimitOrderedDict(max_size=max_size)
 
         self._timezone = ZoneInfo(timezone)
+        #: The time this handler goes by; a CEM gives each handler it registers its own clock.
+        self._clock: Clock = WallClock()
 
         self.discover()
 
@@ -249,5 +252,6 @@ class Handler:
             subject_message_id=str(message.message_id), status=ReceptionStatusValues.OK
         )
 
-    def now(self):
-        return datetime.now(self._timezone)
+    def now(self) -> datetime:
+        """The current moment by this handler's clock, in its time zone."""
+        return self._clock.now().astimezone(self._timezone)

@@ -169,8 +169,12 @@ class FillRateBasedControlTUNES(FRBC):
         self._datastore = datastore if datastore is not None else {}
 
     def _is_timer_due(self, name: str) -> bool:
-        now = datetime.now()
+        # By this handler's clock, so that a co-simulation's timers run on simulated time.
+        now = self.now()
         due_time = self._timers.get(name, now - self._minimum_measurement_period)
+        if due_time.tzinfo is None:
+            # A timer handed in as a wall-clock time without a zone, as they all were before, is read in this handler's.
+            due_time = due_time.replace(tzinfo=self._timezone)
         if due_time <= now:
             # Get total seconds of the period
             period_seconds = self._minimum_measurement_period.total_seconds()
@@ -194,9 +198,6 @@ class FillRateBasedControlTUNES(FRBC):
                 f"Timer for {name} is not due until {self._timers[name]}"
             )
             return False
-
-    def now(self):
-        return datetime.now(self._timezone)
 
     async def send_storage_status(
         self, status: FRBCStorageStatus, request_number: int | None = None

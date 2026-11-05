@@ -33,12 +33,14 @@ except ImportError:
 
 from flexmeasures_client.client import FlexMeasuresClient
 from flexmeasures_client.s2 import Handler, register
+from flexmeasures_client.s2.clock import Clock, SimulatedClock
 from flexmeasures_client.s2.control_types import ControlTypeHandler
 from flexmeasures_client.s2.utils import (
     get_latest_compatible_version,
     get_reception_status,
     get_unique_id,
 )
+from flexmeasures_client.s2.wrapper import MetaData
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,12 +87,32 @@ class CEM(Handler):
         timers: dict[str, datetime] | None = None,
         datastore: dict | None = None,
         power_sensor_id: dict[str, int] | None = None,
+        clock: Clock | None = None,
+        accept_simulation_metadata: bool = False,
         **kwargs,
     ) -> None:
         """
         Customer Energy Manager (CEM)
+
+        :param clock:                       the time this CEM and every handler it registers go by;
+                                            the wall clock by default.
+        :param accept_simulation_metadata:  whether to take messages wrapped with a simulated time
+                                            (see flexmeasures_client.s2.wrapper.S2Wrapper),
+                                            as a co-simulation sends them, and set the clock to that time.
+                                            Off by default, since the wrapper is not part of S2,
+                                            and a live CEM should not let a resource manager set its time.
+                                            On, the clock has to be a SimulatedClock, and one is made where none is given.
         """
         super(CEM, self).__init__()
+        if accept_simulation_metadata:
+            clock = clock if clock is not None else SimulatedClock()
+            if not isinstance(clock, SimulatedClock):
+                raise ValueError(
+                    "A CEM that accepts simulation metadata sets its clock from it, so it needs a SimulatedClock."
+                )
+        if clock is not None:
+            self._clock = clock
+        self._accept_simulation_metadata = accept_simulation_metadata
 
         self._fm_client = fm_client
         self._sending_queue = Queue()
@@ -111,8 +133,12 @@ class CEM(Handler):
         self._datastore = datastore if datastore is not None else {}
 
     def _is_timer_due(self, name: str) -> bool:
-        now = datetime.now()
+        # By this handler's clock, so that a co-simulation's timers run on simulated time.
+        now = self.now()
         due_time = self._timers.get(name, now - self._minimum_measurement_period)
+        if due_time.tzinfo is None:
+            # A timer handed in as a wall-clock time without a zone, as they all were before, is read in this handler's.
+            due_time = due_time.replace(tzinfo=self._timezone)
         if due_time <= now:
             # Get total seconds of the period
             period_seconds = self._minimum_measurement_period.total_seconds()
@@ -169,6 +195,9 @@ class CEM(Handler):
         # add fm_client to control_type handler
         control_type_handler._fm_client = self._fm_client
 
+        # The handler goes by the CEM's time, which a co-simulation sets.
+        control_type_handler._clock = self._clock
+
         # add sending queue
         control_type_handler._sending_queue = self._sending_queue
 
@@ -197,6 +226,12 @@ class CEM(Handler):
         assert isinstance(
             message, dict
         )  # what a message is from here on, whatever form it came in
+
+        if "metadata" in message and "message" in message:
+            unwrapped = self._unwrap(message)
+            if unwrapped is None:
+                return
+            message = unwrapped
 
         self._logger.debug(f"Received: {message}")
         self._activate_implicitly(message)
@@ -231,6 +266,38 @@ class CEM(Handler):
 
         if response is not None:
             await self._sending_queue.put(response)
+
+    def _unwrap(self, wrapped: dict) -> dict | None:
+        """The S2 message inside a co-simulation's wrapper, with the clock set to the simulated time it carries.
+
+        Where this CEM does not accept the wrapper, or the time cannot be read, the message is refused,
+        and None is returned so that it is not handled.
+        """
+        inner = wrapped["message"] if isinstance(wrapped["message"], dict) else {}
+        reason = None
+        if not self._accept_simulation_metadata:
+            reason = (
+                "This CEM does not accept messages wrapped with simulation metadata."
+            )
+        else:
+            try:
+                moment = MetaData.model_validate(wrapped["metadata"]).dt
+                assert isinstance(self._clock, SimulatedClock)
+                self._clock.set(moment)
+            except (pydantic.ValidationError, ValueError, TypeError) as exc:
+                reason = f"The simulated time in this message's metadata cannot be used: {exc}"
+        if reason is None:
+            return inner
+        self._logger.warning("%s Refusing %s.", reason, inner.get("message_type"))
+        if inner.get("message_id") is not None:
+            self._sending_queue.put_nowait(
+                ReceptionStatus(
+                    subject_message_id=inner["message_id"],
+                    status=ReceptionStatusValues.INVALID_MESSAGE,
+                    diagnostic_label=reason,
+                )
+            )
+        return None
 
     def _activate_implicitly(self, message: dict) -> None:
         """Take a message of the control type this CEM is selecting as the resource manager's acceptance of it.
@@ -399,7 +466,7 @@ class CEM(Handler):
             )
 
             # Compute bin
-            now = datetime.now(self._timezone)
+            now = self.now()
             m = self._minimum_measurement_period // pd.Timedelta(minutes=1)
             bin_end = now.replace(
                 second=0, microsecond=0, minute=(now.minute // m) * m
