@@ -27,7 +27,7 @@ from s2python.frbc import (
 )
 
 from flexmeasures_client.client import FlexMeasuresClient, _server_version_at_least
-from flexmeasures_client.exceptions import JobFailedError
+from flexmeasures_client.exceptions import JobFailedError, JobTimeoutError
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     fill_rate_in_watts,
@@ -564,3 +564,24 @@ def test_a_batch_of_instructions_is_logged_once_and_by_name(caplog):
     ]
     assert len(batches) == 1
     assert "'on'" in batches[0] and "'off'" in batches[0]
+
+
+@pytest.mark.asyncio
+async def test_an_efficiency_whose_ingestion_is_unconfirmed_is_recorded_again():
+    """Remembered as recorded, it was never posted again for its window, and the schedule named a sensor empty for it."""
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    frbc._fm_client.post_sensor_data = AsyncMock(
+        side_effect=[JobTimeoutError("still pending"), ({}, 200)]
+    )
+
+    first = await _asked_for(frbc, system_description)
+    second = await _asked_for(frbc, system_description)
+
+    assert "charging-efficiency" not in first
+    assert "charging-efficiency" in second
+    assert frbc._fm_client.post_sensor_data.await_count == 2
+    assert all(
+        c.kwargs.get("confirm_ingestion") is True
+        for c in frbc._fm_client.post_sensor_data.await_args_list
+    )

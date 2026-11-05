@@ -40,6 +40,7 @@ from s2python.frbc import (
 )
 
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.exceptions import JobTimeoutError
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     clip_fill_level_target_profile,
@@ -668,3 +669,30 @@ async def test_a_storage_efficiency_that_could_not_be_recorded_is_not_planned_ag
     assert await frbc._record_storage_efficiency(start, 50.0) is False
     assert frbc._storage_efficiency_recorded is None
     assert "could not record" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_storage_efficiency_whose_ingestion_is_unconfirmed_is_not_remembered(
+    system_description,
+):
+    frbc = _frbc(system_description, with_sensors=True)
+    leakage = FRBCLeakageBehaviour(
+        message_id=get_unique_id(),
+        valid_from="2024-01-01T12:00:00+00:00",
+        elements=[
+            FRBCLeakageBehaviourElement(
+                fill_level_range=NumberRange(
+                    start_of_range=RANGE_BOTTOM, end_of_range=RANGE_TOP
+                ),
+                leakage_rate=0.01,
+            )
+        ],
+    )
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+    frbc._fm_client.post_sensor_data.side_effect = JobTimeoutError("still pending")
+    start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
+    assert await frbc._record_storage_efficiency(start, 50.0) is False
+    assert frbc._storage_efficiency_recorded is None
+    assert (
+        frbc._fm_client.post_sensor_data.await_args.kwargs["confirm_ingestion"] is True
+    )

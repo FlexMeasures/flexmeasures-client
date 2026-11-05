@@ -217,6 +217,18 @@ class FRBC(ControlTypeHandler):
         # descriptions, and not before: it would otherwise have dropped a planning request.
         # The TUNES handler has fingerprinted its descriptions this way all along, and can adopt
         # this shared helper separately.
+        # Every plan is made for one actuator, so a description of several is refused when it arrives,
+        # rather than acknowledged and then failing in the background on every round, after a solve.
+        if len(message.actuators) != 1:
+            self._logger.error(
+                "Refusing an FRBC.SystemDescription with %s actuators: this CEM plans for exactly one.",
+                len(message.actuators),
+            )
+            return get_reception_status(
+                message,
+                status=ReceptionStatusValues.INVALID_CONTENT,
+                diagnostic_label=f"This CEM plans for exactly one actuator, and the description has {len(message.actuators)}.",
+            )
         fingerprint = self.system_description_fingerprint(message)
         if fingerprint == self._last_system_description_fingerprint:
             self._logger.debug(
@@ -229,6 +241,16 @@ class FRBC(ControlTypeHandler):
 
         # store system_description message for later
         self._system_description_history[system_description_id] = message
+
+        # Said once per description, since nothing here would otherwise say it at all:
+        # an instruction can ask for a switch that a running timer or a missing transition forbids, and the device refuses it.
+        actuator = message.actuators[0]
+        if actuator.timers or actuator.transitions:
+            self._logger.warning(
+                "The actuator declares %s timers and %s transitions, which this CEM does not honour: an instruction may ask for a switch the device refuses.",
+                len(actuator.timers),
+                len(actuator.transitions),
+            )
 
         # A description says what the device can do, and a storage status what it holds now,
         # and a schedule needs both. Planning normally hangs off a storage status (see handle_storage_status),
@@ -332,6 +354,13 @@ class FRBC(ControlTypeHandler):
 
     @register(FRBCTimerStatus)
     def handle_frbc_timer_status(self, message: FRBCTimerStatus) -> pydantic.BaseModel:
+        # Kept, so that what the resource manager said is there to see, though nothing plans with it yet.
+        self._timer_status_history[str(message.message_id)] = message
+        self._logger.warning(
+            "Timer %s runs until %s, which this CEM does not honour: an instruction may ask for a switch it blocks.",
+            message.timer_id,
+            message.finished_at,
+        )
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
     async def send_storage_status(
