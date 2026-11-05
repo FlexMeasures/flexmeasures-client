@@ -30,6 +30,7 @@ Added
 * ``flexmeasures_client.s2.site``: ``FRBC_SITE_SENSORS``, ``ensure_site`` and ``FRBCSiteConfigurator``, which gives each resource manager a FlexMeasures site of its own, named after it, and an FRBC handler wired to it [`#265 <https://github.com/FlexMeasures/flexmeasures-client/pull/265>`__]
 * ``CEM(site_configurator=...)``, which sets a resource manager's site up once its details arrive, answering its messages with a temporary error until then. The example server does so with ``S2_SITE_PER_RESOURCE_MANAGER`` [`#265 <https://github.com/FlexMeasures/flexmeasures-client/pull/265>`__]
 * ``examples/S2-co-simulation``, a FlexMeasures stack with one CEM per simulated home, for a co-simulation whose resource managers connect over websockets [`#265 <https://github.com/FlexMeasures/flexmeasures-client/pull/265>`__]
+* ``flexmeasures_client.s2.measurements.MeasurementRecorder`` and ``CEM(measurement_recorder=...)``: where a resource manager's measured power is recorded, one per server so that a reconnecting resource manager is not recorded twice [`#266 <https://github.com/FlexMeasures/flexmeasures-client/pull/266>`__]
 
 Changed
 -------
@@ -51,11 +52,13 @@ Changed
 Removed
 -------
 
+* ``flexmeasures_client.s2.cem.get_commodity_unit``, which stated power in kW where S2 states it in W [`#266 <https://github.com/FlexMeasures/flexmeasures-client/pull/266>`__]
 * ``op_mode_compute_factor``, which worked a factor back out of a fill rate and returned zero wherever an element's fill rate is one value; the factor now comes with the operation mode chosen, from its power range [`#258 <https://github.com/FlexMeasures/flexmeasures-client/pull/258>`__]
 
 Fixed
 -----
 
+* A CEM records measured power by the moment it was measured, once each step of its sensor's resolution is over, and in watts, as S2 states it. It binned measurements by its own now, which dropped every measurement a resource manager sent after the fact, as a co-simulation's does, labelled watts as kilowatts, and kept its samples in a buffer shared by every CEM in the process [`#266 <https://github.com/FlexMeasures/flexmeasures-client/pull/266>`__]
 * A CEM without a sensor for a resource manager's measured power no longer records it on sensor 357, which was whichever sensor of whichever site on the server had that id, and answered it as recorded [`#265 <https://github.com/FlexMeasures/flexmeasures-client/pull/265>`__]
 * A message of the control type a CEM is selecting, arriving before the resource manager confirmed the selection, is taken as that confirmation, since a resource manager sends a control type's messages only once it works in it. A CEM used to stay without a control type, answering each such message with a temporary error that the resource manager retried, as a co-simulation's reconnecting resource managers showed. A message of any other control type activates nothing [`#263 <https://github.com/FlexMeasures/flexmeasures-client/pull/263>`__]
 * Closing a control-type handler cancels the work it still has in flight, recording included, and the example server's session ends with its connection. A resource manager that reconnected used to be served by two sessions planning for it at once [`#263 <https://github.com/FlexMeasures/flexmeasures-client/pull/263>`__]
