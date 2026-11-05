@@ -64,7 +64,7 @@ async def test_a_site_is_made_with_every_sensor_and_its_graphs():
 async def test_an_existing_site_keeps_its_sensors_and_gets_the_missing_ones():
     fm = _flexmeasures(
         [
-            {"id": 6, "name": "home B", "sensors": []},
+            {"id": 8, "name": "home B", "sensors": []},
             {"id": 7, "name": "home A", "sensors": [{"id": 70, "name": "price"}]},
         ]
     )
@@ -123,7 +123,7 @@ def test_a_graph_without_sensors_on_the_site_is_left_out():
     graphs = frbc_site_graphs({"price": {"id": 1}, "power": {"id": 2}})
     assert graphs == [
         {"title": "Prices", "sensors": [1]},
-        {"title": "Power: planned and measured", "sensors": [2]},
+        {"title": "Power", "sensors": [2]},
     ]
 
 
@@ -223,18 +223,95 @@ async def test_messages_are_answered_with_a_temporary_error_until_the_site_is_co
 
 
 @pytest.mark.asyncio
-async def test_a_site_that_cannot_be_configured_leaves_the_resource_manager_retrying(
-    rm_handshake, resource_manager_details, caplog
+async def test_a_site_that_could_not_be_set_up_is_tried_again_on_the_next_message(
+    rm_handshake, named_details, frbc_system_description, caplog
 ):
-    async def failing(details):
-        raise ConnectionError("FlexMeasures is down")
+    """A transient failure, such as a server error under load, would otherwise leave the resource manager retrying forever."""
+    fm = _flexmeasures()
+    configurator = FRBCSiteConfigurator(fm, asset_type_id=6)
+    attempts = []
 
-    cem = CEM(fm_client=_flexmeasures(), site_configurator=failing)
+    async def flaky(details):
+        attempts.append(details.name)
+        if len(attempts) == 1:
+            raise KeyError("a sensor the table lacks")
+        return await configurator(details)
+
+    cem = CEM(fm_client=fm, site_configurator=flaky)
     await cem.handle_message(rm_handshake)
-    await cem.handle_message(resource_manager_details)
-    await cem._configuring
+    await cem.handle_message(named_details)
+    await asyncio.wait([cem._configuring])
+    assert "trying again on its next message" in caplog.text
     assert cem._control_types_handlers == {}
-    assert "Could not configure a site" in caplog.text
+
+    cem._control_type = ControlType.FILL_RATE_BASED_CONTROL
+    await cem.handle_message(frbc_system_description)
+    await asyncio.wait([cem._configuring])
+    assert attempts == ["home A", "home A"]
+    assert ControlType.FILL_RATE_BASED_CONTROL in cem._control_types_handlers
+
+
+@pytest.mark.asyncio
+async def test_a_measurement_before_the_site_is_set_up_is_asked_for_again(
+    rm_handshake, named_details
+):
+    """It used to be recorded on sensor 357, whichever site that belonged to, and answered OK, so it was never resent."""
+    from datetime import datetime, timezone
+
+    from s2python.common import CommodityQuantity, PowerMeasurement, PowerValue
+
+    from flexmeasures_client.s2.utils import get_unique_id
+
+    release = asyncio.Event()
+
+    async def slow(details):
+        await release.wait()
+
+    fm = _flexmeasures()
+    cem = CEM(fm_client=fm, site_configurator=slow)
+    await cem.handle_message(rm_handshake)
+    await cem.handle_message(named_details)
+    while not cem._sending_queue.empty():
+        await cem.get_message()
+    await cem.handle_message(
+        PowerMeasurement(
+            message_id=get_unique_id(),
+            measurement_timestamp=datetime(2022, 3, 1, 12, tzinfo=timezone.utc),
+            values=[
+                PowerValue(
+                    commodity_quantity=CommodityQuantity.ELECTRIC_POWER_L1, value=500.0
+                )
+            ],
+        )
+    )
+    answer = await cem.get_message()
+    assert answer["status"] == ReceptionStatusValues.TEMPORARY_ERROR.value
+    fm.post_sensor_data.assert_not_awaited()
+    release.set()
+
+
+@pytest.mark.asyncio
+async def test_without_a_sensor_for_it_a_measurement_is_not_recorded():
+    from datetime import datetime, timezone
+
+    from s2python.common import CommodityQuantity, PowerMeasurement, PowerValue
+
+    from flexmeasures_client.s2.utils import get_unique_id
+
+    fm = _flexmeasures()
+    cem = CEM(fm_client=fm)
+    await cem.handle_message(
+        PowerMeasurement(
+            message_id=get_unique_id(),
+            measurement_timestamp=datetime(2022, 3, 1, 12, tzinfo=timezone.utc),
+            values=[
+                PowerValue(
+                    commodity_quantity=CommodityQuantity.ELECTRIC_POWER_L1, value=500.0
+                )
+            ],
+        )
+    )
+    fm.post_sensor_data.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -262,3 +339,64 @@ async def test_a_known_site_that_cannot_be_fetched_is_looked_up_again():
         fm, "home A", asset_specs={}, sensors={}, timezone="UTC", known_asset_id=7
     )
     assert asset["id"] == 9
+
+
+@pytest.mark.asyncio
+async def test_a_reconnect_keeps_what_others_wrote_to_the_flex_model_and_the_graphs():
+    """A co-simulation's controller writes its end-of-day stock value into the flex model, and adds to the graphs."""
+    fm = _flexmeasures(
+        [
+            {
+                "id": 7,
+                "name": "home A",
+                "sensors": [],
+                "flex_model": {
+                    "soc-value-at-end": "0.1 EUR/kWh",
+                    "power-capacity": "1 kVA",
+                },
+                "sensors_to_show": [{"title": "Gross vs net", "sensors": [1]}],
+            }
+        ]
+    )
+    await ensure_site(
+        fm,
+        "home A",
+        asset_specs={"flex_model": {"power-capacity": "17250 VA"}},
+        sensors={},
+        timezone="UTC",
+    )
+    specs = fm.update_asset.await_args_list[0].args[1]
+    assert specs["flex_model"] == {
+        "soc-value-at-end": "0.1 EUR/kWh",
+        "power-capacity": "17250 VA",
+    }
+    assert all(
+        "sensors_to_show" not in call.args[1]
+        for call in fm.update_asset.await_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_demo_resets_its_graphs_where_asked():
+    fm = _flexmeasures(
+        [{"id": 7, "name": "home A", "sensors": [], "sensors_to_show": [1]}]
+    )
+    await ensure_site(
+        fm, "home A", asset_specs={}, sensors={}, timezone="UTC", reset_graphs=True
+    )
+    assert "sensors_to_show" in fm.update_asset.await_args.args[1]
+
+
+@pytest.mark.asyncio
+async def test_of_several_sites_with_one_name_the_newest_is_taken():
+    fm = _flexmeasures(
+        [
+            {"id": 9, "name": "home A", "sensors": []},
+            {"id": 12, "name": "home A", "sensors": []},
+            {"id": 3, "name": "home A", "sensors": []},
+        ]
+    )
+    asset, _ = await ensure_site(
+        fm, "home A", asset_specs={}, sensors={}, timezone="UTC"
+    )
+    assert asset["id"] == 12

@@ -22,9 +22,12 @@ A co-simulation reads the sites by sensor name: `price`, `production price`,
 `power` (the schedule), `measured-power` (what the home measured) and
 `state of charge`.
 
-The stack uses FlexMeasures' own development database service, `dev-db`, whose
-data FlexMeasures' compose file keeps in `docker-compose-data/dev-db` inside the
-flexmeasures checkout. A compose project name of its own does not separate that,
-so run the stack from a checkout of its own (a git worktree will do) to keep a
-development database you care about out of it. Its host ports, 5000, 5433, 6380
-and 8080 to 8084, have to be free too.
+The stack uses FlexMeasures' own development database service, `dev-db`,
+whose data FlexMeasures' compose file keeps in `docker-compose-data/dev-db`
+inside the flexmeasures checkout it runs from.
+A compose project name of its own does not separate that.
+To keep a development database you care about out of it,
+run it from a folder of its own holding checkouts (git worktrees will do)
+named `flexmeasures` and `flexmeasures-client`:
+the overlay mounts `../flexmeasures` and `../flexmeasures-client`, so those names are what it runs.
+Its host ports, 5000, 5433, 6380, 1025, 8025 and 8080 to 8084, have to be free too.

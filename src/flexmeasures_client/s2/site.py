@@ -67,17 +67,12 @@ def frbc_site_graphs(sensors: dict[str, dict]) -> list[dict]:
     rather than the newer one with plots, which needs v0.32 or later and draws the same graphs.
     A graph whose sensors the site does not have is left out.
     """
+    # Titled as #188 titled them, since a co-simulation's controller adds to the graph titled "Power".
     graphs = [
         ("Prices", ["price", "production price"]),
-        ("Power: planned and measured", ["power", "measured-power"]),
-        (
-            "Buffer: fill level and comfort band",
-            ["state of charge", "soc minima", "soc maxima"],
-        ),
-        (
-            "Buffer: filled by the actuator, drawn by usage",
-            ["fill rate", "usage forecast"],
-        ),
+        ("Power", ["power", "measured-power"]),
+        ("State of charge", ["state of charge", "soc minima", "soc maxima"]),
+        ("Fill rate and usage", ["fill rate", "usage forecast"]),
     ]
     shown = []
     for title, names in graphs:
@@ -95,12 +90,17 @@ async def ensure_site(
     sensors: dict[str, SiteSensor],
     timezone: str,
     known_asset_id: int | None = None,
+    reset_graphs: bool = False,
 ) -> tuple[dict, dict[str, dict]]:
     """Find or make the site asset of this name, with its specs and every one of these sensors, and its graphs.
 
     It is safe to run again: what exists is kept, and what is missing is made.
+    A flex model in the specs is merged into the one the asset has, since others write to it too,
+    such as a co-simulation's controller setting what its stock is worth at the end.
+    Graphs are set where the asset has none, since others add to them too, unless asked to reset them.
 
     :param known_asset_id:  the asset's id where it was found before, which spares a listing of every asset.
+    :param reset_graphs:    whether to set the graphs even where the asset has some.
     :returns:               the asset, and its sensors by name.
     """
     site_asset = None
@@ -114,10 +114,14 @@ async def ensure_site(
         if candidate is not None and candidate.get("name") == name:
             site_asset = candidate
     if site_asset is None:
-        for asset in await fm_client.get_assets(parse_json_fields=True):
-            if asset["name"] == name:
-                site_asset = asset
-                break
+        # The newest of any of that name, as a co-simulation picks it too.
+        named = [
+            asset
+            for asset in await fm_client.get_assets(parse_json_fields=True)
+            if asset["name"] == name
+        ]
+        site_asset = max(named, key=lambda asset: asset["id"]) if named else None
+    created = site_asset is None
     if site_asset is None:
         account = await fm_client.get_account()
         if account is None:
@@ -128,9 +132,12 @@ async def ensure_site(
             name=name, account_id=account["id"], **asset_specs
         )
     else:
-        await fm_client.update_asset(
-            site_asset["id"], asset_specs, parse_json_fields=True
-        )
+        specs = dict(asset_specs)
+        if isinstance(specs.get("flex_model"), dict) and isinstance(
+            site_asset.get("flex_model"), dict
+        ):
+            specs["flex_model"] = {**site_asset["flex_model"], **specs["flex_model"]}
+        await fm_client.update_asset(site_asset["id"], specs, parse_json_fields=True)
 
     existing = {sensor["name"]: sensor for sensor in site_asset.get("sensors", [])}
     made: dict[str, dict] = {}
@@ -144,12 +151,12 @@ async def ensure_site(
             **({"attributes": spec.attributes} if spec.attributes else {}),
         )
 
-    # Set on every run, so changes made to the graphs in the UI do not outlive a restart.
-    await fm_client.update_asset(
-        site_asset["id"],
-        {"sensors_to_show": frbc_site_graphs(made)},
-        parse_json_fields=True,
-    )
+    if created or reset_graphs or not site_asset.get("sensors_to_show"):
+        await fm_client.update_asset(
+            site_asset["id"],
+            {"sensors_to_show": frbc_site_graphs(made)},
+            parse_json_fields=True,
+        )
     return site_asset, made
 
 

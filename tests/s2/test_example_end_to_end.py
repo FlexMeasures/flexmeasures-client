@@ -735,7 +735,14 @@ async def test_the_site_graphs_show_the_buffer_with_its_band_and_what_fills_and_
     fm = AsyncMock(FlexMeasuresClient)
     fm.get_account = AsyncMock(return_value={"id": 1})
     fm.get_assets = AsyncMock(
-        return_value=[{"id": 5, "name": server.SITE_NAME, "sensors": []}]
+        return_value=[
+            {
+                "id": 5,
+                "name": server.SITE_NAME,
+                "sensors": [],
+                "sensors_to_show": [{"title": "Edited in the UI", "sensors": [1]}],
+            }
+        ]
     )
     fm.add_sensor = AsyncMock(
         side_effect=lambda **kwargs: {
@@ -850,9 +857,9 @@ async def test_with_a_site_per_resource_manager_the_server_configures_none_at_st
             ._sensors["power"]
             .attributes["is_strictly_non_positive"]
         )
-    app[server.SENSORS] = {
-        "price": {"id": 1}
-    }  # so that seeding, were it to happen, would reach FlexMeasures
+        assert app[server.CONFIGURATOR]._handler_options["relax_site_capacity"] is True
+    # So that seeding, were it to happen, would reach FlexMeasures.
+    app[server.SENSORS] = {"price": {"id": 1}}
     with (
         patch.object(server, "SITE_PER_RESOURCE_MANAGER", True),
         patch.object(server, "SEED_PRICES_EVERY", timedelta(milliseconds=10)),
@@ -896,3 +903,28 @@ async def test_a_resource_manager_with_a_site_of_its_own_is_served_once_it_is_co
     assert (
         made[0]._control_types_handlers == {}
     )  # no handler until its site is configured
+
+
+@pytest.mark.asyncio
+async def test_on_the_fixed_site_measured_power_is_recorded_on_its_sensor():
+    from unittest.mock import patch
+
+    made = []
+    real = server.CEM
+
+    def capture(**kwargs):
+        made.append(kwargs)
+        return real(**kwargs)
+
+    resource_manager, cem_end = _connected()
+    sensors = {name: {"id": i} for i, name in enumerate(server.SITE_SENSORS, start=1)}
+    with patch.object(server, "CEM", side_effect=capture):
+        serving = asyncio.create_task(
+            server.serve_resource_manager(cem_end, _flexmeasures(), sensors)
+        )
+        await _until(lambda: made)
+        await cem_end._inbox.put(_CLOSED)
+        await asyncio.wait_for(serving, timeout=5)
+    assert made[0]["power_sensor_id"] == {
+        "ELECTRIC.POWER.L1": sensors["measured-power"]["id"]
+    }

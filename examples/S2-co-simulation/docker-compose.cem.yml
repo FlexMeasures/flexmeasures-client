@@ -1,24 +1,25 @@
 # ------------------------------------------------------------------
-# A FlexMeasures stack with one S2 CEM per simulated home, for a co-simulation
-# whose resource managers connect over websockets, such as the community
-# simulations that steer several homes at once.
+# A FlexMeasures stack with one S2 CEM per simulated home,
+# for a co-simulation whose resource managers connect over websockets,
+# such as the community simulations that steer several homes at once.
 #
-# It is an overlay on FlexMeasures' own docker-compose.yml, and runs the CEMs
-# from this checkout. With the flexmeasures and flexmeasures-client repos side
-# by side, run it from the flexmeasures folder (which holds the Dockerfile):
+# It is an overlay on FlexMeasures' own docker-compose.yml,
+# and runs the CEMs from this checkout.
+# With checkouts named flexmeasures and flexmeasures-client side by side,
+# run it from the flexmeasures folder, which holds the Dockerfile:
 #
 #   docker compose \
 #     -f docker-compose.yml \
 #     -f ../flexmeasures-client/examples/S2-co-simulation/docker-compose.cem.yml \
 #     up
 #
-# Resource managers connect to ws://localhost:8080/ws, ws://localhost:8081/ws
-# and so on, one per home. Each gets a site of its own, named after it, and the
-# CEM goes by the simulated time its messages carry (see README.md).
+# Resource managers connect to ws://localhost:8080/ws, ws://localhost:8081/ws and so on, one per home.
+# Each gets a site of its own, named after it,
+# and the CEM goes by the simulated time its messages carry (see README.md).
 # ------------------------------------------------------------------
 
-# Shared definition for every CEM. Each listens on port 8080 inside its own
-# container; only the host port differs.
+# Shared definition for every CEM.
+# Each listens on port 8080 inside its own container; only the host port differs.
 x-cem: &cem
   build:
     context: .
@@ -45,15 +46,15 @@ x-cem: &cem
   - |
     # Install and run with the same interpreter (`python3 -m pip`, not bare `pip`):
     # in images built from FlexMeasures' uv-based Dockerfile, `python3` is the /app/.venv virtualenv,
-    # which ships without pip and cannot see what the system pip installs.
+    # which may come without pip, and cannot see what the system pip installs.
     python3 -m pip --version >/dev/null 2>&1 || python3 -m ensurepip --upgrade
     # s2-python as this repo locks it, and as the co-simulation's resource managers use it.
     python3 -m pip install --break-system-packages -e "/app/flexmeasures-client[s2]" "s2-python==0.8.1"
     exec python3 /app/flexmeasures-client/src/flexmeasures_client/s2/script/websockets_server.py
 
 # Shared definition for every RQ worker: one per home simulated at once,
-# like the CEMs and the server's gunicorn workers below, since every home's
-# scheduling jobs otherwise queue behind one worker process.
+# like the CEMs and the server's gunicorn workers below,
+# since every home's scheduling jobs otherwise queue behind one worker process.
 x-worker: &worker
   # Self-contained, since worker-2 and worker-3 do not exist in the base file to merge with.
   build:
@@ -105,7 +106,8 @@ x-worker: &worker
           print(f"ingestion-registration guard skipped: {exc}")
       PYGUARD
       # Named after the container, which is unique per worker.
-      flexmeasures jobs run-worker --name "flexmeasures-worker-$$(hostname)" --queue scheduling\|forecasting
+      # Every queue the base file's worker serves but ingestion, which is left to the server to do as it receives the data.
+      flexmeasures jobs run-worker --name "flexmeasures-worker-$$(hostname)" --queue scheduling\|forecasting\|reporting
 
 services:
   dev-db:

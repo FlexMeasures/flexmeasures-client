@@ -164,6 +164,12 @@ async def serve_resource_manager(
         fm_client=fm_client,
         logger=LOGGER,
         site_configurator=configurator,
+        # Where what the resource manager measures is recorded, on the fixed site; a configured site wires its own.
+        power_sensor_id=(
+            {"ELECTRIC.POWER.L1": sensors["measured-power"]["id"]}
+            if sensors is not None and "measured-power" in sensors
+            else None
+        ),
         # A co-simulation's resource manager sends its messages wrapped with the simulated time, which this sets the clock to.
         accept_simulation_metadata=ACCEPT_SIMULATION_METADATA,
     )
@@ -225,6 +231,8 @@ async def configure_site(
         asset_specs=SITE_ASSET_SPECS,
         sensors=SITE_SENSORS,
         timezone=SITE_TIMEZONE,
+        # The demo's own graphs, on every start, so changes made to them in the UI do not outlive a restart.
+        reset_graphs=True,
     )
     await seed_prices(fm_client, sensors["price"]["id"])
     return sensors
@@ -311,6 +319,8 @@ async def configure_site_once(app: web.Application) -> None:
             # The co-simulation's resource managers are heat pumps, which cannot feed power back:
             # FlexMeasures then keeps their production at zero even where constraints are relaxed.
             power_sensor_attributes={"is_strictly_non_positive": True},
+            # A community's capacity is a target set by its members' steering, breached at a price, as #188 asked for.
+            handler_options={"relax_site_capacity": True},
             logger=LOGGER,
         )
         LOGGER.info("Each resource manager gets a site of its own; ready for them.")

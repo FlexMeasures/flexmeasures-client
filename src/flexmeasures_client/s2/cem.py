@@ -114,8 +114,8 @@ class CEM(Handler):
         Customer Energy Manager (CEM)
 
         :param site_configurator:           where a resource manager gets a site and a handler of its own on connecting;
-                                            called with its details, in the background, while its messages are answered
-                                            with TEMPORARY_ERROR until the handler is registered (see FRBCSiteConfigurator).
+                                            called with its details, in the background (see FRBCSiteConfigurator).
+                                            Until the handler is registered, its messages are answered with TEMPORARY_ERROR.
                                             Without one, the handlers registered up front serve every resource manager.
         :param clock:                       the time this CEM and every handler it registers go by;
                                             the wall clock by default.
@@ -272,6 +272,8 @@ class CEM(Handler):
         # A control type without a handler yet, as while a resource manager's site is being configured,
         # leaves its messages unhandled, so they are answered with a TEMPORARY_ERROR for the resource manager to retry.
         handler = self._control_types_handlers.get(self._control_type)
+        if handler is None and self._control_type is not None:
+            self._ensure_configuring()
         if (
             self._control_type is not None
             and (
@@ -460,10 +462,7 @@ class CEM(Handler):
     @register(ResourceManagerDetails)
     async def handle_resource_manager_details(self, message: ResourceManagerDetails):
         self._resource_manager_details = message
-        if self._site_configurator is not None and self._configuring is None:
-            # In the background, since a site takes a few requests to FlexMeasures to set up,
-            # and the resource manager waits for this message's reception status meanwhile.
-            self._configuring = asyncio.create_task(self._configure_site(message))
+        self._ensure_configuring()
 
         if (
             not self._control_type
@@ -477,19 +476,39 @@ class CEM(Handler):
 
         return get_reception_status(message)
 
+    def _ensure_configuring(self) -> None:
+        """Set the resource manager's site up in the background, unless that is done or under way.
+
+        In the background, since a site takes a few requests to FlexMeasures to set up,
+        and the resource manager waits for a reception status meanwhile.
+        A setup that failed is tried again on the next message that needs it,
+        while the resource manager's messages are answered with TEMPORARY_ERROR, which it retries.
+        """
+        if (
+            self._site_configurator is None
+            or self._control_types_handlers
+            or (self._configuring is not None and not self._configuring.done())
+            or not hasattr(self, "_resource_manager_details")
+        ):
+            return
+        self._configuring = asyncio.create_task(
+            self._configure_site(self._resource_manager_details)
+        )
+        self._configuring.add_done_callback(self._report_configuring)
+
+    def _report_configuring(self, task: asyncio.Task) -> None:
+        if task.cancelled() or task.exception() is None:
+            return
+        self._logger.error(
+            "Could not set a site up for resource manager %r; trying again on its next message.",
+            self._resource_manager_details.name,
+            exc_info=task.exception(),
+        )
+
     async def _configure_site(self, details: ResourceManagerDetails) -> None:
         """Give the resource manager its site, and register the handler wired to it."""
         assert self._site_configurator is not None
-        try:
-            site = await self._site_configurator(details)
-        except (ValueError, ConnectionError) as exc:
-            # Its messages go on being answered with TEMPORARY_ERROR, which the resource manager sees and retries.
-            self._logger.error(
-                "Could not configure a site for resource manager %r: %s",
-                details.name,
-                exc,
-            )
-            return
+        site = await self._site_configurator(details)
         self.power_sensor_id = {**(self.power_sensor_id or {}), **site.power_sensor_ids}
         self.register_control_type(site.handler)
         self._logger.info(
@@ -499,15 +518,17 @@ class CEM(Handler):
     @register(PowerMeasurement)
     async def handle_power_measurement(self, message: PowerMeasurement):
 
+        if self._site_configurator is not None and not self._control_types_handlers:
+            # Its site is still being set up, so there is nowhere to record it yet: the resource manager is asked to resend it.
+            self._ensure_configuring()
+            return get_reception_status(message, ReceptionStatusValues.TEMPORARY_ERROR)
+
         for power_measurement in message.values:
             commodity_quantity = power_measurement.commodity_quantity.value
 
-            if (
-                self.power_sensor_id is None
-                and commodity_quantity == "ELECTRIC.POWER.L1"
-            ):
-                sensor_id = 357
-            elif self.power_sensor_id:
+            # Without a sensor for it, a measurement is not recorded.
+            # It used to go to sensor 357 for ELECTRIC.POWER.L1, a sensor of whichever site on the server had that id.
+            if self.power_sensor_id:
                 s_id = self.power_sensor_id.get(commodity_quantity)
                 if s_id is None:
                     # TODO: create a new sensor or return ReceptionStatus
