@@ -8,10 +8,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Callable
 
-from aiohttp import ContentTypeError
 from yarl import URL
-
-from flexmeasures_client.constants import CONTENT_TYPE
 
 if TYPE_CHECKING:  # Only imports the below statements during type checking
     from flexmeasures_client.client import FlexMeasuresClient
@@ -161,17 +158,6 @@ async def check_response(
         # otherwise, raise if the status does not indicate okay
         response.raise_for_status()
     return polling_step, reauth_once, URL(url)
-
-
-def check_content_type(response):
-    """Check if response is in format application/json"""
-    content_type = response.headers.get("Content-Type", "")
-    if CONTENT_TYPE not in content_type:
-        text = response.text()
-        raise ContentTypeError(
-            "Unexpected content type response from the API",
-            {"Content-Type": content_type, "response": text},
-        )
 
 
 def check_for_status(status, expected_status: int | Iterable[int]):

@@ -34,11 +34,7 @@ from flexmeasures_client.exceptions import (
     WrongAPIVersionError,
     WrongHostError,
 )
-from flexmeasures_client.response_handling import (
-    check_content_type,
-    check_for_status,
-    check_response,
-)
+from flexmeasures_client.response_handling import check_for_status, check_response
 from flexmeasures_client.utils import apply_deprecated_parameter_aliases, merge_updates
 
 LOGGER = logging.getLogger(__name__)
@@ -463,8 +459,9 @@ class FlexMeasuresClient:
                 "Request retry timeout while connecting to the API."
             ) from exception
 
-        check_content_type(response)
-
+        # A body that is not JSON never gets here:
+        # request_once parses every answer with aiohttp's json(), which refuses any other content type,
+        # and the loop above reports that as a ConnectionError like any other failure to reach the API.
         return await response.json(), response.status
 
     async def request_once(
