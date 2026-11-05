@@ -392,11 +392,16 @@ class FRBCTest(FRBC):
 
         actuator = system_description.actuators[0]
 
+        # Imported here, since the utilities import from this package.
+        from flexmeasures_client.s2.control_types.FRBC.utils import (
+            normal_operation_modes,
+        )
+
         instruction = FRBCInstruction(
             message_id=get_unique_id(),
             id=get_unique_id(),
             actuator_id=actuator.id,
-            operation_mode=actuator.operation_modes[0].id,
+            operation_mode=normal_operation_modes(actuator)[0].id,
             operation_mode_factor=0.5,
             execution_time=system_description.valid_from,
             abnormal_condition=False,

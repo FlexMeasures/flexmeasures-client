@@ -702,7 +702,8 @@ class FRBCSimple(FRBC):
         actuator = system_description.actuators[0]
         efficiencies: dict[str, float] = {}
         # The energy unit is one fill_rate_in_watts knows, which the constructor saw to.
-        for operation_mode in actuator.operation_modes:
+        # Only modes it may be instructed into under normal conditions, which are the ones the schedule is planned in.
+        for operation_mode in normal_operation_modes(actuator):
             efficiency = operation_mode_conversion_efficiency(
                 operation_mode, self._fill_level_scale, self.energy_unit, fill_level
             )

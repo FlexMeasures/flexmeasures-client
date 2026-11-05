@@ -426,3 +426,39 @@ async def test_no_schedule_is_asked_for_an_actuator_with_no_normal_mode(caplog):
     await frbc.trigger_schedule(system_description.message_id)
     frbc._fm_client.trigger_and_get_schedule.assert_not_awaited()
     assert "under normal conditions" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_mode_for_abnormal_conditions_only_does_not_set_the_charging_efficiency():
+    """Less efficient than the normal modes, an emergency boost lowered the efficiency every plan was made against."""
+    system_description = _system_description((0.0, 1000.0), (0.0, 5000.0))
+    actuator = system_description.actuators[0]
+    boost = actuator.operation_modes[1].model_copy(
+        update={"abnormal_condition_only": True}
+    )
+    system_description = system_description.model_copy(
+        update={
+            "actuators": [
+                actuator.model_copy(
+                    update={"operation_modes": [actuator.operation_modes[0], boost]}
+                )
+            ]
+        }
+    )
+    frbc = _frbc(system_description, charging_efficiency_sensor_id=9)
+    seen = []
+    from flexmeasures_client.s2.control_types.FRBC import frbc_simple
+
+    real = frbc_simple.operation_mode_conversion_efficiency
+
+    def spy(mode, *args):
+        seen.append(str(mode.id))
+        return real(mode, *args)
+
+    from unittest.mock import patch
+
+    with patch.object(
+        frbc_simple, "operation_mode_conversion_efficiency", side_effect=spy
+    ):
+        await _asked_for(frbc, system_description)
+    assert str(boost.id) not in seen
