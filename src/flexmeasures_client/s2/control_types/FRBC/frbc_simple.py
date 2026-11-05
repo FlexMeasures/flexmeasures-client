@@ -30,6 +30,7 @@ from flexmeasures_client.client import convert_units
 from flexmeasures_client.exceptions import JobFailedError
 from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
+    WATTS_PER_ENERGY_UNIT_PER_SECOND,
     clip_fill_level_target_profile,
     element_for_fill_level,
     fm_schedule_to_instructions,
@@ -248,6 +249,12 @@ class FRBCSimple(FRBC):
             )
         self._hard_bound_factor = hard_bound_factor
         self.power_unit = power_unit
+        if energy_unit not in WATTS_PER_ENERGY_UNIT_PER_SECOND:
+            # A fill rate is per second of this unit, and has to be compared with the watts S2 states a power in,
+            # so a unit that cannot be converted to watts cannot be planned with.
+            raise ValueError(
+                f"energy_unit has to be one of {', '.join(WATTS_PER_ENERGY_UNIT_PER_SECOND)}, but {energy_unit!r} was given."
+            )
         self.energy_unit = energy_unit
 
         # delay the start of the schedule from the time `valid_from`
@@ -417,6 +424,15 @@ class FRBCSimple(FRBC):
         """The message a history holds that arrived last, or None while it holds none."""
         return list(history.values())[-1] if history else None
 
+    def _soc_unit(self) -> tuple[str, float]:
+        """The unit a state of charge goes to FlexMeasures in, and what a fill level is multiplied by to be in it."""
+        if self.energy_unit in ("kWh", "MWh"):
+            return self.energy_unit, 1.0
+        return "kWh", (
+            WATTS_PER_ENERGY_UNIT_PER_SECOND[self.energy_unit]
+            / WATTS_PER_ENERGY_UNIT_PER_SECOND["kWh"]
+        )
+
     def _latest_fill_level(self) -> float | None:
         """The fill level the latest storage status reported, in the resource manager's own units, if it reported a number."""
         if not self._storage_status_history:
@@ -585,19 +601,13 @@ class FRBCSimple(FRBC):
         # One actuator, as everywhere else in this handler.
         actuator = system_description.actuators[0]
         efficiencies: dict[str, float] = {}
-        try:
-            for operation_mode in actuator.operation_modes:
-                efficiency = operation_mode_conversion_efficiency(
-                    operation_mode, self._fill_level_scale, self.energy_unit, fill_level
-                )
-                if efficiency is not None:
-                    efficiencies[str(operation_mode.id)] = efficiency
-        except NotImplementedError:
-            self._logger.exception(
-                "Not asking for a schedule against a charging efficiency: a fill rate in %s cannot be compared against the watts S2 states a power range in.",
-                self.fill_rate_unit(),
+        # The energy unit is one fill_rate_in_watts knows, which the constructor saw to.
+        for operation_mode in actuator.operation_modes:
+            efficiency = operation_mode_conversion_efficiency(
+                operation_mode, self._fill_level_scale, self.energy_unit, fill_level
             )
-            return False
+            if efficiency is not None:
+                efficiencies[str(operation_mode.id)] = efficiency
 
         if not efficiencies:
             # Every mode is idle, or every mode only feeds back, and neither converts drawn power into anything.
@@ -828,12 +838,16 @@ class FRBCSimple(FRBC):
         # and the window a charging efficiency has to be recorded over to be planned against.
         start = self.schedule_start(system_description.valid_from)
 
+        # FlexMeasures takes a state of charge in kWh or MWh only, so a fill level recorded in another energy unit
+        # is converted here, at the edge, rather than refused, and the bounds read back below stay in the recorded unit.
+        # The band, the usage and the leakage are read from sensors, which FlexMeasures converts itself.
+        soc_unit, to_soc_unit = self._soc_unit()
         flex_model: dict = {
-            # The same unit the fill level is recorded in, or the scheduler would plan against bounds a thousandfold off the measurements it plans from.
-            "soc-unit": self.energy_unit,
-            "soc-at-start": soc_at_start,  # TODO: use forecast of the SOC instead
-            "soc-min": soc_min,
-            "soc-max": soc_max,
+            "soc-unit": soc_unit,
+            "soc-at-start": soc_at_start
+            * to_soc_unit,  # TODO: use forecast of the SOC instead
+            "soc-min": soc_min * to_soc_unit,
+            "soc-max": soc_max * to_soc_unit,
         }
         # What the resource manager declared about its storage, each entry only where a sensor holds it:
         # an entry naming a sensor that was never configured has the scheduler plan against nothing at all.

@@ -301,20 +301,16 @@ async def test_a_fill_level_scale_is_applied_to_the_efficiency():
     ]
 
 
-@pytest.mark.asyncio
-async def test_an_energy_unit_that_cannot_be_compared_to_watts_is_not_guessed_at(
-    caplog,
-):
-    """A fill rate in a unit nothing converts is refused, rather than recorded thousandfold off."""
-    system_description = _heater()
-    frbc = _frbc(system_description, energy_unit="therm")
-
-    with caplog.at_level(logging.ERROR):
-        flex_model = await _asked_for(frbc, system_description)
-
-    assert "charging-efficiency" not in flex_model
-    assert _recordings(frbc) == []
-    assert "cannot be compared" in caplog.text
+def test_an_energy_unit_that_cannot_be_compared_to_watts_is_refused_at_once():
+    """A fill rate in a unit nothing converts would be recorded thousandfold off, so the handler is not made at all."""
+    with pytest.raises(ValueError, match="energy_unit has to be one of"):
+        FRBCSimple(
+            power_sensor_id=1,
+            price_sensor_id=2,
+            soc_sensor_id=3,
+            rm_discharge_sensor_id=4,
+            energy_unit="therm",
+        )
 
 
 def test_a_fill_rate_is_stated_in_watts_by_the_unit_the_fill_level_is_in():
@@ -397,3 +393,58 @@ async def test_a_schedule_is_asked_for_against_the_efficiency_where_it_starts():
 
     assert _recordings(frbc)[0]["values"] == [pytest.approx(warm)]
     assert warm != pytest.approx(cold)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "energy_unit, soc_unit, per_unit",
+    [
+        ("MJ", "kWh", 1 / 3.6),
+        ("Wh", "kWh", 1 / 1000),
+        ("J", "kWh", 1 / 3.6e6),
+        ("kWh", "kWh", 1.0),
+        ("MWh", "MWh", 1.0),
+    ],
+)
+async def test_a_state_of_charge_goes_out_in_a_unit_flexmeasures_takes(
+    energy_unit, soc_unit, per_unit
+):
+    """FlexMeasures takes kWh or MWh only, so any other energy unit is converted at the edge, not refused by the server."""
+    system_description = _heater()
+    frbc = _frbc(system_description, energy_unit=energy_unit)
+    flex_model = await _asked_for(frbc, system_description)
+    assert flex_model["soc-unit"] == soc_unit
+    assert flex_model["soc-at-start"] == pytest.approx(FILL_LEVEL_AT_START * per_unit)
+    assert flex_model["soc-max"] == pytest.approx(1.5 * RANGE_TOP * per_unit)
+
+
+@pytest.mark.asyncio
+async def test_the_bounds_read_back_stay_in_the_recorded_unit():
+    """Only what goes to FlexMeasures is converted: the schedule is matched against the operation modes in their own units."""
+    from unittest.mock import patch
+
+    system_description = _heater()
+    frbc = _frbc(system_description, energy_unit="MJ")
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.fm_schedule_to_instructions",
+        return_value=[],
+    ) as translate:
+        await frbc.trigger_schedule(system_description.message_id)
+    assert translate.call_args.kwargs["fill_level_bounds"] == (
+        pytest.approx(0.0),
+        pytest.approx(1.5 * RANGE_TOP),
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_measured_state_of_charge_is_not_named_in_the_flex_model():
+    """The state of charge goes out as a number, never as the sensor it is measured on.
+
+    Named there, FlexMeasures would save the state of charge it plans onto that sensor,
+    beside the measurements, where a later schedule would read a plan as if it had been measured.
+    """
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    flex_model = await _asked_for(frbc, system_description)
+    assert "state-of-charge" not in flex_model
+    assert isinstance(flex_model["soc-at-start"], float)
