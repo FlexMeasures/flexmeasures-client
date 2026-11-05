@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import numpy as np
+import pandas as pd
 import pytest
 import pytest_asyncio
 from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
@@ -342,3 +343,77 @@ async def test_a_leakage_behaviour_is_recorded_rather_than_refused(
         )
     ]
     assert posts[0].kwargs["unit"] == "%"
+
+
+@pytest.mark.asyncio
+async def test_an_operation_mode_without_a_label_does_not_stop_tunes(
+    cem_in_frbc_control_type,
+):
+    """S2 makes a diagnostic label optional, and TUNES tells its modes apart by label.
+
+    It looked for "THP" and "NES" inside a label that may be None, which raised a TypeError,
+    so one unlabelled mode stopped the conversion efficiencies of every mode from being recorded.
+    """
+    cem, fm_client, system_description = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    unlabelled = system_description.model_copy(deep=True)
+    unlabelled.actuators[0].operation_modes[-1].diagnostic_label = None
+    fm_client.post_sensor_data.reset_mock()
+
+    await frbc.send_conversion_efficiencies(unlabelled)
+
+    assert fm_client.post_sensor_data.await_count > 0
+
+
+@pytest.mark.asyncio
+async def test_planning_does_not_stop_on_an_unlabelled_operation_mode(
+    cem_in_frbc_control_type,
+):
+    """The same optional label, where TUNES picks the mode to plan with."""
+    from s2python.frbc import FRBCStorageStatus
+
+    cem, fm_client, system_description = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    unlabelled = system_description.model_copy(deep=True)
+    for operation_mode in unlabelled.actuators[0].operation_modes:
+        operation_mode.diagnostic_label = None
+    frbc._system_description_history[str(unlabelled.message_id)] = unlabelled
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=10.0
+    )
+
+    await frbc.trigger_schedule()
+
+
+@pytest.mark.asyncio
+async def test_a_usage_forecast_is_posted_per_quarter_hour(cem_in_frbc_control_type):
+    """S2 states usage per second; TUNES posts it per quarter hour, on a quarter-hour grid, for as long as it was forecast."""
+    from s2python.common import Duration
+    from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
+
+    cem, fm_client, _ = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    fm_client.post_sensor_data.reset_mock()
+
+    await frbc.send_usage_forecast(
+        FRBCUsageForecast(
+            message_id=get_unique_id(),
+            start_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            elements=[
+                FRBCUsageForecastElement(
+                    duration=Duration(root=2 * 3600 * 1000),
+                    usage_rate_expected=0.001,
+                )
+            ],
+        )
+    )
+
+    posts = [
+        call
+        for call in fm_client.post_sensor_data.await_args_list
+        if call.kwargs.get("sensor_id") == 12
+    ]
+    assert len(posts) == 1, fm_client.post_sensor_data.await_args_list
+    values = posts[0].kwargs["values"]
+    assert values == [pytest.approx(0.001 * 15 * 60)] * len(values)
+    assert posts[0].kwargs["duration"] == str(pd.Timedelta(minutes=15) * len(values))

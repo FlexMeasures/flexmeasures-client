@@ -278,10 +278,10 @@ class FillRateBasedControlTUNES(FRBC):
             active_operation_mode_fill_rate_sensor_id = self._nes_fill_rate_sensor_id
 
         # Operation Mode Factor to fill rate
-        fill_rate = operation_mode.elements[0].fill_rate
+        fill_rate_range = operation_mode.elements[0].fill_rate
         fill_rate = (
-            fill_rate.start_of_range
-            + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
+            fill_rate_range.start_of_range
+            + (fill_rate_range.end_of_range - fill_rate_range.start_of_range) * factor
         ) * self._fill_level_scale
 
         # Send data to the sensor of the fill rate corresponding to the active operation mode
@@ -331,10 +331,10 @@ class FillRateBasedControlTUNES(FRBC):
         operation_mode = None
         efficiency_sensor_id = None
         for _operation_mode in actuator.operation_modes:
-            if "THP" in _operation_mode.diagnostic_label:
+            if "THP" in (_operation_mode.diagnostic_label or ""):
                 operation_mode = _operation_mode
                 efficiency_sensor_id = self._thp_efficiency_sensor_id
-            elif "NES" in _operation_mode.diagnostic_label:
+            elif "NES" in (_operation_mode.diagnostic_label or ""):
                 operation_mode = _operation_mode
                 efficiency_sensor_id = self._nes_efficiency_sensor_id
             else:
@@ -607,9 +607,9 @@ class FillRateBasedControlTUNES(FRBC):
         )
 
         for operation_mode in actuator.operation_modes:
-            if "THP" in operation_mode.diagnostic_label:
+            if "THP" in (operation_mode.diagnostic_label or ""):
                 sensor_id = self._thp_efficiency_sensor_id
-            elif "NES" in operation_mode.diagnostic_label:
+            elif "NES" in (operation_mode.diagnostic_label or ""):
                 sensor_id = self._nes_efficiency_sensor_id
             else:
                 continue
@@ -679,7 +679,7 @@ class FillRateBasedControlTUNES(FRBC):
             minute=(start_time.minute // 15) * 15, second=0, microsecond=0
         )
 
-        usage_forecast = translate_usage_forecast_to_fm(
+        usage_forecast_series = translate_usage_forecast_to_fm(
             usage_forecast,
             RESOLUTION,
             strategy="mean",
@@ -688,14 +688,14 @@ class FillRateBasedControlTUNES(FRBC):
 
         # Scale usage forecast e.g. [0, 100] %/s ->  [0, 100] %/(15 min)
         scale = timedelta(minutes=15) / timedelta(seconds=1)
-        scaled_usage_forecast = usage_forecast * scale
+        scaled_usage_forecast = usage_forecast_series * scale
 
         await self._fm_client.post_sensor_data(
             sensor_id=self._usage_forecast_sensor_id,
             start=start_time,
             values=scaled_usage_forecast.tolist(),
             unit=POWER_UNIT,  # e.g. [0, 100] MW/(15 min)
-            duration=str(pd.Timedelta(RESOLUTION) * len(usage_forecast)),
+            duration=str(pd.Timedelta(RESOLUTION) * len(usage_forecast_series)),
         )
 
     async def send_fill_level_target_profile(
