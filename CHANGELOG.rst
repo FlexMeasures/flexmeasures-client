@@ -32,7 +32,7 @@ Changed
 Removed
 -------
 
-* ``response_handling.check_content_type``, which could never fire where it was called, since every answer is already parsed as JSON before it, and which raised an ``AttributeError`` of its own when its error was printed. A non-JSON answer is reported as a ``ConnectionError``, as before [`#257 <https://github.com/FlexMeasures/flexmeasures-client/pull/257>`__]
+* ``response_handling.check_content_type``, which refused an answer in a JSON variant that aiohttp parses, such as ``application/problem+json``, with an error that raised an ``AttributeError`` of its own when printed. Such an answer is now read like any other. A content type that is not JSON at all is still reported as a ``ConnectionError``, by aiohttp's own check [`#257 <https://github.com/FlexMeasures/flexmeasures-client/pull/257>`__]
 
 Fixed
 -----

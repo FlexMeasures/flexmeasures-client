@@ -837,8 +837,9 @@ def test_parse_sensor_json_fields():
 async def test_an_answer_that_is_not_json_is_a_connection_error() -> None:
     """A proxy's HTML error page, as during a server restart, is reported like every other failure to reach the API.
 
-    aiohttp's own json() refuses it inside the request loop, which is where this is handled,
-    so the separate content-type check that used to follow the loop could never fire, and was removed.
+    aiohttp's own json() refuses it inside the request loop, which is where this is handled.
+    The separate content-type check that used to follow the loop is gone:
+    it could only fire on the JSON variants aiohttp accepts, such as application/problem+json, and it should not have refused those.
     """
     with aioresponses() as m:
         m.get(

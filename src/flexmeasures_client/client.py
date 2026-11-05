@@ -459,9 +459,11 @@ class FlexMeasuresClient:
                 "Request retry timeout while connecting to the API."
             ) from exception
 
-        # A body that is not JSON never gets here:
-        # request_once parses every answer with aiohttp's json(), which refuses any other content type,
-        # and the loop above reports that as a ConnectionError like any other failure to reach the API.
+        # request_once has already parsed this answer with aiohttp's json(),
+        # which refuses a content type that is not JSON, and the loop above reports that as a ConnectionError.
+        # A check that used to follow here refused the JSON variants aiohttp accepts too, such as application/problem+json,
+        # with an error that could not even be printed, so it is gone.
+        # A body that is not JSON under a JSON content type is refused by json() itself, as a JSONDecodeError.
         return await response.json(), response.status
 
     async def request_once(

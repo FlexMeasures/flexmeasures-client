@@ -417,3 +417,66 @@ async def test_a_usage_forecast_is_posted_per_quarter_hour(cem_in_frbc_control_t
     values = posts[0].kwargs["values"]
     assert values == [pytest.approx(0.001 * 15 * 60)] * len(values)
     assert posts[0].kwargs["duration"] == str(pd.Timedelta(minutes=15) * len(values))
+
+
+@pytest.mark.asyncio
+async def test_a_usage_forecast_is_posted_from_the_quarter_hour_it_starts_in(
+    cem_in_frbc_control_type,
+):
+    from s2python.common import Duration
+    from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
+
+    cem, fm_client, _ = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    fm_client.post_sensor_data.reset_mock()
+
+    await frbc.send_usage_forecast(
+        FRBCUsageForecast(
+            message_id=get_unique_id(),
+            start_time=datetime(2024, 1, 1, 0, 7, tzinfo=timezone.utc),
+            elements=[
+                FRBCUsageForecastElement(
+                    duration=Duration(root=3600 * 1000), usage_rate_expected=0.001
+                )
+            ],
+        )
+    )
+
+    posts = [
+        c
+        for c in fm_client.post_sensor_data.await_args_list
+        if c.kwargs.get("sensor_id") == 12
+    ]
+    assert posts[0].kwargs["start"] == datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_a_usage_forecast_is_averaged_within_each_quarter_hour(
+    cem_in_frbc_control_type,
+):
+    """Two halves of a quarter hour, at 1 and 3 thousandths per second, are posted as 2 thousandths, per quarter hour."""
+    from s2python.common import Duration
+    from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
+
+    cem, fm_client, _ = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    fm_client.post_sensor_data.reset_mock()
+    half = Duration(root=int(7.5 * 60 * 1000))
+
+    await frbc.send_usage_forecast(
+        FRBCUsageForecast(
+            message_id=get_unique_id(),
+            start_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            elements=[
+                FRBCUsageForecastElement(duration=half, usage_rate_expected=0.001),
+                FRBCUsageForecastElement(duration=half, usage_rate_expected=0.003),
+            ],
+        )
+    )
+
+    posts = [
+        c
+        for c in fm_client.post_sensor_data.await_args_list
+        if c.kwargs.get("sensor_id") == 12
+    ]
+    assert posts[0].kwargs["values"][0] == pytest.approx(0.002 * 15 * 60)

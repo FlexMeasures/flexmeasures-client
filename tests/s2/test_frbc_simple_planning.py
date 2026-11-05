@@ -245,3 +245,35 @@ def test_a_handler_recognises_a_message_in_any_form_it_accepts():
     assert frbc.supports_message(as_dict)
     assert frbc.supports_message(description.model_dump_json())
     assert not frbc.supports_message(as_dict | {"message_type": "Handshake"})
+
+
+@pytest.mark.asyncio
+async def test_the_cem_records_a_revocation_by_its_id_as_text():
+    """With no control type active, the CEM itself takes the revocation and hands it to the handler it is for."""
+    from s2python.common import RevokableObjects, RevokeObject
+
+    from flexmeasures_client.s2.cem import CEM
+
+    cem = CEM(fm_client=frbc_simple()._fm_client)
+    frbc = frbc_simple()
+    cem.register_control_type(frbc)
+    object_id = get_unique_id()
+    await cem.handle_message(
+        RevokeObject(
+            message_id=get_unique_id(),
+            object_type=RevokableObjects.FRBC_Instruction,
+            object_id=object_id,
+        )
+    )
+    assert frbc.is_revoked(str(object_id))
+
+
+def test_a_handler_turns_away_a_model_it_does_not_handle():
+    from s2python.common import EnergyManagementRole, Handshake
+
+    handshake = Handshake(
+        message_id=get_unique_id(),
+        role=EnergyManagementRole.CEM,
+        supported_protocol_versions=["0.0.2-beta"],
+    )
+    assert not frbc_simple().supports_message(handshake)
