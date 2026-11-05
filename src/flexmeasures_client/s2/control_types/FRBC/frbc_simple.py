@@ -35,6 +35,7 @@ from flexmeasures_client.s2.control_types.FRBC.utils import (
     element_for_fill_level,
     fm_schedule_to_instructions,
     get_soc_min_max,
+    normal_operation_modes,
     om_label,
     operation_mode_conversion_efficiency,
 )
@@ -73,6 +74,17 @@ NON_RETRYABLE_SCHEDULE_FAILURES = (
 #: A schedule can be asked for before the state of charge it is to be planned from has landed,
 #: and FlexMeasures refuses to plan from one it considers too old.
 RETRYABLE_TRIGGER_REFUSALS = ("No recent state-of-charge value found",)
+
+
+def _merged(ranges: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """The union of closed ranges, as the fewest ranges that cover it, in order."""
+    merged: list[tuple[float, float]] = []
+    for lower, upper in sorted(ranges):
+        if merged and lower <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], upper))
+        else:
+            merged.append((lower, upper))
+    return merged
 
 
 def _operation_mode_power_bands(
@@ -926,6 +938,11 @@ class FRBCSimple(FRBC):
 
         # One actuator, as everywhere else in this handler.
         actuator = system_description.actuators[0]
+        if not normal_operation_modes(actuator):
+            self._logger.warning(
+                "Not asking for a schedule: the actuator states no operation mode it may be instructed into under normal conditions."
+            )
+            return
         # Every power range the actuator states, over all of its operation modes and their elements.
         # An S2 power range runs from its lower bound to its upper one, and S2 fixes one sign convention,
         # where positive means consumption,
@@ -937,7 +954,9 @@ class FRBCSimple(FRBC):
                 min(power_range.start_of_range, power_range.end_of_range),
                 max(power_range.start_of_range, power_range.end_of_range),
             )
-            for operation_mode in actuator.operation_modes
+            # Only modes the actuator may be instructed into under normal conditions,
+            # since a band the scheduler plans in is a mode it may then be instructed into.
+            for operation_mode in normal_operation_modes(actuator)
             for element in operation_mode.elements
             for power_range in element.power_ranges
         ]
@@ -1031,16 +1050,17 @@ class FRBCSimple(FRBC):
             operation_modes = _operation_mode_power_bands(power_ranges, S2_POWER_UNIT)
             # Only where the bands say more than the two capacities above already do.
             # The capacities say the actuator can run at any power from minus its production capacity to its consumption capacity,
-            # so a single band running through zero is exactly that and says nothing new.
-            # Any other single band does: an actuator that runs at 200 W or not at all rules out everything in between,
+            # so bands that together cover exactly that, without a gap, say nothing new,
+            # such as an idle mode at zero beside a mode running from zero up, and each band costs the solver a binary per step.
+            # Bands with a gap between them do: an actuator that runs at 200 W or not at all rules out everything in between,
             # and so does one that only ever feeds back.
             # And only to a server that has the field.
             # FlexMeasures added operation-modes in v1.0.0,
             # and a flex model naming a field the server does not know is refused outright,
             # which would leave the resource manager with no schedule at all.
-            says_more_than_the_capacities = len(operation_modes) > 1 or not any(
-                lower <= 0 <= upper for lower, upper in power_ranges
-            )
+            says_more_than_the_capacities = _merged(power_ranges) != [
+                (-production_capacity, consumption_capacity)
+            ]
             if says_more_than_the_capacities:
                 if await self._fm_client.server_version_at_least("1.0.0"):
                     flex_model["operation-modes"] = operation_modes

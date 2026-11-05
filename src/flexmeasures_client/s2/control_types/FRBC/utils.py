@@ -205,6 +205,19 @@ def follow_operation_mode(
     return min(max(fill_level, lowest), highest)
 
 
+def normal_operation_modes(actuator) -> list[FRBCOperationMode]:
+    """The operation modes an actuator may be instructed into under normal conditions.
+
+    S2 marks a mode abnormal_condition_only where it is reserved for an abnormal condition, such as an emergency boost,
+    and a resource manager refuses an instruction into one that is not marked abnormal itself,
+    which every instruction a schedule is turned into is not.
+    So such a mode is neither planned in nor instructed into.
+    """
+    return [
+        mode for mode in actuator.operation_modes if not mode.abnormal_condition_only
+    ]
+
+
 def fm_schedule_to_instructions(
     schedule: pd.DataFrame | dict,
     system_description: FRBCSystemDescription,
@@ -270,7 +283,11 @@ def fm_schedule_to_instructions(
             f"{len(system_description.actuators)} were provided"
         )
     actuator = system_description.actuators[0]
-    operation_modes: list[FRBCOperationMode] = actuator.operation_modes
+    operation_modes: list[FRBCOperationMode] = normal_operation_modes(actuator)
+    if not operation_modes:
+        raise ValueError(
+            "The actuator states no operation mode it may be instructed into under normal conditions."
+        )
     modes_by_id = {str(mode.id): mode for mode in operation_modes}
 
     # Held between the hard bounds the schedule was planned against,
