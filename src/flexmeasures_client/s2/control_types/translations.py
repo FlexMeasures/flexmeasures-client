@@ -56,11 +56,15 @@ def leakage_behaviour_to_storage_efficiency(
 
     """
 
-    last_element = message.elements[-1]
+    # FlexMeasures takes one storage efficiency here, and does not know which fill levels a schedule will pass through,
+    # so the leakiest element answers, as the most cautious: a plan that expects to lose more reaches its target early.
+    # It is looked for rather than assumed to come last, since S2 does not fix the order the elements are listed in,
+    # and the leakiest is not always the top one.
+    leakiest = max(message.elements, key=lambda e: e.leakage_rate)
     max_fill_level = max(
         e.fill_level_range.end_of_range * fill_level_scale for e in message.elements
     )
-    leakage = last_element.leakage_rate * fill_level_scale
+    leakage = leakiest.leakage_rate * fill_level_scale
     base_resolution = timedelta(hours=1)  # TODO: use timedelta(seconds=1)
 
     # Discuss conversions

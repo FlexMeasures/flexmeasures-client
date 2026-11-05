@@ -30,8 +30,10 @@ from flexmeasures_client.exceptions import JobFailedError
 from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     clip_fill_level_target_profile,
+    element_for_fill_level,
     fm_schedule_to_instructions,
     get_soc_min_max,
+    om_label,
     operation_mode_conversion_efficiency,
 )
 from flexmeasures_client.s2.control_types.translations import (
@@ -426,7 +428,24 @@ class FRBCSimple(FRBC):
                 status.actuator_id,
             )
             operation_mode = actuator.operation_modes[0]
-        element = operation_mode.elements[0]
+
+        # The element the actuator runs on depends on the fill level, as a heat pump derates while its buffer warms,
+        # so it is the one that applies at the latest fill level reported, not whichever the mode happens to list first.
+        if self._storage_status_history:
+            fill_level = list(self._storage_status_history.values())[
+                -1
+            ].present_fill_level
+            element = element_for_fill_level(operation_mode.elements, fill_level)
+        else:
+            # As if at the bottom of the range, which is as good a guess as any, and is said to be one below.
+            element = element_for_fill_level(operation_mode.elements, float("-inf"))
+            if len(operation_mode.elements) > 1:
+                self._logger.warning(
+                    "FRBC.ActuatorStatus for operation mode %s arrived with no FRBC.StorageStatus yet, "
+                    "so its power is recorded as the element at the bottom of the fill-level range states it, "
+                    "which need not be the element the actuator runs on.",
+                    om_label(operation_mode),
+                )
 
         # Interpolate the element's POWER range, not its fill rate. A fill rate is the thermal
         # output a heat pump delivers into its buffer; the power range is what it draws
