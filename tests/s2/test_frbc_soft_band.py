@@ -693,3 +693,9 @@ async def test_a_storage_planned_from_zero_is_read_back_from_zero(system_descrip
     ) as translate:
         await frbc.trigger_schedule(system_description.message_id)
     assert translate.call_args.kwargs["initial_fill_level"] == 0.0
+
+
+def test_an_empty_profile_covers_no_step(system_description):
+    frbc = _frbc(system_description)
+    index = pd.date_range("2024-01-01T00:00:00+00:00", periods=4, freq="15min")
+    assert frbc._on_the_window(pd.Series(dtype=float), index).empty
