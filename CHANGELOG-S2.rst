@@ -35,6 +35,7 @@ Added
 Changed
 -------
 
+* ``FRBCSimple`` plans one schedule at a time, for the newest request: a storage status arriving while a schedule is planned waits for it, and is dropped where a newer one arrives meanwhile, and a request out of date makes no further attempt after a failed one. Each status used to start a solve of its own beside the one in flight, so the newest is now planned after the attempt in flight rather than beside it [`#269 <https://github.com/FlexMeasures/flexmeasures-client/pull/269>`__]
 * An FRBC handler no longer turns a schedule into instructions where a newer storage status arrived while it was being planned, since sending would drop them anyway [`#261 <https://github.com/FlexMeasures/flexmeasures-client/pull/261>`__]
 * ``FRBC.trigger_schedule()`` takes the number of the request it answers as a keyword argument, so a subclass that overrides it has to accept that argument [`#237 <https://github.com/FlexMeasures/flexmeasures-client/pull/237>`__]
 * ``FRBC.send_storage_status()`` likewise takes the number of the planning request it answers, since a storage status is now what asks for a schedule [`#240 <https://github.com/FlexMeasures/flexmeasures-client/pull/240>`__]

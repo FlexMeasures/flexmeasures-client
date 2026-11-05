@@ -578,3 +578,109 @@ async def test_a_description_replaced_while_its_plan_is_out_sends_only_the_newer
     newest = max(n for n, _ in batches)
     assert sent[newest] > 0
     assert all(count == 0 for n, count in batches if n != newest)
+
+
+@pytest.mark.asyncio
+async def test_a_burst_of_statuses_costs_the_solve_in_flight_and_one_more():
+    """Each status used to start a solve beside the one in flight, all but the last for nothing."""
+    frbc = frbc_simple()
+    release = asyncio.Event()
+    planned = frbc._fm_client.trigger_and_get_schedule.return_value
+    running = 0
+    most = 0
+
+    async def solve(**kwargs):
+        nonlocal running, most
+        running += 1
+        most = max(most, running)
+        if frbc._fm_client.trigger_and_get_schedule.await_count == 1:
+            await release.wait()
+        running -= 1
+        return planned
+
+    frbc._fm_client.trigger_and_get_schedule.side_effect = solve
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    await frbc.handle_message(storage_status())
+    await asyncio.sleep(0.05)
+    for _ in range(4):
+        await frbc.handle_message(storage_status())
+    await asyncio.sleep(0.05)
+    release.set()
+    await settle(frbc)
+    assert most == 1
+    assert frbc._fm_client.trigger_and_get_schedule.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_a_request_overtaken_while_it_waits_for_the_solve_in_flight_is_dropped():
+    """It was the newest when it began to wait, and is not when its turn comes."""
+    frbc = frbc_simple()
+    release = asyncio.Event()
+    planned = frbc._fm_client.trigger_and_get_schedule.return_value
+
+    async def solve(**kwargs):
+        if frbc._fm_client.trigger_and_get_schedule.await_count == 1:
+            await release.wait()
+        return planned
+
+    frbc._fm_client.trigger_and_get_schedule.side_effect = solve
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    await frbc.handle_message(storage_status())
+    await asyncio.sleep(0.05)
+    await frbc.handle_message(storage_status())  # waits for the solve in flight
+    await asyncio.sleep(0.05)
+    await frbc.handle_message(storage_status())  # overtakes the one waiting
+    await asyncio.sleep(0.05)
+    release.set()
+    await settle(frbc)
+    assert frbc._fm_client.trigger_and_get_schedule.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_a_request_out_of_date_makes_no_further_attempt_while_the_newest_waits(
+    caplog,
+):
+    """It kept the newest waiting through every one of its retries, and the schedule they got was thrown away."""
+    import logging
+    from datetime import timedelta as td
+
+    caplog.set_level(logging.INFO)
+
+    from flexmeasures_client.exceptions import JobFailedError
+
+    frbc = frbc_simple()
+    frbc._schedule_attempts = 5
+    frbc._schedule_retry_interval = td(milliseconds=10)
+    frbc._is_worth_asking_again = lambda failure: True
+    first_attempt = asyncio.Event()
+    planned = frbc._fm_client.trigger_and_get_schedule.return_value
+
+    async def solve(**kwargs):
+        if frbc._fm_client.trigger_and_get_schedule.await_count == 1:
+            await first_attempt.wait()
+            raise JobFailedError("the worker crashed")
+        return planned
+
+    frbc._fm_client.trigger_and_get_schedule.side_effect = solve
+    batches: list[int] = []
+    send = frbc.send_instruction_batch
+
+    async def recording(*args, **kwargs):
+        batches.append(kwargs["request_number"])
+        return await send(*args, **kwargs)
+
+    frbc.send_instruction_batch = recording
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    await frbc.handle_message(storage_status())
+    await asyncio.sleep(0.05)
+    await frbc.handle_message(storage_status())  # newer, while the first attempt is out
+    await asyncio.sleep(0.05)
+    first_attempt.set()
+    await settle(frbc)
+    # The failed attempt, then the newest.
+    assert frbc._fm_client.trigger_and_get_schedule.await_count == 2
+    assert "Not asking again for planning request" in caplog.text
+    assert not [
+        r for r in caplog.records if r.levelname == "ERROR"
+    ]  # nothing translated for it
+    assert batches == [2]  # nothing sent for the request that stood down
