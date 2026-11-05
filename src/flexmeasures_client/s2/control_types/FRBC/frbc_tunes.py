@@ -239,7 +239,7 @@ class FillRateBasedControlTUNES(FRBC):
                     leakage_behaviour_to_storage_efficiency(
                         message=leakage,
                         resolution=timedelta(minutes=15),
-                        fill_level_scale=self._fill_level_scalefill_level_scale,
+                        fill_level_scale=self._fill_level_scale,
                     )
                 ],
                 unit=PERCENTAGE,

@@ -288,3 +288,44 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
     assert third_call["values"][0] == frbc._nes_fill_rate_sensor_id
 
     await cem.close()
+
+
+@pytest.mark.asyncio
+async def test_a_leakage_behaviour_is_recorded_rather_than_refused(
+    cem_in_frbc_control_type,
+):
+    """A leakage behaviour is posted as a storage efficiency, and not answered as a permanent error.
+
+    The handler read its fill-level scale from an attribute whose name was pasted in twice,
+    and the AttributeError that raised was caught as if the post had failed,
+    so every leakage behaviour was refused and none was recorded.
+    """
+    from s2python.common import NumberRange
+    from s2python.frbc import FRBCLeakageBehaviour, FRBCLeakageBehaviourElement
+
+    cem, fm_client, _ = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    frbc.send_message = AsyncMock()
+
+    leakage = FRBCLeakageBehaviour(
+        message_id=get_unique_id(),
+        valid_from=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        elements=[
+            FRBCLeakageBehaviourElement(
+                fill_level_range=NumberRange(start_of_range=0, end_of_range=100),
+                leakage_rate=0.001,
+            )
+        ],
+    )
+    await frbc.send_leakage_behaviour(leakage)
+
+    sent = [call.args[0] for call in frbc.send_message.await_args_list]
+    assert not any(
+        getattr(message, "status", None) == ReceptionStatusValues.PERMANENT_ERROR
+        for message in sent
+    ), sent
+    posted_to = [
+        call.args[0] if call.args else call.kwargs.get("sensor_id")
+        for call in fm_client.post_sensor_data.await_args_list
+    ]
+    assert 15 in posted_to, posted_to
