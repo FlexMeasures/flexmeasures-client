@@ -447,3 +447,75 @@ def test_a_step_boundary_is_on_the_local_clock_where_the_zone_is_half_an_hour_of
     assert frbc.align_to_resolution(moment) == datetime(
         2026, 11, 5, 14, 0, tzinfo=ZoneInfo("Asia/Kolkata")
     )
+
+
+def test_a_boundary_in_the_repeated_hour_is_the_later_one_not_after_the_moment():
+    """At two-hourly steps, 03:10 on the night the clocks go back is past 02:00 of the second pass, which is the boundary meant."""
+    from zoneinfo import ZoneInfo
+
+    frbc = frbc_simple()
+    frbc._resolution = timedelta(hours=2)
+    amsterdam = ZoneInfo("Europe/Amsterdam")
+    moment = datetime(2026, 10, 25, 3, 10, tzinfo=amsterdam)
+    aligned = frbc.align_to_resolution(moment)
+    assert aligned.astimezone(timezone.utc) == datetime(
+        2026, 10, 25, 1, 0, tzinfo=timezone.utc
+    )
+
+
+def test_a_naive_moment_is_floored_on_its_clock():
+    frbc = frbc_simple()
+    assert frbc.align_to_resolution(datetime(2026, 1, 1, 12, 7)) == datetime(
+        2026, 1, 1, 12, 0
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_state_of_charge_sensor_stating_no_duration_is_posted_over_a_minute(
+    caplog,
+):
+    frbc = frbc_simple()
+    frbc._fm_client.get_sensor.return_value = {"event_resolution": "fortnightly"}
+    assert await frbc._soc_duration() == timedelta(minutes=1)
+    assert "not a duration" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_sensor_that_could_not_be_read_is_asked_again():
+    frbc = frbc_simple()
+    frbc._fm_client.get_sensor.side_effect = [
+        ConnectionError("down"),
+        {"event_resolution": "PT0M"},
+    ]
+    assert await frbc._soc_duration() == timedelta(minutes=1)
+    assert await frbc._soc_duration() == timedelta(0)
+
+
+@pytest.mark.asyncio
+async def test_belief_times_are_forgotten_for_steps_more_than_a_day_old():
+    from s2python.frbc import FRBCActuatorStatus
+
+    from flexmeasures_client.s2.utils import get_unique_id
+
+    frbc = frbc_simple()
+    frbc._power_sensor_takes_consumption_as_positive = True
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    actuator = frbc._system_description_history[
+        list(frbc._system_description_history)[-1]
+    ].actuators[0]
+    for when in (
+        datetime(2022, 12, 1, 0, 0, tzinfo=timezone.utc),
+        datetime(2022, 12, 2, 6, 0, tzinfo=timezone.utc),
+    ):
+        await frbc.send_actuator_status(
+            FRBCActuatorStatus(
+                message_id=get_unique_id(),
+                actuator_id=actuator.id,
+                active_operation_mode_id=actuator.operation_modes[0].id,
+                operation_mode_factor=1.0,
+                transition_timestamp=when,
+            )
+        )
+    assert list(frbc._power_recorded_at) == [
+        datetime(2022, 12, 2, 6, 0, tzinfo=timezone.utc)
+    ]

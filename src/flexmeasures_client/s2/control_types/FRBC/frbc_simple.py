@@ -291,17 +291,22 @@ class FRBCSimple(FRBC):
         resolution_seconds = int(self._resolution.total_seconds())
         if resolution_seconds <= 0:
             return moment
-        # Floored on the moment's own clock, which is the grid FlexMeasures floors a series to,
+        # Floored on the moment's own clock, in the offset it carries, which is how FlexMeasures floors a series posted with it,
         # so an hourly step in a zone half an hour off UTC, or a daily one, starts where FlexMeasures' steps do.
-        # In the repeated hour of an autumn DST change, the pass the moment is in decides which of the two boundaries it is,
-        # where an earlier version took the first pass every time, an hour earlier than meant.
+        # A boundary in the repeated hour of an autumn DST change exists twice, and the one meant is the later of the two
+        # that is not after the moment: taking the first pass every time put a boundary an hour or more too early.
         # A boundary in a spring gap, which only a resolution of more than an hour can land on, moves to the end of the gap.
-        floored = pd.Timestamp(moment).floor(
-            self._resolution,
-            ambiguous=moment.fold == 0,
-            nonexistent="shift_forward",
-        )
-        return floored.to_pydatetime()
+        # Compared as pandas timestamps, which compare instants: two datetimes on one local clock compare by wall time,
+        # whichever pass each is on.
+        at = pd.Timestamp(moment)
+        candidates = [
+            at.floor(
+                self._resolution, ambiguous=first_pass, nonexistent="shift_forward"
+            )
+            for first_pass in (True, False)
+        ]
+        boundary = max(c for c in candidates if c <= at)
+        return boundary.to_pydatetime()
 
     def schedule_start(self, valid_from: datetime) -> datetime:
         """Where a schedule asked for at valid_from starts: shifted, then floored to a boundary, but not into an earlier step than now's.
@@ -321,7 +326,7 @@ class FRBCSimple(FRBC):
         Posted over the minute after it, a reading on such a sensor was taken for a forecast of that minute.
         FlexMeasures refuses a single value of no duration on a sensor with a resolution, though,
         so on any other sensor, or one that cannot be read, it is posted over a minute, as before.
-        The sensor is asked once, since its resolution is a property of how it was set up.
+        The sensor is asked until it answers, and its answer kept, since its resolution is a property of how it was set up.
         """
         if self._soc_sensor_records_instants is None:
             try:
@@ -336,9 +341,17 @@ class FRBCSimple(FRBC):
             resolution = (
                 sensor.get("event_resolution") if isinstance(sensor, dict) else None
             )
-            self._soc_sensor_records_instants = resolution is not None and pd.Timedelta(
-                resolution
-            ) == pd.Timedelta(0)
+            try:
+                self._soc_sensor_records_instants = resolution is not None and (
+                    pd.Timedelta(resolution) == pd.Timedelta(0)
+                )
+            except ValueError:
+                self._logger.warning(
+                    "State-of-charge sensor %s states a resolution of %r, which is not a duration, so a fill level is posted over a minute.",
+                    self._soc_sensor_id,
+                    resolution,
+                )
+                self._soc_sensor_records_instants = False
         return (
             timedelta(0) if self._soc_sensor_records_instants else timedelta(minutes=1)
         )
@@ -1114,6 +1127,7 @@ class FRBCSimple(FRBC):
         # That fill level is where the schedule starts, as long as that is at least the middle of the storage's range:
         # from a near-empty start, a share of the start level would let almost nothing remain per step,
         # and the loss would be overstated many times over as soon as the plan filled the storage.
+        # Below the middle the loss is understated instead, by at most the ratio of the middle to the stock, which is the milder error.
         storage_range = list(self._system_description_history.values())[
             -1
         ].storage.fill_level_range

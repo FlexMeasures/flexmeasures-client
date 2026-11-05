@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -305,6 +306,7 @@ async def apply_at_execution_time(
     instruction: FRBCInstruction,
     applied: dict | None = None,
     buffer: Buffer | None = None,
+    on_due: Callable[[], None] | None = None,
 ) -> None:
     """Enter the operation mode an instruction asks for, at the moment it asks for it.
 
@@ -323,6 +325,9 @@ async def apply_at_execution_time(
         print(f"WAITING: {delay:.0f}s until this instruction is due")
         await asyncio.sleep(delay)
 
+    # From here on it is being carried out, so a revocation arriving now is too late to stop it.
+    if on_due is not None:
+        on_due()
     now = datetime.now(timezone.utc)
     if buffer is not None:
         buffer.follow(instruction, now)
@@ -382,15 +387,18 @@ async def answer_instructions(ws, buffer: Buffer | None = None) -> None:
         )
         await send_instruction_status(ws, instruction.id, InstructionStatus.ACCEPTED)
         # In a task of its own, so that an instruction due later does not hold up the ones behind it.
-        task = asyncio.create_task(
-            apply_at_execution_time(ws, instruction, applied, buffer)
-        )
         key = str(instruction.id)
-        pending[key] = task
+
+        def due(key: str = key) -> None:
+            pending.pop(key, None)
 
         def forget(done: asyncio.Task, key: str = key) -> None:
             pending.pop(key, None)
 
+        task = asyncio.create_task(
+            apply_at_execution_time(ws, instruction, applied, buffer, on_due=due)
+        )
+        pending[key] = task
         task.add_done_callback(forget)
 
 

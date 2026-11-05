@@ -685,3 +685,30 @@ async def test_a_failed_ingestion_of_the_reseeded_prices_does_not_end_the_reseed
         await _until(lambda: fm.post_sensor_data.await_count >= 2)
         with pytest.raises(StopAsyncIteration):
             await seeding.__anext__()
+
+
+@pytest.mark.asyncio
+async def test_a_revocation_arriving_once_an_instruction_is_due_is_too_late_to_stop_it():
+    """It is carried out and reported as succeeded, not reported as revoked while the heat pump follows it."""
+    from s2python.common import RevokableObjects, RevokeObject
+
+    from flexmeasures_client.s2.script.websockets_client import apply_at_execution_time
+    from flexmeasures_client.s2.utils import get_unique_id
+
+    instruction = _instruction(get_unique_id(), timedelta(0))
+    became_due = []
+    ws = _Collect()
+    await apply_at_execution_time(
+        ws, instruction, {"mode": None}, on_due=lambda: became_due.append(True)
+    )
+    assert became_due == [True]
+
+    revoke = RevokeObject(
+        message_id=get_unique_id(),
+        object_type=RevokableObjects.FRBC_Instruction,
+        object_id=instruction.id,
+    )
+    ws = _Collect([instruction.model_dump_json(), revoke.model_dump_json()])
+    await answer_instructions(ws)
+    await _until(lambda: any(m.get("status_type") == "SUCCEEDED" for m in ws.sent))
+    assert not [m for m in ws.sent if m.get("status_type") == "REVOKED"]
