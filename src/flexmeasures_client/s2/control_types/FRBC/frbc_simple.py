@@ -214,6 +214,10 @@ class FRBCSimple(FRBC):
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._charging_efficiency_sensor_id = charging_efficiency_sensor_id
         self._charging_efficiency_recorded = None
+        if resolution <= timedelta(0) or schedule_duration <= timedelta(0):
+            raise ValueError(
+                f"resolution and schedule_duration have to be positive, but {resolution} and {schedule_duration} were given."
+            )
         if schedule_duration % resolution:
             # FlexMeasures answers with whole steps of the power sensor's resolution only,
             # so a duration between two whole numbers of steps comes back with fewer values than it spans,

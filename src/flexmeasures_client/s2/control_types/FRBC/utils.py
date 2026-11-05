@@ -1,3 +1,4 @@
+import bisect
 import logging
 import math
 from datetime import timedelta
@@ -55,10 +56,71 @@ def compute_next_fill_level(
     return fill_level + (fill_rate - usage_rate - leakage_rate) * step.total_seconds()
 
 
-#: How finely a step is followed, so that an element boundary, or a change in usage, is taken when it happens.
-FOLLOWED_EVERY = timedelta(minutes=1)
-#: How close two factors are to count as the same instruction: a solver's own rounding is not a new instruction.
+#: How close two factors are to count as the same instruction.
+#: It absorbs the float noise of converting a schedule from MW to W, which is not a new instruction.
 FACTOR_TOLERANCE = 1e-6
+
+
+class UsageProfile:
+    """What a usage forecast expects, per second, at any moment: piecewise constant, looked up by bisection.
+
+    A forecast is a run of elements, each lasting its own duration from where the one before it ended.
+    Outside that run, nothing is forecast, and nothing is assumed: the rate is zero.
+    Built once per schedule, since a forecast may hold hundreds of elements and a schedule asks about it often.
+    """
+
+    def __init__(
+        self, usage_forecast: FRBCUsageForecast | None = None, rate: float | None = None
+    ):
+        #: The moments the rate changes at, and the rate from each of them on; one constant rate has none.
+        self._changes: list[pd.Timestamp] = []
+        self._rates: list[float] = []
+        self._before = 0.0 if rate is None else rate
+        if usage_forecast is None:
+            return
+        moment = pd.Timestamp(usage_forecast.start_time)
+        for element in usage_forecast.elements:
+            self._changes.append(moment)
+            self._rates.append(element.usage_rate_expected)
+            moment = moment + timedelta(milliseconds=element.duration.root)
+        self._changes.append(moment)
+        self._rates.append(0.0)
+
+    def rate_at(self, moment: pd.Timestamp) -> float:
+        index = bisect.bisect_right(self._changes, moment) - 1
+        return self._before if index < 0 else self._rates[index]
+
+    def next_change_after(self, moment: pd.Timestamp) -> pd.Timestamp | None:
+        index = bisect.bisect_right(self._changes, moment)
+        return self._changes[index] if index < len(self._changes) else None
+
+
+def usage_rate_at(
+    usage_forecast: FRBCUsageForecast | None, moment: pd.Timestamp
+) -> float:
+    """The usage rate a forecast expects at a moment, per second, as S2 states it (see UsageProfile)."""
+    return UsageProfile(usage_forecast).rate_at(moment)
+
+
+def _sides(elements, fill_level: float):
+    """The element that applies just below a fill level, and the one just above it.
+
+    Inside an element both are that element; at a boundary two elements share, they are the two neighbours.
+    """
+    above = element_for_fill_level(elements, fill_level)
+    below_candidates = [
+        e
+        for e in elements
+        if e.fill_level_range.start_of_range
+        < fill_level
+        <= e.fill_level_range.end_of_range
+    ]
+    below = (
+        max(below_candidates, key=lambda e: e.fill_level_range.start_of_range)
+        if below_candidates
+        else above
+    )
+    return below, above
 
 
 def follow_operation_mode(
@@ -68,59 +130,79 @@ def follow_operation_mode(
     start: pd.Timestamp,
     step: timedelta,
     leakage_behaviour: FRBCLeakageBehaviour | None = None,
-    usage_forecast: FRBCUsageForecast | None = None,
-    usage_rate: float | None = None,
+    usage: UsageProfile | None = None,
     bounds: tuple[float, float] | None = None,
 ) -> float:
     """The fill level after following one operation mode at one factor for a step, as a resource manager does.
 
     An instruction fixes the mode and the factor, not the element:
     within the step the fill level can pass from one element into another, of the mode or of the leakage behaviour,
-    and the usage a forecast expects can change. Each is taken where and when it applies, to within FOLLOWED_EVERY,
-    rather than held at what it was when the step began.
+    and the usage a forecast expects can change.
+    Every rate is constant between such moments, so the step is followed exactly, from one of them to the next.
+    A level that reaches a boundary its far side would push it back from, as where a heat pump cannot heat above it,
+    stays at that boundary, as a real storage does, rather than flipping across it.
+    So does a level that reaches one of the bounds.
 
-    :param usage_rate: one usage rate for the whole step, which takes the place of the forecast.
-    :param bounds:     the fill levels the storage is held between, at every moment rather than only at the end.
+    :param usage:  what is drawn from the storage, per second; none where nothing is known.
+    :param bounds: the fill levels the storage is held between.
     """
-    elapsed = timedelta(0)
-    while elapsed < step:
-        dt = min(FOLLOWED_EVERY, step - elapsed)
-        element = element_for_fill_level(operation_mode.elements, fill_level)
-        low, high = element.fill_rate.start_of_range, element.fill_rate.end_of_range
-        fill_level = compute_next_fill_level(
-            fill_level,
-            low + (high - low) * factor,
-            dt,
-            leakage_behaviour=leakage_behaviour,
-            usage_rate=(
-                usage_rate
-                if usage_rate is not None
-                else usage_rate_at(usage_forecast, start + elapsed)
-            ),
+    usage = usage or UsageProfile()
+    leakage_elements = leakage_behaviour.elements if leakage_behaviour else []
+    lowest, highest = bounds if bounds is not None else (-math.inf, math.inf)
+    boundaries = sorted(
+        {
+            edge
+            for e in list(operation_mode.elements) + list(leakage_elements)
+            for edge in (
+                e.fill_level_range.start_of_range,
+                e.fill_level_range.end_of_range,
+            )
+        }
+        | ({lowest, highest} - {-math.inf, math.inf})
+    )
+
+    def net_rate(mode_element, leakage_element, moment) -> float:
+        low, high = (
+            mode_element.fill_rate.start_of_range,
+            mode_element.fill_rate.end_of_range,
         )
-        if bounds is not None:
-            fill_level = max(bounds[0], min(bounds[1], fill_level))
-        elapsed += dt
-    return fill_level
+        leakage = leakage_element.leakage_rate if leakage_element is not None else 0.0
+        return low + (high - low) * factor - usage.rate_at(moment) - leakage
 
-
-def usage_rate_at(
-    usage_forecast: FRBCUsageForecast | None, moment: pd.Timestamp
-) -> float:
-    """The usage rate a forecast expects at a moment, per second, as S2 states it.
-
-    A forecast is a run of elements, each lasting its own duration from where the one before it ended.
-    Outside that run, nothing is forecast, and nothing is assumed: the rate is zero.
-    """
-    if usage_forecast is None:
-        return 0.0
-    element_start = pd.Timestamp(usage_forecast.start_time)
-    for element in usage_forecast.elements:
-        element_end = element_start + timedelta(milliseconds=element.duration.root)
-        if element_start <= moment < element_end:
-            return element.usage_rate_expected
-        element_start = element_end
-    return 0.0
+    moment, end = pd.Timestamp(start), pd.Timestamp(start) + step
+    fill_level = min(max(fill_level, lowest), highest)
+    while moment < end:
+        mode_below, mode_above = _sides(operation_mode.elements, fill_level)
+        leak_below, leak_above = (
+            _sides(leakage_elements, fill_level) if leakage_elements else (None, None)
+        )
+        rising = net_rate(mode_above, leak_above, moment)
+        falling = net_rate(mode_below, leak_below, moment)
+        if rising > 0 and fill_level < highest:
+            rate = rising
+        elif falling < 0 and fill_level > lowest:
+            rate = falling
+        else:
+            rate = 0.0  # held where it is, at a boundary or a bound, until something changes
+        horizon = end
+        change = usage.next_change_after(moment)
+        if change is not None and change < horizon:
+            horizon = change
+        target = None
+        if rate > 0:
+            target = next((b for b in boundaries if b > fill_level), None)
+        elif rate < 0:
+            target = next((b for b in reversed(boundaries) if b < fill_level), None)
+        if target is not None:
+            # Compared in seconds first: a slow rate can put a boundary further off than a timedelta can say.
+            seconds_to_target = (target - fill_level) / rate
+            if seconds_to_target < (horizon - moment).total_seconds():
+                fill_level = target
+                moment = moment + pd.Timedelta(seconds=seconds_to_target)
+                continue
+        fill_level += rate * (horizon - moment).total_seconds()
+        moment = horizon
+    return min(max(fill_level, lowest), highest)
 
 
 def fm_schedule_to_instructions(
@@ -202,6 +284,7 @@ def fm_schedule_to_instructions(
 
     instructions: list[FRBCInstruction] = []
     last_instructed: tuple[str, float] | None = None
+    forecast_usage = UsageProfile(usage_forecast)
     fill_level = initial_fill_level
     has_usage_column = "usage_forecast" in schedule.columns
 
@@ -278,10 +361,14 @@ def fm_schedule_to_instructions(
 
         # A gap in a usage column, as FlexMeasures returns for a moment it holds nothing for, is no usage known, not NaN:
         # a NaN fill level would be held at the top of the bounds, and answered there from then on.
-        usage_rate = None
+        usage = forecast_usage
         if has_usage_column:
-            usage_rate = (
-                0.0 if pd.isna(row["usage_forecast"]) else float(row["usage_forecast"])
+            usage = UsageProfile(
+                rate=(
+                    0.0
+                    if pd.isna(row["usage_forecast"])
+                    else float(row["usage_forecast"])
+                )
             )
         fill_level = follow_operation_mode(
             fill_level,
@@ -290,8 +377,7 @@ def fm_schedule_to_instructions(
             pd.Timestamp(timestamp),
             step,
             leakage_behaviour=leakage_behaviour,
-            usage_forecast=usage_forecast,
-            usage_rate=usage_rate,
+            usage=usage,
             bounds=(fill_level_min, fill_level_max),
         )
 

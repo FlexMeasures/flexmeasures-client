@@ -396,7 +396,7 @@ def test_a_schedule_without_values_asks_for_nothing():
 # ---------------------------------------------------------------------------
 
 from flexmeasures_client.s2.control_types.FRBC.utils import (  # noqa: E402
-    FOLLOWED_EVERY,
+    UsageProfile,
     follow_operation_mode,
 )
 
@@ -465,7 +465,7 @@ def test_usage_is_followed_through_the_step_not_sampled_at_its_start():
     burst = _usage(*[(timedelta(minutes=5), 0.03), (timedelta(minutes=10), 0.0)] * 4)
     idle = _mode(_element(0, 100, power_top=0.0, fill_rate_top=0.0))
     assert follow_operation_mode(
-        50.0, idle, 0.0, pd.Timestamp(START), QUARTER_HOUR, usage_forecast=burst
+        50.0, idle, 0.0, pd.Timestamp(START), QUARTER_HOUR, usage=UsageProfile(burst)
     ) == pytest.approx(50.0 - 0.03 * 300)
 
 
@@ -482,7 +482,7 @@ def test_usage_counts_from_where_the_forecast_starts():
     )
     idle = _mode(_element(0, 100, power_top=0.0, fill_rate_top=0.0))
     assert follow_operation_mode(
-        50.0, idle, 0.0, pd.Timestamp(START), QUARTER_HOUR, usage_forecast=late
+        50.0, idle, 0.0, pd.Timestamp(START), QUARTER_HOUR, usage=UsageProfile(late)
     ) == pytest.approx(50.0 - 0.01 * 480)
 
 
@@ -496,7 +496,7 @@ def test_a_step_that_crosses_into_another_element_is_followed_across_it():
     level = follow_operation_mode(
         46.0, _mode(STEEP, SHALLOW), 1.0, pd.Timestamp(START), QUARTER_HOUR
     )
-    assert level == pytest.approx(57.0, abs=0.02 * FOLLOWED_EVERY.total_seconds())
+    assert level == pytest.approx(57.0)
 
 
 def test_leakage_is_followed_across_an_element_boundary_too():
@@ -506,7 +506,7 @@ def test_leakage_is_followed_across_an_element_boundary_too():
     level = follow_operation_mode(
         54.0, idle, 0.0, pd.Timestamp(START), QUARTER_HOUR, leakage_behaviour=leakage
     )
-    assert level == pytest.approx(50.0, abs=0.01 * FOLLOWED_EVERY.total_seconds())
+    assert level == pytest.approx(50.0)
 
 
 def test_a_gap_in_a_usage_column_is_no_usage_rather_than_a_buffer_full_to_the_top():
@@ -568,3 +568,158 @@ async def test_the_handler_translates_with_the_latest_usage_forecast():
     ) as translate:
         await frbc.trigger_schedule(system_description.message_id)
     assert translate.call_args.kwargs["usage_forecast"] is latest
+
+
+# ---------------------------------------------------------------------------
+# Followed exactly, between the moments anything changes (second round of review)
+# ---------------------------------------------------------------------------
+
+IDLE = _mode(_element(0, 100, power_top=0.0, fill_rate_top=0.0))
+
+
+@pytest.mark.parametrize("offset", [timedelta(0), timedelta(seconds=30)])
+def test_a_draw_shorter_than_a_minute_counts_exactly_once(offset):
+    """Half-minute draws every two minutes, starting on the minute or off it: a quarter hour holds 7 or 8 of them, exactly."""
+    elements = []
+    if offset:
+        elements.append((offset, 0.0))
+    while sum((d for d, _ in elements), timedelta(0)) < QUARTER_HOUR:
+        elements += [(timedelta(seconds=30), 0.1), (timedelta(seconds=90), 0.0)]
+    pulses = _usage(*elements)
+    drawn_for = sum(
+        (
+            min(QUARTER_HOUR, start + d) - start
+            for start, (d, rate) in zip(
+                [
+                    sum((e[0] for e in elements[:k]), timedelta(0))
+                    for k in range(len(elements))
+                ],
+                elements,
+            )
+            if rate and start < QUARTER_HOUR
+        ),
+        timedelta(0),
+    )
+    level = follow_operation_mode(
+        50.0, IDLE, 0.0, pd.Timestamp(START), QUARTER_HOUR, usage=UsageProfile(pulses)
+    )
+    assert level == pytest.approx(50.0 - 0.1 * drawn_for.total_seconds())
+
+
+def test_a_level_held_at_a_boundary_stays_there_rather_than_flipping_across():
+    """Filling below 50 and not above, while leaking everywhere: the level settles at 50, and one instruction serves 12 hours."""
+    below = _element(0, 50, power_top=1000.0, fill_rate_top=0.02)
+    above = _element(50, 100, power_top=1000.0, power_bottom=200.0, fill_rate_top=0.0)
+    leaking = _leakage((0, 100, 0.01))
+    instructions = fm_schedule_to_instructions(
+        _schedule([600.0] * 48),
+        _system_description_of(_mode(below, above)),
+        initial_fill_level=40.0,
+        leakage_behaviour=leaking,
+    )
+    assert len(instructions) <= 2, _factors(instructions)
+
+
+def test_an_element_narrower_than_a_minutes_travel_is_not_skipped():
+    """Filling at 1 per second below 50 and not at all above: from 20, the level stops at 50, not 30 past it."""
+    stop = _mode(
+        _element(0, 50, power_top=1000.0, fill_rate_top=1.0),
+        _element(50, 100, power_top=1000.0, fill_rate_top=0.0),
+    )
+    assert follow_operation_mode(
+        20.0, stop, 1.0, pd.Timestamp(START), QUARTER_HOUR
+    ) == pytest.approx(50.0)
+
+
+def test_a_step_that_is_not_a_whole_number_of_minutes_is_followed_to_its_end():
+    level = follow_operation_mode(
+        10.0, _mode(STEEP, SHALLOW), 1.0, pd.Timestamp(START), timedelta(seconds=90)
+    )
+    assert level == pytest.approx(10.0 + 0.02 * 90)
+
+
+def test_a_level_draining_to_the_lower_bound_is_held_there():
+    drained = follow_operation_mode(
+        5.0,
+        IDLE,
+        0.0,
+        pd.Timestamp(START),
+        QUARTER_HOUR,
+        usage=UsageProfile(rate=0.01),
+        bounds=(0.0, 100.0),
+    )
+    assert drained == 0.0
+
+
+def test_a_small_but_real_change_of_factor_is_instructed():
+    """The tolerance absorbs conversion noise, not a change the schedule asks for: 600 W then 605 W is two instructions."""
+    modulating = _mode(_element(0, 100, power_top=1000.0, fill_rate_top=1e-6))
+    instructions = fm_schedule_to_instructions(
+        _schedule([600.0, 605.0]),
+        _system_description_of(modulating),
+        initial_fill_level=10.0,
+    )
+    assert [round(f, 3) for _, f in _factors(instructions)] == [0.6, 0.605]
+
+
+def test_a_usage_column_takes_precedence_over_a_forecast():
+    """A caller that gives both means its column: 4 per quarter hour drawn, not the forecast's nothing."""
+    frame = pd.DataFrame(
+        {"schedule": [500.0] * 4, "usage_forecast": [4 / 900] * 4},
+        index=pd.date_range(START, periods=4, freq=QUARTER_HOUR),
+    )
+    with_both = fm_schedule_to_instructions(
+        frame,
+        _system_description(LOW, HIGH),
+        initial_fill_level=55.0,
+        usage_forecast=_usage((timedelta(hours=1), 0.0)),
+    )
+    assert _factors(with_both)[1] == (START + 2 * QUARTER_HOUR, pytest.approx(0.5))
+
+
+@pytest.mark.parametrize(
+    "resolution, duration",
+    [(timedelta(0), timedelta(hours=12)), (QUARTER_HOUR, timedelta(0))],
+)
+def test_a_handler_needs_a_positive_resolution_and_duration(resolution, duration):
+    with pytest.raises(ValueError, match="have to be positive"):
+        FRBCSimple(
+            power_sensor_id=1,
+            price_sensor_id=2,
+            soc_sensor_id=3,
+            rm_discharge_sensor_id=4,
+            resolution=resolution,
+            schedule_duration=duration,
+        )
+
+
+def test_a_long_schedule_against_a_detailed_forecast_is_translated_quickly():
+    """48 hours, at quarter hours, against the largest forecast S2 allows: well under the 1.7 s that stepping each minute took."""
+    import time
+
+    detailed = _usage(*[(timedelta(minutes=10), 1e-4 * (i % 3)) for i in range(288)])
+    started = time.perf_counter()
+    fm_schedule_to_instructions(
+        _schedule([500.0, 0.0] * 96),
+        _system_description(LOW, HIGH),
+        initial_fill_level=45.0,
+        usage_forecast=detailed,
+        leakage_behaviour=_leakage((0, 50, 1e-4), (50, 100, 2e-4)),
+    )
+    assert time.perf_counter() - started < 0.5
+
+
+def test_a_level_held_at_its_lower_bound_rises_from_there_once_filling_wins():
+    """Drained to 0 in the first 5 minutes, held there while the draw lasts, then filling from 0, not from below it."""
+    draw_then_none = _usage((timedelta(minutes=10), 0.02), (timedelta(minutes=5), 0.0))
+    filling = _mode(_element(0, 100, power_top=1000.0, fill_rate_top=0.01))
+    level = follow_operation_mode(
+        3.0,
+        filling,
+        1.0,
+        pd.Timestamp(START),
+        QUARTER_HOUR,
+        usage=UsageProfile(draw_then_none),
+        bounds=(0.0, 100.0),
+    )
+    assert level == pytest.approx(0.01 * 300)

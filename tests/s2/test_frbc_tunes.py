@@ -386,8 +386,11 @@ async def test_planning_does_not_stop_on_an_unlabelled_operation_mode(
 
 
 @pytest.mark.asyncio
-async def test_a_usage_forecast_is_posted_per_quarter_hour(cem_in_frbc_control_type):
-    """S2 states usage per second; TUNES posts it per quarter hour, on a quarter-hour grid, for as long as it was forecast."""
+async def test_a_usage_forecast_is_posted_per_hour(cem_in_frbc_control_type):
+    """S2 states usage per second; TUNES posts it per hour, labelled MW, on a quarter-hour grid, for as long as it was forecast.
+
+    FlexMeasures reads soc-usage as a power, a rate per hour, so a value per quarter hour would be planned as a quarter of the draw.
+    """
     from s2python.common import Duration
     from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
 
@@ -415,7 +418,7 @@ async def test_a_usage_forecast_is_posted_per_quarter_hour(cem_in_frbc_control_t
     ]
     assert len(posts) == 1, fm_client.post_sensor_data.await_args_list
     values = posts[0].kwargs["values"]
-    assert values == [pytest.approx(0.001 * 15 * 60)] * len(values)
+    assert values == [pytest.approx(0.001 * 3600)] * len(values)
     assert posts[0].kwargs["duration"] == str(pd.Timedelta(minutes=15) * len(values))
 
 
@@ -454,7 +457,7 @@ async def test_a_usage_forecast_is_posted_from_the_quarter_hour_it_starts_in(
 async def test_a_usage_forecast_is_averaged_within_each_quarter_hour(
     cem_in_frbc_control_type,
 ):
-    """Two halves of a quarter hour, at 1 and 3 thousandths per second, are posted as 2 thousandths, per quarter hour."""
+    """Two halves of a quarter hour, at 1 and 3 thousandths per second, are posted as 2 thousandths per second, per hour."""
     from s2python.common import Duration
     from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
 
@@ -479,14 +482,14 @@ async def test_a_usage_forecast_is_averaged_within_each_quarter_hour(
         for c in fm_client.post_sensor_data.await_args_list
         if c.kwargs.get("sensor_id") == 12
     ]
-    assert posts[0].kwargs["values"][0] == pytest.approx(0.002 * 15 * 60)
+    assert posts[0].kwargs["values"][0] == pytest.approx(0.002 * 3600)
 
 
 @pytest.mark.asyncio
 async def test_planning_reads_its_usage_forecast_back_per_second(
     cem_in_frbc_control_type,
 ):
-    """TUNES posts a usage forecast per quarter hour; the schedule translation takes a rate per second, as S2 states it."""
+    """TUNES posts a usage forecast per hour; the schedule translation takes a rate per second, as S2 states it."""
     from unittest.mock import patch
 
     from s2python.common import NumberRange
@@ -505,8 +508,8 @@ async def test_planning_reads_its_usage_forecast_back_per_second(
     def sensor_data(sensor_id, start=None, duration=None, **kwargs):
         # As many quarter hours as were asked for: the fixture's fixed day of values fits no other window.
         steps = int(pd.Timedelta(duration) / pd.Timedelta(minutes=15))
-        # The usage forecast as posted, 900 per quarter hour, and anything else as a plain efficiency.
-        value = 900.0 if sensor_id == 12 else 1.0
+        # The usage forecast as posted, 3600 per hour, and anything else as a plain efficiency.
+        value = 3600.0 if sensor_id == 12 else 1.0
         return {
             "start": str(start),
             "duration": str(duration),
@@ -526,7 +529,9 @@ async def test_planning_reads_its_usage_forecast_back_per_second(
             )
         ],
     )
-    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+    older = leakage.model_copy(update={"message_id": get_unique_id()})
+    frbc._leakage_behaviour_history[str(older.message_id)] = older
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage  # the latest
     # TUNES asks for a schedule by trigger and get, rather than trigger_and_get_schedule, over six hours.
     fm_client.get_schedule.return_value = {"values": [0.0] * 24}
     with patch(
@@ -537,6 +542,6 @@ async def test_planning_reads_its_usage_forecast_back_per_second(
 
     frame = translate.call_args.args[0]
     usage = list(frame["usage_forecast"].dropna())
-    # 900 per quarter hour, scaled by 0.1 on the way out: 10 per second in the resource manager's own units.
+    # 3600 per hour, scaled by 0.1 on the way out: 10 per second in the resource manager's own units.
     assert usage and usage == [pytest.approx(10.0)] * len(usage)
     assert translate.call_args.kwargs["leakage_behaviour"] is leakage
