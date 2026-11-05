@@ -724,3 +724,32 @@ async def test_a_revocation_arriving_once_an_instruction_is_due_is_too_late_to_s
     await answer_instructions(ws)
     await _until(lambda: any(m.get("status_type") == "SUCCEEDED" for m in ws.sent))
     assert not [m for m in ws.sent if m.get("status_type") == "REVOKED"]
+
+
+@pytest.mark.asyncio
+async def test_the_site_graphs_show_the_buffer_with_its_band_and_what_fills_and_draws_it():
+    """The graphs page showed only price and power, which says nothing about whether the plan kept the buffer warm."""
+    fm = AsyncMock(FlexMeasuresClient)
+    fm.get_account = AsyncMock(return_value={"id": 1})
+    fm.get_assets = AsyncMock(
+        return_value=[{"id": 5, "name": server.SITE_NAME, "sensors": []}]
+    )
+    fm.add_sensor = AsyncMock(
+        side_effect=lambda **kwargs: {
+            "id": 100 + len(fm.add_sensor.await_args_list),
+            **kwargs,
+        }
+    )
+    sensors = await server.configure_site(server.SITE_NAME, fm)
+    shown = [
+        call.args[1]["sensors_to_show"]
+        for call in fm.update_asset.await_args_list
+        if "sensors_to_show" in call.args[1]
+    ]
+    assert len(shown) == 1
+    plotted = {graph["title"]: set(graph["plots"][0]["sensors"]) for graph in shown[0]}
+    by_id = {sensor["id"]: name for name, sensor in sensors.items()}
+    named = {title: {by_id[i] for i in ids} for title, ids in plotted.items()}
+    assert {"state of charge", "soc minima", "soc maxima"} in named.values()
+    assert {"fill rate", "usage forecast"} in named.values()
+    assert {"power"} in named.values() and {"price"} in named.values()

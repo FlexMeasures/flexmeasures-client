@@ -217,8 +217,39 @@ async def configure_site(
             **({"attributes": attributes} if attributes else {}),
         )
 
+    # The site's graphs page shows what the plan is about, not only its price and power:
+    # the buffer with the comfort band around it, what is drawn from it, and what the heat pump puts in.
+    await fm_client.update_asset(
+        site_asset["id"],
+        {"sensors_to_show": site_graphs(sensors)},
+        parse_json_fields=True,
+    )
+
     await seed_prices(fm_client, sensors["price"]["id"])
     return sensors
+
+
+def site_graphs(sensors: dict[str, dict]) -> list[dict]:
+    """The site's graphs, top to bottom, in the format FlexMeasures takes for an asset's sensors_to_show."""
+
+    def ids(*names: str) -> list[int]:
+        return [sensors[name]["id"] for name in names]
+
+    return [
+        {"title": "Price", "plots": [{"sensors": ids("price")}]},
+        {
+            "title": "Heat pump: planned and measured power",
+            "plots": [{"sensors": ids("power")}],
+        },
+        {
+            "title": "Buffer: fill level and comfort band",
+            "plots": [{"sensors": ids("state of charge", "soc minima", "soc maxima")}],
+        },
+        {
+            "title": "Buffer: filled by the heat pump, drawn by hot-water use",
+            "plots": [{"sensors": ids("fill rate", "usage forecast")}],
+        },
+    ]
 
 
 async def seed_prices(fm_client: FlexMeasuresClient, price_sensor_id: int) -> None:
