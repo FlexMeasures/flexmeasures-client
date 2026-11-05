@@ -770,8 +770,12 @@ class FRBCSimple(FRBC):
         return any(marker in message for marker in RETRYABLE_TRIGGER_REFUSALS)
 
     async def _ask_for_a_schedule(
-        self, start: datetime, flex_context: dict, flex_model: dict
-    ) -> dict | list[dict]:
+        self,
+        start: datetime,
+        flex_context: dict,
+        flex_model: dict,
+        request_number: int | None = None,
+    ) -> dict | list[dict] | None:
         """Ask FlexMeasures for a schedule, and ask again where the attempt is worth making again.
 
         One failed scheduling job otherwise leaves the storage without an instruction for its window.
@@ -781,7 +785,9 @@ class FRBCSimple(FRBC):
         a worker crashed inside its solver,
         and the resource manager it belonged to polled until its round timed out, every round, for the rest of the run.
 
-        :param start: the window the schedule is asked for, which every attempt asks for again.
+        :param start:          the window the schedule is asked for, which every attempt asks for again.
+        :param request_number: the planning request this answers; where a newer one arrives between attempts,
+                               no further attempt is made and None is returned, so that the newer one is planned sooner.
         :raises JobFailedError: where the last attempt worth making failed inside the server.
         :raises ValueError:     where the trigger itself was refused.
         """
@@ -823,6 +829,14 @@ class FRBCSimple(FRBC):
                     failure,
                 )
                 await asyncio.sleep(self._schedule_retry_interval.total_seconds())
+                if request_number is not None and not self._is_latest_request(
+                    STORAGE_STATUS_REQUESTS, request_number
+                ):
+                    self._logger.info(
+                        "Not asking again for planning request %s: a newer one arrived, and is planned instead.",
+                        request_number,
+                    )
+                    return None
 
     def _warn_where_a_fallback_scheduler_answered(
         self, schedule: dict | list[dict], start: datetime
@@ -857,15 +871,17 @@ class FRBCSimple(FRBC):
     ):
         """Plan, one schedule at a time, and only for the newest request once it is this one's turn.
 
-        Each storage status is a planning request, and one arriving while a schedule is being planned
-        used to start a second solve beside it, whose answer replaced the first's.
-        A resource manager reporting faster than FlexMeasures plans then kept several solves running for nothing.
-        Now a request waits for the one in flight, and is dropped where a newer one has arrived meanwhile,
-        so a burst of statuses costs at most the solve in flight and one more, for the newest.
+        Each storage status is a planning request.
+        One arriving while a schedule was being planned used to start a second solve beside it, whose answer replaced the first's,
+        so a resource manager reporting faster than FlexMeasures plans kept several solves running for nothing.
+        Now a request waits for the one in flight, and is dropped where a newer one has arrived meanwhile;
+        the one in flight, once out of date, makes no further attempt after a failed one.
+        So a burst of statuses costs at most the attempt in flight and one plan more, for the newest,
+        which starts once that attempt is over rather than beside it.
 
         :param system_description_id: system description to base the schedule on
-        :param request_number:        which planning request this schedule answers, which is
-                                      checked once more before the instructions go out
+        :param request_number:        which planning request this schedule answers, which is checked when its turn comes,
+                                      between attempts, and before the schedule is translated and sent
         """
         async with self._planning:
             if request_number is not None and not self._is_latest_request(
@@ -881,7 +897,11 @@ class FRBCSimple(FRBC):
     async def _plan(
         self, system_description_id: str, request_number: int | None = None
     ):
-        """Translates S2 System Description into FM API calls."""
+        """Translates S2 System Description into FM API calls.
+
+        :param system_description_id: system description to base the schedule on
+        :param request_number:        which planning request this schedule answers
+        """
 
         system_description: FRBCSystemDescription = self._system_description_history[
             system_description_id
@@ -1045,7 +1065,11 @@ class FRBCSimple(FRBC):
         if self._relax_site_capacity is not None:
             flex_context["relax-site-capacity-constraints"] = self._relax_site_capacity
 
-        schedule = await self._ask_for_a_schedule(start, flex_context, flex_model)
+        schedule = await self._ask_for_a_schedule(
+            start, flex_context, flex_model, request_number=request_number
+        )
+        if schedule is None:
+            return
         self._warn_where_a_fallback_scheduler_answered(schedule, start)
 
         # send_instruction_batch checks this once more, but translating a schedule follows every step of it,
