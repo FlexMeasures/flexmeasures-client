@@ -18,6 +18,20 @@ with two switches on:
   resource manager retries. Its schedules start from the simulated now and cover
   24 hours. The site's prices are for whoever runs the simulation to post.
 
+FlexMeasures reads three settings a co-simulation needs from its instance config
+(`flexmeasures-instance/flexmeasures.cfg` in the flexmeasures checkout), not from the environment:
+
+```python
+# A steering round replans a window at the same simulated moment, and that plan replaces the one before.
+# Without this, the scheduler cannot save the second plan, and the home gets no instructions for its window.
+FLEXMEASURES_ALLOW_DATA_OVERWRITE = True
+# Every home triggers a schedule each round, all from one account, far above the default of 10 per 5 minutes,
+# and every trigger past the limit waits minutes before it is retried.
+FLEXMEASURES_API_TRIGGER_RATE_LIMIT = "1000 per minute"
+# A bound on each solve, since a tail of degenerate problems otherwise proves optimality past the job timeout.
+FLEXMEASURES_LP_SOLVER_OPTIONS = {"time_limit": "15"}
+```
+
 A co-simulation reads the sites by sensor name: `price`, `production price`,
 `power` (the schedule), `measured-power` (what the home measured) and
 `state of charge`.
