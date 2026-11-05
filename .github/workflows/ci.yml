@@ -104,7 +104,19 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --extra s2 --group test
       - name: Run S2 tests
-        run: uv run pytest tests/s2 -rFEx --durations 10 --color yes
+        run: uv run pytest tests/s2 -rFEx --durations 10 --color yes --cov
+      - name: Show coverage report
+        run: uv run coverage report
+      - name: Generate coverage report
+        run: uv run coverage lcov -o coverage.lcov
+      - name: Upload partial coverage report
+        uses: coverallsapp/github-action@v2
+        with:
+          fail-on-error: false
+          path-to-lcov: coverage.lcov
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          flag-name: s2 - py${{ matrix.python }}
+          parallel: true
 
   finalize:
     needs: [ test, test-s2]
