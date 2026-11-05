@@ -45,6 +45,31 @@ from flexmeasures_client.s2.control_types.translations import (
 #: and what goes out to FlexMeasures in it is what came in from a resource manager in it.
 S2_POWER_UNIT = "W"
 
+#: How many times a schedule is asked for before the storage is left without an instruction for its window.
+#: Every attempt costs the server a solve, so this is a handful rather than a vigil.
+SCHEDULE_ATTEMPTS = 5
+
+#: How long to wait between two attempts at a schedule.
+#: Flat rather than backed off: what it waits out is a post landing or a worker taking the job up,
+#: and a resource manager is waiting on an instruction for the whole of it.
+SCHEDULE_RETRY_INTERVAL = timedelta(seconds=2)
+
+#: Causes of a failed scheduling job that fail the same way however often the job is asked for again.
+#: Asking again only multiplies failed jobs over the server's workers, so these are never asked again.
+NON_RETRYABLE_SCHEDULE_FAILURES = (
+    # A scheduler that records a belief twice collides with its own first write on every attempt.
+    "UniqueViolation",
+    "duplicate key value violates unique constraint",
+    # An infeasible problem is planned from the same flex model and context every time, so it stays infeasible.
+    # FlexMeasures answered one with a fallback scheduler until v1.0.0 retired it, and fails the job itself since.
+    "InfeasibleProblemException",
+)
+
+#: The refusal of a trigger, rather than a failure of the job behind it, that is worth asking again about.
+#: A schedule can be asked for before the state of charge it is to be planned from has landed,
+#: and FlexMeasures refuses to plan from one it considers too old.
+RETRYABLE_TRIGGER_REFUSALS = ("No recent state-of-charge value found",)
+
 
 def _operation_mode_power_bands(
     power_ranges: list[tuple[float, float]], power_unit: str
@@ -121,6 +146,9 @@ class FRBCSimple(FRBC):
     #: The charging efficiency last recorded, and the window it was recorded for,
     #: so that the same value for the same window is not recorded again on every schedule.
     _charging_efficiency_recorded: tuple[datetime, float] | None
+    #: How many times a schedule is asked for, and how long between two attempts.
+    _schedule_attempts: int
+    _schedule_retry_interval: timedelta
 
     def __init__(
         self,
@@ -144,6 +172,11 @@ class FRBCSimple(FRBC):
         charging_efficiency_sensor_id: int | None = None,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=24),
+        # How many times a schedule is asked for before the storage is left without an instruction,
+        # and how long between two attempts.
+        # One attempt means a failure is never answered by another, as it was before this was bounded at all.
+        schedule_attempts: int = SCHEDULE_ATTEMPTS,
+        schedule_retry_interval: timedelta = SCHEDULE_RETRY_INTERVAL,
         # The resolution a schedule is planned on, which a schedule's start has to line up with.
         resolution: timedelta = timedelta(minutes=15),
         max_size: int = 100,
@@ -180,6 +213,13 @@ class FRBCSimple(FRBC):
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._charging_efficiency_sensor_id = charging_efficiency_sensor_id
         self._charging_efficiency_recorded = None
+        if schedule_attempts < 1:
+            # A schedule is asked for at least once, or no schedule is asked for at all.
+            raise ValueError(
+                f"schedule_attempts has to be at least one, since it counts the attempts at a schedule rather than the retries, but {schedule_attempts} was given."
+            )
+        self._schedule_attempts = schedule_attempts
+        self._schedule_retry_interval = schedule_retry_interval
         self._timezone = ZoneInfo(timezone)
         if fill_level_scale <= 0:
             # Every fill level this handler records is multiplied by the scale,
@@ -568,6 +608,109 @@ class FRBCSimple(FRBC):
         self._charging_efficiency_recorded = (start, efficiency)
         return True
 
+    def _is_worth_asking_again(self, failure: Exception) -> bool:
+        """Whether a failed attempt at a schedule is worth making again.
+
+        A job that reached the server and failed inside it is,
+        unless its cause is one that fails identically on every attempt (see NON_RETRYABLE_SCHEDULE_FAILURES).
+        A job can fail on a transient of its own, from a worker crashing out of its solver,
+        to a pandas error over windows that overlap for as long as two of these schedules do.
+
+        A trigger the server refused outright is not, bar the one refusal that answers a race:
+        a flex model or context FlexMeasures will not take is not one it will take two seconds later.
+
+        :param failure: what the attempt raised.
+        """
+        message = str(failure)
+        if any(marker in message for marker in NON_RETRYABLE_SCHEDULE_FAILURES):
+            return False
+        if isinstance(failure, JobFailedError):
+            return True
+        return any(marker in message for marker in RETRYABLE_TRIGGER_REFUSALS)
+
+    async def _ask_for_a_schedule(
+        self, start: datetime, flex_context: dict, flex_model: dict
+    ) -> dict | list[dict]:
+        """Ask FlexMeasures for a schedule, and ask again where the attempt is worth making again.
+
+        One failed scheduling job otherwise leaves the storage without an instruction for its window.
+        The resource manager is told nothing, and goes on polling,
+        and since this runs as a task whose exception is logged and dropped, nothing else notices either.
+        That is what one failed job did in a co-simulation:
+        a worker crashed inside its solver,
+        and the resource manager it belonged to polled until its round timed out, every round, for the rest of the run.
+
+        :param start: the window the schedule is asked for, which every attempt asks for again.
+        :raises JobFailedError: where the last attempt worth making failed inside the server.
+        :raises ValueError:     where the trigger itself was refused.
+        """
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                return await self._fm_client.trigger_and_get_schedule(
+                    start=start,
+                    sensor_id=self._power_sensor_id,
+                    flex_context=flex_context,
+                    flex_model=flex_model,
+                    duration=self._schedule_duration,
+                    # Each attempt says what is known now, rather than what was known when the first was made.
+                    prior=self.now(),
+                    # In watts, which is what S2 states an operation mode's power ranges in,
+                    # and the translation below matches a schedule against those ranges.
+                    # Not in power_unit, which says how a power value this handler posts is labelled,
+                    # and not in the power sensor's own unit, which is what a schedule comes back in by default.
+                    unit=S2_POWER_UNIT,
+                )
+            except (JobFailedError, ValueError) as failure:
+                if (
+                    attempt >= self._schedule_attempts
+                    or not self._is_worth_asking_again(failure)
+                ):
+                    self._logger.exception(
+                        "The storage is left without an instruction for the window starting %s: asking for a schedule failed on attempt %s of %s.",
+                        start,
+                        attempt,
+                        self._schedule_attempts,
+                    )
+                    raise
+                self._logger.warning(
+                    "Asking for a schedule for the window starting %s failed on attempt %s of %s, and is worth asking again: %s",
+                    start,
+                    attempt,
+                    self._schedule_attempts,
+                    failure,
+                )
+                await asyncio.sleep(self._schedule_retry_interval.total_seconds())
+
+    def _warn_where_a_fallback_scheduler_answered(
+        self, schedule: dict | list[dict], start: datetime
+    ) -> None:
+        """Say so where a schedule was planned by a scheduler this handler did not ask for.
+
+        FlexMeasures answered an infeasible problem with a fallback scheduler until v1.0.0 retired it.
+        Against an older server, the schedule endpoint follows that fallback job rather than reporting the failure,
+        or redirects to it where the server sets FLEXMEASURES_FALLBACK_REDIRECT, which this client follows,
+        so either way a schedule nobody asked for arrives looking like the one that was.
+        It is a coarse charging policy rather than a plan,
+        and it records no state of charge, so a later window has nothing to resolve its soc-at-start against:
+        that is how a house in a co-simulation starved mid-run.
+
+        :param schedule: what came back, which names the scheduler that planned it.
+        :param start:    the window it was asked for.
+        """
+        if not isinstance(schedule, dict):
+            # A schedule per device, which only an asset-wide trigger is answered with.
+            return
+        scheduler = str((schedule.get("scheduler_info") or {}).get("scheduler", ""))
+        if "fallback" not in scheduler.lower():
+            return
+        self._logger.error(
+            "The schedule for the window starting %s was planned by %s, which is a fallback scheduler: the problem this handler asked about was infeasible. The schedule is a coarse charging policy, and no state of charge was recorded for a later window to be planned from.",
+            start,
+            scheduler,
+        )
+
     async def trigger_schedule(
         self,
         system_description_id: str,
@@ -803,107 +946,9 @@ class FRBCSimple(FRBC):
             flex_context["relax-soc-constraints"] = True
 
         self._logger.debug("flex context: %s", flex_context)
-        self._logger.debug(
-            f"HANGDEBUG trigger_schedule: about to call trigger_and_get_schedule "
-            f"(power_sensor_id={self._power_sensor_id})"
-        )
-        # A scheduling job can fail transiently server-side (e.g. a pandas
-        # "cannot reindex on an axis with duplicate labels" error observed with
-        # overlapping recurring schedule windows) and succeed cleanly when re-run
-        # moments later. Without a retry here, that single failure permanently stalls
-        # this timestep: the RM never gets an instruction and polls forever, since
-        # this whole call runs as a fire-and-forget task whose exception is otherwise
-        # just logged and dropped. Retry a few times before giving up for real.
-        # "No recent state-of-charge value found" is the same class of transient:
-        # at startup, this trigger can race the controller's initial battery-SoC
-        # post (a separate client posting to the flex-model's SoC sensor), and
-        # FlexMeasures then rejects the trigger with a 422 that resolves itself
-        # once that post lands moments later.
-        max_attempts = 5
-        transient_errors = (
-            "Scheduling job failed",
-            "No recent state-of-charge value found",
-        )
-        # Deterministic server-side failures re-fail identically on every
-        # retry; re-triggering them only multiplies failed jobs across the
-        # worker pool (observed with a scheduler bug that violated the
-        # timed_belief primary key on every attempt). Never retry these,
-        # even though their message carries a transient-looking marker.
-        deterministic_errors = (
-            "UniqueViolation",
-            "duplicate key value violates unique constraint",
-        )
-        for attempt in range(1, max_attempts + 1):
-            try:
-                schedule = await self._fm_client.trigger_and_get_schedule(
-                    start=start,
-                    prior=self.now(),
-                    sensor_id=self._power_sensor_id,
-                    flex_context=flex_context,
-                    flex_model=flex_model,
-                    duration=self._schedule_duration,
-                    # In watts, which is what S2 states an operation mode's power ranges in,
-                    # and the translation below matches a schedule against those ranges.
-                    # Not in power_unit, which says how a power value this handler posts is labelled,
-                    # and not in the power sensor's own unit, which is what a schedule comes back in by default.
-                    unit=S2_POWER_UNIT,
-                )
-                break
-            # JobFailedError, not only ValueError: against a server with the job-status API,
-            # trigger_and_get_schedule waits on the job through wait_for_job, which reports a
-            # failed job as JobFailedError. This loop predates that path and caught only the
-            # ValueError the schedule endpoint raises, so every failed job - a native solver
-            # crash included - went straight past the retry. The fire-and-forget task died, the
-            # RM never got instructions for that timestep, and in a co-simulation it polled
-            # until its round timeout, every round, for the rest of the run (observed with a
-            # SIGABRT inside HiGHS: one crash stalled one apartment and held the run open).
-            # The message is the same job status description either way, so the transient and
-            # deterministic markers below apply unchanged.
-            except (ValueError, JobFailedError) as exc:
-                if (
-                    any(marker in str(exc) for marker in deterministic_errors)
-                    or not any(marker in str(exc) for marker in transient_errors)
-                    or attempt == max_attempts
-                ):
-                    self._logger.exception(
-                        "HANGDEBUG trigger_schedule: trigger_and_get_schedule raised"
-                    )
-                    raise
-                self._logger.warning(
-                    f"HANGDEBUG trigger_schedule: transient trigger failure "
-                    f"(attempt {attempt}/{max_attempts}), retrying: {exc}"
-                )
-                await asyncio.sleep(2.0)
-            except Exception:
-                self._logger.exception(
-                    "HANGDEBUG trigger_schedule: trigger_and_get_schedule raised"
-                )
-                raise
-        self._logger.debug(f"HANGDEBUG trigger_schedule: got schedule back: {schedule}")
 
-        # The server silently substitutes its fallback scheduler's result when
-        # the real scheduling problem is infeasible (the GET follows the
-        # fallback job unless FLEXMEASURES_FALLBACK_REDIRECT is set). That
-        # schedule is a coarse charging policy, not an optimum - and the
-        # fallback saves NO state-of-charge stream, so any device relying on
-        # scheduler-saved SoC (e.g. a follow-the-schedule battery) loses its
-        # SoC trail and later windows fail on soc-at-start resolution
-        # (observed as a mid-run house starvation in co-simulation). Surface
-        # it as an ERROR so it is never mistaken for a healthy schedule.
-        # NB the fallback scheduler is slated for removal in FlexMeasures v1.
-        scheduler_name = str(
-            (schedule.get("scheduler_info") or {}).get("scheduler", "")
-            if isinstance(schedule, dict)
-            else ""
-        )
-        if "fallback" in scheduler_name.lower():
-            self._logger.error(
-                f"FlexMeasures used its fallback scheduler ({scheduler_name}) "
-                f"for the window starting {start.isoformat()}: the real "
-                "scheduling problem was infeasible. The returned schedule is a "
-                "coarse charging policy and no state-of-charge stream was "
-                "saved server-side. Investigate the infeasibility."
-            )
+        schedule = await self._ask_for_a_schedule(start, flex_context, flex_model)
+        self._warn_where_a_fallback_scheduler_answered(schedule, start)
 
         # send_instruction_batch checks this once more, but building the instructions first is
         # wasted work when the request they answer is already out of date.
