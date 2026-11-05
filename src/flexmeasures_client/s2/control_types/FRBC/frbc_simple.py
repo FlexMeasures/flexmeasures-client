@@ -263,6 +263,7 @@ class FRBCSimple(FRBC):
         self._power_sensor_takes_consumption_as_positive = None
         self._power_recorded_at = {}
         self._soc_sensor_records_instants: bool | None = None
+        self._planning = asyncio.Lock()
         if hard_bound_factor < 1:
             # Below one, the hard upper bound sits inside the declared range,
             # and FlexMeasures clips the band into the hard bounds,
@@ -849,12 +850,33 @@ class FRBCSimple(FRBC):
     async def trigger_schedule(
         self, system_description_id: str, request_number: int | None = None
     ):
-        """Translates S2 System Description into FM API calls.
+        """Plan, one schedule at a time, and only for the newest request once it is this one's turn.
+
+        Each storage status is a planning request, and one arriving while a schedule is being planned
+        used to start a second solve beside it, whose answer replaced the first's.
+        A resource manager reporting faster than FlexMeasures plans then kept several solves running for nothing.
+        Now a request waits for the one in flight, and is dropped where a newer one has arrived meanwhile,
+        so a burst of statuses costs at most the solve in flight and one more, for the newest.
 
         :param system_description_id: system description to base the schedule on
         :param request_number:        which planning request this schedule answers, which is
                                       checked once more before the instructions go out
         """
+        async with self._planning:
+            if request_number is not None and not self._is_latest_request(
+                STORAGE_STATUS_REQUESTS, request_number
+            ):
+                self._logger.info(
+                    "Not planning for request %s: a newer one arrived while the schedule before it was being planned.",
+                    request_number,
+                )
+                return
+            await self._plan(system_description_id, request_number)
+
+    async def _plan(
+        self, system_description_id: str, request_number: int | None = None
+    ):
+        """Translates S2 System Description into FM API calls."""
 
         system_description: FRBCSystemDescription = self._system_description_history[
             system_description_id

@@ -578,3 +578,59 @@ async def test_a_description_replaced_while_its_plan_is_out_sends_only_the_newer
     newest = max(n for n, _ in batches)
     assert sent[newest] > 0
     assert all(count == 0 for n, count in batches if n != newest)
+
+
+@pytest.mark.asyncio
+async def test_a_burst_of_statuses_costs_the_solve_in_flight_and_one_more():
+    """Each status used to start a solve beside the one in flight, all but the last for nothing."""
+    frbc = frbc_simple()
+    release = asyncio.Event()
+    planned = frbc._fm_client.trigger_and_get_schedule.return_value
+    running = 0
+    most = 0
+
+    async def solve(**kwargs):
+        nonlocal running, most
+        running += 1
+        most = max(most, running)
+        if frbc._fm_client.trigger_and_get_schedule.await_count == 1:
+            await release.wait()
+        running -= 1
+        return planned
+
+    frbc._fm_client.trigger_and_get_schedule.side_effect = solve
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    await frbc.handle_message(storage_status())
+    await asyncio.sleep(0.05)
+    for _ in range(4):
+        await frbc.handle_message(storage_status())
+    await asyncio.sleep(0.05)
+    release.set()
+    await settle(frbc)
+    assert most == 1
+    assert frbc._fm_client.trigger_and_get_schedule.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_a_request_overtaken_while_it_waits_for_the_solve_in_flight_is_dropped():
+    """It was the newest when it began to wait, and is not when its turn comes."""
+    frbc = frbc_simple()
+    release = asyncio.Event()
+    planned = frbc._fm_client.trigger_and_get_schedule.return_value
+
+    async def solve(**kwargs):
+        if frbc._fm_client.trigger_and_get_schedule.await_count == 1:
+            await release.wait()
+        return planned
+
+    frbc._fm_client.trigger_and_get_schedule.side_effect = solve
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    await frbc.handle_message(storage_status())
+    await asyncio.sleep(0.05)
+    await frbc.handle_message(storage_status())  # waits for the solve in flight
+    await asyncio.sleep(0.05)
+    await frbc.handle_message(storage_status())  # overtakes the one waiting
+    await asyncio.sleep(0.05)
+    release.set()
+    await settle(frbc)
+    assert frbc._fm_client.trigger_and_get_schedule.await_count == 2
