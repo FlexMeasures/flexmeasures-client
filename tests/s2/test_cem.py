@@ -387,6 +387,7 @@ async def test_a_message_without_a_type_activates_nothing(
     cem = CEM(fm_client=None)
     cem.register_control_type(FRBCTest())
     await _details_received(cem, rm_handshake, resource_manager_details)
+    cem._selecting = (ControlType.FILL_RATE_BASED_CONTROL, "some-selection")
     from flexmeasures_client.s2.utils import get_unique_id
 
     await cem.handle_message({"message_id": get_unique_id()})
