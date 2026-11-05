@@ -29,8 +29,9 @@ class SimulatedClock:
     """The time a simulation says it is, as last set.
 
     It stands still between settings, as a simulation's time does between the messages that carry it.
-    Until it is first set it goes by the wall clock, which is the time the handshake of each connection runs on,
-    since a resource manager sends the simulated time only with the messages that follow it.
+    Until it is first set it goes by the wall clock, for a resource manager that does not wrap its first messages;
+    one that wraps every message from its handshake on, as the co-simulation's does, sets it with the first.
+    Background work, such as a schedule being planned, reads it as it stands, which may be a later message's time.
     """
 
     def __init__(self, start: datetime | None = None) -> None:

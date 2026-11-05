@@ -96,11 +96,12 @@ class CEM(Handler):
 
         :param clock:                       the time this CEM and every handler it registers go by;
                                             the wall clock by default.
-        :param accept_simulation_metadata:  whether to take messages wrapped with a simulated time
-                                            (see flexmeasures_client.s2.wrapper.S2Wrapper),
-                                            as a co-simulation sends them, and set the clock to that time.
+        :param accept_simulation_metadata:  whether to take messages wrapped with a simulated time, as a co-simulation sends them,
+                                            and set the clock to that time (see flexmeasures_client.s2.wrapper.S2Wrapper).
                                             Off by default, since the wrapper is not part of S2,
                                             and a live CEM should not let a resource manager set its time.
+                                            A resource manager that wraps its messages, from its handshake on,
+                                            is then refused with INVALID_MESSAGE and cannot connect.
                                             On, the clock has to be a SimulatedClock, and one is made where none is given.
         """
         super(CEM, self).__init__()
@@ -137,8 +138,8 @@ class CEM(Handler):
         now = self.now()
         due_time = self._timers.get(name, now - self._minimum_measurement_period)
         if due_time.tzinfo is None:
-            # A timer handed in as a wall-clock time without a zone, as they all were before, is read in this handler's.
-            due_time = due_time.replace(tzinfo=self._timezone)
+            # A timer handed in without a zone was compared with the host's local time, so it is read as that, as before.
+            due_time = due_time.astimezone(self._timezone)
         if due_time <= now:
             # Get total seconds of the period
             period_seconds = self._minimum_measurement_period.total_seconds()
@@ -155,6 +156,10 @@ class CEM(Handler):
             next_due = now.replace(minute=0, second=0, microsecond=0) + timedelta(
                 seconds=next_tick_seconds
             )
+            # On a period boundary the ceiling is the moment itself,
+            # and a clock that stands still, as a simulated one does between messages, then found the timer due on every call.
+            if next_due <= now:
+                next_due += self._minimum_measurement_period
             self._timers[name] = next_due
             return True
         else:
@@ -270,12 +275,17 @@ class CEM(Handler):
     def _unwrap(self, wrapped: dict) -> dict | None:
         """The S2 message inside a co-simulation's wrapper, with the clock set to the simulated time it carries.
 
-        Where this CEM does not accept the wrapper, or the time cannot be read, the message is refused,
-        and None is returned so that it is not handled.
+        Where this CEM does not accept the wrapper, the time cannot be read, or there is no message inside,
+        the message is refused, the clock is left as it was, and None is returned so that nothing is handled.
         """
-        inner = wrapped["message"] if isinstance(wrapped["message"], dict) else {}
+        inner = wrapped["message"]
         reason = None
-        if not self._accept_simulation_metadata:
+        if not isinstance(inner, dict) or not isinstance(
+            inner.get("message_type"), str
+        ):
+            reason = "There is no S2 message inside this wrapper."
+            inner = inner if isinstance(inner, dict) else {}
+        elif not self._accept_simulation_metadata:
             reason = (
                 "This CEM does not accept messages wrapped with simulation metadata."
             )

@@ -5,14 +5,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-import pandas as pd
 import pytest
 from s2python.common import ReceptionStatusValues
 
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.clock import SimulatedClock, WallClock
 from flexmeasures_client.s2.control_types.FRBC import FRBCTest
-from flexmeasures_client.s2.utils import get_unique_id
 
 SIMULATED = datetime(2022, 3, 1, 12, 0, tzinfo=timezone.utc)
 
@@ -113,23 +111,22 @@ async def test_a_wrapper_around_no_message_is_refused_without_an_answer():
 
 
 def test_a_cem_timer_runs_on_simulated_time():
-    # Off a period boundary: on one, the next due time rounds to the moment itself.
-    start = SIMULATED + timedelta(minutes=1)
-    clock = SimulatedClock(start)
+    # On a period boundary, which a co-simulation's times are: the ceiling of the moment is the moment itself.
+    clock = SimulatedClock(SIMULATED)
     cem = CEM(fm_client=None, clock=clock)
     assert cem._is_timer_due("power")
-    assert not cem._is_timer_due("power")
-    clock.set(start + timedelta(hours=1))
+    assert not cem._is_timer_due("power")  # a clock standing still on a boundary
+    clock.set(SIMULATED + timedelta(hours=1))
     assert cem._is_timer_due("power")
 
 
-def test_a_timer_handed_in_without_a_zone_is_read_in_the_handlers_zone():
-    cem = CEM(
-        fm_client=None,
-        clock=SimulatedClock(SIMULATED),
-        timers={"power": datetime(2022, 3, 1, 13, 0)},
-    )
+def test_a_timer_handed_in_without_a_zone_is_read_as_the_hosts_local_time():
+    """As it was compared before, with a zoneless datetime.now(), which is the host's local time."""
+    local = (SIMULATED + timedelta(minutes=30)).astimezone().replace(tzinfo=None)
+    cem = CEM(fm_client=None, clock=SimulatedClock(SIMULATED), timers={"power": local})
     assert not cem._is_timer_due("power")
+    cem._clock.set(SIMULATED + timedelta(minutes=31))
+    assert cem._is_timer_due("power")
 
 
 def test_the_example_server_accepts_simulation_metadata_only_when_told_to(monkeypatch):
@@ -148,7 +145,7 @@ def test_a_tunes_timer_runs_on_the_clock_its_cem_gives_it():
         FillRateBasedControlTUNES,
     )
 
-    start = SIMULATED + timedelta(minutes=1)
+    start = SIMULATED
     clock = SimulatedClock(start)
     cem = CEM(fm_client=None, clock=clock)
     tunes = FillRateBasedControlTUNES(
@@ -170,39 +167,54 @@ def test_a_tunes_timer_runs_on_the_clock_its_cem_gives_it():
         state_of_charge_sensor_id=18,
     )
     cem.register_control_type(tunes)
-    tunes._timers["usage_forecast"] = datetime(
-        2022, 3, 1, 12, 30
-    )  # zoneless, as timers used to be
-    assert not tunes._is_timer_due("usage_forecast")
+    assert tunes._is_timer_due("usage_forecast")
+    assert not tunes._is_timer_due(
+        "usage_forecast"
+    )  # a clock standing still on a boundary
     clock.set(start + timedelta(hours=1))
     assert tunes._is_timer_due("usage_forecast")
 
 
 @pytest.mark.asyncio
-async def test_a_power_measurement_is_binned_by_simulated_time():
-    """Binned by the wall clock, a co-simulation's measurements, stamped in 2022, fell outside every bin and were dropped."""
-    from unittest.mock import AsyncMock
-
-    from s2python.common import CommodityQuantity, PowerMeasurement, PowerValue
-
-    from flexmeasures_client.client import FlexMeasuresClient
-
-    fm = AsyncMock(FlexMeasuresClient)
-    clock = SimulatedClock(datetime(2022, 3, 1, 12, 7, tzinfo=timezone.utc))
-    cem = CEM(fm_client=fm, clock=clock, power_sensor_id={"ELECTRIC.POWER.L1": 7})
+@pytest.mark.parametrize("inner", ["garbage", {"no": "type"}])
+async def test_a_wrapper_around_no_message_leaves_the_clock_alone(inner):
+    """With the flag on, too: the clock is set only for a message that will be handled."""
+    cem = CEM(fm_client=None, accept_simulation_metadata=True)
     await cem.handle_message(
-        PowerMeasurement(
-            message_id=get_unique_id(),
-            measurement_timestamp=datetime(2022, 3, 1, 12, 2, tzinfo=timezone.utc),
-            values=[
-                PowerValue(
-                    commodity_quantity=CommodityQuantity.ELECTRIC_POWER_L1, value=500.0
-                )
-            ],
-        )
+        {"message": inner, "metadata": {"dt": "2022-03-01T12:00:00+00:00"}}
     )
-    posted = fm.post_sensor_data.await_args
-    assert posted is not None
-    assert pd.Timestamp(posted.kwargs["start"]) == pd.Timestamp(
-        "2022-03-01T12:00:00+00:00"
+    assert not cem._clock.is_set
+    assert cem._sending_queue.empty()
+
+
+def test_a_tunes_timer_handed_in_without_a_zone_is_read_as_the_hosts_local_time():
+    from flexmeasures_client.s2.control_types.FRBC.frbc_tunes import (
+        FillRateBasedControlTUNES,
     )
+
+    start = SIMULATED
+    clock = SimulatedClock(start)
+    cem = CEM(fm_client=None, clock=clock)
+    tunes = FillRateBasedControlTUNES(
+        asset_id=1,
+        soc_minima_sensor_id=2,
+        soc_maxima_sensor_id=3,
+        rm_discharge_sensor_id=4,
+        fill_level_sensor_id=7,
+        thp_fill_rate_sensor_id=8,
+        thp_efficiency_sensor_id=9,
+        nes_fill_rate_sensor_id=10,
+        nes_efficiency_sensor_id=11,
+        usage_forecast_sensor_id=12,
+        fill_rate_sensor_id=13,
+        active_actuator_id_sensor_id=14,
+        leakage_behaviour_sensor_id=15,
+        production_price_sensor=16,
+        consumption_price_sensor=17,
+        state_of_charge_sensor_id=18,
+    )
+    cem.register_control_type(tunes)
+    tunes._timers["usage_forecast"] = (
+        (start + timedelta(minutes=30)).astimezone().replace(tzinfo=None)
+    )
+    assert not tunes._is_timer_due("usage_forecast")

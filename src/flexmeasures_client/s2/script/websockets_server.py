@@ -32,6 +32,7 @@ SITE_TIMEZONE = "Europe/Amsterdam"
 # Enough days of demo prices to cover what the CEM plans for, which is twelve hours from now,
 # with the seeding repeated every SEED_PRICES_EVERY so that a demo left running never runs out.
 SEED_PRICE_DAYS = 3
+SEED_PRICES_EVERY = timedelta(hours=12)
 
 #: Whether resource managers may send messages wrapped with a simulated time, as a co-simulation does.
 ACCEPT_SIMULATION_METADATA = os.getenv("S2_ACCEPT_SIMULATION_METADATA", "").lower() in (
@@ -39,7 +40,6 @@ ACCEPT_SIMULATION_METADATA = os.getenv("S2_ACCEPT_SIMULATION_METADATA", "").lowe
     "true",
     "yes",
 )
-SEED_PRICES_EVERY = timedelta(hours=12)
 
 #: Each sensor the site needs: its unit, its resolution, and any attributes.
 #: The units are the ones the CEM records in: fill levels in kWh, rates of fill level per second, as S2 states them.

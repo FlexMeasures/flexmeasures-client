@@ -173,8 +173,8 @@ class FillRateBasedControlTUNES(FRBC):
         now = self.now()
         due_time = self._timers.get(name, now - self._minimum_measurement_period)
         if due_time.tzinfo is None:
-            # A timer handed in as a wall-clock time without a zone, as they all were before, is read in this handler's.
-            due_time = due_time.replace(tzinfo=self._timezone)
+            # A timer handed in without a zone was compared with the host's local time, so it is read as that, as before.
+            due_time = due_time.astimezone(self._timezone)
         if due_time <= now:
             # Get total seconds of the period
             period_seconds = self._minimum_measurement_period.total_seconds()
@@ -191,6 +191,10 @@ class FillRateBasedControlTUNES(FRBC):
             next_due = now.replace(minute=0, second=0, microsecond=0) + timedelta(
                 seconds=next_tick_seconds
             )
+            # On a period boundary the ceiling is the moment itself,
+            # and a clock that stands still, as a simulated one does between messages, then found the timer due on every call.
+            if next_due <= now:
+                next_due += self._minimum_measurement_period
             self._timers[name] = next_due
             return True
         else:
