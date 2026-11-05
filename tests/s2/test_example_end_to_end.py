@@ -928,3 +928,40 @@ async def test_on_the_fixed_site_measured_power_is_recorded_on_its_sensor():
     assert made[0]["power_sensor_id"] == {
         "ELECTRIC.POWER.L1": sensors["measured-power"]["id"]
     }
+
+
+@pytest.mark.asyncio
+async def test_every_cem_the_server_makes_records_with_the_servers_recorder():
+    """It outlives a connection, so what a reconnecting resource manager sends again is not recorded twice."""
+    from unittest.mock import patch
+
+    from aiohttp import web
+
+    from flexmeasures_client.s2.measurements import MeasurementRecorder
+
+    app = web.Application()
+    with patch.object(server, "SITE_PER_RESOURCE_MANAGER", True):
+        await server.configure_site_once(app)
+    assert isinstance(app[server.RECORDER], MeasurementRecorder)
+    await app[server.FM_CLIENT].close()
+
+    made = []
+    real = server.CEM
+
+    def capture(**kwargs):
+        made.append(kwargs)
+        return real(**kwargs)
+
+    recorder = MeasurementRecorder(_flexmeasures())
+    resource_manager, cem_end = _connected()
+    sensors = {name: {"id": i} for i, name in enumerate(server.SITE_SENSORS, start=1)}
+    with patch.object(server, "CEM", side_effect=capture):
+        serving = asyncio.create_task(
+            server.serve_resource_manager(
+                cem_end, _flexmeasures(), sensors, recorder=recorder
+            )
+        )
+        await _until(lambda: made)
+        await cem_end._inbox.put(_CLOSED)
+        await asyncio.wait_for(serving, timeout=5)
+    assert made[0]["measurement_recorder"] is recorder

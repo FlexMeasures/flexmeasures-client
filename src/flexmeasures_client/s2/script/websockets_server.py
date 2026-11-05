@@ -19,6 +19,7 @@ from flexmeasures_client.exceptions import (
 )
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
+from flexmeasures_client.s2.measurements import MeasurementRecorder
 from flexmeasures_client.s2.site import (
     FRBC_SITE_SENSORS,
     FRBCSiteConfigurator,
@@ -67,6 +68,7 @@ SITE_PER_RESOURCE_MANAGER = os.getenv("S2_SITE_PER_RESOURCE_MANAGER", "").lower(
 FM_CLIENT = web.AppKey("fm_client", FlexMeasuresClient)
 SENSORS = web.AppKey("sensors", dict)
 CONFIGURATOR = web.AppKey("configurator", FRBCSiteConfigurator)
+RECORDER = web.AppKey("recorder", MeasurementRecorder)
 
 
 async def rm_details_watchdog(ws, cem: CEM):
@@ -142,10 +144,18 @@ async def websocket_handler(request):
     # first message.
     if SITE_PER_RESOURCE_MANAGER:
         await serve_resource_manager(
-            ws, request.app[FM_CLIENT], configurator=request.app[CONFIGURATOR]
+            ws,
+            request.app[FM_CLIENT],
+            configurator=request.app[CONFIGURATOR],
+            recorder=request.app[RECORDER],
         )
     else:
-        await serve_resource_manager(ws, request.app[FM_CLIENT], request.app[SENSORS])
+        await serve_resource_manager(
+            ws,
+            request.app[FM_CLIENT],
+            request.app[SENSORS],
+            recorder=request.app[RECORDER],
+        )
     return ws
 
 
@@ -154,6 +164,7 @@ async def serve_resource_manager(
     fm_client: FlexMeasuresClient,
     sensors: dict[str, dict] | None = None,
     configurator: FRBCSiteConfigurator | None = None,
+    recorder: MeasurementRecorder | None = None,
 ) -> None:
     """Act as the CEM for one resource manager connected over ws, until it disconnects.
 
@@ -164,6 +175,8 @@ async def serve_resource_manager(
         fm_client=fm_client,
         logger=LOGGER,
         site_configurator=configurator,
+        # The server's, which outlives a connection, so a resource manager that reconnects is not recorded twice.
+        measurement_recorder=recorder,
         # Where what the resource manager measures is recorded, on the fixed site; a configured site wires its own.
         power_sensor_id=(
             {"ELECTRIC.POWER.L1": sensors["measured-power"]["id"]}
@@ -309,6 +322,7 @@ async def configure_site_once(app: web.Application) -> None:
         ssl=parsed.scheme == "https",
     )
     app[FM_CLIENT] = fm_client
+    app[RECORDER] = MeasurementRecorder(fm_client, logger=LOGGER)
     if SITE_PER_RESOURCE_MANAGER:
         # One configurator for the server's lifetime, so a resource manager that reconnects finds its site again by id.
         app[CONFIGURATOR] = FRBCSiteConfigurator(

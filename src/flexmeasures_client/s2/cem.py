@@ -5,7 +5,6 @@ import json
 import logging
 import math
 from asyncio import Queue
-from collections import defaultdict
 from datetime import datetime, timedelta
 from logging import Logger
 from typing import Awaitable, Callable, Dict, Optional, Protocol
@@ -33,9 +32,11 @@ except ImportError:
 
 
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.exceptions import ContentTypeError
 from flexmeasures_client.s2 import Handler, register
 from flexmeasures_client.s2.clock import Clock, SimulatedClock
 from flexmeasures_client.s2.control_types import ControlTypeHandler
+from flexmeasures_client.s2.measurements import MeasurementRecorder
 from flexmeasures_client.s2.utils import (
     get_latest_compatible_version,
     get_reception_status,
@@ -93,10 +94,6 @@ class CEM(Handler):
     _datastore: dict
     _minimum_measurement_period: pd.Timedelta = pd.Timedelta(minutes=5)
 
-    _power_buffer: defaultdict = defaultdict(
-        list
-    )  # {commodity_quantity: [(timestamp, value), ...]}
-
     def __init__(
         self,
         fm_client: FlexMeasuresClient,
@@ -106,6 +103,7 @@ class CEM(Handler):
         datastore: dict | None = None,
         power_sensor_id: dict[str, int] | None = None,
         site_configurator: SiteConfigurator | None = None,
+        measurement_recorder: MeasurementRecorder | None = None,
         clock: Clock | None = None,
         accept_simulation_metadata: bool = False,
         **kwargs,
@@ -117,6 +115,9 @@ class CEM(Handler):
                                             called with its details, in the background (see FRBCSiteConfigurator).
                                             Until the handler is registered, its messages are answered with TEMPORARY_ERROR.
                                             Without one, the handlers registered up front serve every resource manager.
+        :param measurement_recorder:        where the resource manager's measured power is recorded;
+                                            one of its own by default. A server that makes a CEM per connection
+                                            hands each the same one, so a resource manager that reconnects is not recorded twice.
         :param clock:                       the time this CEM and every handler it registers go by;
                                             the wall clock by default.
         :param accept_simulation_metadata:  whether to take messages wrapped with a simulated time, as a co-simulation sends them,
@@ -144,6 +145,9 @@ class CEM(Handler):
         self.power_sensor_id = power_sensor_id
         self._control_types_handlers = dict()
         self._site_configurator = site_configurator
+        self._measurement_recorder = measurement_recorder or MeasurementRecorder(
+            fm_client, logger=logger
+        )
         self._configuring: asyncio.Task | None = None
         #: The control type this CEM asked the resource manager to select, and the id of that message, until confirmed.
         self._selecting: tuple[ControlType, str] | None = None
@@ -543,60 +547,24 @@ class CEM(Handler):
                 )
                 continue
 
-            # Store the value in the buffer
-            self._power_buffer[commodity_quantity].append(
-                (message.measurement_timestamp, power_measurement.value)
-            )
-
-            # Compute bin
-            now = self.now()
-            m = self._minimum_measurement_period // pd.Timedelta(minutes=1)
-            bin_end = now.replace(
-                second=0, microsecond=0, minute=(now.minute // m) * m
-            )  # e.g. 10:15:00
-            bin_start = bin_end - self._minimum_measurement_period
-
-            # If timer not due, just collect values
-            if not self._is_timer_due(f"power_measurement_{commodity_quantity}"):
-                self._logger.debug(
-                    f"Collecting 5-minute average for {commodity_quantity} ({bin_start.isoformat()} – {bin_end.isoformat()})"
-                )
-                continue
-
-            # Compute average of all buffered values in last 5 minutes
-            buffer = self._power_buffer[commodity_quantity]
-            period_values = [v for (t, v) in buffer if bin_start <= t < bin_end]
-
-            if not period_values:
-                self._logger.debug(
-                    f"No samples found for {commodity_quantity} in {bin_start}–{bin_end}, skipping."
-                )
-                continue
-
-            avg_value = sum(period_values) / len(period_values)
-            self._logger.debug(
-                f"Posting 5-minute average for {commodity_quantity}: "
-                f"{avg_value} ({bin_start.isoformat()} – {bin_end.isoformat()})"
-            )
-
-            # Send measurement
             try:
-                await self._fm_client.post_sensor_data(
+                await self._measurement_recorder.add(
                     sensor_id,
-                    start=bin_start.isoformat(),
-                    duration=self._minimum_measurement_period.isoformat(),  # TODO: not specified in S2 Protocol
-                    values=[avg_value],
-                    unit=get_commodity_unit(commodity_quantity),
+                    message.measurement_timestamp,
+                    power_measurement.value,
+                    now=self.now(),
                 )
-            except Exception as e:  # noqa: B902 - intentional safety net
+            except (ValueError, ConnectionError, ContentTypeError) as exc:
+                # Not taken at all, as when the sensor's resolution could not be read: the resource manager is asked to resend it.
                 self._logger.warning(
-                    f"POSTing power measurement failed with error: {e}"
+                    "Could not take measured power for %s at %s: %s",
+                    commodity_quantity,
+                    message.measurement_timestamp,
+                    exc,
                 )
-
-            # Keep only samples newer than this bin (for next period)
-            self._power_buffer[commodity_quantity] = [
-                (t, v) for (t, v) in buffer if t >= bin_end
-            ]
+                return get_reception_status(
+                    message, ReceptionStatusValues.TEMPORARY_ERROR
+                )
 
         return get_reception_status(message)
 
@@ -625,13 +593,3 @@ class CEM(Handler):
     async def send_message(self, message):
         self._logger.debug(f"Sent: {message}")
         await self._sending_queue.put(message)
-
-
-def get_commodity_unit(commodity_quantity) -> str:
-    if "POWER" in commodity_quantity:
-        return "kW"
-    if "FLOW_RATE" in commodity_quantity:
-        return "m³/h"
-    if "TEMPERATURE" in commodity_quantity:
-        return "°C"
-    return ""
