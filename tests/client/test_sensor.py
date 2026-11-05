@@ -16,6 +16,7 @@ from flexmeasures_client.constants import CLIENT_VERSION_HEADER
 from flexmeasures_client.exceptions import (
     InsufficientServerVersionError,
     JobFailedError,
+    JobTimeoutError,
 )
 
 
@@ -1066,6 +1067,66 @@ async def test_post_sensor_data_await_ingestion_timeout(caplog):
 
         assert status == 202
         assert any("unconfirmed" in record.message for record in caplog.records)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_confirm_ingestion_raises_on_timeout(caplog):
+    """A caller that remembers having recorded the data is told it may not have been, instead of carrying on."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.ingestion_polling_timeout = 0.05
+        client.ingestion_polling_interval = 0.01
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-4"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-4",
+            status=200,
+            payload={"status": "QUEUED", "message": "waiting", "result": None},
+            repeat=True,
+        )
+
+        with pytest.raises(JobTimeoutError):
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+                confirm_ingestion=True,
+            )
+        assert any("unconfirmed" in record.message for record in caplog.records)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_confirm_ingestion_raises_where_the_job_cannot_be_looked_up():
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.request_retry_interval = 0.01
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-5"},
+        )
+        m.get("http://localhost:5000/api/v3_0/jobs/job-5", status=404, repeat=True)
+
+        with pytest.raises((ConnectionError, ValueError)):
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+                confirm_ingestion=True,
+            )
         await client.close()
 
 
