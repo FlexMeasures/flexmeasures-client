@@ -12,6 +12,11 @@ from aiohttp import web
 from s2python.common import ControlType
 
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.exceptions import (
+    ContentTypeError,
+    JobFailedError,
+    WrongAPIVersionError,
+)
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 
@@ -24,9 +29,10 @@ LOGGER = logging.getLogger(__name__)
 
 SITE_NAME = "My CEM"
 SITE_TIMEZONE = "Europe/Amsterdam"
-# Enough days of demo prices to cover what the CEM plans for: a schedule starts a day after the
-# system description that asked for it and runs for twelve hours, so two days would just do.
+# Enough days of demo prices to cover what the CEM plans for, which is twelve hours from now,
+# with the seeding repeated every SEED_PRICES_EVERY so that a demo left running never runs out.
 SEED_PRICE_DAYS = 3
+SEED_PRICES_EVERY = timedelta(hours=12)
 
 #: Each sensor the site needs: its unit, its resolution, and any attributes.
 #: The units are the ones the CEM records in: fill levels in kWh, rates of fill level per second, as S2 states them.
@@ -152,6 +158,8 @@ async def serve_resource_manager(
         # Plan from now, rather than from a day after the description, so that a demo shows its instructions being followed.
         valid_from_shift=timedelta(0),
     )
+    # A newer plan revokes what is left of the one before, so the resource manager does not follow both.
+    frbc.send_revocations = True
     cem.register_control_type(frbc)
 
     # create "parallel" tasks for the message producer and consumer
@@ -209,11 +217,18 @@ async def configure_site(
             **({"attributes": attributes} if attributes else {}),
         )
 
-    # Demo prices, so that a freshly configured site has something to schedule against.
-    # One day's hourly shape, repeated over SEED_PRICE_DAYS from this morning, because the CEM
-    # plans ahead of the moment a resource manager reports its storage:
-    # a fixed date here goes stale the day after it is written, and the scheduler then fails the
-    # job with UnknownPricesException rather than returning a schedule.
+    await seed_prices(fm_client, sensors["price"]["id"])
+    return sensors
+
+
+async def seed_prices(fm_client: FlexMeasuresClient, price_sensor_id: int) -> None:
+    """Demo prices, so that a site has something to schedule against.
+
+    One day's hourly shape, repeated over SEED_PRICE_DAYS from this morning, because the CEM
+    plans ahead of the moment a resource manager reports its storage:
+    a fixed date here goes stale the day after it is written, and the scheduler then fails the
+    job with UnknownPricesException rather than returning a schedule.
+    """
     one_day = [
         0.10, 0.11, 0.12, 0.15, 0.18, 0.17, 0.11, 0.09,
         0.10, 0.09, 0.09, 0.10, 0.08, 0.05, 0.04, 0.04,
@@ -223,13 +238,36 @@ async def configure_site(
         hour=0, minute=0, second=0, microsecond=0
     )
     await fm_client.post_sensor_data(
-        sensor_id=sensors["price"]["id"],
+        sensor_id=price_sensor_id,
         start=today,
         duration=timedelta(days=SEED_PRICE_DAYS),
         values=one_day * SEED_PRICE_DAYS,
         unit="EUR/kWh",
     )
-    return sensors
+
+
+async def keep_prices_seeded(app: web.Application):
+    """Seed the prices again every SEED_PRICES_EVERY for as long as the server runs, so a demo never runs out of them."""
+
+    async def reseed():
+        while True:
+            await asyncio.sleep(SEED_PRICES_EVERY.total_seconds())
+            try:
+                await seed_prices(app[FM_CLIENT], app[SENSORS]["price"]["id"])
+            except (
+                ConnectionError,
+                ValueError,
+                ContentTypeError,
+                JobFailedError,
+                WrongAPIVersionError,
+            ):
+                LOGGER.exception(
+                    "Could not seed the demo prices again; trying at the next interval."
+                )
+
+    task = asyncio.create_task(reseed())
+    yield
+    task.cancel()
 
 
 async def configure_site_once(app: web.Application) -> None:
@@ -258,6 +296,7 @@ async def close_fm_client(app: web.Application) -> None:
 
 app = web.Application()
 app.on_startup.append(configure_site_once)
+app.cleanup_ctx.append(keep_prices_seeded)
 app.on_cleanup.append(close_fm_client)
 app.add_routes([web.get("/ws", websocket_handler)])
 

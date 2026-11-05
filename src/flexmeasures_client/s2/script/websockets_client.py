@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -24,13 +25,17 @@ from s2python.common import (
     Duration,
     EnergyManagementRole,
     Handshake,
+    InstructionStatus,
+    InstructionStatusUpdate,
     NumberRange,
     PowerRange,
     ReceptionStatus,
     ReceptionStatusValues,
     ResourceManagerDetails,
+    RevokeObject,
     Role,
     RoleType,
+    Transition,
 )
 from s2python.frbc import (
     FRBCActuatorDescription,
@@ -60,6 +65,8 @@ STARTING_FILL_LEVEL = 5.0
 PHYSICAL_CAPACITY = 12.0
 #: How often the simulated buffer reports its fill level, in seconds of wall-clock time.
 STATUS_INTERVAL = float(os.getenv("S2_EXAMPLE_STATUS_INTERVAL", "300"))
+#: How often the forecasts are sent again, each covering the day from then on, so that planning never runs out of them.
+FORECAST_INTERVAL = float(os.getenv("S2_EXAMPLE_FORECAST_INTERVAL", "3600"))
 ELECTRIC_POWER = CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC
 
 
@@ -116,6 +123,21 @@ def operation_modes() -> list[FRBCOperationMode]:
 def system_description(
     modes: list[FRBCOperationMode], valid_from: datetime
 ) -> FRBCSystemDescription:
+    # S2 lists the transitions an actuator can make, so the heat pump says it can go from either mode to the other,
+    # at once and at no cost.
+    transitions = [
+        Transition(
+            id=get_unique_id(),
+            from_=a.id,
+            to=b.id,
+            start_timers=[],
+            blocking_timers=[],
+            abnormal_condition_only=False,
+        )
+        for a in modes
+        for b in modes
+        if a.id != b.id
+    ]
     return FRBCSystemDescription(
         message_id=get_unique_id(),
         valid_from=valid_from,
@@ -125,7 +147,7 @@ def system_description(
                 diagnostic_label="heat pump",
                 supported_commodities=[Commodity.ELECTRICITY],
                 operation_modes=modes,
-                transitions=[],
+                transitions=transitions,
                 timers=[],
             )
         ],
@@ -265,11 +287,26 @@ class Buffer:
         self.factor = instruction.operation_mode_factor
 
 
+async def send_instruction_status(
+    ws, instruction_id, status: InstructionStatus
+) -> None:
+    """Tell the CEM where an instruction stands, which is what it revokes by: only one not yet carried out."""
+    await ws.send_str(
+        InstructionStatusUpdate(
+            message_id=get_unique_id(),
+            instruction_id=instruction_id,
+            status_type=status,
+            timestamp=datetime.now(timezone.utc),
+        ).model_dump_json()
+    )
+
+
 async def apply_at_execution_time(
     ws,
     instruction: FRBCInstruction,
-    previous_operation_mode_id=None,
+    applied: dict | None = None,
     buffer: Buffer | None = None,
+    on_due: Callable[[], None] | None = None,
 ) -> None:
     """Enter the operation mode an instruction asks for, at the moment it asks for it.
 
@@ -278,6 +315,9 @@ async def apply_at_execution_time(
     A resource manager that answers on arrival reports a mode it is not in yet,
     and a customer energy manager recording that status has a measurement of a power the device is not drawing,
     timestamped now.
+
+    The mode it reports leaving is the one the last instruction carried out put it in, kept in applied,
+    rather than whatever the instruction before it asked for, which may have been revoked and never carried out.
     """
 
     delay = (instruction.execution_time - datetime.now(timezone.utc)).total_seconds()
@@ -285,6 +325,9 @@ async def apply_at_execution_time(
         print(f"WAITING: {delay:.0f}s until this instruction is due")
         await asyncio.sleep(delay)
 
+    # From here on it is being carried out, so a revocation arriving now is too late to stop it.
+    if on_due is not None:
+        on_due()
     now = datetime.now(timezone.utc)
     if buffer is not None:
         buffer.follow(instruction, now)
@@ -293,23 +336,47 @@ async def apply_at_execution_time(
         actuator_id=instruction.actuator_id,
         active_operation_mode_id=instruction.operation_mode,
         operation_mode_factor=instruction.operation_mode_factor,
-        previous_operation_mode_id=previous_operation_mode_id,
+        previous_operation_mode_id=(applied or {}).get("mode"),
         # The moment the transition happened, so that what is recorded about it is placed there,
         # rather than wherever the message is read.
         transition_timestamp=now,
     )
+    if applied is not None:
+        applied["mode"] = instruction.operation_mode
     print("SENDING: FRBC.ActuatorStatus")
     await ws.send_str(status.model_dump_json())
+    await send_instruction_status(ws, instruction.id, InstructionStatus.SUCCEEDED)
 
 
 async def answer_instructions(ws, buffer: Buffer | None = None) -> None:
-    """Acknowledge every instruction, and report the transition each one asks for when it is due."""
+    """Acknowledge every instruction, and report the transition each one asks for when it is due.
 
-    active_operation_mode_id = None
+    An instruction the CEM revokes, because a newer plan replaces the one it belonged to, is not followed:
+    without that, the buffer would end up in whatever the last instruction to fire across every plan ever sent said.
+    """
+
+    applied: dict = {"mode": None}
+    pending: dict[str, asyncio.Task] = {}
     async for msg in ws:
         payload = msg.json()
         print("RECEIVED: ", payload)
-        if payload.get("message_type") != "FRBC.Instruction":
+        message_type = payload.get("message_type")
+        if message_type == "RevokeObject":
+            revocation = RevokeObject.model_validate(payload)
+            task = pending.pop(str(revocation.object_id), None)
+            await ws.send_str(
+                ReceptionStatus(
+                    subject_message_id=revocation.message_id,
+                    status=ReceptionStatusValues.OK,
+                ).model_dump_json()
+            )
+            if task is not None:
+                task.cancel()
+                await send_instruction_status(
+                    ws, revocation.object_id, InstructionStatus.REVOKED
+                )
+            continue
+        if message_type != "FRBC.Instruction":
             continue
         instruction = FRBCInstruction.model_validate(payload)
         await ws.send_str(
@@ -318,11 +385,21 @@ async def answer_instructions(ws, buffer: Buffer | None = None) -> None:
                 status=ReceptionStatusValues.OK,
             ).model_dump_json()
         )
+        await send_instruction_status(ws, instruction.id, InstructionStatus.ACCEPTED)
         # In a task of its own, so that an instruction due later does not hold up the ones behind it.
-        asyncio.create_task(
-            apply_at_execution_time(ws, instruction, active_operation_mode_id, buffer)
+        key = str(instruction.id)
+
+        def due(key: str = key) -> None:
+            pending.pop(key, None)
+
+        def forget(done: asyncio.Task, key: str = key) -> None:
+            pending.pop(key, None)
+
+        task = asyncio.create_task(
+            apply_at_execution_time(ws, instruction, applied, buffer, on_due=due)
         )
-        active_operation_mode_id = instruction.operation_mode
+        pending[key] = task
+        task.add_done_callback(forget)
 
 
 async def report_fill_level(
@@ -340,6 +417,27 @@ async def report_fill_level(
         )
 
 
+async def refresh_forecasts(
+    ws, leakage: FRBCLeakageBehaviour, interval: float = FORECAST_INTERVAL
+) -> None:
+    """Send the leakage, the usage forecast and the comfort profile again every interval, each from now on.
+
+    Sent only once, they would cover the first day, and the CEM would plan without them from then on.
+    """
+    while True:
+        await asyncio.sleep(interval)
+        now = datetime.now(timezone.utc)
+        for message in (
+            leakage.model_copy(
+                update={"message_id": get_unique_id(), "valid_from": now}
+            ),
+            usage_forecast(now),
+            fill_level_target_profile(now),
+        ):
+            print(f"SENDING: {message.message_type}")
+            await ws.send_str(message.model_dump_json())
+
+
 async def receive_until(ws, message_type: str) -> dict:
     """The next message of a type, past the reception statuses that arrive in between."""
     while True:
@@ -349,7 +447,9 @@ async def receive_until(ws, message_type: str) -> dict:
             return message
 
 
-async def run_resource_manager(ws, interval: float = STATUS_INTERVAL) -> Buffer:
+async def run_resource_manager(
+    ws, interval: float = STATUS_INTERVAL, forecast_interval: float = FORECAST_INTERVAL
+) -> Buffer:
     """Introduce the heat pump, declare what it can do and what its buffer needs, then follow and report.
 
     In the order S2 suggests: the system description first, then the storage's status.
@@ -369,13 +469,18 @@ async def run_resource_manager(ws, interval: float = STATUS_INTERVAL) -> Buffer:
             message_id=get_unique_id(),
             resource_id=get_unique_id(),
             name="heat pump with a hot-water buffer",
-            roles=[Role(role=RoleType.ENERGY_STORAGE, commodity=Commodity.ELECTRICITY)],
+            # It draws electricity and stores heat, so it is a consumer of the commodity it is planned in.
+            roles=[
+                Role(role=RoleType.ENERGY_CONSUMER, commodity=Commodity.ELECTRICITY)
+            ],
             instruction_processing_delay=Duration(root=1000),
             available_control_types=[
                 ControlType.FILL_RATE_BASED_CONTROL,
                 ControlType.NO_SELECTION,
             ],
-            provides_forecast=True,
+            # It sends no PowerForecast. It could measure its power, which is what the next field says,
+            # and S2 requires at least one type there.
+            provides_forecast=False,
             provides_power_measurement_types=[ELECTRIC_POWER],
         ).model_dump_json()
     )
@@ -402,11 +507,15 @@ async def run_resource_manager(ws, interval: float = STATUS_INTERVAL) -> Buffer:
         print(f"SENDING: {message.message_type}")
         await ws.send_str(message.model_dump_json())
 
-    reporting = asyncio.create_task(report_fill_level(ws, buffer, interval))
+    background = [
+        asyncio.create_task(report_fill_level(ws, buffer, interval)),
+        asyncio.create_task(refresh_forecasts(ws, leakage, forecast_interval)),
+    ]
     try:
         await answer_instructions(ws, buffer)
     finally:
-        reporting.cancel()
+        for task in background:
+            task.cancel()
     return buffer
 
 

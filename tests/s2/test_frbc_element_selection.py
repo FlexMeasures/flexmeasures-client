@@ -525,8 +525,10 @@ def test_the_storage_efficiency_at_a_fill_level_is_that_elements():
 async def test_the_handler_records_leakage_at_the_latest_fill_level():
     leakage = _leakage(LEAKS_LITTLE, LEAKS_MOST, LEAKS_SOME)
     frbc = _frbc(_system_description(_mode(COLD, WARM)), leakage_behaviour_sensor_id=9)
-    _report_fill_level(frbc, 20.0)
-    await frbc.send_leakage_behaviour(leakage)
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+    await frbc._record_storage_efficiency(
+        datetime(2024, 1, 2, tzinfo=timezone.utc), 20.0
+    )
     posted = [
         call.kwargs["values"]
         for call in frbc._fm_client.post_sensor_data.await_args_list
@@ -535,7 +537,63 @@ async def test_the_handler_records_leakage_at_the_latest_fill_level():
     assert posted == [
         [
             leakage_behaviour_to_storage_efficiency(
-                leakage, resolution=timedelta(minutes=15), fill_level=20.0
+                leakage,
+                resolution=timedelta(minutes=15),
+                fill_level=20.0,
+                share_of=max(20.0, _middle_of_the_range(frbc)),
             )
         ]
     ]
+
+
+def _middle_of_the_range(frbc) -> float:
+    storage_range = list(frbc._system_description_history.values())[
+        -1
+    ].storage.fill_level_range
+    return (storage_range.start_of_range + storage_range.end_of_range) / 2
+
+
+@pytest.mark.asyncio
+async def test_a_near_empty_start_takes_the_loss_as_a_share_of_the_middle_of_the_range():
+    """A share of a near-empty start would leave almost nothing per step, and overstate the loss once the plan fills up."""
+    leakage = _leakage(LEAKS_LITTLE, LEAKS_MOST, LEAKS_SOME)
+    frbc = _frbc(_system_description(_mode(COLD, WARM)), leakage_behaviour_sensor_id=9)
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+    start = datetime(2024, 1, 2, tzinfo=timezone.utc)
+    await frbc._record_storage_efficiency(start, 0.01)
+    (posted,) = [
+        call.kwargs["values"][0]
+        for call in frbc._fm_client.post_sensor_data.await_args_list
+        if call.kwargs.get("sensor_id") == 9
+    ]
+    middle = _middle_of_the_range(frbc)
+    assert middle > 0.01
+    assert posted == leakage_behaviour_to_storage_efficiency(
+        leakage,
+        resolution=timedelta(minutes=15),
+        fill_level=0.01,
+        share_of=middle,
+    )
+    assert posted > 99
+
+
+@pytest.mark.asyncio
+async def test_a_start_above_the_middle_takes_the_loss_as_a_share_of_the_start():
+    leakage = _leakage(LEAKS_LITTLE, LEAKS_MOST, LEAKS_SOME)
+    frbc = _frbc(_system_description(_mode(COLD, WARM)), leakage_behaviour_sensor_id=9)
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+    storage_range = list(frbc._system_description_history.values())[
+        -1
+    ].storage.fill_level_range
+    high = (storage_range.end_of_range + _middle_of_the_range(frbc)) / 2
+    await frbc._record_storage_efficiency(
+        datetime(2024, 1, 2, tzinfo=timezone.utc), high
+    )
+    (posted,) = [
+        call.kwargs["values"][0]
+        for call in frbc._fm_client.post_sensor_data.await_args_list
+        if call.kwargs.get("sensor_id") == 9
+    ]
+    assert posted == leakage_behaviour_to_storage_efficiency(
+        leakage, resolution=timedelta(minutes=15), fill_level=high, share_of=high
+    )

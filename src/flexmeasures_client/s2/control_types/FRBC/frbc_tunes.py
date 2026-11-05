@@ -480,14 +480,11 @@ class FillRateBasedControlTUNES(FRBC):
         except Exception as exc:
             self._logger.error(str(exc))
 
-        # Posted per quarter hour and scaled into FlexMeasures' units by send_usage_forecast, and read back as such,
+        # Posted per hour and scaled into FlexMeasures' units by send_usage_forecast, and read back as such,
         # while the schedule translation takes a usage rate per second, in the resource manager's own units, as S2 states it.
         usage_forecast = pd.Series(
             usage_forecast["values"], index=idx, name="usage_forecast"
-        ) / (
-            (pd.Timedelta(RESOLUTION) / pd.Timedelta(seconds=1))
-            * self._fill_level_scale
-        )
+        ) / ((pd.Timedelta(hours=1) / pd.Timedelta(seconds=1)) * self._fill_level_scale)
 
         schedule_series = pd.Series(schedule["values"], index=idx, name="schedule")
 
@@ -697,15 +694,17 @@ class FillRateBasedControlTUNES(FRBC):
             fill_level_scale=self._fill_level_scale,
         )
 
-        # Scale usage forecast e.g. [0, 100] %/s ->  [0, 100] %/(15 min)
-        scale = timedelta(minutes=15) / timedelta(seconds=1)
+        # From per second, as S2 states a usage rate, to per hour, which is what a value labelled MW means:
+        # FlexMeasures reads soc-usage as a power and multiplies it by the step's share of an hour.
+        # Posted per quarter hour instead, it was planned as a quarter of the real draw.
+        scale = timedelta(hours=1) / timedelta(seconds=1)
         scaled_usage_forecast = usage_forecast_series * scale
 
         await self._fm_client.post_sensor_data(
             sensor_id=self._usage_forecast_sensor_id,
             start=start_time,
             values=scaled_usage_forecast.tolist(),
-            unit=POWER_UNIT,  # e.g. [0, 100] MW/(15 min)
+            unit=POWER_UNIT,  # a rate per hour, as MW is
             duration=str(pd.Timedelta(RESOLUTION) * len(usage_forecast_series)),
         )
 
