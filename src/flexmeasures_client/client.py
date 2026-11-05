@@ -1511,9 +1511,9 @@ class FlexMeasuresClient:
         self,
         name: str,
         account_id: int,
-        latitude: float,
-        longitude: float,
-        generic_asset_type_id: int,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        generic_asset_type_id: int | None = None,
         parent_asset_id: int | None = None,
         sensors_to_show: list | None = None,
         flex_context: dict | None = None,
@@ -1539,13 +1539,20 @@ class FlexMeasuresClient:
 
         This function raises a ValueError when an unhandled status code is returned.
         """
-        asset = dict(
+        if generic_asset_type_id is None:
+            # Optional in the signature only so that latitude and longitude, before it, can be left out,
+            # while every argument keeps its position.
+            raise ValueError("add_asset needs a generic_asset_type_id.")
+        asset: dict = dict(
             name=name,
             account_id=account_id,
-            latitude=latitude,
-            longitude=longitude,
             generic_asset_type_id=generic_asset_type_id,
         )
+        # A location is optional to FlexMeasures, which many assets have no use for, such as one standing for a community.
+        if latitude is not None:
+            asset["latitude"] = latitude
+        if longitude is not None:
+            asset["longitude"] = longitude
         if parent_asset_id:
             asset["parent_asset_id"] = parent_asset_id
         if sensors_to_show:

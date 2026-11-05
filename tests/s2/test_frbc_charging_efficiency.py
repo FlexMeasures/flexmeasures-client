@@ -448,3 +448,91 @@ async def test_the_measured_state_of_charge_is_not_named_in_the_flex_model():
     flex_model = await _asked_for(frbc, system_description)
     assert "state-of-charge" not in flex_model
     assert isinstance(flex_model["soc-at-start"], float)
+
+
+@pytest.mark.asyncio
+async def test_feeding_back_is_priced_by_its_own_sensor_where_there_is_one():
+    system_description = _heater()
+    frbc = _frbc(system_description, production_price_sensor_id=42)
+    await frbc.trigger_schedule(system_description.message_id)
+    flex_context = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
+        "flex_context"
+    ]
+    assert flex_context["production-price"] == {"sensor": 42}
+    assert flex_context["consumption-price"] == {"sensor": 2}
+
+
+@pytest.mark.asyncio
+async def test_without_its_own_sensor_feeding_back_is_priced_as_drawing():
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    await frbc.trigger_schedule(system_description.message_id)
+    flex_context = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
+        "flex_context"
+    ]
+    assert flex_context["production-price"] == {"sensor": 2}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("relax", [False, True])
+async def test_the_site_capacity_is_relaxed_only_where_asked(relax):
+    """A home's connection is a physical limit; a community member's may be a target it can breach at a price."""
+    system_description = _heater()
+    frbc = _frbc(system_description, relax_site_capacity=relax)
+    await frbc.trigger_schedule(system_description.message_id)
+    flex_context = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
+        "flex_context"
+    ]
+    assert flex_context.get("relax-site-capacity-constraints", False) is relax
+
+
+@pytest.mark.asyncio
+async def test_a_schedule_overtaken_while_it_was_planned_is_not_translated():
+    """A newer storage status arrived during the round trip, so turning this schedule into instructions is wasted."""
+    from unittest.mock import patch
+
+    from flexmeasures_client.s2.control_types.FRBC import STORAGE_STATUS_REQUESTS
+
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    request_number = frbc._count_request(STORAGE_STATUS_REQUESTS)
+    planned = frbc._fm_client.trigger_and_get_schedule.return_value
+
+    async def overtaken(**kwargs):
+        frbc._count_request(STORAGE_STATUS_REQUESTS)  # a newer status, mid round trip
+        return planned
+
+    frbc._fm_client.trigger_and_get_schedule = AsyncMock(side_effect=overtaken)
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.fm_schedule_to_instructions"
+    ) as translate:
+        await frbc.trigger_schedule(
+            system_description.message_id, request_number=request_number
+        )
+    translate.assert_not_called()
+    frbc.send_instruction_batch.assert_not_awaited()
+
+
+def test_a_batch_of_instructions_is_logged_once_and_by_name(caplog):
+    from flexmeasures_client.s2.control_types.FRBC.utils import (
+        fm_schedule_to_instructions,
+    )
+
+    system_description = _heater()
+    with caplog.at_level(logging.DEBUG):
+        fm_schedule_to_instructions(
+            {
+                "start": "2024-01-01T00:00:00+00:00",
+                "duration": "PT1H",
+                "values": [0.0, HEATER_POWER, HEATER_POWER, 0.0],
+            },
+            system_description,
+            initial_fill_level=FILL_LEVEL_AT_START,
+        )
+    batches = [
+        r.getMessage()
+        for r in caplog.records
+        if r.getMessage().startswith("Instructions: ")
+    ]
+    assert len(batches) == 1
+    assert "'on'" in batches[0] and "'off'" in batches[0]

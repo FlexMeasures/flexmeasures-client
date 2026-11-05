@@ -122,6 +122,8 @@ def _operation_mode_power_bands(
 class FRBCSimple(FRBC):
     _power_sensor_id: int
     _price_sensor_id: int
+    _production_price_sensor_id: int
+    _relax_site_capacity: bool
     _soc_sensor_id: int
     _rm_discharge_sensor_id: int
     _fill_rate_sensor_id: int | None
@@ -159,6 +161,13 @@ class FRBCSimple(FRBC):
         soc_sensor_id: int,
         rm_discharge_sensor_id: int,
         price_sensor_id: int,
+        # Where feeding power back is priced differently from drawing it, as a feed-in tariff is.
+        # Without one, both directions are priced by price_sensor_id.
+        production_price_sensor_id: int | None = None,
+        # Whether the site's connection capacity may be breached at a price rather than never.
+        # Off by default: for a home, the connection is a physical limit.
+        # A site whose capacity is a target set by others, as in a community steering its members, can turn it on.
+        relax_site_capacity: bool = False,
         # Optional so existing callers keep working; when absent the actuator's fill rate is
         # simply not recorded, rather than being posted onto the power sensor.
         fill_rate_sensor_id: int | None = None,
@@ -204,6 +213,12 @@ class FRBCSimple(FRBC):
         super().__init__(max_size)
         self._power_sensor_id = power_sensor_id
         self._price_sensor_id = price_sensor_id
+        self._production_price_sensor_id = (
+            production_price_sensor_id
+            if production_price_sensor_id is not None
+            else price_sensor_id
+        )
+        self._relax_site_capacity = relax_site_capacity
         self._schedule_duration = schedule_duration
         self._resolution = resolution
         self._soc_sensor_id = soc_sensor_id
@@ -922,7 +937,7 @@ class FRBCSimple(FRBC):
         self._logger.debug("flex model: %s", flex_model)
 
         flex_context: dict = {
-            "production-price": {"sensor": self._price_sensor_id},
+            "production-price": {"sensor": self._production_price_sensor_id},
             "consumption-price": {"sensor": self._price_sensor_id},
             "site-power-capacity": f"{3 * 25 * 230} VA",
         }
@@ -932,9 +947,22 @@ class FRBCSimple(FRBC):
             # The breach price is left to FlexMeasures' own default,
             # since what a breach of comfort is worth is the deployment's judgement, not the protocol's.
             flex_context["relax-soc-constraints"] = True
+        if self._relax_site_capacity:
+            flex_context["relax-site-capacity-constraints"] = True
 
         schedule = await self._ask_for_a_schedule(start, flex_context, flex_model)
         self._warn_where_a_fallback_scheduler_answered(schedule, start)
+
+        # send_instruction_batch checks this once more, but translating a schedule follows every step of it,
+        # which is wasted on a request that is already out of date.
+        if request_number is not None and not self._is_latest_request(
+            STORAGE_STATUS_REQUESTS, request_number
+        ):
+            self._logger.info(
+                "Not turning the schedule for planning request %s into instructions: a newer storage status arrived while it was being planned.",
+                request_number,
+            )
+            return
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
         instructions = fm_schedule_to_instructions(

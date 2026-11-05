@@ -560,3 +560,50 @@ async def test_delete_asset_confirm_no():
             (k[0], str(k[1])) for k in m.requests.keys()
         ]
         await client.close()
+
+
+def _posted_asset(m) -> dict:
+    """The body of the one asset post aioresponses saw."""
+    ((_, calls),) = [
+        (key, calls) for key, calls in m.requests.items() if key[0] == "POST"
+    ]
+    return calls[0].kwargs["json"]
+
+
+@pytest.mark.asyncio
+async def test_an_asset_can_be_added_without_a_location():
+    """FlexMeasures takes no location for an asset that has none, such as one standing for a community."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post("http://localhost:5000/api/v3_0/assets", status=201, payload={"id": 27})
+        await client.add_asset(name="community", account_id=1, generic_asset_type_id=5)
+        posted = _posted_asset(m)
+        assert "latitude" not in posted and "longitude" not in posted
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_a_location_is_posted_as_numbers_where_given():
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post("http://localhost:5000/api/v3_0/assets", status=201, payload={"id": 28})
+        await client.add_asset(
+            name="home",
+            account_id=1,
+            latitude=52.0,
+            longitude=4.0,
+            generic_asset_type_id=5,
+        )
+        posted = _posted_asset(m)
+        assert (posted["latitude"], posted["longitude"]) == (52.0, 4.0)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_an_asset_needs_a_type():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with pytest.raises(ValueError, match="generic_asset_type_id"):
+        await client.add_asset(name="untyped", account_id=1)
+    await client.close()

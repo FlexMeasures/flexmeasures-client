@@ -189,6 +189,7 @@ def fm_schedule_to_instructions(
         )
     actuator = system_description.actuators[0]
     operation_modes: list[FRBCOperationMode] = actuator.operation_modes
+    modes_by_id = {str(mode.id): mode for mode in operation_modes}
 
     # Held between the hard bounds the schedule was planned against,
     # so that each step is answered with the operation mode for the fill level the scheduler planned.
@@ -295,6 +296,19 @@ def fm_schedule_to_instructions(
             bounds=(fill_level_min, fill_level_max),
         )
 
+    if logger.isEnabledFor(logging.DEBUG):
+        # The whole batch once, by name, rather than as a growing list on every step.
+        logger.debug(
+            "Instructions: %s",
+            [
+                (
+                    instruction.execution_time.isoformat(),
+                    om_label(modes_by_id[str(instruction.operation_mode)]),
+                    round(instruction.operation_mode_factor, 6),
+                )
+                for instruction in instructions
+            ],
+        )
     return instructions
 
 
