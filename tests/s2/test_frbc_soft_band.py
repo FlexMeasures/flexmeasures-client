@@ -88,6 +88,23 @@ def system_description() -> FRBCSystemDescription:
     )
 
 
+def _system_description_with_range(bottom: float, top: float) -> FRBCSystemDescription:
+    """The fixture's description, declaring another fill-level range."""
+    sd = system_description.__wrapped__()
+    return sd.model_copy(
+        update={
+            "message_id": get_unique_id(),
+            "storage": sd.storage.model_copy(
+                update={
+                    "fill_level_range": NumberRange(
+                        start_of_range=bottom, end_of_range=top
+                    )
+                }
+            ),
+        }
+    )
+
+
 def _frbc(system_description, *, with_sensors: bool = True, **kwargs) -> FRBCSimple:
     """A handler that has had a system description and a storage status, ready to plan."""
     sensors = (
@@ -139,13 +156,22 @@ async def _asked_for(frbc: FRBCSimple, system_description) -> tuple[dict, dict]:
 async def test_the_declared_band_is_what_a_schedule_is_asked_against(
     system_description,
 ):
-    """Recording the band changed nothing until the flex model named the sensors holding it."""
+    """The declared range goes out with the request, over the whole window, as a band whose breach is priced."""
     frbc = _frbc(system_description)
 
     flex_model, flex_context = await _asked_for(frbc, system_description)
 
-    assert flex_model["soc-minima"] == {"sensor": SOC_MINIMA_SENSOR_ID}
-    assert flex_model["soc-maxima"] == {"sensor": SOC_MAXIMA_SENSOR_ID}
+    assert [segment["value"] for segment in flex_model["soc-minima"]] == [
+        f"{RANGE_BOTTOM} kWh"
+    ]
+    assert [segment["value"] for segment in flex_model["soc-maxima"]] == [
+        f"{RANGE_TOP} kWh"
+    ]
+    (whole,) = flex_model["soc-minima"]
+    assert (
+        pd.Timestamp(whole["end"]) - pd.Timestamp(whole["start"])
+        == frbc._schedule_duration
+    )
     # A minimum or maximum FlexMeasures may not breach is a hard bound by another name,
     # and the whole point of the band is that it is soft.
     assert flex_context["relax-soc-constraints"] is True
@@ -254,24 +280,21 @@ async def test_how_far_the_hard_bounds_sit_from_the_range_is_the_deployments_to_
 
 
 @pytest.mark.asyncio
-async def test_one_side_of_a_band_is_not_a_band(system_description):
-    """One side alone is an open-ended push, not what the resource manager declared.
-
-    A band needs both sides, which is also the rule the recording half goes by:
-    a fill-level target profile is recorded only where both sensors are there to hold it.
-    """
-    frbc = _frbc(
-        system_description,
-        with_sensors=False,
-        soc_minima_sensor_id=SOC_MINIMA_SENSOR_ID,
-    )
+async def test_the_band_goes_out_without_the_sensors_it_is_recorded_on(
+    system_description,
+):
+    """It reached FlexMeasures only through those sensors, so without them a storage was planned with no band at all."""
+    frbc = _frbc(system_description, with_sensors=False)
 
     flex_model, flex_context = await _asked_for(frbc, system_description)
 
-    assert "soc-minima" not in flex_model
-    assert "soc-maxima" not in flex_model
-    # And nothing is relaxed either, since there is no band for a breach price to apply to.
-    assert "relax-soc-constraints" not in flex_context
+    assert [segment["value"] for segment in flex_model["soc-minima"]] == [
+        f"{RANGE_BOTTOM} kWh"
+    ]
+    assert [segment["value"] for segment in flex_model["soc-maxima"]] == [
+        f"{RANGE_TOP} kWh"
+    ]
+    assert flex_context["relax-soc-constraints"] is True
 
 
 def test_a_hard_bound_inside_the_declared_range_is_refused():
@@ -299,14 +322,65 @@ async def test_nothing_is_asked_against_a_sensor_that_was_never_configured(
 
     flex_model, flex_context = await _asked_for(frbc, system_description)
 
-    for absent in ("soc-minima", "soc-maxima", "soc-usage", "storage-efficiency"):
+    for absent in ("soc-usage", "storage-efficiency"):
         assert absent not in flex_model
-    assert "relax-soc-constraints" not in flex_context
     # The hard bounds, the start state and the unit are not a resource manager's to declare,
     # so they are asked for whatever the deployment configured.
     assert flex_model["soc-min"] == 0.0
     assert flex_model["soc-max"] == pytest.approx(RANGE_TOP * 1.5)
     assert flex_model["soc-at-start"] == pytest.approx(FILL_LEVEL_AT_START)
+
+
+@pytest.mark.asyncio
+async def test_a_target_profile_applies_where_it_covers_the_window_and_the_range_elsewhere(
+    system_description,
+):
+    """Beyond the profile's end the band used to be whatever the sensors last held, or nothing."""
+    from datetime import timedelta
+
+    from s2python.common import Duration
+    from s2python.frbc import (
+        FRBCFillLevelTargetProfile,
+        FRBCFillLevelTargetProfileElement,
+    )
+
+    frbc = _frbc(system_description)
+    start = frbc.schedule_start(system_description.valid_from)
+    profile = FRBCFillLevelTargetProfile(
+        message_id=get_unique_id(),
+        start_time=start,
+        elements=[
+            FRBCFillLevelTargetProfileElement(
+                duration=Duration.from_timedelta(timedelta(hours=1)),
+                fill_level_range=NumberRange(start_of_range=50, end_of_range=60),
+            )
+        ],
+    )
+    frbc._fill_level_target_profile_history[str(profile.message_id)] = profile
+
+    flex_model, _ = await _asked_for(frbc, system_description)
+
+    minima = flex_model["soc-minima"]
+    assert [segment["value"] for segment in minima] == [
+        "50.0 kWh",
+        f"{RANGE_BOTTOM} kWh",
+    ]
+    assert pd.Timestamp(minima[0]["end"]) - pd.Timestamp(
+        minima[0]["start"]
+    ) == timedelta(hours=1)
+    assert [segment["value"] for segment in flex_model["soc-maxima"]] == [
+        "60.0 kWh",
+        f"{RANGE_TOP} kWh",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_band_below_zero_is_clipped_at_zero():
+    """FlexMeasures takes no negative minima, and refused the whole request over one."""
+    sd = _system_description_with_range(-10.0, 80.0)
+    frbc = _frbc(sd)
+    flex_model, _ = await _asked_for(frbc, sd)
+    assert [segment["value"] for segment in flex_model["soc-minima"]] == ["0.0 kWh"]
 
 
 @pytest.mark.asyncio
@@ -456,3 +530,172 @@ def test_bounds_that_run_backwards_are_refused():
             initial_fill_level=RANGE_BOTTOM,
             fill_level_bounds=(RANGE_TOP, RANGE_BOTTOM),
         )
+
+
+@pytest.mark.asyncio
+async def test_a_negative_usage_forecast_is_recorded_as_no_usage_and_said_so(
+    system_description, caplog
+):
+    """A forced gain FlexMeasures cannot relax made every schedule for the window infeasible."""
+    from datetime import timedelta
+
+    from s2python.common import Duration
+    from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
+
+    frbc = _frbc(system_description)
+    forecast = FRBCUsageForecast(
+        message_id=get_unique_id(),
+        start_time="2024-01-01T00:00:00+00:00",
+        elements=[
+            FRBCUsageForecastElement(
+                duration=Duration.from_timedelta(timedelta(minutes=15)),
+                usage_rate_expected=rate,
+            )
+            for rate in (0.01, -0.02, 0.0, -0.005)
+        ],
+    )
+    await frbc.send_usage_forecast(forecast)
+    posted = frbc._fm_client.post_sensor_data.await_args.kwargs
+    assert min(posted["values"]) == 0.0
+    assert posted["values"][0] == pytest.approx(0.01)
+    assert "negative usage on 2 of 4 steps" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_target_profile_beyond_the_declared_range_is_held_inside_it(
+    system_description,
+):
+    from datetime import timedelta
+
+    from s2python.common import Duration
+    from s2python.frbc import (
+        FRBCFillLevelTargetProfile,
+        FRBCFillLevelTargetProfileElement,
+    )
+
+    frbc = _frbc(system_description)
+    start = frbc.schedule_start(system_description.valid_from)
+    profile = FRBCFillLevelTargetProfile(
+        message_id=get_unique_id(),
+        start_time=start,
+        elements=[
+            FRBCFillLevelTargetProfileElement(
+                duration=Duration.from_timedelta(timedelta(hours=1)),
+                fill_level_range=NumberRange(start_of_range=10, end_of_range=90),
+            )
+        ],
+    )
+    frbc._fill_level_target_profile_history[str(profile.message_id)] = profile
+    flex_model, _ = await _asked_for(frbc, system_description)
+    assert [s["value"] for s in flex_model["soc-minima"]] == [f"{RANGE_BOTTOM} kWh"]
+    assert [s["value"] for s in flex_model["soc-maxima"]] == [f"{RANGE_TOP} kWh"]
+
+
+@pytest.mark.asyncio
+async def test_the_band_goes_out_in_the_unit_flexmeasures_takes(system_description):
+    frbc = _frbc(system_description, energy_unit="Wh")
+    flex_model, _ = await _asked_for(frbc, system_description)
+    assert flex_model["soc-unit"] == "kWh"
+    assert [s["value"] for s in flex_model["soc-minima"]] == [
+        f"{RANGE_BOTTOM / 1000} kWh"
+    ]
+
+
+def test_a_profile_on_a_half_hour_grid_reaches_the_steps_of_an_hourly_window(
+    system_description,
+):
+    """Floored on its own clock, half an hour off the window's, no step shared an instant, and the profile was dropped."""
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    from s2python.common import Duration
+    from s2python.frbc import (
+        FRBCFillLevelTargetProfile,
+        FRBCFillLevelTargetProfileElement,
+    )
+
+    frbc = _frbc(system_description, resolution=timedelta(hours=1))
+    start = datetime(2024, 1, 1, 23, tzinfo=timezone.utc)
+    profile = FRBCFillLevelTargetProfile(
+        message_id=get_unique_id(),
+        start_time=datetime(2024, 1, 2, 4, 0, tzinfo=ZoneInfo("Asia/Kolkata")),
+        elements=[
+            FRBCFillLevelTargetProfileElement(
+                duration=Duration.from_timedelta(timedelta(hours=6)),
+                fill_level_range=NumberRange(start_of_range=50, end_of_range=60),
+            )
+        ],
+    )
+    frbc._fill_level_target_profile_history[str(profile.message_id)] = profile
+    minima, _ = frbc._fill_level_band(start, system_description, "kWh", 1.0)
+    assert "50.0 kWh" in [segment["value"] for segment in minima]
+
+
+@pytest.mark.asyncio
+async def test_the_band_is_left_out_for_a_server_that_cannot_relax_it(
+    system_description, caplog
+):
+    """FlexMeasures before v0.26.0 refuses relax-soc-constraints, and with it the whole request."""
+    import logging
+
+    caplog.set_level(logging.INFO)
+    frbc = _frbc(system_description)
+    frbc._fm_client.server_version_at_least = AsyncMock(return_value=False)
+    flex_model, flex_context = await _asked_for(frbc, system_description)
+    assert "soc-minima" not in flex_model
+    assert "relax-soc-constraints" not in flex_context
+    assert "v0.26.0" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_the_schedule_is_read_back_without_the_negative_usage_it_was_planned_without(
+    system_description,
+):
+    """Read back with it, the instructions followed fill levels the plan never had."""
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    from s2python.common import Duration
+    from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
+
+    frbc = _frbc(system_description)
+    forecast = FRBCUsageForecast(
+        message_id=get_unique_id(),
+        start_time="2024-01-01T00:00:00+00:00",
+        elements=[
+            FRBCUsageForecastElement(
+                duration=Duration.from_timedelta(timedelta(hours=1)),
+                usage_rate_expected=-0.5,
+            )
+        ],
+    )
+    frbc._usage_forecast_history[str(forecast.message_id)] = forecast
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.fm_schedule_to_instructions",
+        return_value=[],
+    ) as translate:
+        await frbc.trigger_schedule(system_description.message_id)
+    read_back = translate.call_args.kwargs["usage_forecast"]
+    assert [e.usage_rate_expected for e in read_back.elements] == [0.0]
+
+
+@pytest.mark.asyncio
+async def test_a_storage_planned_from_zero_is_read_back_from_zero(system_description):
+    from unittest.mock import patch
+
+    frbc = _frbc(system_description)
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=-5.0
+    )
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.fm_schedule_to_instructions",
+        return_value=[],
+    ) as translate:
+        await frbc.trigger_schedule(system_description.message_id)
+    assert translate.call_args.kwargs["initial_fill_level"] == 0.0
+
+
+def test_an_empty_profile_covers_no_step(system_description):
+    frbc = _frbc(system_description)
+    index = pd.date_range("2024-01-01T00:00:00+00:00", periods=4, freq="15min")
+    assert frbc._on_the_window(pd.Series(dtype=float), index).empty

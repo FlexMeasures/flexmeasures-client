@@ -87,6 +87,26 @@ def _merged(ranges: list[tuple[float, float]]) -> list[tuple[float, float]]:
     return merged
 
 
+def _without_negative_usage(usage_forecast):
+    """A usage forecast with each negative expected rate taken as no usage, as one is recorded and planned against."""
+    if usage_forecast is None or all(
+        element.usage_rate_expected >= 0 for element in usage_forecast.elements
+    ):
+        return usage_forecast
+    return usage_forecast.model_copy(
+        update={
+            "elements": [
+                element.model_copy(
+                    update={
+                        "usage_rate_expected": max(0.0, element.usage_rate_expected)
+                    }
+                )
+                for element in usage_forecast.elements
+            ]
+        }
+    )
+
+
 def _operation_mode_power_bands(
     power_ranges: list[tuple[float, float]], power_unit: str
 ) -> list[dict[str, list[str]]]:
@@ -517,6 +537,81 @@ class FRBCSimple(FRBC):
     def _latest(history: dict):
         """The message a history holds that arrived last, or None while it holds none."""
         return list(history.values())[-1] if history else None
+
+    def _fill_level_band(
+        self,
+        start: datetime,
+        system_description: FRBCSystemDescription,
+        soc_unit: str,
+        to_soc_unit: float,
+    ) -> tuple[list[dict], list[dict]]:
+        """The fill levels to keep the storage between over the window planned, as time segments FlexMeasures takes.
+
+        The declared fill-level range applies to every step, and the latest fill-level target profile,
+        held inside that range, applies where it covers a step.
+        The range used to reach FlexMeasures only through the band sensors, and only where a target profile was recorded on them,
+        so a storage without the sensors, or beyond the profile's end, was planned with no band at all,
+        down to empty and half again above its range.
+        Clipped at zero, since FlexMeasures takes no negative minima.
+        """
+        steps = int(
+            pd.Timedelta(self._schedule_duration) / pd.Timedelta(self._resolution)
+        )
+        index = pd.date_range(start, periods=steps, freq=self._resolution)
+        range_bottom, range_top = get_soc_min_max(
+            system_description, self._fill_level_scale
+        )
+        minima = pd.Series(range_bottom, index=index, dtype=float)
+        maxima = pd.Series(range_top, index=index, dtype=float)
+        profile = self._latest(self._fill_level_target_profile_history)
+        if profile is not None:
+            profile_minima, profile_maxima = translate_fill_level_target_profile(
+                fill_level_target_profile=profile,
+                resolution=self._resolution,
+                fill_level_scale=self._fill_level_scale,
+            )
+            profile_minima, profile_maxima, _ = clip_fill_level_target_profile(
+                profile_minima, profile_maxima, range_bottom, range_top
+            )
+            minima.update(self._on_the_window(profile_minima, index))
+            maxima.update(self._on_the_window(profile_maxima, index))
+        return (
+            self._as_segments(minima.clip(lower=0) * to_soc_unit, soc_unit),
+            self._as_segments(maxima.clip(lower=0) * to_soc_unit, soc_unit),
+        )
+
+    def _on_the_window(self, profile: pd.Series, index: pd.DatetimeIndex) -> pd.Series:
+        """A target profile's values at the window's steps, by the instant each step starts at, where the profile covers it.
+
+        The profile is floored to steps on its own clock, and the window on the description's,
+        so in a time zone half an hour off the other the two sets of steps never share an instant,
+        and matching them by label dropped the whole profile without a word.
+        """
+        if profile.empty:
+            return profile
+        covered_until = profile.index[-1] + pd.Timedelta(self._resolution)
+        at_steps = profile.reindex(index.union(profile.index)).ffill().reindex(index)
+        return at_steps[(index >= profile.index[0]) & (index < covered_until)]
+
+    def _as_segments(self, series: pd.Series, unit: str) -> list[dict]:
+        """A series on this handler's resolution as FlexMeasures' time segments, one per run of equal values."""
+        segments: list[dict] = []
+        for moment, value in series.items():
+            end = moment + pd.Timedelta(self._resolution)
+            if segments and segments[-1]["_value"] == value:
+                segments[-1]["end"] = end.isoformat()
+                continue
+            segments.append(
+                {
+                    "start": moment.isoformat(),
+                    "end": end.isoformat(),
+                    "value": f"{value} {unit}",
+                    "_value": value,
+                }
+            )
+        for segment in segments:
+            del segment["_value"]
+        return segments
 
     def _soc_unit(self) -> tuple[str, float]:
         """The unit a state of charge goes to FlexMeasures in, and what a fill level is multiplied by to be in it."""
@@ -965,13 +1060,9 @@ class FRBCSimple(FRBC):
         # The declared range is where a resource manager wants its storage kept, not where its storage can be:
         # S2 calls it the range in which the fill level should remain,
         # and has a resource manager free to ignore instructions while the fill level is outside it.
-        # So the range goes out as a band whose breach FlexMeasures prices,
+        # So the range goes out as a band whose breach FlexMeasures prices (see _fill_level_band),
         # rather than as the hard soc-min and soc-max, which made states a storage really reaches infeasible,
-        # and an infeasible job is answered by the fallback scheduler, which ignores the band altogether.
-        # Hard bounds are still sent, but wide ones:
-        # a fill-level target profile need not cover the whole schedule,
-        # and over the part it does not cover there is nothing to price a breach of,
-        # so nothing else keeps a plan within reach of the storage it is planned for.
+        # and hard bounds are still sent, but wide ones.
         _, range_top = get_soc_min_max(system_description, self._fill_level_scale)
         # Zero below, since a stock cannot be negative and FlexMeasures accepts no lower floor.
         soc_min = 0.0
@@ -980,7 +1071,16 @@ class FRBCSimple(FRBC):
         # so the bounds widen to take it in.
         # A storage outside its declared range is not an error:
         # a resource manager is free to report one, and a schedule still has to be planned from where it says its storage is.
-        soc_min = min(soc_min, soc_at_start)
+        # Upward only, since FlexMeasures takes no negative soc-min:
+        # a storage reported below zero is planned from zero, and said so, rather than refused with no schedule.
+        if soc_at_start < 0:
+            self._logger.warning(
+                "The storage is reported at %s, below zero, which FlexMeasures cannot plan from; planning from zero instead.",
+                soc_at_start,
+            )
+            soc_at_start = 0.0
+            # And read back from zero, so the instructions follow the plan from where it started.
+            fill_level_at_start = 0.0
         soc_max = max(soc_max, soc_at_start)
 
         # Where this schedule starts, which is both what it is asked for,
@@ -990,7 +1090,7 @@ class FRBCSimple(FRBC):
         # FlexMeasures takes a state of charge in kWh or MWh only.
         # So a fill level recorded in another energy unit is converted here, at the edge, rather than refused,
         # and the bounds read back below stay in the recorded unit.
-        # The band, the usage and the leakage are read from sensors, which FlexMeasures converts itself.
+        # The usage and the leakage are read from sensors, which FlexMeasures converts itself, and the band is converted here.
         soc_unit, to_soc_unit = self._soc_unit()
         flex_model: dict = {
             "soc-unit": soc_unit,
@@ -999,25 +1099,20 @@ class FRBCSimple(FRBC):
             "soc-min": soc_min * to_soc_unit,
             "soc-max": soc_max * to_soc_unit,
         }
-        # What the resource manager declared about its storage, each entry only where a sensor holds it:
-        # an entry naming a sensor that was never configured has the scheduler plan against nothing at all.
-        # Both band sensors or neither, as when the band is recorded:
-        # one side alone is an open-ended push in one direction, not the band the resource manager declared.
-        has_soc_band = (
-            self._soc_minima_sensor_id is not None
-            and self._soc_maxima_sensor_id is not None
+        # The band the resource manager declared, sent with the request itself rather than named by sensor,
+        # so that it is there with or without the sensors it is also recorded on.
+        soc_minima, soc_maxima = self._fill_level_band(
+            start, system_description, soc_unit, to_soc_unit
         )
-        if has_soc_band:
-            flex_model["soc-minima"] = {"sensor": self._soc_minima_sensor_id}
-            flex_model["soc-maxima"] = {"sensor": self._soc_maxima_sensor_id}
-        elif (
-            self._soc_minima_sensor_id is not None
-            or self._soc_maxima_sensor_id is not None
-        ):
+        # FlexMeasures has the relax-soc-constraints that makes it a band from v0.26.0,
+        # and a flex context naming a field the server does not know is refused outright, leaving no schedule at all.
+        if await self._fm_client.server_version_at_least("0.26.0"):
+            flex_model["soc-minima"] = soc_minima
+            flex_model["soc-maxima"] = soc_maxima
+        else:
             self._logger.info(
-                "Not asking for a schedule against a fill-level band: a band needs both a soc-minima and a soc-maxima sensor, and this handler was given %s and %s.",
-                self._soc_minima_sensor_id,
-                self._soc_maxima_sensor_id,
+                "Not asking for a schedule against the declared fill-level band: FlexMeasures can relax it from v0.26.0, and this server reports %s.",
+                self._fm_client.server_version,
             )
         if self._usage_forecast_sensor_id is not None:
             flex_model["soc-usage"] = [{"sensor": self._usage_forecast_sensor_id}]
@@ -1077,11 +1172,11 @@ class FRBCSimple(FRBC):
             "consumption-price": {"sensor": self._price_sensor_id},
             "site-power-capacity": f"{3 * 25 * 230} VA",
         }
-        if has_soc_band:
-            # Without this, the minima and maxima above are hard bounds again,
-            # and the band is back to making reachable states infeasible.
-            # The breach price is left to FlexMeasures' own default,
-            # since what a breach of comfort is worth is the deployment's judgement, not the protocol's.
+        # The band always goes out, and without this its minima and maxima are hard bounds,
+        # which makes states a storage really reaches infeasible.
+        # The breach price is left to FlexMeasures' own default,
+        # since what a breach of comfort is worth is the deployment's judgement, not the protocol's.
+        if "soc-minima" in flex_model:
             flex_context["relax-soc-constraints"] = True
         if self._relax_site_capacity is not None:
             flex_context["relax-site-capacity-constraints"] = self._relax_site_capacity
@@ -1120,7 +1215,10 @@ class FRBCSimple(FRBC):
             # What the storage loses by itself and what is drawn from it, as the resource manager last said,
             # so that the fill level each step is answered at falls as well as rises.
             leakage_behaviour=self._latest(self._leakage_behaviour_history),
-            usage_forecast=self._latest(self._usage_forecast_history),
+            # Without negative usage, as it was recorded and planned against (see send_usage_forecast).
+            usage_forecast=_without_negative_usage(
+                self._latest(self._usage_forecast_history)
+            ),
         )
 
         await self.send_instruction_batch(
@@ -1205,6 +1303,19 @@ class FRBCSimple(FRBC):
             strategy="mean",
             fill_level_scale=self._fill_level_scale,
         )
+        # A negative usage is a gain the storage is forced to take, which FlexMeasures cannot relax:
+        # past the hard ceiling it makes every schedule for the window infeasible, so the storage gets no instruction at all.
+        # S2 allows the sign, but no storage in reach of this handler fills by being drawn from,
+        # so a negative value is taken as an artefact of the forecast, counted, and recorded as no usage.
+        negative = translated < 0
+        if negative.any():
+            self._logger.warning(
+                "An FRBC.UsageForecast expects negative usage on %s of %s steps, down to %s; recorded as no usage there, since FlexMeasures would plan it as a gain the storage cannot refuse.",
+                int(negative.sum()),
+                len(translated),
+                float(translated.min()),
+            )
+            translated = translated.clip(lower=0)
 
         await self._fm_client.post_sensor_data(
             sensor_id=self._usage_forecast_sensor_id,
