@@ -12,7 +12,6 @@ from flexmeasures_client.s2.control_types.FRBC.utils import (
     clamp_distance,
     fm_schedule_to_instructions,
     get_unique_id,
-    op_mode_compute_factor,
     power_to_fill_rate_with_metrics,
 )
 
@@ -39,28 +38,44 @@ def example_op_mode_elem(default_power_range):
 
 
 @pytest.mark.parametrize(
-    "fill_rate_range, input_fill_rate, expected_factor",
+    "power_range, fill_rate_range, power, expected_factor",
     [
-        ((0.0, 1.0), 0.0, 0.0),
-        ((0.0, 1.0), 0.5, 0.5),
-        ((0.0, 1.0), 1.0, 1.0),
-        ((2.0, 4.0), 3.0, 0.5),
-        ((1.0, 1.0), 1.0, 0.0),
+        ((100.0, 200.0), (0.0, 1.0), 100.0, 0.0),
+        ((100.0, 200.0), (0.0, 1.0), 150.0, 0.5),
+        ((100.0, 200.0), (0.0, 1.0), 200.0, 1.0),
+        ((100.0, 200.0), (0.0, 1.0), 250.0, 1.0),
+        ((100.0, 200.0), (0.0, 1.0), 50.0, 0.0),
+        # One fill rate, a range of power: the factor still follows from the power.
+        # Worked back out of the fill rate instead, this asked for the bottom of the power range.
+        ((800.0, 1200.0), (2.0, 2.0), 1200.0, 1.0),
+        ((800.0, 1200.0), (2.0, 2.0), 1000.0, 0.5),
+        # One power, a range of fill rate: every factor draws this power, so the one that fills most is asked for.
+        ((1000.0, 1000.0), (1.0, 2.0), 1000.0, 1.0),
+        ((1000.0, 1000.0), (2.0, 1.0), 1000.0, 0.0),
+        # One power and one fill rate, as an on-off actuator states them: the factor makes no difference.
+        ((1000.0, 1000.0), (2.0, 2.0), 1000.0, 0.0),
     ],
 )
-def test_op_mode_compute_factor(
-    fill_rate_range, input_fill_rate, expected_factor, default_power_range
+def test_the_factor_is_the_one_that_draws_the_power_asked_for(
+    power_range, fill_rate_range, power, expected_factor
 ):
-    op_mode_elem = FRBCOperationModeElement(
+    element = FRBCOperationModeElement(
         fill_level_range=NumberRange(start_of_range=0.0, end_of_range=1.0),
         fill_rate=NumberRange(
             start_of_range=fill_rate_range[0], end_of_range=fill_rate_range[1]
         ),
-        power_ranges=default_power_range,
-        running_costs=NumberRange(start_of_range=1.0, end_of_range=1.0),
+        power_ranges=[
+            PowerRange(
+                start_of_range=power_range[0],
+                end_of_range=power_range[1],
+                commodity_quantity=CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC,
+            )
+        ],
     )
-
-    factor = op_mode_compute_factor(op_mode_elem, fill_rate=input_fill_rate)
+    operation_mode = FRBCOperationMode(
+        id=get_unique_id(), elements=[element], abnormal_condition_only=False
+    )
+    *_, factor = power_to_fill_rate_with_metrics(operation_mode, power, 0.5)
     assert np.isclose(factor, expected_factor)
 
 
@@ -150,7 +165,7 @@ def test_power_to_fill_rate_with_metrics_comprehensive(
     )
 
     # --- Call the method under test ---
-    fill_rate, fill_penalty, power_penalty, efficiency, element = (
+    fill_rate, fill_penalty, power_penalty, efficiency, element, _factor = (
         power_to_fill_rate_with_metrics(op_mode, test_power, test_fill_level)
     )
 

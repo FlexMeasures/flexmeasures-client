@@ -1,5 +1,3 @@
-# flake8: noqa
-
 from datetime import timedelta
 
 import numpy as np
@@ -35,7 +33,7 @@ def leakage_behaviour_to_storage_efficiency(
     due to leakage within the given range of the fill level. This is defined as a function of the
     fill level.
 
-    Storage Efficiency: percentage of the storage that remains after one time period.
+    Storage Efficiency: percentage of the storage that remains after one time step of the given resolution.
 
     Example:
 
@@ -71,12 +69,13 @@ def leakage_behaviour_to_storage_efficiency(
         e.fill_level_range.end_of_range * fill_level_scale for e in message.elements
     )
     leakage = element.leakage_rate * fill_level_scale
-    base_resolution = timedelta(hours=1)  # TODO: use timedelta(seconds=1)
-
-    # Discuss conversions
-    storage_efficiency = 100 * (1 - (leakage / max_fill_level)) ** (
-        resolution / base_resolution
-    )
+    # S2 states a leakage rate per second, so what remains after one second is compounded over the seconds in a step.
+    # This used to compound it over the hours in a step instead,
+    # which declared a buffer losing 1.5 kWh of 10 a day as holding its heat to within 0.002% over twelve hours,
+    # where it loses about 7%, and had the scheduler pre-charge in a cheap hour on the strength of it.
+    # The loss is taken as a share of the top of the range, as before, which understates it at lower fill levels.
+    seconds_per_step = pd.Timedelta(resolution) / pd.Timedelta(seconds=1)
+    storage_efficiency = 100 * (1 - (leakage / max_fill_level)) ** seconds_per_step
 
     return storage_efficiency
 

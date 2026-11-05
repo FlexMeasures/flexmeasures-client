@@ -396,6 +396,11 @@ class FRBCSimple(FRBC):
             return power
         return convert_units([power], S2_POWER_UNIT, self.power_unit)[0]
 
+    @staticmethod
+    def _latest(history: dict):
+        """The message a history holds that arrived last, or None while it holds none."""
+        return list(history.values())[-1] if history else None
+
     def _latest_fill_level(self) -> float | None:
         """The fill level the latest storage status reported, in the resource manager's own units, if it reported a number."""
         if not self._storage_status_history:
@@ -507,7 +512,7 @@ class FRBCSimple(FRBC):
                 prior=recorded_at,
                 values=[value],
                 unit=unit,
-                duration=timedelta(minutes=15),
+                duration=self._resolution,
             )
         except (JobFailedError, ValueError, ConnectionError, NotImplementedError):
             # This runs in a task nobody awaits,
@@ -536,7 +541,7 @@ class FRBCSimple(FRBC):
                 prior=self.now(),
                 values=[rate],
                 unit=self.fill_rate_unit(),
-                duration=timedelta(minutes=15),
+                duration=self._resolution,
             )
 
     async def _record_charging_efficiency(
@@ -914,6 +919,10 @@ class FRBCSimple(FRBC):
                 soc_min / self._fill_level_scale,
                 soc_max / self._fill_level_scale,
             ),
+            # What the storage loses by itself and what is drawn from it, as the resource manager last said,
+            # so that the fill level each step is answered at falls as well as rises.
+            leakage_behaviour=self._latest(self._leakage_behaviour_history),
+            usage_forecast=self._latest(self._usage_forecast_history),
         )
 
         await self.send_instruction_batch(

@@ -480,9 +480,11 @@ class FillRateBasedControlTUNES(FRBC):
         except Exception as exc:
             self._logger.error(str(exc))
 
+        # Posted per quarter hour by send_usage_forecast, and read back as such,
+        # while the schedule translation takes a usage rate per second, as S2 states it.
         usage_forecast = pd.Series(
             usage_forecast["values"], index=idx, name="usage_forecast"
-        )
+        ) / (pd.Timedelta(RESOLUTION) / pd.Timedelta(seconds=1))
 
         schedule_series = pd.Series(schedule["values"], index=idx, name="schedule")
 
