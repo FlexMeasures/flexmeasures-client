@@ -29,11 +29,29 @@ A compose project name of its own does not separate that.
 To keep a development database you care about out of it,
 run it from a folder of its own holding checkouts named `flexmeasures` and `flexmeasures-client`:
 the overlay mounts `../flexmeasures` and `../flexmeasures-client`, so those names are what it runs.
-Git worktrees will do, with one thing to add: FlexMeasures' image reads its version from git,
-which it cannot through a worktree, so give it as a build argument,
-`FLEXMEASURES_VERSION`, for each service the overlay builds.
+Git worktrees will do, with one thing to add: FlexMeasures' image reads its version from git, which it cannot through a worktree.
+Give it as the build argument `FLEXMEASURES_VERSION` to each service built from FlexMeasures' Dockerfile, in one more overlay:
+
+```yaml
+x-version: &version
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      FLEXMEASURES_VERSION: "1.1.0"
+
+services:
+  server:
+    <<: *version
+  worker:
+    <<: *version
+  # and likewise worker-2, worker-3, automation-runner and each cem
+```
+
 Its host ports, 5000, 5433, 6380, 1025, 8025 and 8080 to 8084, have to be free too;
 where they are not, an extra overlay can move them with compose's `!override`.
 
-It runs FlexMeasures as its image installs it, with the plugins and this client installed into the image's virtualenv,
-and expects a development server, so the server trusts the name the CEMs reach it by, `server`, alongside the loopback names.
+It runs FlexMeasures from the flexmeasures checkout, which is mounted over the code the image installed,
+with this client installed into the image's virtualenv, which is what FlexMeasures and its plugins run from.
+The UI's third-party libraries are fetched into the installed package when the image is built, so a UI served from the mounted checkout may lack them; the API does not need them.
+The server trusts the name the CEMs reach it by, `server`, alongside the loopback names a development server trusts by default.

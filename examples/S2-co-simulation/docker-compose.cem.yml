@@ -4,7 +4,7 @@
 # such as the community simulations that steer several homes at once.
 #
 # It is an overlay on FlexMeasures' own docker-compose.yml,
-# and runs the CEMs from this checkout.
+# and runs FlexMeasures from the flexmeasures checkout and the CEMs from this one, both mounted.
 # With checkouts named flexmeasures and flexmeasures-client side by side,
 # run it from the flexmeasures folder, which holds the Dockerfile:
 #
@@ -88,7 +88,7 @@ x-worker: &worker
       python3 -m pip install -r /usr/var/flexmeasures-instance/requirements.txt
       # The checkout may be mounted without git history to read its version from, as a git worktree is,
       # so a version is given, in the plain variable, since hatch-vcs cannot match the per-distribution one.
-      SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python3 -m pip install -e "/app/flexmeasures-client[s2]" "s2-python==0.8.1"
+      SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python3 -m pip install -e "/app/flexmeasures-client[s2]"
       # Drop any lingering registration for the ingestion queue before this worker starts.
       # FlexMeasures ingests posted sensor data asynchronously when Redis lists a worker for that queue,
       # and a dead worker's entry counts too: posts then wait on a queue nobody serves, and a run hangs without an error.
@@ -135,7 +135,7 @@ services:
         python3 -m pip install -r /usr/var/flexmeasures-instance/requirements.txt
         # The checkout may be mounted without git history to read its version from, as a git worktree is,
         # so a version is given, in the plain variable, since hatch-vcs cannot match the per-distribution one.
-        SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python3 -m pip install -e "/app/flexmeasures-client[s2]" "s2-python==0.8.1"
+        SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python3 -m pip install -e "/app/flexmeasures-client[s2]"
         flexmeasures db upgrade
         if ! flexmeasures show accounts | grep -q "Docker Toy Account"; then
             flexmeasures add toy-account --name 'Docker Toy Account'
