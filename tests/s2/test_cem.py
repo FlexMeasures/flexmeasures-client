@@ -312,3 +312,16 @@ async def test_closing_the_cem_stops_what_its_handlers_have_in_flight():
 
     assert planning.cancelled()
     planning.cancel()  # in case it was not, so the test does not leave it running
+
+
+@pytest.mark.asyncio
+async def test_a_message_without_a_type_activates_nothing(
+    resource_manager_details, rm_handshake
+):
+    cem = CEM(fm_client=None)
+    cem.register_control_type(FRBCTest())
+    await _details_received(cem, rm_handshake, resource_manager_details)
+    from flexmeasures_client.s2.utils import get_unique_id
+
+    await cem.handle_message({"message_id": get_unique_id()})
+    assert cem.control_type == ControlType.NO_SELECTION
