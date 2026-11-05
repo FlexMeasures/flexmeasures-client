@@ -912,8 +912,8 @@ class FRBCSimple(FRBC):
         soc_unit, to_soc_unit = self._soc_unit()
         flex_model: dict = {
             "soc-unit": soc_unit,
-            "soc-at-start": soc_at_start
-            * to_soc_unit,  # TODO: use forecast of the SOC instead
+            # TODO: use forecast of the SOC instead
+            "soc-at-start": soc_at_start * to_soc_unit,
             "soc-min": soc_min * to_soc_unit,
             "soc-max": soc_max * to_soc_unit,
         }
