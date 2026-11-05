@@ -217,3 +217,31 @@ async def test_planning_without_a_storage_status_is_logged_not_printed(capsys, c
         record.levelname == "WARNING" and "FRBC.StorageStatus" in record.getMessage()
         for record in caplog.records
     ), caplog.records
+
+
+@pytest.mark.asyncio
+async def test_a_revoked_object_is_known_by_its_id_as_text():
+    """Revocations are recorded by the id as text, which is how every other id in a handler is kept."""
+    from s2python.common import RevokableObjects, RevokeObject
+
+    frbc = frbc_simple()
+    object_id = get_unique_id()
+    await frbc.handle_message(
+        RevokeObject(
+            message_id=get_unique_id(),
+            object_type=RevokableObjects.FRBC_Instruction,
+            object_id=object_id,
+        )
+    )
+    assert frbc.is_revoked(str(object_id))
+
+
+def test_a_handler_recognises_a_message_in_any_form_it_accepts():
+    """supports_message takes a model, a dict or JSON text, and reads the type from each the same way."""
+    frbc = frbc_simple()
+    description = system_description("2022-12-02T00:00:00+00:00")
+    as_dict = description.model_dump(mode="json")
+    assert frbc.supports_message(description)
+    assert frbc.supports_message(as_dict)
+    assert frbc.supports_message(description.model_dump_json())
+    assert not frbc.supports_message(as_dict | {"message_type": "Handshake"})

@@ -511,7 +511,7 @@ def element_for_fill_level(
 
 def om_label(operation_mode: FRBCOperationMode) -> str:
     label = getattr(operation_mode, "diagnostic_label", None)
-    return label if isinstance(label, str) else operation_mode.id
+    return label if isinstance(label, str) else str(operation_mode.id)
 
 
 def explain_choice(

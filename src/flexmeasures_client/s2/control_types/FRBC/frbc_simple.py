@@ -570,7 +570,7 @@ class FRBCSimple(FRBC):
                     operation_mode, self._fill_level_scale, self.energy_unit, fill_level
                 )
                 if efficiency is not None:
-                    efficiencies[operation_mode.id] = efficiency
+                    efficiencies[str(operation_mode.id)] = efficiency
         except NotImplementedError:
             self._logger.exception(
                 "Not asking for a schedule against a charging efficiency: a fill rate in %s cannot be compared against the watts S2 states a power range in.",
@@ -773,7 +773,10 @@ class FRBCSimple(FRBC):
         # TODO: an element states one power range per commodity quantity, and no distinction is made between them here,
         # as the schedule translation does not make one either (see power_to_fill_rate_with_metrics).
         power_ranges = [
-            tuple(sorted((power_range.start_of_range, power_range.end_of_range)))
+            (
+                min(power_range.start_of_range, power_range.end_of_range),
+                max(power_range.start_of_range, power_range.end_of_range),
+            )
             for operation_mode in actuator.operation_modes
             for element in operation_mode.elements
             for power_range in element.power_ranges

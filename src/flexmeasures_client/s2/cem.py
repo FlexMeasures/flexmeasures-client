@@ -176,13 +176,16 @@ class CEM(Handler):
         the control type handler and in the CEM, then the one defined in the control type prevails.
         """
 
-        response = None
+        response: pydantic.BaseModel | None = None
 
         if isinstance(message, pydantic.BaseModel):
             message = json.loads(message.json())
 
         if isinstance(message, str):
             message = json.loads(message)
+        assert isinstance(
+            message, dict
+        )  # what a message is from here on, whatever form it came in
 
         self._logger.debug(f"Received: {message}")
 
@@ -224,11 +227,11 @@ class CEM(Handler):
         """
         self._control_type = control_type
 
-    async def get_message(self) -> str:
+    async def get_message(self) -> dict:
         """Call this function to get the messages to be sent to the RM
 
         Returns:
-            str: message in JSON format
+            dict: the message, as JSON-serialisable Python objects
         """
 
         message = await self._sending_queue.get()
@@ -412,7 +415,7 @@ class CEM(Handler):
         for initials, control_type in control_types.items():
             if initials in str(message.object_type):
                 self._control_types_handlers[control_type].revoke_message(
-                    message.object_id
+                    str(message.object_id)
                 )
 
         return get_reception_status(message, ReceptionStatusValues.OK)

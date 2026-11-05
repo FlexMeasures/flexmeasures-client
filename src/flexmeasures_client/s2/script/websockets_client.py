@@ -111,7 +111,7 @@ async def main_s2():
                 roles=[
                     Role(role=RoleType.ENERGY_STORAGE, commodity=Commodity.ELECTRICITY)
                 ],
-                instruction_processing_delay=Duration(1),
+                instruction_processing_delay=Duration(root=1),
                 available_control_types=[
                     ControlType.FILL_RATE_BASED_CONTROL,
                     ControlType.NO_SELECTION,
@@ -141,13 +141,13 @@ async def main_s2():
 
             print("RECEIVING: ", control_type)
 
-            message = ReceptionStatus(
+            reception_status = ReceptionStatus(
                 subject_message_id=control_type["message_id"],
                 status=ReceptionStatusValues.OK,
             )
 
             print("SENDING: ReceptionStatus")
-            await ws.send_str(message.model_dump_json())
+            await ws.send_str(reception_status.model_dump_json())
 
             electric_power = CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC
 

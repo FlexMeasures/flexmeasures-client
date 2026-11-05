@@ -6,7 +6,7 @@ import json
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Coroutine, Dict, Type
+from typing import Callable, Dict, Type
 from zoneinfo import ZoneInfo
 
 import pydantic
@@ -75,7 +75,7 @@ def register(schema: Type[pydantic.BaseModel]) -> Callable:
                 )
                 return outgoing_message
 
-        message_type = schema.__fields__.get("message_type").default
+        message_type = schema.model_fields["message_type"].default
         setattr(wrap, "_tag", Tag(message_type))
 
         return wrap
@@ -176,7 +176,7 @@ class Handler:
         message_type = ""
 
         if isinstance(message, pydantic.BaseModel):
-            message_type = message.message_type
+            message_type = message.model_dump().get("message_type", "")
         elif isinstance(message, dict):
             message_type = message.get("message_type", "")
         elif isinstance(message, str):
@@ -186,7 +186,7 @@ class Handler:
 
     async def handle_message(
         self, message: pydantic.BaseModel | str | Dict
-    ) -> Coroutine:
+    ) -> pydantic.BaseModel | None:
         """
         Calls the handler linked to the message_type and converts the output
         to a serialized dict, i.e. it converts all the inner objects to Python
@@ -243,7 +243,7 @@ class Handler:
         Stores the revoked object ID into the objects_revoked list
         """
 
-        self.objects_revoked.append(message.object_id)
+        self.objects_revoked.append(str(message.object_id))
 
         return ReceptionStatus(
             subject_message_id=str(message.message_id), status=ReceptionStatusValues.OK
