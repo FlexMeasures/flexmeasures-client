@@ -75,6 +75,26 @@ NON_RETRYABLE_SCHEDULE_FAILURES = (
 RETRYABLE_TRIGGER_REFUSALS = ("No recent state-of-charge value found",)
 
 
+def _without_negative_usage(usage_forecast):
+    """A usage forecast with each negative expected rate taken as no usage, as one is recorded and planned against."""
+    if usage_forecast is None or all(
+        element.usage_rate_expected >= 0 for element in usage_forecast.elements
+    ):
+        return usage_forecast
+    return usage_forecast.model_copy(
+        update={
+            "elements": [
+                element.model_copy(
+                    update={
+                        "usage_rate_expected": max(0.0, element.usage_rate_expected)
+                    }
+                )
+                for element in usage_forecast.elements
+            ]
+        }
+    )
+
+
 def _operation_mode_power_bands(
     power_ranges: list[tuple[float, float]], power_unit: str
 ) -> list[dict[str, list[str]]]:
@@ -541,12 +561,25 @@ class FRBCSimple(FRBC):
             profile_minima, profile_maxima, _ = clip_fill_level_target_profile(
                 profile_minima, profile_maxima, range_bottom, range_top
             )
-            minima.update(profile_minima)
-            maxima.update(profile_maxima)
+            minima.update(self._on_the_window(profile_minima, index))
+            maxima.update(self._on_the_window(profile_maxima, index))
         return (
             self._as_segments(minima.clip(lower=0) * to_soc_unit, soc_unit),
             self._as_segments(maxima.clip(lower=0) * to_soc_unit, soc_unit),
         )
+
+    def _on_the_window(self, profile: pd.Series, index: pd.DatetimeIndex) -> pd.Series:
+        """A target profile's values at the window's steps, by the instant each step starts at, where the profile covers it.
+
+        The profile is floored to steps on its own clock, and the window on the description's,
+        so in a time zone half an hour off the other the two sets of steps never share an instant,
+        and matching them by label dropped the whole profile without a word.
+        """
+        if profile.empty:
+            return profile
+        covered_until = profile.index[-1] + pd.Timedelta(self._resolution)
+        at_steps = profile.reindex(index.union(profile.index)).ffill().reindex(index)
+        return at_steps[(index >= profile.index[0]) & (index < covered_until)]
 
     def _as_segments(self, series: pd.Series, unit: str) -> list[dict]:
         """A series on this handler's resolution as FlexMeasures' time segments, one per run of equal values."""
@@ -1026,6 +1059,8 @@ class FRBCSimple(FRBC):
                 soc_at_start,
             )
             soc_at_start = 0.0
+            # And read back from zero, so the instructions follow the plan from where it started.
+            fill_level_at_start = 0.0
         soc_max = max(soc_max, soc_at_start)
 
         # Where this schedule starts, which is both what it is asked for,
@@ -1035,7 +1070,7 @@ class FRBCSimple(FRBC):
         # FlexMeasures takes a state of charge in kWh or MWh only.
         # So a fill level recorded in another energy unit is converted here, at the edge, rather than refused,
         # and the bounds read back below stay in the recorded unit.
-        # The band, the usage and the leakage are read from sensors, which FlexMeasures converts itself.
+        # The usage and the leakage are read from sensors, which FlexMeasures converts itself, and the band is converted here.
         soc_unit, to_soc_unit = self._soc_unit()
         flex_model: dict = {
             "soc-unit": soc_unit,
@@ -1049,8 +1084,16 @@ class FRBCSimple(FRBC):
         soc_minima, soc_maxima = self._fill_level_band(
             start, system_description, soc_unit, to_soc_unit
         )
-        flex_model["soc-minima"] = soc_minima
-        flex_model["soc-maxima"] = soc_maxima
+        # FlexMeasures has the relax-soc-constraints that makes it a band from v0.26.0,
+        # and a flex context naming a field the server does not know is refused outright, leaving no schedule at all.
+        if await self._fm_client.server_version_at_least("0.26.0"):
+            flex_model["soc-minima"] = soc_minima
+            flex_model["soc-maxima"] = soc_maxima
+        else:
+            self._logger.info(
+                "Not asking for a schedule against the declared fill-level band: FlexMeasures can relax it from v0.26.0, and this server reports %s.",
+                self._fm_client.server_version,
+            )
         if self._usage_forecast_sensor_id is not None:
             flex_model["soc-usage"] = [{"sensor": self._usage_forecast_sensor_id}]
         if await self._record_storage_efficiency(start, fill_level_at_start):
@@ -1112,7 +1155,8 @@ class FRBCSimple(FRBC):
         # which makes states a storage really reaches infeasible.
         # The breach price is left to FlexMeasures' own default,
         # since what a breach of comfort is worth is the deployment's judgement, not the protocol's.
-        flex_context["relax-soc-constraints"] = True
+        if "soc-minima" in flex_model:
+            flex_context["relax-soc-constraints"] = True
         if self._relax_site_capacity is not None:
             flex_context["relax-site-capacity-constraints"] = self._relax_site_capacity
 
@@ -1150,7 +1194,10 @@ class FRBCSimple(FRBC):
             # What the storage loses by itself and what is drawn from it, as the resource manager last said,
             # so that the fill level each step is answered at falls as well as rises.
             leakage_behaviour=self._latest(self._leakage_behaviour_history),
-            usage_forecast=self._latest(self._usage_forecast_history),
+            # Without negative usage, as it was recorded and planned against (see send_usage_forecast).
+            usage_forecast=_without_negative_usage(
+                self._latest(self._usage_forecast_history)
+            ),
         )
 
         await self.send_instruction_batch(

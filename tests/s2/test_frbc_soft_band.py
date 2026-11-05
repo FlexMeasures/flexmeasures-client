@@ -599,3 +599,97 @@ async def test_the_band_goes_out_in_the_unit_flexmeasures_takes(system_descripti
     assert [s["value"] for s in flex_model["soc-minima"]] == [
         f"{RANGE_BOTTOM / 1000} kWh"
     ]
+
+
+def test_a_profile_on_a_half_hour_grid_reaches_the_steps_of_an_hourly_window(
+    system_description,
+):
+    """Floored on its own clock, half an hour off the window's, no step shared an instant, and the profile was dropped."""
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    from s2python.common import Duration
+    from s2python.frbc import (
+        FRBCFillLevelTargetProfile,
+        FRBCFillLevelTargetProfileElement,
+    )
+
+    frbc = _frbc(system_description, resolution=timedelta(hours=1))
+    start = datetime(2024, 1, 1, 23, tzinfo=timezone.utc)
+    profile = FRBCFillLevelTargetProfile(
+        message_id=get_unique_id(),
+        start_time=datetime(2024, 1, 2, 4, 0, tzinfo=ZoneInfo("Asia/Kolkata")),
+        elements=[
+            FRBCFillLevelTargetProfileElement(
+                duration=Duration.from_timedelta(timedelta(hours=6)),
+                fill_level_range=NumberRange(start_of_range=50, end_of_range=60),
+            )
+        ],
+    )
+    frbc._fill_level_target_profile_history[str(profile.message_id)] = profile
+    minima, _ = frbc._fill_level_band(start, system_description, "kWh", 1.0)
+    assert "50.0 kWh" in [segment["value"] for segment in minima]
+
+
+@pytest.mark.asyncio
+async def test_the_band_is_left_out_for_a_server_that_cannot_relax_it(
+    system_description, caplog
+):
+    """FlexMeasures before v0.26.0 refuses relax-soc-constraints, and with it the whole request."""
+    import logging
+
+    caplog.set_level(logging.INFO)
+    frbc = _frbc(system_description)
+    frbc._fm_client.server_version_at_least = AsyncMock(return_value=False)
+    flex_model, flex_context = await _asked_for(frbc, system_description)
+    assert "soc-minima" not in flex_model
+    assert "relax-soc-constraints" not in flex_context
+    assert "v0.26.0" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_the_schedule_is_read_back_without_the_negative_usage_it_was_planned_without(
+    system_description,
+):
+    """Read back with it, the instructions followed fill levels the plan never had."""
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    from s2python.common import Duration
+    from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
+
+    frbc = _frbc(system_description)
+    forecast = FRBCUsageForecast(
+        message_id=get_unique_id(),
+        start_time="2024-01-01T00:00:00+00:00",
+        elements=[
+            FRBCUsageForecastElement(
+                duration=Duration.from_timedelta(timedelta(hours=1)),
+                usage_rate_expected=-0.5,
+            )
+        ],
+    )
+    frbc._usage_forecast_history[str(forecast.message_id)] = forecast
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.fm_schedule_to_instructions",
+        return_value=[],
+    ) as translate:
+        await frbc.trigger_schedule(system_description.message_id)
+    read_back = translate.call_args.kwargs["usage_forecast"]
+    assert [e.usage_rate_expected for e in read_back.elements] == [0.0]
+
+
+@pytest.mark.asyncio
+async def test_a_storage_planned_from_zero_is_read_back_from_zero(system_description):
+    from unittest.mock import patch
+
+    frbc = _frbc(system_description)
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=-5.0
+    )
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.fm_schedule_to_instructions",
+        return_value=[],
+    ) as translate:
+        await frbc.trigger_schedule(system_description.message_id)
+    assert translate.call_args.kwargs["initial_fill_level"] == 0.0
