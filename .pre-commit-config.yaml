@@ -66,3 +66,11 @@ repos:
         Put screenshots in the FlexMeasures/screenshots repo, or leave them
         untracked and attach them to the PR/issue manually.
       files: '\.(png|jpe?g|gif|bmp|tiff?|webp|ico|psd)$'
+    - id: no-print-in-unattended-code
+      name: No print() in code that runs unattended
+      # A CEM's handlers run for days without anyone watching standard output,
+      # so what they have to say goes to the log, where a deployment keeps it.
+      # The example scripts and the client's interactive confirmations print on purpose, and are left alone.
+      language: pygrep
+      entry: '^\s*print\('
+      files: '^src/flexmeasures_client/s2/(control_types/|cem\.py$)'

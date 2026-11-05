@@ -726,7 +726,9 @@ class FRBCSimple(FRBC):
                 -1
             ].present_fill_level
         else:
-            print("Can't trigger schedule without knowing the status of the storage...")
+            self._logger.warning(
+                "Cannot ask for a schedule: no FRBC.StorageStatus has arrived yet, so there is no state of charge to plan from."
+            )
             return
 
         # Scaled at the FlexMeasures edge, like every bound and level below it.

@@ -195,3 +195,25 @@ async def test_the_schedule_is_asked_for_from_an_aligned_start():
 
     start = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs["start"]
     assert start == datetime(2022, 12, 3, 9, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_planning_without_a_storage_status_is_logged_not_printed(capsys, caplog):
+    """A handler runs unattended, so giving up on a schedule goes to the log, where it can be found.
+
+    It used to go to standard output, which a deployment does not keep.
+    """
+    frbc = frbc_simple()
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    await settle(frbc)
+    system_description_id = list(frbc._system_description_history)[-1]
+
+    with caplog.at_level("WARNING", logger="FRBCSimple"):
+        await frbc.trigger_schedule(system_description_id)
+
+    frbc._fm_client.trigger_and_get_schedule.assert_not_awaited()
+    assert capsys.readouterr().out == ""
+    assert any(
+        record.levelname == "WARNING" and "FRBC.StorageStatus" in record.getMessage()
+        for record in caplog.records
+    ), caplog.records
