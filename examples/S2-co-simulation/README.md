@@ -27,7 +27,13 @@ whose data FlexMeasures' compose file keeps in `docker-compose-data/dev-db`
 inside the flexmeasures checkout it runs from.
 A compose project name of its own does not separate that.
 To keep a development database you care about out of it,
-run it from a folder of its own holding checkouts (git worktrees will do)
-named `flexmeasures` and `flexmeasures-client`:
+run it from a folder of its own holding checkouts named `flexmeasures` and `flexmeasures-client`:
 the overlay mounts `../flexmeasures` and `../flexmeasures-client`, so those names are what it runs.
-Its host ports, 5000, 5433, 6380, 1025, 8025 and 8080 to 8084, have to be free too.
+Git worktrees will do, with one thing to add: FlexMeasures' image reads its version from git,
+which it cannot through a worktree, so give it as a build argument,
+`FLEXMEASURES_VERSION`, for each service the overlay builds.
+Its host ports, 5000, 5433, 6380, 1025, 8025 and 8080 to 8084, have to be free too;
+where they are not, an extra overlay can move them with compose's `!override`.
+
+It runs FlexMeasures as its image installs it, with the plugins and this client installed into the image's virtualenv,
+and expects a development server, so the server trusts the name the CEMs reach it by, `server`, alongside the loopback names.

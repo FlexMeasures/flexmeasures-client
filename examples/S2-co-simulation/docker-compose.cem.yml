@@ -37,8 +37,6 @@ x-cem: &cem
     S2_ACCEPT_SIMULATION_METADATA: "1"
     # And each home is a site of its own, rather than all of them sharing one.
     S2_SITE_PER_RESOURCE_MANAGER: "1"
-    # The checkout is mounted without its git history, which is where its version would come from.
-    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FLEXMEASURES_CLIENT: "0.0.0"
   volumes:
     - ../flexmeasures-client:/app/flexmeasures-client:rw
   entrypoint: ["/bin/sh", "-c"]
@@ -49,7 +47,9 @@ x-cem: &cem
     # which may come without pip, and cannot see what the system pip installs.
     python3 -m pip --version >/dev/null 2>&1 || python3 -m ensurepip --upgrade
     # s2-python as this repo locks it, and as the co-simulation's resource managers use it.
-    python3 -m pip install --break-system-packages -e "/app/flexmeasures-client[s2]" "s2-python==0.8.1"
+    # The checkout may be mounted without git history to read its version from, as a git worktree is,
+    # so a version is given, in the plain variable, since hatch-vcs cannot match the per-distribution one.
+    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python3 -m pip install --break-system-packages -e "/app/flexmeasures-client[s2]" "s2-python==0.8.1"
     exec python3 /app/flexmeasures-client/src/flexmeasures_client/s2/script/websockets_server.py
 
 # Shared definition for every RQ worker: one per home simulated at once,
@@ -83,9 +83,12 @@ x-worker: &worker
     LOGGING_LEVEL: INFO
   command:
     - |
-      pip install --break-system-packages -e /app
-      pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
-      pip install --break-system-packages -e /app/flexmeasures-client[s2]
+      # Into the image's virtualenv, which FlexMeasures and its plugins run from, with that interpreter's own pip.
+      python3 -m pip --version >/dev/null 2>&1 || python3 -m ensurepip --upgrade
+      python3 -m pip install -r /usr/var/flexmeasures-instance/requirements.txt
+      # The checkout may be mounted without git history to read its version from, as a git worktree is,
+      # so a version is given, in the plain variable, since hatch-vcs cannot match the per-distribution one.
+      SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python3 -m pip install -e "/app/flexmeasures-client[s2]" "s2-python==0.8.1"
       # Drop any lingering registration for the ingestion queue before this worker starts.
       # FlexMeasures ingests posted sensor data asynchronously when Redis lists a worker for that queue,
       # and a dead worker's entry counts too: posts then wait on a queue nobody serves, and a run hangs without an error.
@@ -117,6 +120,9 @@ services:
     ports:
       - "6380:6379"
   server:
+    environment:
+      # The CEMs reach the server by its service name, which a development server does not trust by default.
+      TRUSTED_HOSTS: "localhost,.localhost,127.0.0.1,[::1],server"
     volumes:
       - ./flexmeasures-instance/:/usr/var/flexmeasures-instance/:rw
       - ./flexmeasures-instance/:/app/instance/:rw
@@ -124,9 +130,12 @@ services:
       - ../flexmeasures-client:/app/flexmeasures-client:rw
     command:
       - |
-        pip install --break-system-packages -e /app
-        pip install --break-system-packages -r /usr/var/flexmeasures-instance/requirements.txt
-        pip install --break-system-packages -e /app/flexmeasures-client[s2]
+        # Into the image's virtualenv, which FlexMeasures and its plugins run from, with that interpreter's own pip.
+        python3 -m pip --version >/dev/null 2>&1 || python3 -m ensurepip --upgrade
+        python3 -m pip install -r /usr/var/flexmeasures-instance/requirements.txt
+        # The checkout may be mounted without git history to read its version from, as a git worktree is,
+        # so a version is given, in the plain variable, since hatch-vcs cannot match the per-distribution one.
+        SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python3 -m pip install -e "/app/flexmeasures-client[s2]" "s2-python==0.8.1"
         flexmeasures db upgrade
         if ! flexmeasures show accounts | grep -q "Docker Toy Account"; then
             flexmeasures add toy-account --name 'Docker Toy Account'
