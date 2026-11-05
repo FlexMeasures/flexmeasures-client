@@ -541,3 +541,40 @@ async def test_belief_times_are_forgotten_for_steps_more_than_a_day_old():
     assert list(frbc._power_recorded_at) == [
         datetime(2022, 12, 2, 6, 0, tzinfo=timezone.utc)
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_description_replaced_while_its_plan_is_out_sends_only_the_newer_plan():
+    """The plan for a description that a newer one replaced during the round trip is for a device that no longer is."""
+    frbc = frbc_simple()
+    release = asyncio.Event()
+    planned = frbc._fm_client.trigger_and_get_schedule.return_value
+
+    async def slow_then_quick(**kwargs):
+        if frbc._fm_client.trigger_and_get_schedule.await_count == 1:
+            await release.wait()
+        return planned
+
+    frbc._fm_client.trigger_and_get_schedule.side_effect = slow_then_quick
+    batches: list[tuple[int, int]] = []
+    send = frbc.send_instruction_batch
+
+    async def recording(*args, **kwargs):
+        sent = await send(*args, **kwargs)
+        batches.append((kwargs["request_number"], sent))
+        return sent
+
+    frbc.send_instruction_batch = recording
+    await frbc.handle_message(storage_status())
+    await settle(frbc)
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    await asyncio.sleep(0.05)
+    await frbc.handle_message(system_description("2022-12-02T06:00:00+00:00"))
+    await asyncio.sleep(0.05)
+    release.set()
+    await settle(frbc)
+    assert frbc._fm_client.trigger_and_get_schedule.await_count == 2
+    sent = dict(batches)
+    newest = max(n for n, _ in batches)
+    assert sent[newest] > 0
+    assert all(count == 0 for n, count in batches if n != newest)

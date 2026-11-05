@@ -242,3 +242,73 @@ async def test_automatic_change_control_type(resource_manager_details, rm_handsh
     # CEM response is ReceptionStatus with an OK status
     assert response["message_type"] == "ReceptionStatus"
     assert response["status"] == "OK"
+
+
+async def _details_received(cem, rm_handshake, resource_manager_details) -> None:
+    """Handshake and details, with every answer taken off the queue: the CEM selects no control type yet."""
+    await cem.handle_message(rm_handshake)
+    await cem.handle_message(resource_manager_details)
+    while not cem._sending_queue.empty():
+        await cem.get_message()
+    assert cem.control_type == ControlType.NO_SELECTION
+
+
+@pytest.mark.asyncio
+async def test_a_control_types_message_activates_it_where_its_confirmation_was_lost(
+    frbc_system_description, resource_manager_details, rm_handshake
+):
+    """A resource manager sends FRBC messages only once it has accepted FRBC, so one arriving is that acceptance.
+
+    Without this, a lost ReceptionStatus for the SelectControlType left every FRBC message answered with a
+    TEMPORARY_ERROR, which the resource manager retried forever, and a whole co-simulation hung at its first step.
+    """
+    cem = CEM(fm_client=None)
+    cem.register_control_type(FRBCTest())
+    await _details_received(cem, rm_handshake, resource_manager_details)
+
+    await cem.handle_message(frbc_system_description)
+
+    assert cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
+    response = await cem.get_message()
+    assert response["status"] == ReceptionStatusValues.OK.value
+
+
+@pytest.mark.asyncio
+async def test_a_control_type_without_a_handler_is_not_activated_implicitly(
+    frbc_system_description, resource_manager_details, rm_handshake
+):
+    cem = CEM(fm_client=None)
+    await _details_received(cem, rm_handshake, resource_manager_details)
+
+    await cem.handle_message(frbc_system_description)
+
+    assert cem.control_type == ControlType.NO_SELECTION
+    response = await cem.get_message()
+    assert response["status"] == ReceptionStatusValues.TEMPORARY_ERROR.value
+
+
+@pytest.mark.asyncio
+async def test_a_message_before_the_details_activates_nothing(frbc_system_description):
+    """Before its details, a resource manager has not been offered a control type, so it cannot have accepted one."""
+    cem = CEM(fm_client=None)
+    cem.register_control_type(FRBCTest())
+    await cem.handle_message(frbc_system_description)
+    assert cem.control_type is None
+
+
+@pytest.mark.asyncio
+async def test_closing_the_cem_stops_what_its_handlers_have_in_flight():
+    """A schedule still being planned for a session that has ended would post and plan for a resource manager no longer there."""
+    import asyncio
+
+    cem = CEM(fm_client=None)
+    frbc = FRBCTest()
+    cem.register_control_type(frbc)
+    planning = asyncio.create_task(asyncio.sleep(3600))
+    frbc.background_tasks.add(planning)
+
+    await cem.close()
+    await asyncio.wait([planning], timeout=1)
+
+    assert planning.cancelled()
+    planning.cancel()  # in case it was not, so the test does not leave it running

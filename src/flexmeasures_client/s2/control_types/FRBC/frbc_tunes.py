@@ -664,12 +664,6 @@ class FillRateBasedControlTUNES(FRBC):
             parse_json_fields=True,
         )
 
-    async def close(self):
-        """
-        Can be used to stop recurring tasks.
-        """
-        self._logger.debug(f"Closing {self.__class__.__name__} handler")
-
     async def send_usage_forecast(self, usage_forecast: FRBCUsageForecast):
         """
         Send FRBC.UsageForecast to FlexMeasures.

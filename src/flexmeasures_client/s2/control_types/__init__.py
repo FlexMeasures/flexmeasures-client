@@ -53,6 +53,11 @@ class ControlTypeHandler(Handler):
         killing the CEM's request handler and hanging the resource manager.
         """
         self._logger.debug(f"Closing {self.__class__.__name__} handler")
+        # Work still in flight, such as a schedule being planned, would otherwise go on after the session has ended:
+        # it posts to FlexMeasures and plans for a resource manager that is no longer there,
+        # racing the session that replaces it when the resource manager reconnects.
+        for task in list(self.background_tasks):
+            task.cancel()
 
     @register(InstructionStatusUpdate)
     def handle_instruction_status_update(self, message: InstructionStatusUpdate):

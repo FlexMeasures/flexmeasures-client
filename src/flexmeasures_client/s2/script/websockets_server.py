@@ -162,12 +162,22 @@ async def serve_resource_manager(
     frbc.send_revocations = True
     cem.register_control_type(frbc)
 
-    # create "parallel" tasks for the message producer and consumer
-    await asyncio.gather(
-        websocket_consumer(ws, cem),
-        websocket_producer(ws, cem),
-        rm_details_watchdog(ws, cem),
-    )
+    # The session lasts as long as the resource manager's messages do.
+    # When they end, the CEM is closed, which stops what its handlers still have in flight,
+    # and the producer and the watchdog stop with it: left running, they outlived the connection,
+    # and a resource manager that reconnected was served by two sessions planning for it at once.
+    consumer = asyncio.create_task(websocket_consumer(ws, cem))
+    side_tasks = [
+        asyncio.create_task(websocket_producer(ws, cem)),
+        asyncio.create_task(rm_details_watchdog(ws, cem)),
+    ]
+    try:
+        await consumer
+    finally:
+        await cem.close()
+        for task in side_tasks:
+            task.cancel()
+        await asyncio.gather(*side_tasks, return_exceptions=True)
 
 
 async def configure_site(

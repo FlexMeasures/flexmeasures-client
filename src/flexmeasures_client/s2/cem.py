@@ -42,6 +42,15 @@ from flexmeasures_client.s2.utils import (
 
 _LOGGER = logging.getLogger(__name__)
 
+#: The control type each family of control-type messages belongs to, by the prefix of its message type.
+CONTROL_TYPE_BY_MESSAGE_PREFIX: dict[str, ControlType] = {
+    "FRBC.": ControlType.FILL_RATE_BASED_CONTROL,
+    "PEBC.": ControlType.POWER_ENVELOPE_BASED_CONTROL,
+    "PPBC.": ControlType.POWER_PROFILE_BASED_CONTROL,
+    "OMBC.": ControlType.OPERATION_MODE_BASED_CONTROL,
+    "DDBC.": ControlType.DEMAND_DRIVEN_BASED_CONTROL,
+}
+
 
 class CEM(Handler):
     __version__ = "0.0.2-beta"
@@ -188,6 +197,7 @@ class CEM(Handler):
         )  # what a message is from here on, whatever form it came in
 
         self._logger.debug(f"Received: {message}")
+        self._activate_implicitly(message)
 
         # try to handle the message with the control_type handle
         if (
@@ -219,6 +229,37 @@ class CEM(Handler):
 
         if response is not None:
             await self._sending_queue.put(response)
+
+    def _activate_implicitly(self, message: dict) -> None:
+        """Take a control type's message as proof that the resource manager selected that control type.
+
+        A resource manager sends a control type's messages only after accepting the SelectControlType for it.
+        So where one arrives while no control type is selected here, the confirmation was lost on the way,
+        and without this every such message was answered with a TEMPORARY_ERROR, which a resource manager retries forever.
+        Only a control type this CEM has a handler for is activated.
+        """
+        if self._control_type != ControlType.NO_SELECTION:
+            return
+        message_type = message.get("message_type")
+        if not isinstance(message_type, str):
+            return
+        control_type = next(
+            (
+                ct
+                for prefix, ct in CONTROL_TYPE_BY_MESSAGE_PREFIX.items()
+                if message_type.startswith(prefix)
+            ),
+            None,
+        )
+        if control_type is None or control_type not in self._control_types_handlers:
+            return
+        self._logger.warning(
+            "Received %s while no control type is selected, which a resource manager sends only after accepting %s; "
+            "taking the confirmation as lost and activating it.",
+            message_type,
+            control_type.value,
+        )
+        self._control_type = control_type
 
     def update_control_type(self, control_type: ControlType):
         """

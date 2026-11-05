@@ -763,3 +763,36 @@ def test_the_site_graphs_are_in_a_form_every_flexmeasures_reads():
     for graph in graphs:
         assert set(graph) == {"title", "sensors"}
         assert all(isinstance(i, int) for i in graph["sensors"])
+
+
+@pytest.mark.asyncio
+async def test_a_session_ends_with_its_connection():
+    """Its producer, its watchdog and its planning stop, so a resource manager that reconnects is served by one session."""
+    from unittest.mock import patch
+
+    made = []
+    real = server.CEM
+
+    def capture(**kwargs):
+        cem = real(**kwargs)
+        made.append(cem)
+        return cem
+
+    resource_manager, cem_end = _connected()
+    sensors = {name: {"id": i} for i, name in enumerate(server.SITE_SENSORS, start=1)}
+    with patch.object(server, "CEM", side_effect=capture):
+        serving = asyncio.create_task(
+            server.serve_resource_manager(cem_end, _flexmeasures(), sensors)
+        )
+        await _until(lambda: made)
+        await cem_end._inbox.put(_CLOSED)
+        await asyncio.wait_for(serving, timeout=5)
+    assert made[0].is_closed()
+    leftover = [
+        t
+        for t in asyncio.all_tasks()
+        if t is not asyncio.current_task()
+        and getattr(t.get_coro(), "__qualname__", "")
+        in ("websocket_producer", "rm_details_watchdog")
+    ]
+    assert leftover == []
