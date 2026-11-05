@@ -309,16 +309,23 @@ class FRBCSimple(FRBC):
         return boundary.to_pydatetime()
 
     def schedule_start(self, valid_from: datetime) -> datetime:
-        """Where a schedule asked for at valid_from starts: shifted, then floored to a boundary, but not into an earlier step than now's.
+        """Where a schedule asked for at valid_from starts: shifted and floored to a boundary, but never before now.
 
-        Not into an earlier step, since planning happens on every storage status while a description may be days old:
+        Never before now, since planning happens on every storage status while a description may be days old:
         anchored to that description alone, every status in a long session was answered with the same window,
         which slid into the past, so its instructions were all due already and arrived as one burst.
-        The step now falls in has begun already, so its first instruction is due at once.
+        Where now is past that boundary, the schedule starts at the next one, not at the start of the step now is in.
+        A schedule is planned from the fill level reported now, and FlexMeasures takes that to be the level at its start,
+        so a schedule starting at a step already under way was planned as if the whole step were left,
+        and every replan within it asked for less power over what remained of it, delivering less than planned.
+        The step under way keeps the instruction it is already following.
         """
-        return self.align_to_resolution(
-            max(valid_from + self._valid_from_shift, self.now())
-        )
+        now = self.now()
+        start = self.align_to_resolution(valid_from + self._valid_from_shift)
+        if start >= now:
+            return start
+        current = self.align_to_resolution(now)
+        return current if current == now else current + self._resolution
 
     async def _soc_duration(self) -> timedelta:
         """What a reported fill level is posted as lasting: an instant, where the state-of-charge sensor records instants.

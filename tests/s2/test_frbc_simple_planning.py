@@ -284,12 +284,33 @@ def test_a_handler_turns_away_a_model_it_does_not_handle():
 
 
 def test_a_schedule_never_starts_before_now():
-    """A description days old still plans from now, on a boundary, rather than a window that has already passed."""
+    """A description days old still plans from the next boundary, rather than a window that has already passed.
+
+    Nor from the start of the step under way: the fill level reported now is taken as the level at the start,
+    so the plan would count on the whole step where only part of it is left.
+    """
     frbc = frbc_simple()
     frbc.now = lambda: datetime(2022, 12, 10, 14, 7, tzinfo=timezone.utc)
     assert frbc.schedule_start(
         datetime(2022, 12, 2, 9, 0, tzinfo=timezone.utc)
-    ) == datetime(2022, 12, 10, 14, 0, tzinfo=timezone.utc)
+    ) == datetime(2022, 12, 10, 14, 15, tzinfo=timezone.utc)
+
+
+def test_a_schedule_asked_for_on_a_boundary_starts_there():
+    frbc = frbc_simple()
+    frbc.now = lambda: datetime(2022, 12, 10, 14, 15, tzinfo=timezone.utc)
+    assert frbc.schedule_start(
+        datetime(2022, 12, 2, 9, 0, tzinfo=timezone.utc)
+    ) == datetime(2022, 12, 10, 14, 15, tzinfo=timezone.utc)
+
+
+def test_a_schedule_whose_shifted_start_is_in_the_step_under_way_starts_at_the_next_boundary():
+    frbc = frbc_simple()
+    frbc._valid_from_shift = timedelta(0)
+    frbc.now = lambda: datetime(2022, 12, 10, 14, 7, tzinfo=timezone.utc)
+    assert frbc.schedule_start(
+        datetime(2022, 12, 10, 14, 6, tzinfo=timezone.utc)
+    ) == datetime(2022, 12, 10, 14, 15, tzinfo=timezone.utc)
 
 
 @pytest.mark.asyncio

@@ -118,7 +118,18 @@ async def test_the_shipped_resource_manager_is_planned_for_and_instructed():
     loop = asyncio.get_running_loop()
     loop.set_exception_handler(lambda _, context: unhandled.append(context))
     began = datetime.now(timezone.utc)
+    # The CEM's clock stands on the boundary the step under way began at, so that is where its schedules start,
+    # and the first instruction is due at once rather than at the next boundary, up to a quarter of an hour away.
+    on_a_boundary = began.replace(
+        minute=began.minute - began.minute % 15, second=0, microsecond=0
+    )
 
+    from unittest.mock import patch
+
+    clock = patch.object(
+        server.FRBCSimple, "now", lambda self: on_a_boundary.astimezone(self._timezone)
+    )
+    clock.start()
     tasks = [
         asyncio.create_task(server.serve_resource_manager(cem, fm, sensors)),
         asyncio.create_task(
@@ -133,6 +144,7 @@ async def test_the_shipped_resource_manager_is_planned_for_and_instructed():
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        clock.stop()
         gc.collect()
         loop.set_exception_handler(None)
 
@@ -150,7 +162,7 @@ async def test_the_shipped_resource_manager_is_planned_for_and_instructed():
     assert refused == []
 
     start = fm.trigger_and_get_schedule.await_args_list[0].kwargs["start"]
-    assert began - timedelta(minutes=15) < start <= began + timedelta(seconds=5)
+    assert start == on_a_boundary
     assert unhandled == []
 
     # Every declaration reached the sensor the server made for it, to be seen next to the schedule planned against it.
