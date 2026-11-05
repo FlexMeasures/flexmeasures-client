@@ -230,11 +230,21 @@ class FRBC(ControlTypeHandler):
         # store system_description message for later
         self._system_description_history[system_description_id] = message
 
-        # A description says what the device can do, not what it is doing, so it is stored and
-        # no schedule is asked for here.
-        # Planning happens on a storage status, which is what carries a new state of charge,
-        # and which is the only one of the two a resource manager is required to keep sending
-        # (see handle_storage_status).
+        # A description says what the device can do, and a storage status what it holds now,
+        # and a schedule needs both. Planning normally hangs off a storage status (see handle_storage_status),
+        # but a description that arrives after the latest status, or that changes what the device can do,
+        # is answered with a schedule against that latest status.
+        # Otherwise a resource manager that sends its status first, or whose fill level holds steady
+        # so that no new status follows, is never planned for, or keeps being planned for with what it can no longer do.
+        if self._storage_status_history:
+            request_number = self._count_request(STORAGE_STATUS_REQUESTS)
+            task = asyncio.create_task(
+                self.trigger_schedule(
+                    system_description_id, request_number=request_number
+                )
+            )
+            self.background_tasks.add(task)
+            task.add_done_callback(self.background_tasks.discard)
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
     @register(FRBCUsageForecast)

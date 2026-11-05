@@ -28,9 +28,28 @@ SITE_TIMEZONE = "Europe/Amsterdam"
 # system description that asked for it and runs for twelve hours, so two days would just do.
 SEED_PRICE_DAYS = 3
 
+#: Each sensor the site needs: its unit, its resolution, and any attributes.
+#: The units are the ones the CEM records in: fill levels in kWh, rates of fill level per second, as S2 states them.
+SITE_SENSORS: dict[str, tuple[str, str, dict]] = {
+    "price": ("EUR/kWh", "PT15M", {}),
+    # S2 states a power as positive when it is consumed,
+    # and this sensor holds both an actuator's power and the schedule planned for it.
+    # Left unsaid, FlexMeasures reads a power sensor the other way round,
+    # and flips a schedule's sign on the way in, which puts the two in opposite directions.
+    "power": ("kW", "PT15M", {"consumption_is_positive": True}),
+    "state of charge": ("kWh", "PT0M", {}),
+    "RM discharge": ("dimensionless", "PT15M", {}),
+    "fill rate": ("kWh/s", "PT15M", {}),
+    "soc minima": ("kWh", "PT15M", {}),
+    "soc maxima": ("kWh", "PT15M", {}),
+    "usage forecast": ("kWh/s", "PT15M", {}),
+    "storage efficiency": ("%", "PT15M", {}),
+    "charging efficiency": ("dimensionless", "PT15M", {}),
+}
+
 # Keys under which the configured site is kept on the aiohttp application.
 FM_CLIENT = web.AppKey("fm_client", FlexMeasuresClient)
-SENSORS = web.AppKey("sensors", tuple)
+SENSORS = web.AppKey("sensors", dict)
 
 
 async def rm_details_watchdog(ws, cem: CEM):
@@ -54,7 +73,8 @@ async def rm_details_watchdog(ws, cem: CEM):
 
     cem._logger.debug(f"CONTROL TYPE: {cem._control_type}")
 
-    # after this, schedule will be triggered on reception of a new system description
+    # From here on, a schedule is asked for on each storage status,
+    # and on a system description that arrives after one.
 
 
 async def websocket_producer(ws, cem: CEM):
@@ -103,19 +123,34 @@ async def websocket_handler(request):
     # calls, which takes about ten seconds against a local server, while s2-python's
     # reception-status timeout is five: a resource manager gave up before the CEM had read its
     # first message.
-    fm_client = request.app[FM_CLIENT]
-    price_sensor, power_sensor, soc_sensor, rm_discharge_sensor = request.app[SENSORS]
+    await serve_resource_manager(ws, request.app[FM_CLIENT], request.app[SENSORS])
+    return ws
 
+
+async def serve_resource_manager(
+    ws, fm_client: FlexMeasuresClient, sensors: dict[str, dict]
+) -> None:
+    """Act as the CEM for one resource manager connected over ws, until it disconnects."""
     cem = CEM(
-        sensor_id=power_sensor["id"],
+        sensor_id=sensors["power"]["id"],
         fm_client=fm_client,
         logger=LOGGER,
     )
     frbc = FRBCSimple(
-        power_sensor_id=power_sensor["id"],
-        price_sensor_id=price_sensor["id"],
-        soc_sensor_id=soc_sensor["id"],
-        rm_discharge_sensor_id=rm_discharge_sensor["id"],
+        power_sensor_id=sensors["power"]["id"],
+        price_sensor_id=sensors["price"]["id"],
+        soc_sensor_id=sensors["state of charge"]["id"],
+        rm_discharge_sensor_id=sensors["RM discharge"]["id"],
+        # Where the resource manager's declarations are recorded, so that each can be seen next to the schedule planned against it.
+        fill_rate_sensor_id=sensors["fill rate"]["id"],
+        soc_minima_sensor_id=sensors["soc minima"]["id"],
+        soc_maxima_sensor_id=sensors["soc maxima"]["id"],
+        usage_forecast_sensor_id=sensors["usage forecast"]["id"],
+        leakage_behaviour_sensor_id=sensors["storage efficiency"]["id"],
+        charging_efficiency_sensor_id=sensors["charging efficiency"]["id"],
+        timezone=SITE_TIMEZONE,
+        # Plan from now, rather than from a day after the description, so that a demo shows its instructions being followed.
+        valid_from_shift=timedelta(0),
     )
     cem.register_control_type(frbc)
 
@@ -126,12 +161,10 @@ async def websocket_handler(request):
         rm_details_watchdog(ws, cem),
     )
 
-    return ws
-
 
 async def configure_site(
     site_name: str, fm_client: FlexMeasuresClient
-) -> tuple[dict, dict, dict, dict]:
+) -> dict[str, dict]:
     """Create or update the site asset and its sensors, and seed it with demo prices."""
     account = await fm_client.get_account()
     if account is None:
@@ -164,32 +197,21 @@ async def configure_site(
         site_asset["id"], site_asset_specs, parse_json_fields=True
     )
 
-    sensors = site_asset.get("sensors", [])
-    price_sensor = None
-    power_sensor = None
-    soc_sensor = None
-    rm_discharge_sensor = None
-    for sensor in sensors:
-        if sensor["name"] == "price":
-            price_sensor = sensor
-        elif sensor["name"] == "power":
-            power_sensor = sensor
-        elif sensor["name"] == "state of charge":
-            soc_sensor = sensor
-        elif sensor["name"] == "RM discharge":
-            rm_discharge_sensor = sensor
-
-    if price_sensor is None:
-        price_sensor = await fm_client.add_sensor(
-            name="price",
-            event_resolution="PT15M",
-            unit="EUR/kWh",
+    existing = {sensor["name"]: sensor for sensor in site_asset.get("sensors", [])}
+    sensors: dict[str, dict] = {}
+    for name, (unit, resolution, attributes) in SITE_SENSORS.items():
+        sensors[name] = existing.get(name) or await fm_client.add_sensor(
+            name=name,
+            event_resolution=resolution,
+            unit=unit,
             generic_asset_id=site_asset["id"],
             timezone=SITE_TIMEZONE,
+            **({"attributes": attributes} if attributes else {}),
         )
+
     # Demo prices, so that a freshly configured site has something to schedule against.
     # One day's hourly shape, repeated over SEED_PRICE_DAYS from this morning, because the CEM
-    # plans a day and a half ahead of the moment a resource manager sends its system description:
+    # plans ahead of the moment a resource manager reports its storage:
     # a fixed date here goes stale the day after it is written, and the scheduler then fails the
     # job with UnknownPricesException rather than returning a schedule.
     one_day = [
@@ -201,42 +223,13 @@ async def configure_site(
         hour=0, minute=0, second=0, microsecond=0
     )
     await fm_client.post_sensor_data(
-        sensor_id=price_sensor["id"],
+        sensor_id=sensors["price"]["id"],
         start=today,
         duration=timedelta(days=SEED_PRICE_DAYS),
         values=one_day * SEED_PRICE_DAYS,
         unit="EUR/kWh",
     )
-    if power_sensor is None:
-        power_sensor = await fm_client.add_sensor(
-            name="power",
-            event_resolution="PT15M",
-            unit="kW",
-            generic_asset_id=site_asset["id"],
-            timezone=SITE_TIMEZONE,
-            # S2 states a power as positive when it is consumed,
-            # and this sensor holds both an actuator's power and the schedule planned for it.
-            # Left unsaid, FlexMeasures reads a power sensor the other way round,
-            # and flips a schedule's sign on the way in, which puts the two in opposite directions.
-            attributes={"consumption_is_positive": True},
-        )
-    if soc_sensor is None:
-        soc_sensor = await fm_client.add_sensor(
-            name="state of charge",
-            event_resolution="PT0M",
-            unit="kWh",
-            generic_asset_id=site_asset["id"],
-            timezone=SITE_TIMEZONE,
-        )
-    if rm_discharge_sensor is None:
-        rm_discharge_sensor = await fm_client.add_sensor(
-            name="RM discharge",
-            event_resolution="PT15M",
-            unit="dimensionless",
-            generic_asset_id=site_asset["id"],
-            timezone=SITE_TIMEZONE,
-        )
-    return price_sensor, power_sensor, soc_sensor, rm_discharge_sensor
+    return sensors
 
 
 async def configure_site_once(app: web.Application) -> None:

@@ -291,8 +291,15 @@ class FRBCSimple(FRBC):
         return moment.replace(microsecond=0) - timedelta(seconds=seconds_into_the_day)
 
     def schedule_start(self, valid_from: datetime) -> datetime:
-        """Where a schedule asked for at valid_from starts: shifted, then floored to a boundary."""
-        return self.align_to_resolution(valid_from + self._valid_from_shift)
+        """Where a schedule asked for at valid_from starts: shifted, never before now, then floored to a boundary.
+
+        Never before now, since planning happens on every storage status while a description may be days old:
+        anchored to that description alone, every status in a long session was answered with the same window,
+        which slid into the past, so its instructions were all due already and arrived as one burst.
+        """
+        return self.align_to_resolution(
+            max(valid_from + self._valid_from_shift, self.now())
+        )
 
     async def send_storage_status(
         self, status: FRBCStorageStatus, request_number: int | None = None
@@ -309,9 +316,8 @@ class FRBCSimple(FRBC):
 
         # The state of charge this status reports is what a schedule starts from, so this is
         # where a schedule is asked for.
-        # A system description is needed to turn that schedule into instructions, and a resource
-        # manager sends one before its first status, so its absence here means the two have gone
-        # out of step rather than that nothing has arrived yet.
+        # A system description is needed to turn that schedule into instructions.
+        # Without one yet, nothing is planned here, and the description plans against this status when it arrives.
         if not self._system_description_history:
             self._logger.warning(
                 "Cannot ask for a schedule: no FRBC.SystemDescription has arrived yet."

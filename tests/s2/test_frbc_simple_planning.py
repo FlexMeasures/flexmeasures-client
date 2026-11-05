@@ -31,6 +31,8 @@ from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 from flexmeasures_client.s2.utils import get_unique_id
 
 POWER_SENSOR_ID = 1
+#: A clock set before the descriptions below are valid, so that their own times decide where a schedule starts.
+BEFORE_THE_EXAMPLES = datetime(2022, 12, 1, tzinfo=timezone.utc)
 SOC_SENSOR_ID = 3
 
 
@@ -175,6 +177,7 @@ async def test_a_storage_status_before_any_description_still_records_the_measure
 def test_a_schedule_starts_on_a_resolution_boundary(valid_from, expected_start):
     """An unaligned start leaves FlexMeasures with no prices for the window, and the job fails."""
     frbc = frbc_simple()
+    frbc.now = lambda: BEFORE_THE_EXAMPLES
 
     start = frbc.schedule_start(datetime.fromisoformat(valid_from))
 
@@ -187,6 +190,7 @@ def test_a_schedule_starts_on_a_resolution_boundary(valid_from, expected_start):
 @pytest.mark.asyncio
 async def test_the_schedule_is_asked_for_from_an_aligned_start():
     frbc = frbc_simple()
+    frbc.now = lambda: BEFORE_THE_EXAMPLES
 
     await frbc.handle_message(system_description("2022-12-02T09:07:33.512+00:00"))
     await settle(frbc)
@@ -277,3 +281,56 @@ def test_a_handler_turns_away_a_model_it_does_not_handle():
         supported_protocol_versions=["0.0.2-beta"],
     )
     assert not frbc_simple().supports_message(handshake)
+
+
+def test_a_schedule_never_starts_before_now():
+    """A description days old still plans from now, on a boundary, rather than a window that has already passed."""
+    frbc = frbc_simple()
+    frbc.now = lambda: datetime(2022, 12, 10, 14, 7, tzinfo=timezone.utc)
+    assert frbc.schedule_start(
+        datetime(2022, 12, 2, 9, 0, tzinfo=timezone.utc)
+    ) == datetime(2022, 12, 10, 14, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_a_status_before_its_description_is_planned_for_when_the_description_arrives():
+    """The order the example resource manager used to send them in, which left it without a single instruction."""
+    frbc = frbc_simple()
+    await frbc.handle_message(storage_status())
+    await settle(frbc)
+    frbc._fm_client.trigger_and_get_schedule.assert_not_awaited()
+
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    await settle(frbc)
+
+    frbc._fm_client.trigger_and_get_schedule.assert_awaited_once()
+    assert not frbc._sending_queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_a_changed_description_is_planned_for_against_the_latest_status():
+    """What the device can do changed, so the plan made for what it could do before no longer answers."""
+    frbc = frbc_simple()
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    await frbc.handle_message(storage_status())
+    await settle(frbc)
+    assert frbc._fm_client.trigger_and_get_schedule.await_count == 1
+
+    await frbc.handle_message(system_description("2022-12-02T06:00:00+00:00"))
+    await settle(frbc)
+
+    assert frbc._fm_client.trigger_and_get_schedule.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_the_soc_is_not_reposted_when_a_description_asks_for_a_schedule():
+    """The latest status is planned from, not recorded again as if it had been measured now."""
+    frbc = frbc_simple()
+    await frbc.handle_message(storage_status())
+    await settle(frbc)
+    posts_after_the_status = frbc._fm_client.post_measurements.await_count
+
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    await settle(frbc)
+
+    assert frbc._fm_client.post_measurements.await_count == posts_after_the_status
