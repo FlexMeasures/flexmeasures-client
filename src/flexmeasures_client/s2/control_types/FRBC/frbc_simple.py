@@ -906,8 +906,9 @@ class FRBCSimple(FRBC):
         # and the window a charging efficiency has to be recorded over to be planned against.
         start = self.schedule_start(system_description.valid_from)
 
-        # FlexMeasures takes a state of charge in kWh or MWh only, so a fill level recorded in another energy unit
-        # is converted here, at the edge, rather than refused, and the bounds read back below stay in the recorded unit.
+        # FlexMeasures takes a state of charge in kWh or MWh only.
+        # So a fill level recorded in another energy unit is converted here, at the edge, rather than refused,
+        # and the bounds read back below stay in the recorded unit.
         # The band, the usage and the leakage are read from sensors, which FlexMeasures converts itself.
         soc_unit, to_soc_unit = self._soc_unit()
         flex_model: dict = {
