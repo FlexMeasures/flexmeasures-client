@@ -4,6 +4,7 @@ import pytest
 from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
 
 from flexmeasures_client.s2.cem import CEM
+from flexmeasures_client.s2.control_types import ControlTypeHandler
 from flexmeasures_client.s2.control_types.FRBC import FRBCTest
 
 
@@ -244,6 +245,12 @@ async def test_automatic_change_control_type(resource_manager_details, rm_handsh
     assert response["status"] == "OK"
 
 
+class _PlainPEBC(ControlTypeHandler):
+    """A handler for a second control type, which keeps no background tasks."""
+
+    _control_type = ControlType.POWER_ENVELOPE_BASED_CONTROL
+
+
 async def _details_received(cem, rm_handshake, resource_manager_details) -> None:
     """Handshake and details, with every answer taken off the queue: the CEM selects no control type yet."""
     await cem.handle_message(rm_handshake)
@@ -254,23 +261,81 @@ async def _details_received(cem, rm_handshake, resource_manager_details) -> None
 
 
 @pytest.mark.asyncio
-async def test_a_control_types_message_activates_it_where_its_confirmation_was_lost(
+async def test_a_message_of_the_control_type_being_selected_counts_as_its_confirmation(
     frbc_system_description, resource_manager_details, rm_handshake
 ):
-    """A resource manager sends FRBC messages only once it has accepted FRBC, so one arriving is that acceptance.
+    """A resource manager sends a control type's messages only once it is working in that control type.
 
-    Without this, a lost ReceptionStatus for the SelectControlType left every FRBC message answered with a
-    TEMPORARY_ERROR, which the resource manager retried forever, and a whole co-simulation hung at its first step.
+    #188 saw a CEM stay in NO_SELECTION while a reconnecting resource manager kept sending FRBC messages,
+    each answered with a temporary error and retried.
     """
     cem = CEM(fm_client=None)
     cem.register_control_type(FRBCTest())
     await _details_received(cem, rm_handshake, resource_manager_details)
+    await cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
+    selection = await cem.get_message()
 
     await cem.handle_message(frbc_system_description)
 
     assert cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
     response = await cem.get_message()
     assert response["status"] == ReceptionStatusValues.OK.value
+    assert selection["message_id"] not in cem.success_callbacks  # no longer waited for
+
+
+@pytest.mark.asyncio
+async def test_a_message_of_another_control_type_is_not_taken_as_a_confirmation(
+    frbc_system_description, resource_manager_details, rm_handshake
+):
+    """Selecting one control type and receiving another's message switches to neither."""
+    cem = CEM(fm_client=None)
+    cem.register_control_type(FRBCTest())
+    cem.register_control_type(_PlainPEBC())
+    await _details_received(cem, rm_handshake, resource_manager_details)
+    cem._selecting = (ControlType.POWER_ENVELOPE_BASED_CONTROL, "some-selection")
+
+    await cem.handle_message(frbc_system_description)
+
+    assert cem.control_type == ControlType.NO_SELECTION
+
+
+@pytest.mark.asyncio
+async def test_a_switch_between_control_types_is_left_to_its_confirmation(
+    frbc_system_description, resource_manager_details, rm_handshake
+):
+    """While one control type is active, a message of the one being switched to is still that of an unconfirmed switch.
+
+    Its confirmation is awaited by the active handler, which this CEM would not clear, so it is left to arrive.
+    """
+    cem = CEM(fm_client=None)
+    cem.register_control_type(FRBCTest())
+    cem.register_control_type(_PlainPEBC())
+    await _details_received(cem, rm_handshake, resource_manager_details)
+    cem._control_type = ControlType.POWER_ENVELOPE_BASED_CONTROL
+    cem._selecting = (ControlType.FILL_RATE_BASED_CONTROL, "some-selection")
+
+    await cem.handle_message(frbc_system_description)
+
+    assert cem.control_type == ControlType.POWER_ENVELOPE_BASED_CONTROL
+
+
+@pytest.mark.asyncio
+async def test_a_confirmed_selection_is_no_longer_pending(
+    resource_manager_details, rm_handshake
+):
+    cem = CEM(fm_client=None)
+    cem.register_control_type(FRBCTest())
+    await _details_received(cem, rm_handshake, resource_manager_details)
+    await cem.activate_control_type(ControlType.FILL_RATE_BASED_CONTROL)
+    selection = await cem.get_message()
+    await cem.handle_message(
+        ReceptionStatus(
+            subject_message_id=selection["message_id"],
+            status=ReceptionStatusValues.OK,
+        )
+    )
+    assert cem.control_type == ControlType.FILL_RATE_BASED_CONTROL
+    assert cem._selecting is None
 
 
 @pytest.mark.asyncio
@@ -279,6 +344,7 @@ async def test_a_control_type_without_a_handler_is_not_activated_implicitly(
 ):
     cem = CEM(fm_client=None)
     await _details_received(cem, rm_handshake, resource_manager_details)
+    cem._selecting = (ControlType.FILL_RATE_BASED_CONTROL, "some-selection")
 
     await cem.handle_message(frbc_system_description)
 
@@ -325,3 +391,15 @@ async def test_a_message_without_a_type_activates_nothing(
 
     await cem.handle_message({"message_id": get_unique_id()})
     assert cem.control_type == ControlType.NO_SELECTION
+
+
+@pytest.mark.asyncio
+async def test_a_handler_without_background_tasks_closes():
+    """Closing every handler is what ends a session, so one that keeps no tasks must close too."""
+    cem = CEM(fm_client=None)
+    plain = _PlainPEBC()
+    cem.register_control_type(plain)
+    if hasattr(plain, "background_tasks"):
+        del plain.background_tasks
+    await cem.close()
+    assert cem.is_closed()

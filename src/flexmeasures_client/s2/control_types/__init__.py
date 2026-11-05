@@ -44,19 +44,19 @@ class ControlTypeHandler(Handler):
         await self._sending_queue.put(message)
 
     async def close(self):
-        """Release any resources / stop recurring tasks for this handler.
+        """Stop this handler's work in flight, when the CEM closes as its websocket tears down.
 
-        Default no-op so CEM.close(), which calls close() on every registered handler when a
-        websocket tears down, works for any control-type handler.
-        Subclasses that own recurring tasks override this.
-        Without it, a handler lacking close() raised AttributeError inside CEM.close(),
+        Defined here so that CEM.close(), which calls close() on every registered handler, works for any of them:
+        a handler lacking close() raised AttributeError inside CEM.close(),
         killing the CEM's request handler and hanging the resource manager.
         """
         self._logger.debug(f"Closing {self.__class__.__name__} handler")
-        # Work still in flight, such as a schedule being planned, would otherwise go on after the session has ended:
-        # it posts to FlexMeasures and plans for a resource manager that is no longer there,
-        # racing the session that replaces it when the resource manager reconnects.
-        for task in list(self.background_tasks):
+        # Work still in flight would otherwise go on after the session has ended,
+        # planning for a resource manager that is no longer there and racing the session that replaces it.
+        # That includes recording what the resource manager last reported, which is stopped too:
+        # a reading cut off mid-post is reported again by a resource manager that reconnects.
+        # Not every handler keeps background tasks, so a handler without them has nothing to stop.
+        for task in list(getattr(self, "background_tasks", ())):
             task.cancel()
 
     @register(InstructionStatusUpdate)

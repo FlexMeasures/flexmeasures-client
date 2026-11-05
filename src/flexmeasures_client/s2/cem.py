@@ -97,6 +97,8 @@ class CEM(Handler):
         self._power_sensors = dict()
         self.power_sensor_id = power_sensor_id
         self._control_types_handlers = dict()
+        #: The control type this CEM asked the resource manager to select, and the id of that message, until confirmed.
+        self._selecting: tuple[ControlType, str] | None = None
         self._default_control_type = default_control_type
 
         if not logger:
@@ -231,35 +233,42 @@ class CEM(Handler):
             await self._sending_queue.put(response)
 
     def _activate_implicitly(self, message: dict) -> None:
-        """Take a control type's message as proof that the resource manager selected that control type.
+        """Take a message of the control type this CEM is selecting as the resource manager's acceptance of it.
 
-        A resource manager sends a control type's messages only after accepting the SelectControlType for it.
-        So where one arrives while no control type is selected here, the confirmation was lost on the way,
-        and without this every such message was answered with a TEMPORARY_ERROR, which a resource manager retries forever.
-        Only a control type this CEM has a handler for is activated.
+        A resource manager sends a control type's messages only once that control type is active on its side.
+        So where one arrives for the control type this CEM asked for, while the CEM still waits for the confirmation,
+        the resource manager is working in it already. #188 saw the CEM stay in NO_SELECTION while a resource manager,
+        reconnecting during setup in a co-simulation, kept sending FRBC messages, each answered with a TEMPORARY_ERROR
+        and retried; whether the confirmation was lost or never sent was not established.
+        Only the control type being selected is activated, never another one a message happens to belong to,
+        and its pending confirmation is then no longer waited for.
         """
-        if self._control_type != ControlType.NO_SELECTION:
+        if self._control_type != ControlType.NO_SELECTION or self._selecting is None:
             return
+        control_type, selection_message_id = self._selecting
         message_type = message.get("message_type")
         if not isinstance(message_type, str):
             return
-        control_type = next(
+        prefix = next(
             (
-                ct
-                for prefix, ct in CONTROL_TYPE_BY_MESSAGE_PREFIX.items()
-                if message_type.startswith(prefix)
+                p
+                for p, ct in CONTROL_TYPE_BY_MESSAGE_PREFIX.items()
+                if ct == control_type
             ),
             None,
         )
-        if control_type is None or control_type not in self._control_types_handlers:
+        if prefix is None or not message_type.startswith(prefix):
+            return
+        if control_type not in self._control_types_handlers:
             return
         self._logger.warning(
-            "Received %s while no control type is selected, which a resource manager sends only after accepting %s; "
-            "taking the confirmation as lost and activating it.",
+            "Received %s before the resource manager confirmed the selection of %s; taking it as the confirmation.",
             message_type,
             control_type.value,
         )
-        self._control_type = control_type
+        self.success_callbacks.pop(selection_message_id, None)
+        self.failure_callbacks.pop(selection_message_id, None)
+        self.update_control_type(control_type)
 
     def update_control_type(self, control_type: ControlType):
         """
@@ -267,6 +276,7 @@ class CEM(Handler):
         a confirmation that the message has been received.
         """
         self._control_type = control_type
+        self._selecting = None
 
     async def get_message(self) -> dict:
         """Call this function to get the messages to be sent to the RM
@@ -317,6 +327,7 @@ class CEM(Handler):
                     message_id, self.update_control_type, control_type=control_type
                 )
 
+            self._selecting = (control_type, message_id)
             await self._sending_queue.put(
                 SelectControlType(message_id=message_id, control_type=control_type)
             )
