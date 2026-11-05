@@ -389,9 +389,61 @@ async def test_a_plan_asked_for_by_a_late_description_supersedes_one_in_flight()
 
 @pytest.mark.asyncio
 async def test_a_state_of_charge_is_recorded_as_a_reading_at_an_instant():
+    """On a sensor that records instants, and over a minute on one with a resolution, which refuses an instant."""
+    for resolution, duration in (
+        ("PT0M", timedelta(0)),
+        ("PT15M", timedelta(minutes=1)),
+    ):
+        frbc = frbc_simple()
+        frbc._fm_client.get_sensor.return_value = {"event_resolution": resolution}
+        await frbc.handle_message(storage_status())
+        await settle(frbc)
+        posted = frbc._fm_client.post_measurements.await_args.kwargs
+        assert posted["duration"] == duration
+
+
+@pytest.mark.asyncio
+async def test_interleaved_statuses_about_one_step_get_belief_times_a_second_apart():
+    """A status about step A, one about step B, then A again, all within a second: the two about A must not collide."""
+    from s2python.frbc import FRBCActuatorStatus
+
+    from flexmeasures_client.s2.utils import get_unique_id
+
     frbc = frbc_simple()
-    await frbc.handle_message(storage_status())
-    await settle(frbc)
-    assert frbc._fm_client.post_measurements.await_args.kwargs["duration"] == timedelta(
-        0
+    frbc._power_sensor_takes_consumption_as_positive = True
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    actuator = frbc._system_description_history[
+        list(frbc._system_description_history)[-1]
+    ].actuators[0]
+    mode = actuator.operation_modes[0].id
+    a = datetime(2022, 12, 2, 0, 5, tzinfo=timezone.utc)
+    b = datetime(2022, 12, 2, 0, 20, tzinfo=timezone.utc)
+    for when in (a, b, a):
+        await frbc.send_actuator_status(
+            FRBCActuatorStatus(
+                message_id=get_unique_id(),
+                actuator_id=actuator.id,
+                active_operation_mode_id=mode,
+                operation_mode_factor=1.0,
+                transition_timestamp=when,
+            )
+        )
+    priors = [
+        c.kwargs["prior"]
+        for c in frbc._fm_client.post_sensor_data.await_args_list
+        if c.kwargs.get("start") == a
+    ]
+    assert len(priors) == 2
+    assert priors[1] - priors[0] >= timedelta(seconds=1)
+
+
+def test_a_step_boundary_is_on_the_local_clock_where_the_zone_is_half_an_hour_off_utc():
+    """FlexMeasures floors a series on the sensor's clock, so an hourly step in Kolkata starts on the hour there."""
+    from zoneinfo import ZoneInfo
+
+    frbc = frbc_simple()
+    frbc._resolution = timedelta(hours=1)
+    moment = datetime(2026, 11, 5, 14, 40, tzinfo=ZoneInfo("Asia/Kolkata"))
+    assert frbc.align_to_resolution(moment) == datetime(
+        2026, 11, 5, 14, 0, tzinfo=ZoneInfo("Asia/Kolkata")
     )

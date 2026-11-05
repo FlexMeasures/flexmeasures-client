@@ -24,6 +24,8 @@ from s2python.common import (
     Duration,
     EnergyManagementRole,
     Handshake,
+    InstructionStatus,
+    InstructionStatusUpdate,
     NumberRange,
     PowerRange,
     ReceptionStatus,
@@ -284,10 +286,24 @@ class Buffer:
         self.factor = instruction.operation_mode_factor
 
 
+async def send_instruction_status(
+    ws, instruction_id, status: InstructionStatus
+) -> None:
+    """Tell the CEM where an instruction stands, which is what it revokes by: only one not yet carried out."""
+    await ws.send_str(
+        InstructionStatusUpdate(
+            message_id=get_unique_id(),
+            instruction_id=instruction_id,
+            status_type=status,
+            timestamp=datetime.now(timezone.utc),
+        ).model_dump_json()
+    )
+
+
 async def apply_at_execution_time(
     ws,
     instruction: FRBCInstruction,
-    previous_operation_mode_id=None,
+    applied: dict | None = None,
     buffer: Buffer | None = None,
 ) -> None:
     """Enter the operation mode an instruction asks for, at the moment it asks for it.
@@ -297,6 +313,9 @@ async def apply_at_execution_time(
     A resource manager that answers on arrival reports a mode it is not in yet,
     and a customer energy manager recording that status has a measurement of a power the device is not drawing,
     timestamped now.
+
+    The mode it reports leaving is the one the last instruction carried out put it in, kept in applied,
+    rather than whatever the instruction before it asked for, which may have been revoked and never carried out.
     """
 
     delay = (instruction.execution_time - datetime.now(timezone.utc)).total_seconds()
@@ -312,13 +331,16 @@ async def apply_at_execution_time(
         actuator_id=instruction.actuator_id,
         active_operation_mode_id=instruction.operation_mode,
         operation_mode_factor=instruction.operation_mode_factor,
-        previous_operation_mode_id=previous_operation_mode_id,
+        previous_operation_mode_id=(applied or {}).get("mode"),
         # The moment the transition happened, so that what is recorded about it is placed there,
         # rather than wherever the message is read.
         transition_timestamp=now,
     )
+    if applied is not None:
+        applied["mode"] = instruction.operation_mode
     print("SENDING: FRBC.ActuatorStatus")
     await ws.send_str(status.model_dump_json())
+    await send_instruction_status(ws, instruction.id, InstructionStatus.SUCCEEDED)
 
 
 async def answer_instructions(ws, buffer: Buffer | None = None) -> None:
@@ -328,7 +350,7 @@ async def answer_instructions(ws, buffer: Buffer | None = None) -> None:
     without that, the buffer would end up in whatever the last instruction to fire across every plan ever sent said.
     """
 
-    active_operation_mode_id = None
+    applied: dict = {"mode": None}
     pending: dict[str, asyncio.Task] = {}
     async for msg in ws:
         payload = msg.json()
@@ -337,14 +359,17 @@ async def answer_instructions(ws, buffer: Buffer | None = None) -> None:
         if message_type == "RevokeObject":
             revocation = RevokeObject.model_validate(payload)
             task = pending.pop(str(revocation.object_id), None)
-            if task is not None:
-                task.cancel()
             await ws.send_str(
                 ReceptionStatus(
                     subject_message_id=revocation.message_id,
                     status=ReceptionStatusValues.OK,
                 ).model_dump_json()
             )
+            if task is not None:
+                task.cancel()
+                await send_instruction_status(
+                    ws, revocation.object_id, InstructionStatus.REVOKED
+                )
             continue
         if message_type != "FRBC.Instruction":
             continue
@@ -355,9 +380,10 @@ async def answer_instructions(ws, buffer: Buffer | None = None) -> None:
                 status=ReceptionStatusValues.OK,
             ).model_dump_json()
         )
+        await send_instruction_status(ws, instruction.id, InstructionStatus.ACCEPTED)
         # In a task of its own, so that an instruction due later does not hold up the ones behind it.
         task = asyncio.create_task(
-            apply_at_execution_time(ws, instruction, active_operation_mode_id, buffer)
+            apply_at_execution_time(ws, instruction, applied, buffer)
         )
         key = str(instruction.id)
         pending[key] = task
@@ -366,7 +392,6 @@ async def answer_instructions(ws, buffer: Buffer | None = None) -> None:
             pending.pop(key, None)
 
         task.add_done_callback(forget)
-        active_operation_mode_id = instruction.operation_mode
 
 
 async def report_fill_level(

@@ -12,6 +12,11 @@ from aiohttp import web
 from s2python.common import ControlType
 
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.exceptions import (
+    ContentTypeError,
+    JobFailedError,
+    WrongAPIVersionError,
+)
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 
@@ -249,7 +254,13 @@ async def keep_prices_seeded(app: web.Application):
             await asyncio.sleep(SEED_PRICES_EVERY.total_seconds())
             try:
                 await seed_prices(app[FM_CLIENT], app[SENSORS]["price"]["id"])
-            except (ConnectionError, ValueError):
+            except (
+                ConnectionError,
+                ValueError,
+                ContentTypeError,
+                JobFailedError,
+                WrongAPIVersionError,
+            ):
                 LOGGER.exception(
                     "Could not seed the demo prices again; trying at the next interval."
                 )

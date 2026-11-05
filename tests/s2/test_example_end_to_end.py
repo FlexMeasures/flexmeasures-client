@@ -577,3 +577,111 @@ async def test_a_failed_reseed_is_tried_again_at_the_next_interval():
         await _until(lambda: fm.post_sensor_data.await_count >= 2)
         with pytest.raises(StopAsyncIteration):
             await seeding.__anext__()
+
+
+def _instruction(mode, due_in: timedelta):
+    from s2python.frbc import FRBCInstruction
+
+    from flexmeasures_client.s2.utils import get_unique_id
+
+    return FRBCInstruction(
+        message_id=get_unique_id(),
+        id=get_unique_id(),
+        actuator_id=get_unique_id(),
+        operation_mode=mode,
+        operation_mode_factor=1.0,
+        execution_time=datetime.now(timezone.utc) + due_in,
+        abnormal_condition=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_mode_reported_as_left_is_the_one_last_carried_out():
+    """A revoked instruction was never carried out, so the next transition does not start from its mode."""
+    from s2python.common import RevokableObjects, RevokeObject
+
+    from flexmeasures_client.s2.utils import get_unique_id
+
+    a, b = get_unique_id(), get_unique_id()
+    first = _instruction(a, timedelta(0))
+    revoked = _instruction(b, timedelta(seconds=30))
+    later = _instruction(a, timedelta(milliseconds=200))
+    revoke = RevokeObject(
+        message_id=get_unique_id(),
+        object_type=RevokableObjects.FRBC_Instruction,
+        object_id=revoked.id,
+    )
+    ws = _Collect(
+        [
+            first.model_dump_json(),
+            revoked.model_dump_json(),
+            revoke.model_dump_json(),
+            later.model_dump_json(),
+        ]
+    )
+    await answer_instructions(ws)
+    await _until(
+        lambda: len([m for m in ws.sent if m["message_type"] == "FRBC.ActuatorStatus"])
+        >= 2
+    )
+    statuses = [m for m in ws.sent if m["message_type"] == "FRBC.ActuatorStatus"]
+    assert statuses[1]["previous_operation_mode_id"] == str(a)
+
+
+@pytest.mark.asyncio
+async def test_the_example_tells_the_cem_where_each_instruction_stands():
+    """Accepted on arrival, succeeded once carried out, revoked once revoked: the CEM revokes only what is not yet carried out."""
+    from s2python.common import RevokableObjects, RevokeObject
+
+    from flexmeasures_client.s2.utils import get_unique_id
+
+    done = _instruction(get_unique_id(), timedelta(0))
+    revoked = _instruction(get_unique_id(), timedelta(seconds=30))
+    revoke = RevokeObject(
+        message_id=get_unique_id(),
+        object_type=RevokableObjects.FRBC_Instruction,
+        object_id=revoked.id,
+    )
+    ws = _Collect(
+        [done.model_dump_json(), revoked.model_dump_json(), revoke.model_dump_json()]
+    )
+    await answer_instructions(ws)
+    await _until(
+        lambda: any(
+            m.get("status_type") == "SUCCEEDED"
+            for m in ws.sent
+            if m["message_type"] == "InstructionStatusUpdate"
+        )
+    )
+    updates = {
+        (m["instruction_id"], m["status_type"])
+        for m in ws.sent
+        if m["message_type"] == "InstructionStatusUpdate"
+    }
+    assert updates == {
+        (str(done.id), "ACCEPTED"),
+        (str(done.id), "SUCCEEDED"),
+        (str(revoked.id), "ACCEPTED"),
+        (str(revoked.id), "REVOKED"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_failed_ingestion_of_the_reseeded_prices_does_not_end_the_reseeding():
+    from unittest.mock import patch
+
+    from aiohttp import web
+
+    from flexmeasures_client.exceptions import JobFailedError
+
+    app = web.Application()
+    fm = _flexmeasures()
+    fm.post_sensor_data.side_effect = [JobFailedError("ingestion failed"), None, None]
+    app[server.FM_CLIENT] = fm
+    app[server.SENSORS] = {"price": {"id": 10}}
+    with patch.object(server, "SEED_PRICES_EVERY", timedelta(milliseconds=10)):
+        seeding = server.keep_prices_seeded(app)
+        await seeding.__anext__()
+        await _until(lambda: fm.post_sensor_data.await_count >= 2)
+        with pytest.raises(StopAsyncIteration):
+            await seeding.__anext__()
