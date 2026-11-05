@@ -388,14 +388,19 @@ class FRBCSimple(FRBC):
     async def send_storage_status(
         self, status: FRBCStorageStatus, request_number: int | None = None
     ):
+        # Read by this handler's clock, and known as of then, which in a co-simulation is the simulated time:
+        # without a prior, FlexMeasures took the moment the request reached it,
+        # and a simulated reading was recorded as known years after it was taken.
+        now = self.now()
         await self._fm_client.post_measurements(
             self._soc_sensor_id,
-            start=self.now(),
+            start=now,
             # Scaled like every other fill level this handler records, or the level and the
             # band around it would be in different scales wherever fill_level_scale is not 1.
             values=[status.present_fill_level * self._fill_level_scale],
             unit=self.energy_unit,
             duration=await self._soc_duration(),
+            prior=now,
         )
 
         # The state of charge this status reports is what a schedule starts from, so this is
