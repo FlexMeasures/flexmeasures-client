@@ -383,7 +383,7 @@ def fm_schedule_to_instructions(
         )
 
     if logger.isEnabledFor(logging.DEBUG):
-        # The whole batch once, by name, rather than as a growing list on every step.
+        # The whole batch in one line, by mode name, which the per-step lines above do not give.
         logger.debug(
             "Instructions: %s",
             [

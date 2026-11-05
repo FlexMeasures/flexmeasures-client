@@ -488,15 +488,29 @@ async def test_without_its_own_sensor_feeding_back_is_priced_as_drawing():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("relax", [False, True])
-async def test_the_site_capacity_is_relaxed_only_where_asked(relax):
-    """A home's connection is a physical limit; a community member's may be a target it can breach at a price."""
+async def test_the_site_capacity_is_relaxed_or_kept_hard_as_asked(relax):
+    """Sent either way: FlexMeasures reads a missing flag as its relax-constraints umbrella, which relaxes by default.
+
+    So a home whose connection is a physical limit is only kept to it by an explicit False.
+    """
     system_description = _heater()
     frbc = _frbc(system_description, relax_site_capacity=relax)
     await frbc.trigger_schedule(system_description.message_id)
     flex_context = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
         "flex_context"
     ]
-    assert flex_context.get("relax-site-capacity-constraints", False) is relax
+    assert flex_context["relax-site-capacity-constraints"] is relax
+
+
+@pytest.mark.asyncio
+async def test_unset_the_site_capacity_is_left_to_flexmeasures():
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    await frbc.trigger_schedule(system_description.message_id)
+    flex_context = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
+        "flex_context"
+    ]
+    assert "relax-site-capacity-constraints" not in flex_context
 
 
 @pytest.mark.asyncio

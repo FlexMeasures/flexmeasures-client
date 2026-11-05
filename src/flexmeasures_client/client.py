@@ -1537,12 +1537,17 @@ class FlexMeasuresClient:
                     'status': 200
                 }
 
-        This function raises a ValueError when an unhandled status code is returned.
+        This function raises a ValueError when an unhandled status code is returned,
+        when no generic_asset_type_id is given, and when only one of latitude and longitude is.
         """
         if generic_asset_type_id is None:
             # Optional in the signature only so that latitude and longitude, before it, can be left out,
             # while every argument keeps its position.
             raise ValueError("add_asset needs a generic_asset_type_id.")
+        if (latitude is None) != (longitude is None):
+            raise ValueError(
+                "add_asset takes a location as both a latitude and a longitude, or neither."
+            )
         asset: dict = dict(
             name=name,
             account_id=account_id,

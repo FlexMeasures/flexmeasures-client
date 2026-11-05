@@ -607,3 +607,14 @@ async def test_an_asset_needs_a_type():
     with pytest.raises(ValueError, match="generic_asset_type_id"):
         await client.add_asset(name="untyped", account_id=1)
     await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("location", [dict(latitude=52.0), dict(longitude=4.0)])
+async def test_half_a_location_is_refused(location):
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with pytest.raises(ValueError, match="both a latitude and a longitude"):
+        await client.add_asset(
+            name="half", account_id=1, generic_asset_type_id=5, **location
+        )
+    await client.close()

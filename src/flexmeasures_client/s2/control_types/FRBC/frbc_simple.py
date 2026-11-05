@@ -123,7 +123,7 @@ class FRBCSimple(FRBC):
     _power_sensor_id: int
     _price_sensor_id: int
     _production_price_sensor_id: int
-    _relax_site_capacity: bool
+    _relax_site_capacity: bool | None
     _soc_sensor_id: int
     _rm_discharge_sensor_id: int
     _fill_rate_sensor_id: int | None
@@ -164,10 +164,12 @@ class FRBCSimple(FRBC):
         # Where feeding power back is priced differently from drawing it, as a feed-in tariff is.
         # Without one, both directions are priced by price_sensor_id.
         production_price_sensor_id: int | None = None,
-        # Whether the site's connection capacity may be breached at a price rather than never.
-        # Off by default: for a home, the connection is a physical limit.
-        # A site whose capacity is a target set by others, as in a community steering its members, can turn it on.
-        relax_site_capacity: bool = False,
+        # Whether the site's connection capacity may be breached at a price (True) or never (False).
+        # Unset, it is left to FlexMeasures, which since v1.0 relaxes it at a high default breach price,
+        # under its relax-constraints umbrella, and before that did not.
+        # A home whose connection is a physical limit can pass False;
+        # a site whose capacity is a target set by others, as in a community steering its members, can pass True.
+        relax_site_capacity: bool | None = None,
         # Optional so existing callers keep working; when absent the actuator's fill rate is
         # simply not recorded, rather than being posted onto the power sensor.
         fill_rate_sensor_id: int | None = None,
@@ -1016,8 +1018,8 @@ class FRBCSimple(FRBC):
             # The breach price is left to FlexMeasures' own default,
             # since what a breach of comfort is worth is the deployment's judgement, not the protocol's.
             flex_context["relax-soc-constraints"] = True
-        if self._relax_site_capacity:
-            flex_context["relax-site-capacity-constraints"] = True
+        if self._relax_site_capacity is not None:
+            flex_context["relax-site-capacity-constraints"] = self._relax_site_capacity
 
         schedule = await self._ask_for_a_schedule(start, flex_context, flex_model)
         self._warn_where_a_fallback_scheduler_answered(schedule, start)
