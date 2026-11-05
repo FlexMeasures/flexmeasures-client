@@ -118,6 +118,7 @@ def _operation_mode_power_bands(
 class FRBCSimple(FRBC):
     _power_sensor_id: int
     _price_sensor_id: int
+    _production_price_sensor_id: int | None
     _soc_sensor_id: int
     _rm_discharge_sensor_id: int
     _fill_rate_sensor_id: int | None
@@ -155,6 +156,9 @@ class FRBCSimple(FRBC):
         soc_sensor_id: int,
         rm_discharge_sensor_id: int,
         price_sensor_id: int,
+        # Optional, and falling back to the consumption price, since a tariff that pays the
+        # same for export as it charges for import is the common residential case.
+        production_price_sensor_id: int | None = None,
         # Optional so existing callers keep working; when absent the actuator's fill rate is
         # simply not recorded, rather than being posted onto the power sensor.
         fill_rate_sensor_id: int | None = None,
@@ -167,7 +171,7 @@ class FRBCSimple(FRBC):
         # and the scheduler plans the storage as if the actuator converted power into stored energy one for one.
         charging_efficiency_sensor_id: int | None = None,
         timezone: str = "UTC",
-        schedule_duration: timedelta = timedelta(hours=12),
+        schedule_duration: timedelta = timedelta(hours=24),
         # How many times a schedule is asked for before the storage is left without an instruction,
         # and how long between two attempts.
         # One attempt means a failure is never answered by another, as it was before this was bounded at all.
@@ -197,6 +201,7 @@ class FRBCSimple(FRBC):
         super().__init__(max_size)
         self._power_sensor_id = power_sensor_id
         self._price_sensor_id = price_sensor_id
+        self._production_price_sensor_id = production_price_sensor_id
         self._schedule_duration = schedule_duration
         self._resolution = resolution
         self._soc_sensor_id = soc_sensor_id
@@ -237,8 +242,8 @@ class FRBCSimple(FRBC):
         self.power_unit = power_unit
         self.energy_unit = energy_unit
 
-        # delay the start of the schedule from the time `valid_from`
-        # of the FRBC.SystemDescription.
+        # How far after a system description's valid_from a schedule starts, where the caller
+        # gives no start of its own (see schedule_start).
         self._valid_from_shift = valid_from_shift
 
     def now(self):
@@ -284,6 +289,7 @@ class FRBCSimple(FRBC):
     async def send_storage_status(
         self, status: FRBCStorageStatus, request_number: int | None = None
     ):
+        now = self.now()
         await self._fm_client.post_measurements(
             self._soc_sensor_id,
             start=self.now(),
@@ -318,7 +324,9 @@ class FRBCSimple(FRBC):
 
         system_description_id = list(self._system_description_history)[-1]
         await self.trigger_schedule(
-            system_description_id, request_number=request_number
+            system_description_id,
+            request_number=request_number,
+            start=self.align_to_resolution(now),
         )
 
     async def _as_the_power_sensor_reads_it(self, power: float) -> float:
@@ -398,8 +406,8 @@ class FRBCSimple(FRBC):
         sd: FRBCSystemDescription = list(self._system_description_history.values())[-1]
 
         # Report the mode the actuator is ACTUALLY in, not whichever the system description happens
-        # to list first. An FRBC actuator declares its modes with degenerate power ranges - on is
-        # [883.7, 883.7] W and off is [0, 0] - so interpolating by the factor cannot express the
+        # to list first. An FRBC actuator here declares its modes with DEGENERATE power ranges - on
+        # is [883.7, 883.7] W and off is [0, 0] - so interpolating by the factor cannot express the
         # difference between them; only the choice of mode can. Taking operation_modes[0] pinned
         # every status to the on-mode value, so the power sensor showed a constant draw and could
         # never show the heater switching off, whatever the factor said. frbc_tunes already selects
@@ -432,8 +440,8 @@ class FRBCSimple(FRBC):
         # output a heat pump delivers into its buffer; the power range is what it draws
         # electrically, smaller by the coefficient of performance. Posting the fill rate onto a
         # power sensor made an apartment appear to draw 3800 W where its electrical maximum is
-        # 883.7 W, and being the most recent belief that is what the UI drew.
-        # The fill-level scale is deliberately absent here: it converts fill levels and fill rates,
+        # 883.7 W, eight times a day, and being the most recent belief that is what the UI drew.
+        # The fill-level scale is deliberately absent: it converts fill levels and fill rates,
         # and has no business in a power value.
         power_range = element.power_ranges[0]
         power = (
@@ -704,18 +712,49 @@ class FRBCSimple(FRBC):
         )
 
     async def trigger_schedule(
-        self, system_description_id: str, request_number: int | None = None
+        self,
+        system_description_id: str,
+        request_number: int | None = None,
+        start: datetime | None = None,
     ):
         """Translates S2 System Description into FM API calls.
 
         :param system_description_id: system description to base the schedule on
         :param request_number:        which planning request this schedule answers, which is
                                       checked once more before the instructions go out
+        :param start:                 where the schedule starts; a caller on this branch passes
+                                      the simulated moment the request arrived, and without one
+                                      the description's own valid_from is used, lined up with
+                                      the resolution (see schedule_start)
         """
 
-        system_description: FRBCSystemDescription = self._system_description_history[
-            system_description_id
-        ]
+        # Barrier: realized-power posts run concurrently (see
+        # CEM.handle_power_measurement); the scheduler and the community
+        # compliance check it feeds must see the complete realized series
+        # before triggering, exactly as the old serial posting guaranteed.
+        cem = getattr(self, "_cem", None)
+        if cem is not None:
+            await cem.flush_measurement_posts()
+
+        if system_description_id:
+            system_description: FRBCSystemDescription = (
+                self._system_description_history[system_description_id]
+            )
+        else:
+            # Use last SystemDescription
+            system_description: FRBCSystemDescription = list(
+                self._system_description_history.values()
+            )[-1]
+        system_descriptions = self._system_description_history.values()
+        self._logger.debug(
+            list(
+                [
+                    system_description.valid_from
+                    for system_description in system_descriptions
+                ]
+            )
+        )
+        self._logger.debug(f"Using system description: {system_description}")
 
         if len(self._storage_status_history) > 0:
             # In the resource manager's own fill-level units. The scale is applied at the
@@ -768,16 +807,46 @@ class FRBCSimple(FRBC):
         soc_min = min(soc_min, soc_at_start)
         soc_max = max(soc_max, soc_at_start)
 
+        # One actuator, as everywhere else in this handler.
+        actuator = system_description.actuators[0]
+        # Every power range the actuator states, over all of its operation modes and their elements.
+        # An S2 power range runs from its lower bound to its upper one, and S2 fixes one sign convention,
+        # where positive means consumption,
+        # so an actuator can only produce where one of its ranges reaches below zero.
+        # todo: an element states one power range per commodity quantity, and no distinction is made between them here,
+        # as the schedule translation does not make one either (see power_to_fill_rate_with_metrics).
+        power_ranges = [
+            tuple(sorted((power_range.start_of_range, power_range.end_of_range)))
+            for operation_mode in actuator.operation_modes
+            for element in operation_mode.elements
+            for power_range in element.power_ranges
+        ]
+
+        # Support for J energy unit (FM server scheduling trigger endpoint only accepts kWh and MWh)
+        if self.energy_unit == "J":
+            f = 3.6 * 10**6
+            energy_unit = "kWh"
+            soc_at_start /= f
+            soc_min /= f
+            soc_max /= f
+        else:
+            energy_unit = self.energy_unit
+
         # Where this schedule starts, which is both what it is asked for,
         # and the window a charging efficiency has to be recorded over to be planned against.
-        start = self.schedule_start(system_description.valid_from)
+        # The caller may hand one in, which is why this is not simply schedule_start.
+        if start is None:
+            start = self.schedule_start(system_description.valid_from)
+        if isinstance(start, str):
+            start = pd.Timestamp(start)
 
         flex_model: dict = {
             # The same unit the fill level is recorded in, or the scheduler would plan against bounds a thousandfold off the measurements it plans from.
-            "soc-unit": self.energy_unit,
-            "soc-at-start": soc_at_start,  # TODO: use forecast of the SOC instead
+            "soc-unit": energy_unit,
+            "soc-at-start": soc_at_start,
             "soc-min": soc_min,
             "soc-max": soc_max,
+            "state-of-charge": {"sensor": self._soc_sensor_id},
         }
         # What the resource manager declared about its storage, each entry only where a sensor holds it:
         # an entry naming a sensor that was never configured has the scheduler plan against nothing at all.
@@ -850,9 +919,24 @@ class FRBCSimple(FRBC):
         self._logger.debug("flex model: %s", flex_model)
 
         flex_context: dict = {
-            "production-price": {"sensor": self._price_sensor_id},
             "consumption-price": {"sensor": self._price_sensor_id},
+            "production-price": {
+                "sensor": self._production_price_sensor_id or self._price_sensor_id
+            },
             "site-power-capacity": f"{3 * 25 * 230} VA",
+            # Also relax site-level capacity specifically (not the broader
+            # relax-constraints/relax-capacity-constraints, which additionally soften
+            # *device*-level capacity constraints): this fills in a default
+            # site-consumption/production-breach-price so a site-level capacity
+            # constraint (e.g. from community steering) becomes a soft, penalized
+            # violation instead of causing infeasibility that silently falls back to a
+            # scheduler which ignores the constraint entirely. The broader flag was
+            # tried and reverted: with this apartment model's large SOC magnitudes
+            # (hundreds of kWh of thermal storage against a sub-1kW power capacity),
+            # the extra device-capacity breach-price terms it adds pushed HiGHS from a
+            # ~10s solve into one that ran 10+ minutes without converging (confirmed
+            # via py-spy: time was spent inside the solver itself, not a Python hang).
+            "relax-site-capacity-constraints": True,
         }
         if has_soc_band:
             # Without this, the minima and maxima above are hard bounds again,
@@ -861,8 +945,21 @@ class FRBCSimple(FRBC):
             # since what a breach of comfort is worth is the deployment's judgement, not the protocol's.
             flex_context["relax-soc-constraints"] = True
 
+        self._logger.debug("flex context: %s", flex_context)
+
         schedule = await self._ask_for_a_schedule(start, flex_context, flex_model)
         self._warn_where_a_fallback_scheduler_answered(schedule, start)
+
+        # send_instruction_batch checks this once more, but building the instructions first is
+        # wasted work when the request they answer is already out of date.
+        if request_number is not None and not self._is_latest_request(
+            STORAGE_STATUS_REQUESTS, request_number
+        ):
+            self._logger.info(
+                f"Skipping a superseded planning request (number {request_number}): "
+                "a newer storage status arrived while the schedule was being computed."
+            )
+            return
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
         instructions = fm_schedule_to_instructions(

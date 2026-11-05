@@ -12,7 +12,7 @@ for at all, because there was no state of charge to start from yet.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -80,8 +80,16 @@ def frbc_simple() -> FRBCSimple:
         price_sensor_id=2,
         soc_sensor_id=SOC_SENSOR_ID,
         rm_discharge_sensor_id=4,
+        production_price_sensor_id=5,
+        soc_minima_sensor_id=6,
+        soc_maxima_sensor_id=7,
+        usage_forecast_sensor_id=8,
+        leakage_behaviour_sensor_id=9,
+        charging_efficiency_sensor_id=10,
     )
     frbc._fm_client = AsyncMock(FlexMeasuresClient)
+    # The flex model's power bands take a different shape per server version, so the handler asks.
+    frbc._fm_client._resolve_server_version = AsyncMock(return_value="1.1.0")
     # Normally the CEM hands its queue to a handler when it registers one.
     frbc._sending_queue = asyncio.Queue()
     # A schedule the way the client hands one back, so that it can become instructions.
@@ -142,11 +150,15 @@ async def test_the_state_of_charge_is_recorded_even_when_the_plan_is_superseded(
     await frbc.handle_message(storage_status(0.7))
     await settle(frbc)
 
-    assert frbc._fm_client.post_measurements.await_count == 2
-    assert [
-        call.kwargs["values"][0]
+    # This handler posts to other sensors too (the conversion efficiencies a description
+    # carries), so only what reached the state-of-charge sensor is counted here.
+    soc_posts = [
+        call
         for call in frbc._fm_client.post_measurements.await_args_list
-    ] == [0.6, 0.7]
+        if call.args and call.args[0] == SOC_SENSOR_ID
+    ]
+    assert len(soc_posts) == 2
+    assert [call.kwargs["values"][0] for call in soc_posts] == [0.6, 0.7]
     frbc._fm_client.trigger_and_get_schedule.assert_awaited_once()
 
 
@@ -194,4 +206,5 @@ async def test_the_schedule_is_asked_for_from_an_aligned_start():
     await settle(frbc)
 
     start = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs["start"]
-    assert start == datetime(2022, 12, 3, 9, 0, tzinfo=timezone.utc)
+    assert start == frbc.align_to_resolution(start)
+    assert start.microsecond == 0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from dataclasses import dataclass, field
 from typing import Mapping, TypeVar
 from uuid import uuid4
 
@@ -9,7 +10,7 @@ import semver
 from packaging.version import Version
 
 try:
-    from s2python.common import ReceptionStatus, ReceptionStatusValues
+    from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
 except ImportError:
     raise ImportError(
         "The 's2-python' package is required for this functionality. "
@@ -37,6 +38,12 @@ class SizeLimitOrderedDict(OrderedDict, Mapping[KT, VT]):
             self.popitem()
 
         return super().__setitem__(__key, __value)
+
+
+@dataclass
+class ControlContext:
+    control_type: ControlType | None = None
+    handler_ready: dict[ControlType, bool] = field(default_factory=dict)
 
 
 def get_unique_id() -> str:

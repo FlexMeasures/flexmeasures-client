@@ -1,0 +1,74 @@
+{
+    "input": [
+        {
+            "name": "production",
+            "sensor": 3654,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        },
+        {
+            "name": "pv-power",
+            "sensor": 3655,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        },
+        {
+            "name": "building-consumption",
+            "sensor": 3643,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        },
+        {
+            "name": "evse1-consumption",
+            "sensor": 3658,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        },
+        {
+            "name": "evse2-consumption",
+            "sensor": 3662,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        },
+        {
+            "name": "battery-power",
+            "sensor": 3656,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        },
+        {
+            "name": "heating-power",
+            "sensor": 3666,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        }
+    ],
+    "output": [
+        {
+            "name": "self-consumption",
+            "sensor": 3650
+        },
+        {
+            "name": "daily-share-of-self-consumption",
+            "sensor": 3653
+        }
+    ],
+    "start": "2030-01-15T00:00:00+01:00",
+    "end": "2030-01-16T00:00:00+01:00",
+    "belief_horizon": "PT0H",
+    "check_output_resolution": false
+}

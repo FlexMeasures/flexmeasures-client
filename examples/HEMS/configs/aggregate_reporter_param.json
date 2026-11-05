@@ -1,0 +1,29 @@
+{
+    "input": [
+        {
+            "name": "aggregate-1",
+            "sensor": 3616,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        },
+        {
+            "name": "aggregate-2",
+            "sensor": 3645,
+            "exclude_source_types": [
+                "scheduler",
+                "forecaster"
+            ]
+        }
+    ],
+    "output": [
+        {
+            "sensor": 3613
+        }
+    ],
+    "start": "2030-01-15T20:00:00+01:00",
+    "end": "2030-01-16T00:00:00+01:00",
+    "belief_horizon": "PT0H",
+    "check_output_resolution": false
+}

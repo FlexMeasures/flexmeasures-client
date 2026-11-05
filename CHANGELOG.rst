@@ -16,6 +16,11 @@ Unreleased
 
 `All changes since v0.9.6 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.9.6...main>`__.
 
+Changed
+-------
+
+* ``post_sensor_data()`` awaits asynchronous server-side ingestion by default, after FlexMeasures #2101 made the endpoint answer ``202 Accepted`` with a job id: the client polls the job until it finishes, raises ``IngestionFailedError`` on a failed job, and logs an ERROR and returns where polling times out. Pass ``await_ingestion=False`` for the old behaviour [`#188 <https://github.com/FlexMeasures/flexmeasures-client/pull/188>`__]
+
 Added
 -----
 

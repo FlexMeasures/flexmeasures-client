@@ -82,6 +82,12 @@ def _frbc(system_description) -> FRBCSimple:
         price_sensor_id=2,
         soc_sensor_id=3,
         rm_discharge_sensor_id=4,
+        production_price_sensor_id=5,
+        soc_minima_sensor_id=6,
+        soc_maxima_sensor_id=7,
+        usage_forecast_sensor_id=8,
+        leakage_behaviour_sensor_id=9,
+        charging_efficiency_sensor_id=10,
     )
     frbc._fm_client = AsyncMock(FlexMeasuresClient)
     # The handler asks the power sensor which sign it records consumption in.

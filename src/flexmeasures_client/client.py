@@ -1501,9 +1501,9 @@ class FlexMeasuresClient:
         self,
         name: str,
         account_id: int,
-        latitude: float,
-        longitude: float,
         generic_asset_type_id: int,
+        latitude: float | None = None,
+        longitude: float | None = None,
         parent_asset_id: int | None = None,
         sensors_to_show: list | None = None,
         flex_context: dict | None = None,
@@ -1532,10 +1532,12 @@ class FlexMeasuresClient:
         asset = dict(
             name=name,
             account_id=account_id,
-            latitude=latitude,
-            longitude=longitude,
             generic_asset_type_id=generic_asset_type_id,
         )
+        if latitude is not None:
+            asset["latitude"] = str(latitude)
+        if longitude is not None:
+            asset["longitude"] = str(longitude)
         if parent_asset_id:
             asset["parent_asset_id"] = parent_asset_id
         if sensors_to_show:
@@ -1779,7 +1781,12 @@ class FlexMeasuresClient:
         asset_id: int | None = None,
         prior: datetime | None = None,
         scheduler: str | None = None,
+        metadata: dict | None = None,
     ) -> str:
+        """metadata: opaque orchestration metadata passed alongside the domain
+        payload (a sibling of flex-model/flex-context, mirroring the S2 wrapper
+        convention). Requires a server that accepts the trigger "metadata"
+        field; it is passed through verbatim to the Scheduler."""
         if (sensor_id is None) == (asset_id is None):
             raise ValueError("Pass either a sensor_id or an asset_id.")
         message = {
@@ -1792,6 +1799,8 @@ class FlexMeasuresClient:
             message["flex-model"] = flex_model
         if flex_context is not None:
             message["flex-context"] = flex_context
+        if metadata is not None:
+            message["metadata"] = metadata
 
         force_new_job_creation_requested = False
         if prior is not None:
