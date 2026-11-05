@@ -747,9 +747,19 @@ async def test_the_site_graphs_show_the_buffer_with_its_band_and_what_fills_and_
         if "sensors_to_show" in call.args[1]
     ]
     assert len(shown) == 1
-    plotted = {graph["title"]: set(graph["plots"][0]["sensors"]) for graph in shown[0]}
+    plotted = {graph["title"]: set(graph["sensors"]) for graph in shown[0]}
     by_id = {sensor["id"]: name for name, sensor in sensors.items()}
     named = {title: {by_id[i] for i in ids} for title, ids in plotted.items()}
     assert {"state of charge", "soc minima", "soc maxima"} in named.values()
     assert {"fill rate", "usage forecast"} in named.values()
     assert {"power"} in named.values() and {"price"} in named.values()
+
+
+def test_the_site_graphs_are_in_a_form_every_flexmeasures_reads():
+    """A title and a list of sensors per graph; the form with plots is refused before FlexMeasures v0.32."""
+    graphs = server.site_graphs(
+        {name: {"id": i} for i, name in enumerate(server.SITE_SENSORS, start=1)}
+    )
+    for graph in graphs:
+        assert set(graph) == {"title", "sensors"}
+        assert all(isinstance(i, int) for i in graph["sensors"])

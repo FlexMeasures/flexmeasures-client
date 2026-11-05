@@ -230,24 +230,26 @@ async def configure_site(
 
 
 def site_graphs(sensors: dict[str, dict]) -> list[dict]:
-    """The site's graphs, top to bottom, in the format FlexMeasures takes for an asset's sensors_to_show."""
+    """The site's graphs, top to bottom, as FlexMeasures takes an asset's sensors_to_show.
+
+    In the form with a title and a list of sensors per graph, which every FlexMeasures version reads,
+    rather than the newer one with plots, which needs v0.32 or later and draws the same graphs.
+    The server sets them on every start, so changes made to them in the UI do not outlive a restart.
+    """
 
     def ids(*names: str) -> list[int]:
         return [sensors[name]["id"] for name in names]
 
     return [
-        {"title": "Price", "plots": [{"sensors": ids("price")}]},
-        {
-            "title": "Heat pump: planned and measured power",
-            "plots": [{"sensors": ids("power")}],
-        },
+        {"title": "Price", "sensors": ids("price")},
+        {"title": "Heat pump: planned and measured power", "sensors": ids("power")},
         {
             "title": "Buffer: fill level and comfort band",
-            "plots": [{"sensors": ids("state of charge", "soc minima", "soc maxima")}],
+            "sensors": ids("state of charge", "soc minima", "soc maxima"),
         },
         {
             "title": "Buffer: filled by the heat pump, drawn by hot-water use",
-            "plots": [{"sensors": ids("fill rate", "usage forecast")}],
+            "sensors": ids("fill rate", "usage forecast"),
         },
     ]
 
