@@ -23,6 +23,7 @@ def leakage_behaviour_to_storage_efficiency(
     resolution=timedelta(minutes=15),
     fill_level_scale: float = 1,
     fill_level: float | None = None,
+    share_of: float | None = None,
 ) -> float:
     """
     Convert a FRBC.LeakageBehaviour message into a FlexMeasures compatible storage efficiency.
@@ -73,9 +74,16 @@ def leakage_behaviour_to_storage_efficiency(
     # This used to compound it over the hours in a step instead,
     # which declared a buffer losing 1.5 kWh of 10 a day as holding its heat to within 0.002% over twelve hours,
     # where it loses about 7%, and had the scheduler pre-charge in a cheap hour on the strength of it.
-    # The loss is taken as a share of the top of the range, as before, which understates it at lower fill levels.
+    # FlexMeasures applies a storage efficiency to the stock as it stands, so the loss is a share of a fill level:
+    # of share_of where given, as the fill level a schedule starts from is,
+    # and otherwise of the top of the range, which understates it at lower fill levels.
+    reference = (
+        share_of * fill_level_scale
+        if share_of is not None and share_of > 0
+        else max_fill_level
+    )
     seconds_per_step = pd.Timedelta(resolution) / pd.Timedelta(seconds=1)
-    storage_efficiency = 100 * (1 - (leakage / max_fill_level)) ** seconds_per_step
+    storage_efficiency = 100 * max(0.0, 1 - leakage / reference) ** seconds_per_step
 
     return storage_efficiency
 

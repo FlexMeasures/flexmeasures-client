@@ -121,7 +121,9 @@ async def test_the_shipped_resource_manager_is_planned_for_and_instructed():
 
     tasks = [
         asyncio.create_task(server.serve_resource_manager(cem, fm, sensors)),
-        asyncio.create_task(run_resource_manager(resource_manager, interval=0.3)),
+        asyncio.create_task(
+            run_resource_manager(resource_manager, interval=0.3, forecast_interval=0.3)
+        ),
     ]
     try:
         # Two storage statuses past the first, each a new plan, so that replanning is part of what is checked.
@@ -144,6 +146,7 @@ async def test_the_shipped_resource_manager_is_planned_for_and_instructed():
     refused = [
         m for m in resource_manager.of_type("ReceptionStatus") if m["status"] != "OK"
     ]
+    assert len(cem.of_type("FRBC.UsageForecast")) >= 2  # sent again, not only once
     assert refused == []
 
     start = fm.trigger_and_get_schedule.await_args_list[0].kwargs["start"]
@@ -319,8 +322,15 @@ async def test_the_site_gets_a_sensor_for_every_declaration_and_prices_from_toda
 
 
 def test_the_example_and_the_cem_agree_across_an_element_boundary():
-    """Both follow a step a minute at a time, so from 5 kWh, through the cold element and into the warm one, they agree."""
-    from flexmeasures_client.s2.control_types.FRBC.utils import follow_operation_mode
+    """The CEM follows a step exactly, the example's buffer a minute at a time: two discretisations of S2's definitions.
+
+    Through the cold element and into the warm one they can differ only within the minute of the crossing,
+    by at most a minute of the difference between the two elements' fill rates.
+    """
+    from flexmeasures_client.s2.control_types.FRBC.utils import (
+        UsageProfile,
+        follow_operation_mode,
+    )
 
     buffer = _heating_buffer(5.0)
     heating = buffer.modes[buffer.mode_id]
@@ -333,10 +343,237 @@ def test_the_example_and_the_cem_agree_across_an_element_boundary():
             pd.Timestamp(NOON + step * timedelta(minutes=15)),
             timedelta(minutes=15),
             leakage_behaviour=leakage_behaviour(NOON),
-            usage_forecast=usage_forecast(NOON),
+            usage=UsageProfile(usage_forecast(NOON)),
         )
     buffer.advance(NOON + timedelta(hours=1))
     assert (
         cem_fill_level > 6.0
     )  # the boundary between the cold and the warm element was crossed
-    assert buffer.fill_level == pytest.approx(cem_fill_level, rel=1e-12)
+    a_minute_of_the_difference = (heat(6000) - heat(4500)) * 60
+    assert buffer.fill_level == pytest.approx(
+        cem_fill_level, abs=a_minute_of_the_difference
+    )
+
+
+# ---------------------------------------------------------------------------
+# What the review of #259 found unpinned
+# ---------------------------------------------------------------------------
+
+from flexmeasures_client.s2.script.websockets_client import (  # noqa: E402
+    COLD_BELOW,
+    PHYSICAL_CAPACITY,
+    answer_instructions,
+    expected_usage,
+    fill_level_target_profile,
+    refresh_forecasts,
+    report_fill_level,
+    system_description,
+)
+
+
+class _Collect:
+    """A websocket that collects what is sent and hands over what it is given, then ends."""
+
+    def __init__(self, incoming: list[str] | None = None):
+        self.sent: list[dict] = []
+        self._incoming = list(incoming or [])
+
+    async def send_str(self, data: str) -> None:
+        self.sent.append(json.loads(data))
+
+    def __aiter__(self):
+        async def messages():
+            for data in self._incoming:
+                yield _Text(data)
+                await asyncio.sleep(0)
+
+        return messages()
+
+
+def test_the_forecast_the_example_sends_is_the_usage_it_simulates():
+    """Hour by hour, through a whole day, so that what is planned for is what is drawn."""
+    for start_hour in (0, 13):
+        start = datetime(2024, 1, 1, start_hour, tzinfo=timezone.utc)
+        forecast = usage_forecast(start)
+        for h, element in enumerate(forecast.elements):
+            assert element.usage_rate_expected == pytest.approx(
+                per_second(expected_usage((start_hour + h) % 24))
+            )
+
+
+def test_the_comfort_profile_preheats_before_the_morning_showers():
+    profile = fill_level_target_profile(datetime(2024, 1, 1, tzinfo=timezone.utc))
+    lows = [e.fill_level_range.start_of_range for e in profile.elements]
+    assert lows[6] == 6.0 and expected_usage(7) > expected_usage(6)
+    assert set(lows[:6] + lows[7:]) == {3.0}
+
+
+def test_at_the_boundary_the_buffer_heats_at_the_warm_coefficient():
+    buffer = _heating_buffer(COLD_BELOW)
+    fill, _, _ = buffer.rates(NOON)
+    assert fill == pytest.approx(heat(4500))
+
+
+def test_the_buffer_never_holds_more_than_it_physically_can():
+    buffer = _heating_buffer(PHYSICAL_CAPACITY - 0.1)
+    buffer.advance(NOON + timedelta(hours=2))
+    assert buffer.fill_level == PHYSICAL_CAPACITY
+
+
+def test_the_example_declares_what_it_sends_and_how_it_can_switch():
+    modes = operation_modes()
+    description = system_description(modes, NOON)
+    storage = description.storage
+    assert storage.provides_leakage_behaviour and storage.provides_usage_forecast
+    assert storage.provides_fill_level_target_profile
+    switches = {(str(t.from_), str(t.to)) for t in description.actuators[0].transitions}
+    ids = [str(m.id) for m in modes]
+    assert switches == {(ids[0], ids[1]), (ids[1], ids[0])}
+
+
+@pytest.mark.asyncio
+async def test_the_reported_fill_level_is_where_the_buffer_has_got_to():
+    buffer = _heating_buffer(5.0)
+    buffer.at = datetime.now(timezone.utc) - timedelta(minutes=30)
+    ws = _Collect()
+    reporting = asyncio.create_task(report_fill_level(ws, buffer, interval=0.01))
+    await _until(lambda: ws.sent)
+    reporting.cancel()
+    assert (
+        ws.sent[0]["present_fill_level"] > 5.5
+    )  # half an hour of heating, not where it started
+
+
+@pytest.mark.asyncio
+async def test_a_revoked_instruction_is_not_followed():
+    """A newer plan replaced it; following it anyway left the heat pump in whatever the oldest plan said last."""
+    from s2python.common import RevokableObjects, RevokeObject
+    from s2python.frbc import FRBCInstruction
+
+    from flexmeasures_client.s2.utils import get_unique_id
+
+    due_soon = FRBCInstruction(
+        message_id=get_unique_id(),
+        id=get_unique_id(),
+        actuator_id=get_unique_id(),
+        operation_mode=get_unique_id(),
+        operation_mode_factor=1.0,
+        execution_time=datetime.now(timezone.utc) + timedelta(milliseconds=200),
+        abnormal_condition=False,
+    )
+    revoke = RevokeObject(
+        message_id=get_unique_id(),
+        object_type=RevokableObjects.FRBC_Instruction,
+        object_id=due_soon.id,
+    )
+    ws = _Collect([due_soon.model_dump_json(), revoke.model_dump_json()])
+    await answer_instructions(ws)
+    await asyncio.sleep(0.4)
+    assert not [m for m in ws.sent if m["message_type"] == "FRBC.ActuatorStatus"]
+    acknowledged = {
+        m["subject_message_id"]
+        for m in ws.sent
+        if m["message_type"] == "ReceptionStatus"
+    }
+    assert str(revoke.message_id) in acknowledged
+
+
+@pytest.mark.asyncio
+async def test_the_forecasts_are_sent_again_from_now_on():
+    ws = _Collect()
+    refreshing = asyncio.create_task(
+        refresh_forecasts(ws, leakage_behaviour(NOON), interval=0.01)
+    )
+    await _until(lambda: len(ws.sent) >= 3)
+    refreshing.cancel()
+    assert [m["message_type"] for m in ws.sent[:3]] == [
+        "FRBC.LeakageBehaviour",
+        "FRBC.UsageForecast",
+        "FRBC.FillLevelTargetProfile",
+    ]
+    assert pd.Timestamp(ws.sent[0]["valid_from"]) > NOON
+
+
+@pytest.mark.asyncio
+async def test_the_server_plans_from_now_in_the_site_time_zone_and_revokes_what_it_replaces():
+    from unittest.mock import patch
+
+    made = []
+    real = server.FRBCSimple
+
+    def capture(**kwargs):
+        frbc = real(**kwargs)
+        made.append((kwargs, frbc))
+        return frbc
+
+    resource_manager, cem = _connected()
+    sensors = {name: {"id": i} for i, name in enumerate(server.SITE_SENSORS, start=1)}
+    with patch.object(server, "FRBCSimple", side_effect=capture):
+        serving = asyncio.create_task(
+            server.serve_resource_manager(cem, _flexmeasures(), sensors)
+        )
+        await _until(lambda: made)
+        serving.cancel()
+        await asyncio.gather(serving, return_exceptions=True)
+    kwargs, frbc = made[0]
+    assert kwargs["timezone"] == server.SITE_TIMEZONE
+    assert kwargs["valid_from_shift"] == timedelta(0)
+    assert frbc.send_revocations is True
+
+
+def test_the_site_sensors_are_what_the_cem_records_in():
+    assert server.SITE_SENSORS["state of charge"][:2] == ("kWh", "PT0M")
+    assert server.SITE_SENSORS["storage efficiency"][0] == "%"
+    assert server.SITE_SENSORS["usage forecast"][0] == "kWh/s"
+
+
+@pytest.mark.asyncio
+async def test_the_demo_prices_are_seeded_again_while_the_server_runs():
+    from unittest.mock import patch
+
+    from aiohttp import web
+
+    app = web.Application()
+    fm = _flexmeasures()
+    app[server.FM_CLIENT] = fm
+    app[server.SENSORS] = {"price": {"id": 10}}
+    with patch.object(server, "SEED_PRICES_EVERY", timedelta(milliseconds=10)):
+        seeding = server.keep_prices_seeded(app)
+        await seeding.__anext__()
+        await _until(lambda: fm.post_sensor_data.await_count >= 2)
+        with pytest.raises(StopAsyncIteration):
+            await seeding.__anext__()
+    assert fm.post_sensor_data.await_args.kwargs["sensor_id"] == 10
+
+
+def test_the_loss_is_a_share_of_the_fill_level_a_schedule_starts_from():
+    """1.5 kWh a day from a 5 kWh buffer is a larger share of it than of a 12 kWh one."""
+    from flexmeasures_client.s2.control_types.translations import (
+        leakage_behaviour_to_storage_efficiency,
+    )
+
+    leakage = leakage_behaviour(NOON)
+    at_five = leakage_behaviour_to_storage_efficiency(
+        leakage, resolution=timedelta(minutes=15), fill_level=7.0, share_of=5.0
+    )
+    rate = per_second(1.5 / 24)  # the warm element, which applies at 7
+    assert at_five == pytest.approx(100 * (1 - rate / 5.0) ** 900, rel=1e-12)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_reseed_is_tried_again_at_the_next_interval():
+    from unittest.mock import patch
+
+    from aiohttp import web
+
+    app = web.Application()
+    fm = _flexmeasures()
+    fm.post_sensor_data.side_effect = [ConnectionError("down"), None, None]
+    app[server.FM_CLIENT] = fm
+    app[server.SENSORS] = {"price": {"id": 10}}
+    with patch.object(server, "SEED_PRICES_EVERY", timedelta(milliseconds=10)):
+        seeding = server.keep_prices_seeded(app)
+        await seeding.__anext__()
+        await _until(lambda: fm.post_sensor_data.await_count >= 2)
+        with pytest.raises(StopAsyncIteration):
+            await seeding.__anext__()

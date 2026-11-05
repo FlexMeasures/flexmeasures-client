@@ -525,8 +525,10 @@ def test_the_storage_efficiency_at_a_fill_level_is_that_elements():
 async def test_the_handler_records_leakage_at_the_latest_fill_level():
     leakage = _leakage(LEAKS_LITTLE, LEAKS_MOST, LEAKS_SOME)
     frbc = _frbc(_system_description(_mode(COLD, WARM)), leakage_behaviour_sensor_id=9)
-    _report_fill_level(frbc, 20.0)
-    await frbc.send_leakage_behaviour(leakage)
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+    await frbc._record_storage_efficiency(
+        datetime(2024, 1, 2, tzinfo=timezone.utc), 20.0
+    )
     posted = [
         call.kwargs["values"]
         for call in frbc._fm_client.post_sensor_data.await_args_list
@@ -535,7 +537,10 @@ async def test_the_handler_records_leakage_at_the_latest_fill_level():
     assert posted == [
         [
             leakage_behaviour_to_storage_efficiency(
-                leakage, resolution=timedelta(minutes=15), fill_level=20.0
+                leakage,
+                resolution=timedelta(minutes=15),
+                fill_level=20.0,
+                share_of=20.0,
             )
         ]
     ]

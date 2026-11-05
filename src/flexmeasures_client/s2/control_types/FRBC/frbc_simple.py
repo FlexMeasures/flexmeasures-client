@@ -214,6 +214,7 @@ class FRBCSimple(FRBC):
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._charging_efficiency_sensor_id = charging_efficiency_sensor_id
         self._charging_efficiency_recorded = None
+        self._storage_efficiency_recorded: tuple[datetime, float] | None = None
         if resolution <= timedelta(0) or schedule_duration <= timedelta(0):
             raise ValueError(
                 f"resolution and schedule_duration have to be positive, but {resolution} and {schedule_duration} were given."
@@ -289,17 +290,22 @@ class FRBCSimple(FRBC):
         resolution_seconds = int(self._resolution.total_seconds())
         if resolution_seconds <= 0:
             return moment
-        seconds_into_the_day = (
-            moment.hour * 3600 + moment.minute * 60 + moment.second
-        ) % resolution_seconds
-        return moment.replace(microsecond=0) - timedelta(seconds=seconds_into_the_day)
+        # Floored as an instant, in UTC, and handed back in the moment's own time zone.
+        # Flooring the local clock instead took the repeated hour of an autumn DST change for its first pass,
+        # an hour earlier than meant. For Europe/Amsterdam and a resolution dividing an hour the two agree everywhere else.
+        seconds = int(moment.timestamp())
+        floored = datetime.fromtimestamp(
+            seconds - seconds % resolution_seconds, tz=ZoneInfo("UTC")
+        )
+        return floored.astimezone(moment.tzinfo)
 
     def schedule_start(self, valid_from: datetime) -> datetime:
-        """Where a schedule asked for at valid_from starts: shifted, never before now, then floored to a boundary.
+        """Where a schedule asked for at valid_from starts: shifted, then floored to a boundary, but not into an earlier step than now's.
 
-        Never before now, since planning happens on every storage status while a description may be days old:
+        Not into an earlier step, since planning happens on every storage status while a description may be days old:
         anchored to that description alone, every status in a long session was answered with the same window,
         which slid into the past, so its instructions were all due already and arrived as one burst.
+        The step now falls in has begun already, so its first instruction is due at once.
         """
         return self.align_to_resolution(
             max(valid_from + self._valid_from_shift, self.now())
@@ -315,7 +321,8 @@ class FRBCSimple(FRBC):
             # band around it would be in different scales wherever fill_level_scale is not 1.
             values=[status.present_fill_level * self._fill_level_scale],
             unit=self.energy_unit,
-            duration=timedelta(minutes=1),
+            # A reading at an instant, not over the minute after it, which FlexMeasures took for a forecast.
+            duration=timedelta(0),
         )
 
         # The state of charge this status reports is what a schedule starts from, so this is
@@ -861,7 +868,7 @@ class FRBCSimple(FRBC):
             )
         if self._usage_forecast_sensor_id is not None:
             flex_model["soc-usage"] = [{"sensor": self._usage_forecast_sensor_id}]
-        if self._leakage_behaviour_sensor_id is not None:
+        if await self._record_storage_efficiency(start, fill_level_at_start):
             flex_model["storage-efficiency"] = {
                 "sensor": self._leakage_behaviour_sensor_id
             }
@@ -1041,28 +1048,53 @@ class FRBCSimple(FRBC):
         )
 
     async def send_leakage_behaviour(self, leakage_behaviour: FRBCLeakageBehaviour):
-        """Record what a resource manager's storage loses on its own, as a storage efficiency."""
+        """Keep a resource manager's leakage behaviour for planning, which records it when it asks for a schedule.
+
+        Recorded on arrival instead, it covered the hours after the message rather than the window being planned,
+        at a fill level nobody had reported yet, and planning went on without it once those hours had passed.
+        """
         if self._leakage_behaviour_sensor_id is None:
             self._logger.info(
                 "Not recording an FRBC.LeakageBehaviour: no leakage-behaviour sensor is configured."
             )
-            return
 
+    async def _record_storage_efficiency(
+        self, start: datetime, fill_level: float
+    ) -> bool:
+        """Record what the storage keeps of itself per step, over the window a schedule covers, from where it starts.
+
+        :returns: whether the schedule may be planned against the sensor, which it may not where nothing is recorded on it.
+        """
+        leakage_behaviour = self._latest(self._leakage_behaviour_history)
+        if self._leakage_behaviour_sensor_id is None or leakage_behaviour is None:
+            return False
         # What remains after one step of this handler's resolution,
         # which FlexMeasures reads as one step of the leakage sensor's resolution, so the two have to agree.
-        storage_efficiency = leakage_behaviour_to_storage_efficiency(
+        efficiency = leakage_behaviour_to_storage_efficiency(
             message=leakage_behaviour,
             resolution=self._resolution,
             fill_level_scale=self._fill_level_scale,
-            fill_level=self._latest_fill_level(),
+            fill_level=fill_level,
+            share_of=fill_level,
         )
-
-        now = self.now()
-        await self._fm_client.post_sensor_data(
-            sensor_id=self._leakage_behaviour_sensor_id,
-            start=self.align_to_resolution(leakage_behaviour.valid_from or now),
-            prior=now,
-            values=[storage_efficiency],
-            unit="%",
-            duration=self._schedule_duration,
-        )
+        if self._storage_efficiency_recorded == (start, efficiency):
+            return True
+        try:
+            await self._fm_client.post_sensor_data(
+                sensor_id=self._leakage_behaviour_sensor_id,
+                start=start,
+                prior=self.now(),
+                values=[efficiency],
+                unit="%",
+                duration=self._schedule_duration,
+            )
+        except (JobFailedError, ValueError, ConnectionError):
+            self._logger.exception(
+                "Not asking for a schedule against a storage efficiency: could not record %s %% on sensor %s for %s.",
+                efficiency,
+                self._leakage_behaviour_sensor_id,
+                start,
+            )
+            return False
+        self._storage_efficiency_recorded = (start, efficiency)
+        return True

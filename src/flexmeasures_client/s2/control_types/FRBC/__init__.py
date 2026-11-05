@@ -232,8 +232,10 @@ class FRBC(ControlTypeHandler):
 
         # A description says what the device can do, and a storage status what it holds now,
         # and a schedule needs both. Planning normally hangs off a storage status (see handle_storage_status),
-        # but a description that arrives after the latest status, or that changes what the device can do,
+        # but a description that arrives after the latest status, and differs from the description before it,
         # is answered with a schedule against that latest status.
+        # Anything but the message id counts as a difference, its validity included,
+        # so a resource manager that re-dates its description on every resend asks for a schedule every time.
         # Otherwise a resource manager that sends its status first, or whose fill level holds steady
         # so that no new status follows, is never planned for, or keeps being planned for with what it can no longer do.
         if self._storage_status_history:

@@ -334,3 +334,64 @@ async def test_the_soc_is_not_reposted_when_a_description_asks_for_a_schedule():
     await settle(frbc)
 
     assert frbc._fm_client.post_measurements.await_count == posts_after_the_status
+
+
+def test_a_step_boundary_in_the_repeated_autumn_hour_is_not_an_hour_early():
+    """At 02:07 the second time round, on the night the clocks go back, the step began at 02:00 of that second pass."""
+    from zoneinfo import ZoneInfo
+
+    frbc = frbc_simple()
+    amsterdam = ZoneInfo("Europe/Amsterdam")
+    second_pass = datetime(2026, 10, 25, 1, 7, tzinfo=timezone.utc).astimezone(
+        amsterdam
+    )
+    assert second_pass.fold == 1
+    aligned = frbc.align_to_resolution(second_pass)
+    assert aligned.astimezone(timezone.utc) == datetime(
+        2026, 10, 25, 1, 0, tzinfo=timezone.utc
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_plan_asked_for_by_a_late_description_supersedes_one_in_flight():
+    """A status's plan is still out when a changed description asks for its own: only the newer batch goes out."""
+    frbc = frbc_simple()
+    release = asyncio.Event()
+    planned = frbc._fm_client.trigger_and_get_schedule.return_value
+
+    async def slow_then_quick(**kwargs):
+        if frbc._fm_client.trigger_and_get_schedule.await_count == 1:
+            await release.wait()
+        return planned
+
+    frbc._fm_client.trigger_and_get_schedule.side_effect = slow_then_quick
+    batches: list[tuple[int, int]] = []
+    send = frbc.send_instruction_batch
+
+    async def recording(*args, **kwargs):
+        sent = await send(*args, **kwargs)
+        batches.append((kwargs["request_number"], sent))
+        return sent
+
+    frbc.send_instruction_batch = recording
+    await frbc.handle_message(system_description("2022-12-02T00:00:00+00:00"))
+    await frbc.handle_message(storage_status())
+    await asyncio.sleep(0.05)
+    await frbc.handle_message(system_description("2022-12-02T06:00:00+00:00"))
+    await asyncio.sleep(0.05)
+    release.set()
+    await settle(frbc)
+    assert frbc._fm_client.trigger_and_get_schedule.await_count == 2
+    sent = dict(batches)
+    assert sent[2] > 0  # the description's plan, which is the newer request
+    assert sent[1] == 0  # the status's plan, overtaken while it was out
+
+
+@pytest.mark.asyncio
+async def test_a_state_of_charge_is_recorded_as_a_reading_at_an_instant():
+    frbc = frbc_simple()
+    await frbc.handle_message(storage_status())
+    await settle(frbc)
+    assert frbc._fm_client.post_measurements.await_args.kwargs["duration"] == timedelta(
+        0
+    )
