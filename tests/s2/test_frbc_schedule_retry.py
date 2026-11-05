@@ -464,3 +464,66 @@ async def test_a_state_of_charge_that_could_not_be_recorded_is_planned_from_all_
 
     assert _attempts(frbc) == 1
     assert "Could not record the state of charge" in caplog.text
+
+
+def _wrapped_http_error(status: int) -> ConnectionError:
+    """What the client raises for an HTTP error: a ConnectionError, caused by aiohttp's own."""
+    from aiohttp import ClientResponseError
+
+    failure = ConnectionError("Error occurred while communicating with the API")
+    failure.__cause__ = ClientResponseError(None, (), status=status)
+    return failure
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status, attempts", [(404, 1), (503, 3)])
+async def test_an_http_error_is_asked_again_only_where_it_may_be_passing(
+    status, attempts
+):
+    """A 4xx answers the same next time; a 5xx may be a restart."""
+    system_description = _heater()
+    frbc = _frbc(system_description, schedule_attempts=3)
+    frbc._fm_client.trigger_and_get_schedule.side_effect = _wrapped_http_error(status)
+
+    with pytest.raises(ConnectionError):
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert _attempts(frbc) == attempts
+
+
+@pytest.mark.asyncio
+async def test_a_job_nobody_picked_up_is_asked_about_once_more_only():
+    """Each attempt waits out the whole job timeout, and a dead queue is still dead after it."""
+    system_description = _heater()
+    frbc = _frbc(system_description, schedule_attempts=5)
+    frbc._fm_client.trigger_and_get_schedule.side_effect = JobTimeoutError("pending")
+
+    with pytest.raises(JobTimeoutError):
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert _attempts(frbc) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_failed_version_lookup_does_not_take_the_place_of_the_failure_it_was_for(
+    caplog,
+):
+    system_description = _heater()
+    frbc = _frbc(system_description, schedule_attempts=3)
+
+    def version_at_least(minimum):
+        # Only the lookup the retry makes fails; the flex model's own lookups go through.
+        if minimum == "0.33.0":
+            raise ConnectionError("version lookup failed")
+        return _server_version_at_least("1.1.0", minimum)
+
+    frbc._fm_client.server_version_at_least = AsyncMock(side_effect=version_at_least)
+    frbc._fm_client.trigger_and_get_schedule.side_effect = ValueError(
+        "Request failed with status code 400"
+    )
+
+    with pytest.raises(ValueError):
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert _attempts(frbc) == 1
+    assert "left without an instruction" in caplog.text

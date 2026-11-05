@@ -355,8 +355,13 @@ class FRBC(ControlTypeHandler):
     @register(FRBCTimerStatus)
     def handle_frbc_timer_status(self, message: FRBCTimerStatus) -> pydantic.BaseModel:
         # Kept, so that what the resource manager said is there to see, though nothing plans with it yet.
+        # Warned about once per timer, since a resource manager sends a status on every run of every timer.
+        warned = any(
+            known.timer_id == message.timer_id
+            for known in self._timer_status_history.values()
+        )
         self._timer_status_history[str(message.message_id)] = message
-        self._logger.warning(
+        (self._logger.debug if warned else self._logger.warning)(
             "Timer %s runs until %s, which this CEM does not honour: an instruction may ask for a switch it blocks.",
             message.timer_id,
             message.finished_at,

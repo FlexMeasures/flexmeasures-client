@@ -122,3 +122,52 @@ async def test_usage_is_planned_with_only_where_the_resource_manager_says_it_sen
     flex_model = await _flex_model(frbc, system_description)
 
     assert ("soc-usage" in flex_model) is provided
+
+
+@pytest.mark.asyncio
+async def test_a_usage_forecast_sent_despite_the_flag_is_planned_with():
+    """What a resource manager sends says more than the flag it set once."""
+    from datetime import timedelta
+
+    from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
+
+    system_description = _heater()  # provides_usage_forecast=False
+    frbc = _frbc(system_description, usage_forecast_sensor_id=7)
+    forecast = FRBCUsageForecast(
+        message_id=get_unique_id(),
+        start_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        elements=[
+            FRBCUsageForecastElement(
+                duration=Duration.from_timedelta(timedelta(hours=1)),
+                usage_rate_expected=0.1,
+            )
+        ],
+    )
+    frbc._usage_forecast_history[str(forecast.message_id)] = forecast
+
+    flex_model = await _flex_model(frbc, system_description)
+
+    assert "soc-usage" in flex_model
+
+
+@pytest.mark.asyncio
+async def test_a_timer_is_warned_about_once(caplog):
+    """A resource manager sends a status on every run of every timer."""
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    timer_id = get_unique_id()
+
+    def status():
+        return FRBCTimerStatus(
+            message_id=get_unique_id(),
+            timer_id=timer_id,
+            actuator_id=system_description.actuators[0].id,
+            finished_at=datetime(2024, 1, 1, 0, 5, tzinfo=timezone.utc),
+        ).to_dict()
+
+    with caplog.at_level(logging.WARNING):
+        await frbc.handle_message(status())
+        await frbc.handle_message(status())
+
+    assert caplog.text.count("does not honour") == 1
+    assert len(frbc._timer_status_history) == 2

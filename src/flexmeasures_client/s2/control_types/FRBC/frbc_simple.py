@@ -25,7 +25,7 @@ except ImportError:
 
 
 import pandas as pd
-from aiohttp import ClientError
+from aiohttp import ClientError, ClientResponseError
 
 from flexmeasures_client.client import convert_units
 from flexmeasures_client.exceptions import (
@@ -892,7 +892,9 @@ class FRBCSimple(FRBC):
         self._charging_efficiency_recorded = (start, efficiency)
         return True
 
-    async def _is_worth_asking_again(self, failure: Exception) -> bool:
+    async def _is_worth_asking_again(
+        self, failure: Exception, attempt: int = 1
+    ) -> bool:
         """Whether a failed attempt at a schedule is worth making again.
 
         A job that reached the server and failed inside it is,
@@ -910,25 +912,31 @@ class FRBCSimple(FRBC):
             return False
         # A job nobody picked up in time, and a server that could not be reached, may both be there for the next attempt:
         # a scheduling queue without a live worker, and a gateway restarting, are the likeliest of either.
+        # A timeout has already waited out the job's whole timeout, and a dead queue will not come back two seconds later,
+        # so it is asked about once more, not on every attempt allowed.
+        if isinstance(failure, JobTimeoutError):
+            return attempt == 1
+        # The client wraps every HTTP error in a ConnectionError,
+        # and one answering 4xx, such as an endpoint an old server lacks, answers the same next time.
+        cause = failure.__cause__
+        if isinstance(cause, ClientResponseError) and cause.status < 500:
+            return False
         if isinstance(
             failure,
-            (
-                JobFailedError,
-                JobTimeoutError,
-                ConnectionError,
-                TimeoutError,
-                ClientError,
-            ),
+            (JobFailedError, ConnectionError, TimeoutError, ClientError),
         ):
             return True
         if any(marker in message for marker in RETRYABLE_TRIGGER_REFUSALS):
             return True
         # FlexMeasures before v0.33.0 reports a failed job only as a bare HTTP 400,
         # which cannot be told apart from a refused trigger, so it is asked again, within the attempts allowed.
-        return (
-            message == BARE_REFUSAL
-            and not await self._fm_client.server_version_at_least("0.33.0")
-        )
+        if message != BARE_REFUSAL:
+            return False
+        # Looked up inside the handling of another failure, so a failure of its own must not take that one's place.
+        try:
+            return not await self._fm_client.server_version_at_least("0.33.0")
+        except REQUEST_FAILURES:
+            return False
 
     async def _ask_for_a_schedule(
         self,
@@ -975,7 +983,7 @@ class FRBCSimple(FRBC):
             except (*REQUEST_FAILURES, NotImplementedError) as failure:
                 if (
                     attempt >= self._schedule_attempts
-                    or not await self._is_worth_asking_again(failure)
+                    or not await self._is_worth_asking_again(failure, attempt)
                 ):
                     self._logger.exception(
                         "The storage is left without an instruction for the window starting %s: asking for a schedule failed on attempt %s of %s.",
@@ -1172,11 +1180,15 @@ class FRBCSimple(FRBC):
         if self._usage_forecast_sensor_id is not None:
             # Not where the resource manager said it sends no usage forecast,
             # since nothing would then be recorded on the sensor for the scheduler to read.
-            if system_description.storage.provides_usage_forecast:
+            # Or where it sent one anyway, which is what it says it will do, whatever its flag says.
+            if (
+                system_description.storage.provides_usage_forecast
+                or self._usage_forecast_history
+            ):
                 flex_model["soc-usage"] = [{"sensor": self._usage_forecast_sensor_id}]
             else:
                 self._logger.info(
-                    "Planning without usage: the resource manager says it provides no usage forecast."
+                    "Planning without usage: the resource manager says it provides no usage forecast, and has sent none."
                 )
         if await self._record_storage_efficiency(start, fill_level_at_start):
             flex_model["storage-efficiency"] = {
