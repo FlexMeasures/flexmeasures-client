@@ -480,11 +480,14 @@ class FillRateBasedControlTUNES(FRBC):
         except Exception as exc:
             self._logger.error(str(exc))
 
-        # Posted per quarter hour by send_usage_forecast, and read back as such,
-        # while the schedule translation takes a usage rate per second, as S2 states it.
+        # Posted per quarter hour and scaled into FlexMeasures' units by send_usage_forecast, and read back as such,
+        # while the schedule translation takes a usage rate per second, in the resource manager's own units, as S2 states it.
         usage_forecast = pd.Series(
             usage_forecast["values"], index=idx, name="usage_forecast"
-        ) / (pd.Timedelta(RESOLUTION) / pd.Timedelta(seconds=1))
+        ) / (
+            (pd.Timedelta(RESOLUTION) / pd.Timedelta(seconds=1))
+            * self._fill_level_scale
+        )
 
         schedule_series = pd.Series(schedule["values"], index=idx, name="schedule")
 
@@ -507,6 +510,12 @@ class FillRateBasedControlTUNES(FRBC):
             system_description,
             initial_fill_level=soc_at_start / self._fill_level_scale,
             logger=self._logger,
+            # What the storage loses by itself, so that the running fill level falls as well as rises.
+            leakage_behaviour=(
+                list(self._leakage_behaviour_history.values())[-1]
+                if self._leakage_behaviour_history
+                else None
+            ),
         )
 
         # Revoke all previous instructions

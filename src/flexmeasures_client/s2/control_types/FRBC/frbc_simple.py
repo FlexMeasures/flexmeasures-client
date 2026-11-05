@@ -165,6 +165,9 @@ class FRBCSimple(FRBC):
         soc_minima_sensor_id: int | None = None,
         soc_maxima_sensor_id: int | None = None,
         usage_forecast_sensor_id: int | None = None,
+        # Its resolution has to be the handler's resolution: a storage efficiency is what remains after one step,
+        # computed here for a step of the handler's resolution,
+        # and FlexMeasures reads it as one step of the sensor's own resolution.
         leakage_behaviour_sensor_id: int | None = None,
         # Likewise optional: without a sensor to record it on, no charging efficiency is declared,
         # and the scheduler plans the storage as if the actuator converted power into stored energy one for one.
@@ -211,6 +214,13 @@ class FRBCSimple(FRBC):
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._charging_efficiency_sensor_id = charging_efficiency_sensor_id
         self._charging_efficiency_recorded = None
+        if schedule_duration % resolution:
+            # FlexMeasures answers with whole steps of the power sensor's resolution only,
+            # so a duration between two whole numbers of steps comes back with fewer values than it spans,
+            # and the schedule's step, read as its duration over its number of values, would come out wrong.
+            raise ValueError(
+                f"schedule_duration has to be a whole number of resolution steps, but {schedule_duration} is not a multiple of {resolution}."
+            )
         if schedule_attempts < 1:
             # A schedule is asked for at least once, or no schedule is asked for at all.
             raise ValueError(
@@ -1028,6 +1038,8 @@ class FRBCSimple(FRBC):
             )
             return
 
+        # What remains after one step of this handler's resolution,
+        # which FlexMeasures reads as one step of the leakage sensor's resolution, so the two have to agree.
         storage_efficiency = leakage_behaviour_to_storage_efficiency(
             message=leakage_behaviour,
             resolution=self._resolution,

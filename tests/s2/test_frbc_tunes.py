@@ -489,7 +489,12 @@ async def test_planning_reads_its_usage_forecast_back_per_second(
     """TUNES posts a usage forecast per quarter hour; the schedule translation takes a rate per second, as S2 states it."""
     from unittest.mock import patch
 
-    from s2python.frbc import FRBCStorageStatus
+    from s2python.common import NumberRange
+    from s2python.frbc import (
+        FRBCLeakageBehaviour,
+        FRBCLeakageBehaviourElement,
+        FRBCStorageStatus,
+    )
 
     cem, fm_client, _ = cem_in_frbc_control_type
     frbc = cem._control_types_handlers[cem.control_type]
@@ -509,6 +514,19 @@ async def test_planning_reads_its_usage_forecast_back_per_second(
         }
 
     fm_client.get_sensor_data.side_effect = sensor_data
+    # Not 1, which would hide a missing division: TUNES posts usage scaled into FlexMeasures' units.
+    frbc._fill_level_scale = 0.1
+    leakage = FRBCLeakageBehaviour(
+        message_id=get_unique_id(),
+        valid_from=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        elements=[
+            FRBCLeakageBehaviourElement(
+                fill_level_range=NumberRange(start_of_range=0, end_of_range=100),
+                leakage_rate=0.001,
+            )
+        ],
+    )
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
     # TUNES asks for a schedule by trigger and get, rather than trigger_and_get_schedule, over six hours.
     fm_client.get_schedule.return_value = {"values": [0.0] * 24}
     with patch(
@@ -519,4 +537,6 @@ async def test_planning_reads_its_usage_forecast_back_per_second(
 
     frame = translate.call_args.args[0]
     usage = list(frame["usage_forecast"].dropna())
-    assert usage and usage == [pytest.approx(1.0)] * len(usage)
+    # 900 per quarter hour, scaled by 0.1 on the way out: 10 per second in the resource manager's own units.
+    assert usage and usage == [pytest.approx(10.0)] * len(usage)
+    assert translate.call_args.kwargs["leakage_behaviour"] is leakage

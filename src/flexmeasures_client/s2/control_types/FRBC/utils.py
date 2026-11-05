@@ -45,7 +45,7 @@ def compute_next_fill_level(
 
     :param leakage_behaviour: what the storage loses by itself, from the element that applies at this fill level;
                               none where the resource manager has not said.
-    :param usage_rate:        what is drawn from the storage, as the usage forecast expects it over this step.
+    :param usage_rate:        what is drawn from the storage, held over this step.
     """
     leakage_rate = 0.0
     if leakage_behaviour is not None:
@@ -53,6 +53,55 @@ def compute_next_fill_level(
             leakage_behaviour.elements, fill_level
         ).leakage_rate
     return fill_level + (fill_rate - usage_rate - leakage_rate) * step.total_seconds()
+
+
+#: How finely a step is followed, so that an element boundary, or a change in usage, is taken when it happens.
+FOLLOWED_EVERY = timedelta(minutes=1)
+#: How close two factors are to count as the same instruction: a solver's own rounding is not a new instruction.
+FACTOR_TOLERANCE = 1e-6
+
+
+def follow_operation_mode(
+    fill_level: float,
+    operation_mode: FRBCOperationMode,
+    factor: float,
+    start: pd.Timestamp,
+    step: timedelta,
+    leakage_behaviour: FRBCLeakageBehaviour | None = None,
+    usage_forecast: FRBCUsageForecast | None = None,
+    usage_rate: float | None = None,
+    bounds: tuple[float, float] | None = None,
+) -> float:
+    """The fill level after following one operation mode at one factor for a step, as a resource manager does.
+
+    An instruction fixes the mode and the factor, not the element:
+    within the step the fill level can pass from one element into another, of the mode or of the leakage behaviour,
+    and the usage a forecast expects can change. Each is taken where and when it applies, to within FOLLOWED_EVERY,
+    rather than held at what it was when the step began.
+
+    :param usage_rate: one usage rate for the whole step, which takes the place of the forecast.
+    :param bounds:     the fill levels the storage is held between, at every moment rather than only at the end.
+    """
+    elapsed = timedelta(0)
+    while elapsed < step:
+        dt = min(FOLLOWED_EVERY, step - elapsed)
+        element = element_for_fill_level(operation_mode.elements, fill_level)
+        low, high = element.fill_rate.start_of_range, element.fill_rate.end_of_range
+        fill_level = compute_next_fill_level(
+            fill_level,
+            low + (high - low) * factor,
+            dt,
+            leakage_behaviour=leakage_behaviour,
+            usage_rate=(
+                usage_rate
+                if usage_rate is not None
+                else usage_rate_at(usage_forecast, start + elapsed)
+            ),
+        )
+        if bounds is not None:
+            fill_level = max(bounds[0], min(bounds[1], fill_level))
+        elapsed += dt
+    return fill_level
 
 
 def usage_rate_at(
@@ -209,7 +258,8 @@ def fm_schedule_to_instructions(
         # asked for 1200 W from a mode running 800 to 1200 W at one fill rate, that asked for 800 W.
         answer = (str(best_operation_mode.id), operation_mode_factor)
         if last_instructed is None or not (
-            answer[0] == last_instructed[0] and isclose(answer[1], last_instructed[1])
+            answer[0] == last_instructed[0]
+            and isclose(answer[1], last_instructed[1], abs_tol=FACTOR_TOLERANCE)
         ):
             instruction = FRBCInstruction(
                 message_id=get_unique_id(),
@@ -226,19 +276,24 @@ def fm_schedule_to_instructions(
             instructions.append(instruction)
             last_instructed = answer
 
-        usage_rate = (
-            float(row["usage_forecast"])
-            if has_usage_column
-            else usage_rate_at(usage_forecast, pd.Timestamp(timestamp))
-        )
-        fill_level = compute_next_fill_level(
-            fill_level=fill_level,
-            fill_rate=best_fill_rate,
-            step=step,
+        # A gap in a usage column, as FlexMeasures returns for a moment it holds nothing for, is no usage known, not NaN:
+        # a NaN fill level would be held at the top of the bounds, and answered there from then on.
+        usage_rate = None
+        if has_usage_column:
+            usage_rate = (
+                0.0 if pd.isna(row["usage_forecast"]) else float(row["usage_forecast"])
+            )
+        fill_level = follow_operation_mode(
+            fill_level,
+            best_operation_mode,
+            operation_mode_factor,
+            pd.Timestamp(timestamp),
+            step,
             leakage_behaviour=leakage_behaviour,
+            usage_forecast=usage_forecast,
             usage_rate=usage_rate,
+            bounds=(fill_level_min, fill_level_max),
         )
-        fill_level = max(fill_level_min, min(fill_level_max, fill_level))
 
     return instructions
 
@@ -415,11 +470,12 @@ def power_to_fill_rate_with_metrics(
 
     if pr_end == pr_start:
         # Every factor draws this one power, so the power cannot say which factor is meant.
-        # The one that fills the storage most for it is asked for, which is either end of the fill-rate range,
-        # and where that range is a single value too, the factor makes no difference and stays at zero.
+        # The top of the fill-rate range is asked for, which is where operation_mode_conversion_efficiency
+        # declares the efficiency FlexMeasures plans with, so the plan and the instruction agree.
+        # Where the fill-rate range is a single value too, the factor makes no difference and stays at zero.
         fr_start = best_element.fill_rate.start_of_range
         fr_end = best_element.fill_rate.end_of_range
-        factor = 1.0 if fr_end > fr_start else 0.0
+        factor = 0.0 if fr_end == fr_start else 1.0
         efficiency = 0.0
     else:
         factor = (power - pr_start) / (pr_end - pr_start)

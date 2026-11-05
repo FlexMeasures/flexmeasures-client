@@ -49,9 +49,10 @@ def example_op_mode_elem(default_power_range):
         # Worked back out of the fill rate instead, this asked for the bottom of the power range.
         ((800.0, 1200.0), (2.0, 2.0), 1200.0, 1.0),
         ((800.0, 1200.0), (2.0, 2.0), 1000.0, 0.5),
-        # One power, a range of fill rate: every factor draws this power, so the one that fills most is asked for.
+        # One power, a range of fill rate: every factor draws this power,
+        # so the top of the fill-rate range is asked for, which is where the efficiency FlexMeasures plans with is declared.
         ((1000.0, 1000.0), (1.0, 2.0), 1000.0, 1.0),
-        ((1000.0, 1000.0), (2.0, 1.0), 1000.0, 0.0),
+        ((1000.0, 1000.0), (2.0, 1.0), 1000.0, 1.0),
         # One power and one fill rate, as an on-off actuator states them: the factor makes no difference.
         ((1000.0, 1000.0), (2.0, 2.0), 1000.0, 0.0),
     ],

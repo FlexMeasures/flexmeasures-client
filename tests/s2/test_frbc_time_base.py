@@ -389,3 +389,182 @@ def test_a_schedule_without_values_asks_for_nothing():
         )
         == []
     )
+
+
+# ---------------------------------------------------------------------------
+# Following a step as a resource manager does (from the review of #258)
+# ---------------------------------------------------------------------------
+
+from flexmeasures_client.s2.control_types.FRBC.utils import (  # noqa: E402
+    FOLLOWED_EVERY,
+    follow_operation_mode,
+)
+
+
+def _mode(*elements, label="heat") -> FRBCOperationMode:
+    return FRBCOperationMode(
+        id=get_unique_id(),
+        diagnostic_label=label,
+        elements=list(elements),
+        abnormal_condition_only=False,
+    )
+
+
+def _system_description_of(*modes) -> FRBCSystemDescription:
+    description = _system_description(LOW)
+    description.actuators[0].operation_modes = list(modes)
+    return description
+
+
+def test_an_on_off_heat_pump_is_told_to_switch_off():
+    """On and off each run at one power, so both ask for factor 0: only the mode tells them apart."""
+    on = _mode(
+        _element(
+            0,
+            100,
+            power_top=883.7,
+            power_bottom=883.7,
+            fill_rate_top=1e-3,
+            fill_rate_bottom=1e-3,
+        ),
+        label="on",
+    )
+    off = _mode(_element(0, 100, power_top=0.0, fill_rate_top=0.0), label="off")
+    instructions = fm_schedule_to_instructions(
+        _schedule([883.7, 883.7, 0.0, 0.0]),
+        _system_description_of(on, off),
+        initial_fill_level=10.0,
+    )
+    assert [(i.execution_time, str(i.operation_mode)) for i in instructions] == [
+        (START, str(on.id)),
+        (START + 2 * QUARTER_HOUR, str(off.id)),
+    ]
+
+
+def test_a_solvers_rounding_is_not_a_new_instruction():
+    """At the bottom of a modulating range, 800 W give or take a ten-millionth is one instruction, not one per step."""
+    modulating = _mode(
+        _element(
+            0,
+            100,
+            power_top=1200.0,
+            power_bottom=800.0,
+            fill_rate_top=2e-3,
+            fill_rate_bottom=1e-3,
+        )
+    )
+    noisy = [800.0 + (1e-7 if i % 2 else -1e-7) for i in range(48)]
+    instructions = fm_schedule_to_instructions(
+        _schedule(noisy), _system_description_of(modulating), initial_fill_level=10.0
+    )
+    assert len(instructions) == 1
+
+
+def test_usage_is_followed_through_the_step_not_sampled_at_its_start():
+    """A five-minute draw in each quarter hour takes five minutes' worth, not none and not fifteen."""
+    burst = _usage(*[(timedelta(minutes=5), 0.03), (timedelta(minutes=10), 0.0)] * 4)
+    idle = _mode(_element(0, 100, power_top=0.0, fill_rate_top=0.0))
+    assert follow_operation_mode(
+        50.0, idle, 0.0, pd.Timestamp(START), QUARTER_HOUR, usage_forecast=burst
+    ) == pytest.approx(50.0 - 0.03 * 300)
+
+
+def test_usage_counts_from_where_the_forecast_starts():
+    """A forecast from 7 minutes past counts from then: 8 minutes of usage in a step that began on the hour."""
+    late = FRBCUsageForecast(
+        message_id=get_unique_id(),
+        start_time=START + timedelta(minutes=7),
+        elements=[
+            FRBCUsageForecastElement(
+                duration=Duration(root=3600 * 1000), usage_rate_expected=0.01
+            )
+        ],
+    )
+    idle = _mode(_element(0, 100, power_top=0.0, fill_rate_top=0.0))
+    assert follow_operation_mode(
+        50.0, idle, 0.0, pd.Timestamp(START), QUARTER_HOUR, usage_forecast=late
+    ) == pytest.approx(50.0 - 0.01 * 480)
+
+
+#: Fills 0.02 per second at full tilt below 50, half that above, as a heat pump does when its buffer warms.
+STEEP = _element(0, 50, power_top=1000.0, fill_rate_top=0.02)
+SHALLOW = _element(50, 100, power_top=2000.0, fill_rate_top=0.01)
+
+
+def test_a_step_that_crosses_into_another_element_is_followed_across_it():
+    """From 46, factor 1 reaches 50 after 200 s, then fills at half the rate: 57, not the 64 of holding the first element."""
+    level = follow_operation_mode(
+        46.0, _mode(STEEP, SHALLOW), 1.0, pd.Timestamp(START), QUARTER_HOUR
+    )
+    assert level == pytest.approx(57.0, abs=0.02 * FOLLOWED_EVERY.total_seconds())
+
+
+def test_leakage_is_followed_across_an_element_boundary_too():
+    """Leaking 0.01 per second above 50 and nothing below, a buffer at 54 settles at 50 rather than draining to 45."""
+    leakage = _leakage((0, 50, 0.0), (50, 100, 0.01))
+    idle = _mode(_element(0, 100, power_top=0.0, fill_rate_top=0.0))
+    level = follow_operation_mode(
+        54.0, idle, 0.0, pd.Timestamp(START), QUARTER_HOUR, leakage_behaviour=leakage
+    )
+    assert level == pytest.approx(50.0, abs=0.01 * FOLLOWED_EVERY.total_seconds())
+
+
+def test_a_gap_in_a_usage_column_is_no_usage_rather_than_a_buffer_full_to_the_top():
+    index = pd.date_range(START, periods=4, freq=QUARTER_HOUR)
+    with_gap = pd.DataFrame(
+        {"schedule": [500.0] * 4, "usage_forecast": [float("nan")] * 4}, index=index
+    )
+    without = pd.DataFrame(
+        {"schedule": [500.0] * 4, "usage_forecast": [0.0] * 4}, index=index
+    )
+    description = _system_description(LOW, HIGH)
+    assert _factors(
+        fm_schedule_to_instructions(with_gap, description, initial_fill_level=45.0)
+    ) == _factors(
+        fm_schedule_to_instructions(without, description, initial_fill_level=45.0)
+    )
+
+
+def test_a_frame_is_read_at_its_own_step():
+    """An hourly frame: an hour at 500 W fills 12, so the buffer is past 50 by the second row."""
+    frame = pd.DataFrame(
+        {"schedule": [500.0] * 3},
+        index=pd.date_range(START, periods=3, freq=timedelta(hours=1)),
+    )
+    instructions = fm_schedule_to_instructions(
+        frame, _system_description(LOW, HIGH), initial_fill_level=45.0
+    )
+    assert _factors(instructions) == [
+        (START, pytest.approx(0.5)),
+        (START + timedelta(hours=1), pytest.approx(1 / 6)),
+    ]
+
+
+def test_a_schedule_duration_between_two_whole_steps_is_refused():
+    """FlexMeasures answers with whole steps only, so such a schedule would be read at the wrong step."""
+    with pytest.raises(ValueError, match="whole number of resolution steps"):
+        FRBCSimple(
+            power_sensor_id=1,
+            price_sensor_id=2,
+            soc_sensor_id=3,
+            rm_discharge_sensor_id=4,
+            schedule_duration=timedelta(hours=2, minutes=30),
+            resolution=timedelta(hours=1),
+        )
+
+
+@pytest.mark.asyncio
+async def test_the_handler_translates_with_the_latest_usage_forecast():
+    system_description = _system_description(LOW, HIGH)
+    frbc = _frbc(system_description)
+    older, latest = _usage((timedelta(hours=1), 1e-4)), _usage(
+        (timedelta(hours=1), 2e-4)
+    )
+    frbc._usage_forecast_history[str(older.message_id)] = older
+    frbc._usage_forecast_history[str(latest.message_id)] = latest
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.fm_schedule_to_instructions",
+        return_value=[],
+    ) as translate:
+        await frbc.trigger_schedule(system_description.message_id)
+    assert translate.call_args.kwargs["usage_forecast"] is latest
