@@ -405,7 +405,8 @@ async def test_a_plan_asked_for_by_a_late_description_supersedes_one_in_flight()
     assert frbc._fm_client.trigger_and_get_schedule.await_count == 2
     sent = dict(batches)
     assert sent[2] > 0  # the description's plan, which is the newer request
-    assert sent[1] == 0  # the status's plan, overtaken while it was out
+    # The status's plan, overtaken while it was out, sends nothing, whether it is dropped before or after translation.
+    assert sent.get(1, 0) == 0
 
 
 @pytest.mark.asyncio
