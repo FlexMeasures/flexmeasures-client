@@ -324,8 +324,21 @@ async def test_a_leakage_behaviour_is_recorded_rather_than_refused(
         getattr(message, "status", None) == ReceptionStatusValues.PERMANENT_ERROR
         for message in sent
     ), sent
-    posted_to = [
-        call.args[0] if call.args else call.kwargs.get("sensor_id")
+    posts = [
+        call
         for call in fm_client.post_sensor_data.await_args_list
+        if (call.args[0] if call.args else call.kwargs.get("sensor_id")) == 15
     ]
-    assert 15 in posted_to, posted_to
+    assert len(posts) == 1, fm_client.post_sensor_data.await_args_list
+    # What the translation makes of this message on a quarter-hour grid, which is what TUNES says it posts.
+    # The fill-level scale is not exercised here: it multiplies both the leakage and the range it is a share of, and cancels.
+    from flexmeasures_client.s2.control_types.translations import (
+        leakage_behaviour_to_storage_efficiency,
+    )
+
+    assert posts[0].kwargs["values"] == [
+        leakage_behaviour_to_storage_efficiency(
+            message=leakage, resolution=timedelta(minutes=15), fill_level_scale=1
+        )
+    ]
+    assert posts[0].kwargs["unit"] == "%"

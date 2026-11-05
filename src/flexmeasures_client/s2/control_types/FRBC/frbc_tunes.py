@@ -310,11 +310,10 @@ class FillRateBasedControlTUNES(FRBC):
             duration=timedelta(minutes=15),
         )
 
-    async def trigger_schedule(
-        self,
-        system_description_id: str | None = None,
-        request_number: int | None = None,
-    ):
+    # It takes neither argument the base class declares: TUNES plans from its latest description,
+    # and does not take part in dropping superseded requests.
+    # Accepting them and ignoring them would turn a caller's mistake into a silent one, so the mismatch stays.
+    async def trigger_schedule(self):  # type: ignore[override]
         """
         Ask FlexMeasures for a new schedule and create FRBC.Instructions to send back to the ResourceManager
         """

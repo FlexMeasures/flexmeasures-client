@@ -1003,3 +1003,19 @@ async def test_a_version_answer_that_is_not_an_object_is_refused() -> None:
         with pytest.raises(ValueError, match="API root, but got a list"):
             await flexmeasures_client.get_versions()
         await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_a_client_without_a_token_authorises_with_the_one_it_fetches() -> None:
+    with aioresponses() as m:
+        m.post(
+            "http://localhost:5000/api/requestAuthToken",
+            status=200,
+            payload={"auth_token": "a-token"},
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        headers = await flexmeasures_client.get_headers(include_auth=True)
+        assert headers["Authorization"] == "a-token"
+        await flexmeasures_client.close()

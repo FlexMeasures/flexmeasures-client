@@ -70,7 +70,10 @@ repos:
       name: No print() in code that runs unattended
       # A CEM's handlers run for days without anyone watching standard output,
       # so what they have to say goes to the log, where a deployment keeps it.
-      # The example scripts and the client's interactive confirmations print on purpose, and are left alone.
+      # The example scripts print on purpose, and so do the client's interactive confirmations, which live outside s2/.
+      # Matched anywhere on a line, not only at its start, and with a space before the parenthesis too,
+      # so that `if x: print(...)`, `return print(...)`, `print (...)`, pprint and writes to stdout or stderr are caught.
       language: pygrep
-      entry: '^\s*print\('
-      files: '^src/flexmeasures_client/s2/(control_types/|cem\.py$)'
+      entry: '\b(print|pprint)\s*\(|sys\.std(out|err)\.write'
+      files: '^src/flexmeasures_client/s2/.*\.py$'
+      exclude: '^src/flexmeasures_client/s2/script/'
