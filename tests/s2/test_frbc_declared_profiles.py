@@ -409,7 +409,7 @@ async def test_the_energy_unit_is_the_deployment_s_to_choose(system_description)
 async def test_a_schedule_is_asked_for_in_the_unit_the_fill_level_is_recorded_in(
     system_description,
 ):
-    """soc-unit has to follow energy_unit, or the scheduler plans against bounds a thousand times its measurements."""
+    """soc-unit follows energy_unit where FlexMeasures takes it, so the values stated inline are in the unit they are recorded in."""
     frbc = _frbc(system_description, with_sensors=True)
     # A schedule is only asked for once a storage status has said where to start from.
     frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(

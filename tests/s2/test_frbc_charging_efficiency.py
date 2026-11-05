@@ -419,6 +419,19 @@ async def test_a_state_of_charge_goes_out_in_a_unit_flexmeasures_takes(
 
 
 @pytest.mark.asyncio
+async def test_a_lower_bound_below_zero_goes_out_in_the_same_unit():
+    """Reported below its range, a storage widens the lower bound to take it in, which then needs the conversion too."""
+    system_description = _heater()
+    frbc = _frbc(system_description, energy_unit="J")
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=-3.6e6
+    )
+    flex_model = await _asked_for(frbc, system_description)
+    assert flex_model["soc-at-start"] == pytest.approx(-1.0)
+    assert flex_model["soc-min"] == pytest.approx(-1.0)
+
+
+@pytest.mark.asyncio
 async def test_the_bounds_read_back_stay_in_the_recorded_unit():
     """Only what goes to FlexMeasures is converted: the schedule is matched against the operation modes in their own units."""
     from unittest.mock import patch
