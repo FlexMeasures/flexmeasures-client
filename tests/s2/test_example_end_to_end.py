@@ -534,9 +534,12 @@ async def test_the_server_plans_from_now_in_the_site_time_zone_and_revokes_what_
 
 
 def test_the_site_sensors_are_what_the_cem_records_in():
-    assert server.SITE_SENSORS["state of charge"][:2] == ("kWh", "PT0M")
-    assert server.SITE_SENSORS["storage efficiency"][0] == "%"
-    assert server.SITE_SENSORS["usage forecast"][0] == "kWh/s"
+    assert (
+        server.SITE_SENSORS["state of charge"].unit,
+        server.SITE_SENSORS["state of charge"].resolution,
+    ) == ("kWh", "PT0M")
+    assert server.SITE_SENSORS["storage efficiency"].unit == "%"
+    assert server.SITE_SENSORS["usage forecast"].unit == "kWh/s"
 
 
 @pytest.mark.asyncio
@@ -752,12 +755,15 @@ async def test_the_site_graphs_show_the_buffer_with_its_band_and_what_fills_and_
     named = {title: {by_id[i] for i in ids} for title, ids in plotted.items()}
     assert {"state of charge", "soc minima", "soc maxima"} in named.values()
     assert {"fill rate", "usage forecast"} in named.values()
-    assert {"power"} in named.values() and {"price"} in named.values()
+    assert {"power", "measured-power"} in named.values()
+    assert {"price", "production price"} in named.values()
 
 
 def test_the_site_graphs_are_in_a_form_every_flexmeasures_reads():
     """A title and a list of sensors per graph; the form with plots is refused before FlexMeasures v0.32."""
-    graphs = server.site_graphs(
+    from flexmeasures_client.s2.site import frbc_site_graphs
+
+    graphs = frbc_site_graphs(
         {name: {"id": i} for i, name in enumerate(server.SITE_SENSORS, start=1)}
     )
     for graph in graphs:
@@ -823,3 +829,70 @@ async def test_the_server_hands_its_simulation_flag_to_each_cem(accept):
         await cem_end._inbox.put(_CLOSED)
         await asyncio.wait_for(serving, timeout=5)
     assert made[0]["accept_simulation_metadata"] is accept
+
+
+@pytest.mark.asyncio
+async def test_with_a_site_per_resource_manager_the_server_configures_none_at_startup():
+    from unittest.mock import patch
+
+    from aiohttp import web
+
+    app = web.Application()
+    with (
+        patch.object(server, "SITE_PER_RESOURCE_MANAGER", True),
+        patch.object(server, "configure_site", AsyncMock()) as configure,
+    ):
+        await server.configure_site_once(app)
+        configure.assert_not_awaited()
+        assert isinstance(app[server.CONFIGURATOR], server.FRBCSiteConfigurator)
+        assert (
+            app[server.CONFIGURATOR]
+            ._sensors["power"]
+            .attributes["is_strictly_non_positive"]
+        )
+    app[server.SENSORS] = {
+        "price": {"id": 1}
+    }  # so that seeding, were it to happen, would reach FlexMeasures
+    with (
+        patch.object(server, "SITE_PER_RESOURCE_MANAGER", True),
+        patch.object(server, "SEED_PRICES_EVERY", timedelta(milliseconds=10)),
+        patch.object(server, "seed_prices", AsyncMock()) as seed,
+    ):
+        seeding = server.keep_prices_seeded(app)
+        await seeding.__anext__()  # nothing to seed: the prices are the simulation's to post
+        await asyncio.sleep(0.05)
+        with pytest.raises(StopAsyncIteration):
+            await seeding.__anext__()
+        seed.assert_not_awaited()
+    await app[server.FM_CLIENT].close()
+
+
+@pytest.mark.asyncio
+async def test_a_resource_manager_with_a_site_of_its_own_is_served_once_it_is_configured():
+    from unittest.mock import patch
+
+    made = []
+    real = server.CEM
+
+    def capture(**kwargs):
+        cem = real(**kwargs)
+        made.append(cem)
+        return cem
+
+    async def configurator(details):
+        raise AssertionError("not called in this test")
+
+    resource_manager, cem_end = _connected()
+    with patch.object(server, "CEM", side_effect=capture):
+        serving = asyncio.create_task(
+            server.serve_resource_manager(
+                cem_end, _flexmeasures(), configurator=configurator
+            )
+        )
+        await _until(lambda: made)
+        await cem_end._inbox.put(_CLOSED)
+        await asyncio.wait_for(serving, timeout=5)
+    assert made[0]._site_configurator is configurator
+    assert (
+        made[0]._control_types_handlers == {}
+    )  # no handler until its site is configured

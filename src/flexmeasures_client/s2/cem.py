@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -7,7 +8,7 @@ from asyncio import Queue
 from collections import defaultdict
 from datetime import datetime, timedelta
 from logging import Logger
-from typing import Dict, Optional
+from typing import Awaitable, Callable, Dict, Optional, Protocol
 
 import pandas as pd
 import pydantic
@@ -43,6 +44,23 @@ from flexmeasures_client.s2.utils import (
 from flexmeasures_client.s2.wrapper import MetaData
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class ConfiguredHandler(Protocol):
+    """What a site configurator gives back: the handler for a resource manager, and its measured-power sensors."""
+
+    @property
+    def handler(self) -> ControlTypeHandler: ...
+
+    @property
+    def power_sensor_ids(self) -> dict[str, int]: ...
+
+    @property
+    def asset_id(self) -> int: ...
+
+
+#: Gives a resource manager a site and a handler of its own, from its details (see flexmeasures_client.s2.site).
+SiteConfigurator = Callable[[ResourceManagerDetails], Awaitable[ConfiguredHandler]]
 
 #: The control type each family of control-type messages belongs to, by the prefix of its message type.
 CONTROL_TYPE_BY_MESSAGE_PREFIX: dict[str, ControlType] = {
@@ -87,6 +105,7 @@ class CEM(Handler):
         timers: dict[str, datetime] | None = None,
         datastore: dict | None = None,
         power_sensor_id: dict[str, int] | None = None,
+        site_configurator: SiteConfigurator | None = None,
         clock: Clock | None = None,
         accept_simulation_metadata: bool = False,
         **kwargs,
@@ -94,6 +113,10 @@ class CEM(Handler):
         """
         Customer Energy Manager (CEM)
 
+        :param site_configurator:           where a resource manager gets a site and a handler of its own on connecting;
+                                            called with its details, in the background, while its messages are answered
+                                            with TEMPORARY_ERROR until the handler is registered (see FRBCSiteConfigurator).
+                                            Without one, the handlers registered up front serve every resource manager.
         :param clock:                       the time this CEM and every handler it registers go by;
                                             the wall clock by default.
         :param accept_simulation_metadata:  whether to take messages wrapped with a simulated time, as a co-simulation sends them,
@@ -120,6 +143,8 @@ class CEM(Handler):
         self._power_sensors = dict()
         self.power_sensor_id = power_sensor_id
         self._control_types_handlers = dict()
+        self._site_configurator = site_configurator
+        self._configuring: asyncio.Task | None = None
         #: The control type this CEM asked the resource manager to select, and the id of that message, until confirmed.
         self._selecting: tuple[ControlType, str] | None = None
         self._default_control_type = default_control_type
@@ -173,6 +198,8 @@ class CEM(Handler):
 
     async def close(self):
         self._is_closed = True
+        if self._configuring is not None:
+            self._configuring.cancel()
 
         for control_type, handler in self._control_types_handlers.items():
             self._logger.debug(f"Closing handler for {control_type}")
@@ -242,15 +269,17 @@ class CEM(Handler):
         self._activate_implicitly(message)
 
         # try to handle the message with the control_type handle
+        # A control type without a handler yet, as while a resource manager's site is being configured,
+        # leaves its messages unhandled, so they are answered with a TEMPORARY_ERROR for the resource manager to retry.
+        handler = self._control_types_handlers.get(self._control_type)
         if (
             self._control_type is not None
             and (
                 self._control_type
                 not in [ControlType.NO_SELECTION, ControlType.NOT_CONTROLABLE]
             )
-            and self._control_types_handlers[self._control_type].supports_message(
-                message
-            )
+            and handler is not None
+            and handler.supports_message(message)
         ):
             response = await self._control_types_handlers[
                 self._control_type
@@ -431,6 +460,10 @@ class CEM(Handler):
     @register(ResourceManagerDetails)
     async def handle_resource_manager_details(self, message: ResourceManagerDetails):
         self._resource_manager_details = message
+        if self._site_configurator is not None and self._configuring is None:
+            # In the background, since a site takes a few requests to FlexMeasures to set up,
+            # and the resource manager waits for this message's reception status meanwhile.
+            self._configuring = asyncio.create_task(self._configure_site(message))
 
         if (
             not self._control_type
@@ -443,6 +476,25 @@ class CEM(Handler):
                 await self.activate_control_type(self._default_control_type)
 
         return get_reception_status(message)
+
+    async def _configure_site(self, details: ResourceManagerDetails) -> None:
+        """Give the resource manager its site, and register the handler wired to it."""
+        assert self._site_configurator is not None
+        try:
+            site = await self._site_configurator(details)
+        except (ValueError, ConnectionError) as exc:
+            # Its messages go on being answered with TEMPORARY_ERROR, which the resource manager sees and retries.
+            self._logger.error(
+                "Could not configure a site for resource manager %r: %s",
+                details.name,
+                exc,
+            )
+            return
+        self.power_sensor_id = {**(self.power_sensor_id or {}), **site.power_sensor_ids}
+        self.register_control_type(site.handler)
+        self._logger.info(
+            "Resource manager %r is served on site %s.", details.name, site.asset_id
+        )
 
     @register(PowerMeasurement)
     async def handle_power_measurement(self, message: PowerMeasurement):
