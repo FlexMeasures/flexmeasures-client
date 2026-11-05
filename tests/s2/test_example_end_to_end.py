@@ -965,3 +965,36 @@ async def test_every_cem_the_server_makes_records_with_the_servers_recorder():
         await cem_end._inbox.put(_CLOSED)
         await asyncio.wait_for(serving, timeout=5)
     assert made[0]["measurement_recorder"] is recorder
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("per_resource_manager", [False, True])
+async def test_a_connection_is_served_with_the_servers_recorder(per_resource_manager):
+    from unittest.mock import patch
+
+    from aiohttp import web
+    from aiohttp.test_utils import TestClient, TestServer
+
+    from flexmeasures_client.s2.measurements import MeasurementRecorder
+
+    app = web.Application()
+    app.add_routes([web.get("/ws", server.websocket_handler)])
+    app[server.FM_CLIENT] = _flexmeasures()
+    app[server.RECORDER] = MeasurementRecorder(app[server.FM_CLIENT])
+    app[server.SENSORS] = {"power": {"id": 1}}
+    app[server.CONFIGURATOR] = server.FRBCSiteConfigurator(
+        app[server.FM_CLIENT], asset_type_id=6
+    )
+    served = AsyncMock()
+    with (
+        patch.object(server, "serve_resource_manager", served),
+        patch.object(server, "SITE_PER_RESOURCE_MANAGER", per_resource_manager),
+    ):
+        async with TestClient(TestServer(app)) as client:
+            async with client.ws_connect("/ws"):
+                await _until(lambda: served.await_count)
+    assert served.await_args.kwargs["recorder"] is app[server.RECORDER]
+    if per_resource_manager:
+        assert served.await_args.kwargs["configurator"] is app[server.CONFIGURATOR]
+    else:
+        assert served.await_args.args[2] is app[server.SENSORS]

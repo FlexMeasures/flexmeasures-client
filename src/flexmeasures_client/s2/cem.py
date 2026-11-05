@@ -115,9 +115,9 @@ class CEM(Handler):
                                             called with its details, in the background (see FRBCSiteConfigurator).
                                             Until the handler is registered, its messages are answered with TEMPORARY_ERROR.
                                             Without one, the handlers registered up front serve every resource manager.
-        :param measurement_recorder:        where the resource manager's measured power is recorded;
-                                            one of its own by default. A server that makes a CEM per connection
-                                            hands each the same one, so a resource manager that reconnects is not recorded twice.
+        :param measurement_recorder:        where the resource manager's measured power is recorded; one of its own by default.
+                                            A server that makes a CEM per connection hands each the same one,
+                                            so a resource manager that reconnects is not recorded twice.
         :param clock:                       the time this CEM and every handler it registers go by;
                                             the wall clock by default.
         :param accept_simulation_metadata:  whether to take messages wrapped with a simulated time, as a co-simulation sends them,
@@ -527,44 +527,38 @@ class CEM(Handler):
             self._ensure_configuring()
             return get_reception_status(message, ReceptionStatusValues.TEMPORARY_ERROR)
 
+        taken: list[tuple[int, float]] = []
         for power_measurement in message.values:
             commodity_quantity = power_measurement.commodity_quantity.value
 
             # Without a sensor for it, a measurement is not recorded.
             # It used to go to sensor 357 for ELECTRIC.POWER.L1, a sensor of whichever site on the server had that id.
-            if self.power_sensor_id:
-                s_id = self.power_sensor_id.get(commodity_quantity)
-                if s_id is None:
-                    # TODO: create a new sensor or return ReceptionStatus
-                    self._logger.debug(
-                        f"No power sensor set up for {commodity_quantity}. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
-                    )
-                    continue
-                sensor_id = s_id
-            else:
-                self._logger.warning(
-                    f"No power sensor IDs set up. Ignoring measurement {power_measurement.value} at {message.measurement_timestamp}."
+            sensor_id = (self.power_sensor_id or {}).get(commodity_quantity)
+            if sensor_id is None:
+                self._logger.debug(
+                    "No power sensor set up for %s. Ignoring measurement %s at %s.",
+                    commodity_quantity,
+                    power_measurement.value,
+                    message.measurement_timestamp,
                 )
                 continue
+            taken.append((sensor_id, power_measurement.value))
 
-            try:
-                await self._measurement_recorder.add(
-                    sensor_id,
-                    message.measurement_timestamp,
-                    power_measurement.value,
-                    now=self.now(),
-                )
-            except (ValueError, ConnectionError, ContentTypeError) as exc:
-                # Not taken at all, as when the sensor's resolution could not be read: the resource manager is asked to resend it.
-                self._logger.warning(
-                    "Could not take measured power for %s at %s: %s",
-                    commodity_quantity,
-                    message.measurement_timestamp,
-                    exc,
-                )
-                return get_reception_status(
-                    message, ReceptionStatusValues.TEMPORARY_ERROR
-                )
+        # Every sensor is made ready before any value is taken, so that a message asked for again is not taken in part twice.
+        try:
+            for sensor_id, _ in taken:
+                await self._measurement_recorder.resolution(sensor_id)
+        except (ValueError, ConnectionError, ContentTypeError) as exc:
+            self._logger.warning(
+                "Could not take the measured power at %s, so the resource manager is asked to send it again: %s",
+                message.measurement_timestamp,
+                exc,
+            )
+            return get_reception_status(message, ReceptionStatusValues.TEMPORARY_ERROR)
+        for sensor_id, watts in taken:
+            await self._measurement_recorder.add(
+                sensor_id, message.measurement_timestamp, watts, now=self.now()
+            )
 
         return get_reception_status(message)
 
