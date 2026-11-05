@@ -218,3 +218,32 @@ def test_a_tunes_timer_handed_in_without_a_zone_is_read_as_the_hosts_local_time(
         (start + timedelta(minutes=30)).astimezone().replace(tzinfo=None)
     )
     assert not tunes._is_timer_due("usage_forecast")
+
+
+@pytest.mark.asyncio
+async def test_a_state_of_charge_is_known_as_of_the_simulated_time():
+    """Without a prior, FlexMeasures stamped a simulated reading with the moment the request arrived, years later."""
+    from unittest.mock import AsyncMock
+
+    from s2python.frbc import FRBCStorageStatus
+
+    from flexmeasures_client.client import FlexMeasuresClient
+    from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
+    from flexmeasures_client.s2.utils import get_unique_id
+
+    fm = AsyncMock(FlexMeasuresClient)
+    fm.get_sensor = AsyncMock(return_value={"event_resolution": "PT0M"})
+    frbc = FRBCSimple(
+        power_sensor_id=1,
+        price_sensor_id=2,
+        soc_sensor_id=3,
+        rm_discharge_sensor_id=4,
+    )
+    cem = CEM(fm_client=fm, clock=SimulatedClock(SIMULATED))
+    cem.register_control_type(frbc)
+    await frbc.send_storage_status(
+        FRBCStorageStatus(message_id=get_unique_id(), present_fill_level=5.0)
+    )
+    posted = fm.post_measurements.await_args.kwargs
+    assert posted["start"] == SIMULATED
+    assert posted["prior"] == SIMULATED
