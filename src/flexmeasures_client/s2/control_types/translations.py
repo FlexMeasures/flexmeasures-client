@@ -75,7 +75,7 @@ def unevenly_ts_to_evenly(
     start: pd.Timestamp,
     values: list[float],
     durations: list[pd.Timedelta],
-    target_resolution: str,
+    target_resolution: str | timedelta,
     strategy="mean",
 ) -> pd.Series:
     """
@@ -132,7 +132,7 @@ def unevenly_ts_to_evenly(
 
 def translate_usage_forecast_to_fm(
     usage_forecast: FRBCUsageForecast,
-    resolution: str = "1h",
+    resolution: str | timedelta = "1h",
     strategy: str = "mean",
     fill_level_scale: float = 1,
 ) -> pd.Series:
@@ -166,7 +166,7 @@ def translate_usage_forecast_to_fm(
 
 def translate_fill_level_target_profile(
     fill_level_target_profile: FRBCFillLevelTargetProfile,
-    resolution: str = "1h",
+    resolution: str | timedelta = "1h",
     fill_level_scale: float = 1,
 ) -> tuple[pd.Series, pd.Series]:
     """

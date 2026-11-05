@@ -310,7 +310,11 @@ class FillRateBasedControlTUNES(FRBC):
             duration=timedelta(minutes=15),
         )
 
-    async def trigger_schedule(self):
+    async def trigger_schedule(
+        self,
+        system_description_id: str | None = None,
+        request_number: int | None = None,
+    ):
         """
         Ask FlexMeasures for a new schedule and create FRBC.Instructions to send back to the ResourceManager
         """

@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta
+from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -133,6 +134,10 @@ async def configure_site(
 ) -> tuple[dict, dict, dict, dict]:
     """Create or update the site asset and its sensors, and seed it with demo prices."""
     account = await fm_client.get_account()
+    if account is None:
+        raise ValueError(
+            "The demo user belongs to no organisation, so there is nowhere to create the site."
+        )
     assets = await fm_client.get_assets(parse_json_fields=True)
 
     site_asset = None
@@ -141,7 +146,7 @@ async def configure_site(
             site_asset = asset
             break
 
-    site_asset_specs = dict(
+    site_asset_specs: dict[str, Any] = dict(
         latitude=0,
         longitude=0,
         generic_asset_type_id=6,  # Building asset type

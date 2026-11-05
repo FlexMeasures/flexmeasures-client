@@ -957,3 +957,49 @@ async def test_server_version_at_least_looks_the_version_up() -> None:
         assert await flexmeasures_client.server_version_at_least("0.27.0") is True
         assert await flexmeasures_client.server_version_at_least("1.1.0") is False
         await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_an_auth_token_answer_that_is_not_an_object_is_refused() -> None:
+    """A list where the token should be says what came back, instead of failing on the lookup."""
+    with aioresponses() as m:
+        m.post(
+            "http://localhost:5000/api/requestAuthToken",
+            status=200,
+            payload=["auth_token"],
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        with pytest.raises(ValueError, match="requestAuthToken, but got a list"):
+            await flexmeasures_client.get_access_token()
+        assert flexmeasures_client.access_token is None
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_the_access_token_is_returned_as_well_as_stored() -> None:
+    with aioresponses() as m:
+        m.post(
+            "http://localhost:5000/api/requestAuthToken",
+            status=200,
+            payload={"auth_token": "a-token"},
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        assert await flexmeasures_client.get_access_token() == "a-token"
+        assert flexmeasures_client.access_token == "a-token"
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_a_version_answer_that_is_not_an_object_is_refused() -> None:
+    with aioresponses() as m:
+        m.get("http://localhost:5000/api/", status=200, payload=["v3_0"])
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test", access_token="skip-auth"
+        )
+        with pytest.raises(ValueError, match="API root, but got a list"):
+            await flexmeasures_client.get_versions()
+        await flexmeasures_client.close()

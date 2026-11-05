@@ -89,11 +89,8 @@ help = "Run S2 tests."
 cmd = "pytest tests/s2"
 
 [tool.poe.tasks.type-check]
-help = "Run mypy on files with type hints."
-shell = """
-    files=$(find src -name \\*.py | xargs grep -l "from typing import")
-    mypy --follow-imports skip --ignore-missing-imports $files
-"""
+help = "Run mypy on every source file, including the bodies of functions without type hints."
+cmd = "mypy --follow-imports skip --ignore-missing-imports --check-untyped-defs src"
 
 [tool.poe.tasks.lint]
 help = "Run pre-commit hooks on all files."

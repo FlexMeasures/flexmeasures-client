@@ -563,9 +563,10 @@ class FlexMeasuresClient:
 
         headers = dict(CONTENT_TYPE_HEADERS) | {CLIENT_VERSION_HEADER: client_version}
         if include_auth:
-            if self.access_token is None:
-                await self.get_access_token()
-            headers |= {"Authorization": self.access_token}
+            access_token = self.access_token
+            if access_token is None:
+                access_token = await self.get_access_token()
+            headers |= {"Authorization": access_token}
         return headers
 
     def build_url(self, uri: str, path: str = path) -> URL:
@@ -577,8 +578,8 @@ class FlexMeasuresClient:
         )
         return url
 
-    async def get_access_token(self):
-        """Get access token and store it on the FlexMeasuresClient."""
+    async def get_access_token(self) -> str:
+        """Get access token, store it on the FlexMeasuresClient, and return it."""
         response, _status = await self.request(
             uri="requestAuthToken",
             path="/api/",
@@ -588,7 +589,13 @@ class FlexMeasuresClient:
             },
             include_auth=False,
         )
-        self.access_token = response["auth_token"]
+        if not isinstance(response, dict):
+            raise ValueError(
+                f"Expected a JSON object from requestAuthToken, but got a {type(response).__name__}."
+            )
+        access_token: str = response["auth_token"]
+        self.access_token = access_token
+        return access_token
 
     async def get_versions(self):
         """Get the FlexMeasures version and the supported API versions of the FlexMeasures server.
@@ -601,6 +608,10 @@ class FlexMeasuresClient:
             method="GET",
             include_auth=False,
         )
+        if not isinstance(response, dict):
+            raise ValueError(
+                f"Expected a JSON object from the API root, but got a {type(response).__name__}."
+            )
 
         # Check whether the API version used by the client is supported by the server
         server_api_versions = response["versions"]
