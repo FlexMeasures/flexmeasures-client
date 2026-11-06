@@ -40,6 +40,7 @@ from s2python.frbc import (
 )
 
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.exceptions import JobTimeoutError
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     clip_fill_level_target_profile,
@@ -668,3 +669,85 @@ async def test_a_storage_efficiency_that_could_not_be_recorded_is_not_planned_ag
     assert await frbc._record_storage_efficiency(start, 50.0) is False
     assert frbc._storage_efficiency_recorded is None
     assert "could not record" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_storage_efficiency_whose_ingestion_is_unconfirmed_is_not_remembered(
+    system_description,
+):
+    frbc = _frbc(system_description, with_sensors=True)
+    leakage = FRBCLeakageBehaviour(
+        message_id=get_unique_id(),
+        valid_from="2024-01-01T12:00:00+00:00",
+        elements=[
+            FRBCLeakageBehaviourElement(
+                fill_level_range=NumberRange(
+                    start_of_range=RANGE_BOTTOM, end_of_range=RANGE_TOP
+                ),
+                leakage_rate=0.01,
+            )
+        ],
+    )
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+    frbc._fm_client.post_sensor_data.side_effect = JobTimeoutError("still pending")
+    start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
+    assert await frbc._record_storage_efficiency(start, 50.0) is False
+    assert frbc._storage_efficiency_recorded is None
+    assert (
+        frbc._fm_client.post_sensor_data.await_args.kwargs["confirm_ingestion"] is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_bound_that_could_not_be_recorded_leaves_the_other_recorded(
+    system_description, caplog
+):
+    """The band is planned against inline, so these are for display, and one failing post is no reason to lose the other."""
+    frbc = _frbc(system_description, with_sensors=True)
+    frbc._fm_client.post_sensor_data.side_effect = [ConnectionError("down"), ({}, 200)]
+
+    await frbc.send_fill_level_target_profile(_target_profile(40.0, 60.0))
+
+    assert frbc._fm_client.post_sensor_data.await_count == 2
+    second = frbc._fm_client.post_sensor_data.await_args_list[1].kwargs
+    assert second["sensor_id"] == frbc._soc_maxima_sensor_id
+    assert "Could not record a bound" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_fill_rate_that_could_not_be_recorded_is_logged(
+    system_description, caplog
+):
+    """The post runs in a task nobody awaits, so an exception there was asyncio's to report, if anyone's."""
+    frbc = FRBCSimple(
+        power_sensor_id=1,
+        price_sensor_id=2,
+        soc_sensor_id=3,
+        rm_discharge_sensor_id=4,
+        fill_rate_sensor_id=20,
+    )
+    frbc._fm_client = AsyncMock(FlexMeasuresClient)
+    frbc._fm_client.get_sensor = AsyncMock(
+        return_value=power_sensor_recording(consumption_as_positive=True)
+    )
+    # The power goes through; the fill rate does not.
+    frbc._fm_client.post_sensor_data = AsyncMock(
+        side_effect=[({}, 200), ConnectionError("down")]
+    )
+    frbc._logger = logging.getLogger(__name__)
+    frbc._system_description_history = {
+        system_description.message_id: system_description
+    }
+    actuator = system_description.actuators[0]
+
+    await frbc.send_actuator_status(
+        FRBCActuatorStatus(
+            message_id=get_unique_id(),
+            actuator_id=actuator.id,
+            active_operation_mode_id=actuator.operation_modes[0].id,
+            operation_mode_factor=0.5,
+        )
+    )
+
+    assert frbc._fm_client.post_sensor_data.await_count == 2
+    assert "Could not record the fill rate" in caplog.text

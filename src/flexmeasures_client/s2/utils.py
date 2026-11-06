@@ -28,15 +28,24 @@ class SizeLimitOrderedDict(OrderedDict, Mapping[KT, VT]):
         super(SizeLimitOrderedDict, self).__init__(*args, **kwargs)
         self._max_size = max_size
 
-        # deleting values to make the dictionary of length _max_size at most
+        # deleting values to make the dictionary of length _max_size at most, oldest first
         while len(self) > self._max_size:
-            self.popitem()
+            self.popitem(last=False)
 
     def __setitem__(self, __key: KT, __value: VT) -> None:
-        if len(self) == self._max_size:
-            self.popitem()
+        # The oldest entry makes room, not the newest, which popitem() takes by default:
+        # a full history otherwise kept a session's first entries and lost every later one but the last.
+        # A key already present takes no room of its own.
+        if (
+            self._max_size is not None
+            and __key not in self
+            and len(self) >= self._max_size
+        ):
+            self.popitem(last=False)
 
-        return super().__setitem__(__key, __value)
+        super().__setitem__(__key, __value)
+        # Set again, an entry is the latest, which is what reading the last entry means everywhere this is used.
+        self.move_to_end(__key)
 
 
 def get_unique_id() -> str:
@@ -71,13 +80,18 @@ class _HasMessageId(Protocol):
 def get_reception_status(
     subject_message: _HasMessageId,
     status: ReceptionStatusValues = ReceptionStatusValues.OK,
+    diagnostic_label: str | None = None,
 ):
     """
     This function returns a ReceptionStatus message for the subject message
     `subject_message`. By default, the status ReceptionStatusValues.OK is sent.
+
+    :param diagnostic_label: why, for a status other than OK, which the resource manager can log.
     """
     return ReceptionStatus(
-        subject_message_id=str(subject_message.message_id), status=status
+        subject_message_id=str(subject_message.message_id),
+        status=status,
+        diagnostic_label=diagnostic_label,
     )
 
 

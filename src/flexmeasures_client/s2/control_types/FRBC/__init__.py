@@ -217,6 +217,18 @@ class FRBC(ControlTypeHandler):
         # descriptions, and not before: it would otherwise have dropped a planning request.
         # The TUNES handler has fingerprinted its descriptions this way all along, and can adopt
         # this shared helper separately.
+        # Every plan is made for one actuator, so a description of several is refused when it arrives,
+        # rather than acknowledged and then failing in the background on every round, after a solve.
+        if len(message.actuators) != 1:
+            self._logger.error(
+                "Refusing an FRBC.SystemDescription with %s actuators: this CEM plans for exactly one.",
+                len(message.actuators),
+            )
+            return get_reception_status(
+                message,
+                status=ReceptionStatusValues.INVALID_CONTENT,
+                diagnostic_label=f"This CEM plans for exactly one actuator, and the description has {len(message.actuators)}.",
+            )
         fingerprint = self.system_description_fingerprint(message)
         if fingerprint == self._last_system_description_fingerprint:
             self._logger.debug(
@@ -230,14 +242,23 @@ class FRBC(ControlTypeHandler):
         # store system_description message for later
         self._system_description_history[system_description_id] = message
 
+        # Said once per description, since nothing here would otherwise say it at all:
+        # an instruction can ask for a switch that a running timer or a missing transition forbids, and the device refuses it.
+        actuator = message.actuators[0]
+        if _transitions_restrict(actuator):
+            self._logger.warning(
+                "The actuator declares %s timers and %s transitions that rule out some switches between its operation modes, which this CEM does not honour: an instruction may ask for a switch the device refuses.",
+                len(actuator.timers),
+                len(actuator.transitions),
+            )
+
         # A description says what the device can do, and a storage status what it holds now,
         # and a schedule needs both. Planning normally hangs off a storage status (see handle_storage_status),
         # but a description that arrives after the latest status, and differs from the description before it,
         # is answered with a schedule against that latest status.
         # Anything but the message id counts as a difference, its validity included,
         # so a resource manager that re-dates its description on every resend asks for a schedule every time.
-        # Otherwise a resource manager that sends its status first, or whose fill level holds steady
-        # so that no new status follows, is never planned for, or keeps being planned for with what it can no longer do.
+        # Otherwise a resource manager that sends its status first, or whose fill level holds steady so that no new status follows, is never planned for, or keeps being planned for with what it can no longer do.
         if self._storage_status_history:
             request_number = self._count_request(STORAGE_STATUS_REQUESTS)
             task = asyncio.create_task(
@@ -332,6 +353,18 @@ class FRBC(ControlTypeHandler):
 
     @register(FRBCTimerStatus)
     def handle_frbc_timer_status(self, message: FRBCTimerStatus) -> pydantic.BaseModel:
+        # Kept, so that what the resource manager said is there to see, though nothing plans with it yet.
+        # Warned about once per timer, since a resource manager sends a status on every run of every timer.
+        warned = any(
+            known.timer_id == message.timer_id
+            for known in self._timer_status_history.values()
+        )
+        self._timer_status_history[str(message.message_id)] = message
+        (self._logger.debug if warned else self._logger.warning)(
+            "Timer %s runs until %s, which this CEM does not honour: an instruction may ask for a switch it blocks.",
+            message.timer_id,
+            message.finished_at,
+        )
         return get_reception_status(message, status=ReceptionStatusValues.OK)
 
     async def send_storage_status(
@@ -392,14 +425,44 @@ class FRBCTest(FRBC):
 
         actuator = system_description.actuators[0]
 
+        # Imported here, since the utilities import from this package.
+        from flexmeasures_client.s2.control_types.FRBC.utils import (
+            normal_operation_modes,
+        )
+
         instruction = FRBCInstruction(
             message_id=get_unique_id(),
             id=get_unique_id(),
             actuator_id=actuator.id,
-            operation_mode=actuator.operation_modes[0].id,
+            operation_mode=normal_operation_modes(actuator)[0].id,
             operation_mode_factor=0.5,
             execution_time=system_description.valid_from,
             abnormal_condition=False,
         )
 
         await self.send_message(instruction)
+
+
+def _transitions_restrict(actuator) -> bool:
+    """Whether an actuator's timers and transitions rule out a switch between two of its operation modes.
+
+    Transitions that allow every switch between modes usable under normal conditions, with no timer to wait for,
+    rule out nothing, as an on/off device that declares both of its switches does,
+    so only where something is ruled out is there anything this CEM fails to honour.
+    """
+    # A transition can only be blocked by a timer the actuator declares, which s2python checks, so timers cover that too.
+    if actuator.timers:
+        return True
+    if not actuator.transitions:
+        return False
+    modes = [
+        str(mode.id)
+        for mode in actuator.operation_modes
+        if not mode.abnormal_condition_only
+    ]
+    allowed = {
+        (str(t.from_), str(t.to))
+        for t in actuator.transitions
+        if not t.abnormal_condition_only
+    }
+    return any((a, b) not in allowed for a in modes for b in modes if a != b)

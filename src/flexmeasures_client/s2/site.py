@@ -21,6 +21,7 @@ except ImportError:
     )
 
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.exceptions import ContentTypeError
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 
 _LOGGER = getLogger(__name__)
@@ -109,7 +110,7 @@ async def ensure_site(
             candidate = await fm_client.get_asset(
                 known_asset_id, parse_json_fields=True
             )
-        except (ValueError, ConnectionError):
+        except (ValueError, ConnectionError, ContentTypeError):
             candidate = None
         if candidate is not None and candidate.get("name") == name:
             site_asset = candidate
