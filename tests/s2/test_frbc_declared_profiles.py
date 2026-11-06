@@ -709,4 +709,6 @@ async def test_a_bound_that_could_not_be_recorded_leaves_the_other_recorded(
     await frbc.send_fill_level_target_profile(_target_profile(40.0, 60.0))
 
     assert frbc._fm_client.post_sensor_data.await_count == 2
+    second = frbc._fm_client.post_sensor_data.await_args_list[1].kwargs
+    assert second["sensor_id"] == frbc._soc_maxima_sensor_id
     assert "Could not record a bound" in caplog.text

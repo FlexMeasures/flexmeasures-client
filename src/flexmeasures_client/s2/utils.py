@@ -43,7 +43,9 @@ class SizeLimitOrderedDict(OrderedDict, Mapping[KT, VT]):
         ):
             self.popitem(last=False)
 
-        return super().__setitem__(__key, __value)
+        super().__setitem__(__key, __value)
+        # Set again, an entry is the latest, which is what reading the last entry means everywhere this is used.
+        self.move_to_end(__key)
 
 
 def get_unique_id() -> str:
