@@ -1136,6 +1136,8 @@ class FRBCSimple(FRBC):
         _, range_top = get_soc_min_max(system_description, self._fill_level_scale)
         # Zero below, since a stock cannot be negative and FlexMeasures accepts no lower floor.
         soc_min = 0.0
+        # Multiplied, a top below zero, as S2 allows, would be pulled further down,
+        # but the bound widens below to take in the state of charge at the start, which is never below zero.
         soc_max = range_top * self._hard_bound_factor
         # A state of charge outside the hard bounds is infeasible before the first step,
         # so the bounds widen to take it in.
@@ -1357,18 +1359,27 @@ class FRBCSimple(FRBC):
         # that comes back begins there, not at the start_time the resource manager sent. Posting
         # it at the raw start_time would shift every value by the difference.
         start = self.align_to_resolution(fill_level_target_profile.start_time)
+        # Recorded to be seen, since the band a schedule is planned against goes out inline,
+        # so a failure is logged and the other bound still recorded, rather than raised in a task nobody awaits.
         for sensor_id, values in (
             (self._soc_minima_sensor_id, soc_minima),
             (self._soc_maxima_sensor_id, soc_maxima),
         ):
-            await self._fm_client.post_sensor_data(
-                sensor_id=sensor_id,
-                start=start,
-                prior=now,
-                values=values.tolist(),
-                unit=self.energy_unit,
-                duration=duration,
-            )
+            try:
+                await self._fm_client.post_sensor_data(
+                    sensor_id=sensor_id,
+                    start=start,
+                    prior=now,
+                    values=values.tolist(),
+                    unit=self.energy_unit,
+                    duration=duration,
+                )
+            except REQUEST_FAILURES:
+                self._logger.exception(
+                    "Could not record a bound of the fill-level target profile on sensor %s from %s.",
+                    sensor_id,
+                    start,
+                )
 
     async def send_usage_forecast(self, usage_forecast: FRBCUsageForecast):
         """Record what a resource manager expects its storage to be drawn down by."""

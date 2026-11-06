@@ -696,3 +696,17 @@ async def test_a_storage_efficiency_whose_ingestion_is_unconfirmed_is_not_rememb
     assert (
         frbc._fm_client.post_sensor_data.await_args.kwargs["confirm_ingestion"] is True
     )
+
+
+@pytest.mark.asyncio
+async def test_a_bound_that_could_not_be_recorded_leaves_the_other_recorded(
+    system_description, caplog
+):
+    """The band is planned against inline, so these are for display, and one failing post is no reason to lose the other."""
+    frbc = _frbc(system_description, with_sensors=True)
+    frbc._fm_client.post_sensor_data.side_effect = [ConnectionError("down"), ({}, 200)]
+
+    await frbc.send_fill_level_target_profile(_target_profile(40.0, 60.0))
+
+    assert frbc._fm_client.post_sensor_data.await_count == 2
+    assert "Could not record a bound" in caplog.text
