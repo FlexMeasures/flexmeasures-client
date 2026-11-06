@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import numpy as np
+import pandas as pd
 import pytest
 import pytest_asyncio
 from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
@@ -288,3 +289,259 @@ async def test_fill_rate_relay(cem_in_frbc_control_type):
     assert third_call["values"][0] == frbc._nes_fill_rate_sensor_id
 
     await cem.close()
+
+
+@pytest.mark.asyncio
+async def test_a_leakage_behaviour_is_recorded_rather_than_refused(
+    cem_in_frbc_control_type,
+):
+    """A leakage behaviour is posted as a storage efficiency, and not answered as a permanent error.
+
+    The handler read its fill-level scale from an attribute whose name was pasted in twice,
+    and the AttributeError that raised was caught as if the post had failed,
+    so every leakage behaviour was refused and none was recorded.
+    """
+    from s2python.common import NumberRange
+    from s2python.frbc import FRBCLeakageBehaviour, FRBCLeakageBehaviourElement
+
+    cem, fm_client, _ = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    frbc.send_message = AsyncMock()
+
+    leakage = FRBCLeakageBehaviour(
+        message_id=get_unique_id(),
+        valid_from=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        elements=[
+            FRBCLeakageBehaviourElement(
+                fill_level_range=NumberRange(start_of_range=0, end_of_range=100),
+                leakage_rate=0.001,
+            )
+        ],
+    )
+    await frbc.send_leakage_behaviour(leakage)
+
+    sent = [call.args[0] for call in frbc.send_message.await_args_list]
+    assert not any(
+        getattr(message, "status", None) == ReceptionStatusValues.PERMANENT_ERROR
+        for message in sent
+    ), sent
+    posts = [
+        call
+        for call in fm_client.post_sensor_data.await_args_list
+        if (call.args[0] if call.args else call.kwargs.get("sensor_id")) == 15
+    ]
+    assert len(posts) == 1, fm_client.post_sensor_data.await_args_list
+    # What the translation makes of this message on a quarter-hour grid, which is what TUNES says it posts.
+    # The fill-level scale is not exercised here: it multiplies both the leakage and the range it is a share of, and cancels.
+    from flexmeasures_client.s2.control_types.translations import (
+        leakage_behaviour_to_storage_efficiency,
+    )
+
+    assert posts[0].kwargs["values"] == [
+        leakage_behaviour_to_storage_efficiency(
+            message=leakage, resolution=timedelta(minutes=15), fill_level_scale=1
+        )
+    ]
+    assert posts[0].kwargs["unit"] == "%"
+
+
+@pytest.mark.asyncio
+async def test_an_operation_mode_without_a_label_does_not_stop_tunes(
+    cem_in_frbc_control_type,
+):
+    """S2 makes a diagnostic label optional, and TUNES tells its modes apart by label.
+
+    It looked for "THP" and "NES" inside a label that may be None, which raised a TypeError,
+    so one unlabelled mode stopped the conversion efficiencies of every mode from being recorded.
+    """
+    cem, fm_client, system_description = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    unlabelled = system_description.model_copy(deep=True)
+    unlabelled.actuators[0].operation_modes[-1].diagnostic_label = None
+    fm_client.post_sensor_data.reset_mock()
+
+    await frbc.send_conversion_efficiencies(unlabelled)
+
+    assert fm_client.post_sensor_data.await_count > 0
+
+
+@pytest.mark.asyncio
+async def test_planning_does_not_stop_on_an_unlabelled_operation_mode(
+    cem_in_frbc_control_type,
+):
+    """The same optional label, where TUNES picks the mode to plan with."""
+    from s2python.frbc import FRBCStorageStatus
+
+    cem, fm_client, system_description = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    unlabelled = system_description.model_copy(deep=True)
+    for operation_mode in unlabelled.actuators[0].operation_modes:
+        operation_mode.diagnostic_label = None
+    frbc._system_description_history[str(unlabelled.message_id)] = unlabelled
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=10.0
+    )
+
+    await frbc.trigger_schedule()
+
+
+@pytest.mark.asyncio
+async def test_a_usage_forecast_is_posted_per_hour(cem_in_frbc_control_type):
+    """S2 states usage per second; TUNES posts it per hour, labelled MW, on a quarter-hour grid, for as long as it was forecast.
+
+    FlexMeasures reads soc-usage as a power, a rate per hour, so a value per quarter hour would be planned as a quarter of the draw.
+    """
+    from s2python.common import Duration
+    from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
+
+    cem, fm_client, _ = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    fm_client.post_sensor_data.reset_mock()
+
+    await frbc.send_usage_forecast(
+        FRBCUsageForecast(
+            message_id=get_unique_id(),
+            start_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            elements=[
+                FRBCUsageForecastElement(
+                    duration=Duration(root=2 * 3600 * 1000),
+                    usage_rate_expected=0.001,
+                )
+            ],
+        )
+    )
+
+    posts = [
+        call
+        for call in fm_client.post_sensor_data.await_args_list
+        if call.kwargs.get("sensor_id") == 12
+    ]
+    assert len(posts) == 1, fm_client.post_sensor_data.await_args_list
+    values = posts[0].kwargs["values"]
+    assert values == [pytest.approx(0.001 * 3600)] * len(values)
+    assert posts[0].kwargs["duration"] == str(pd.Timedelta(minutes=15) * len(values))
+
+
+@pytest.mark.asyncio
+async def test_a_usage_forecast_is_posted_from_the_quarter_hour_it_starts_in(
+    cem_in_frbc_control_type,
+):
+    from s2python.common import Duration
+    from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
+
+    cem, fm_client, _ = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    fm_client.post_sensor_data.reset_mock()
+
+    await frbc.send_usage_forecast(
+        FRBCUsageForecast(
+            message_id=get_unique_id(),
+            start_time=datetime(2024, 1, 1, 0, 7, tzinfo=timezone.utc),
+            elements=[
+                FRBCUsageForecastElement(
+                    duration=Duration(root=3600 * 1000), usage_rate_expected=0.001
+                )
+            ],
+        )
+    )
+
+    posts = [
+        c
+        for c in fm_client.post_sensor_data.await_args_list
+        if c.kwargs.get("sensor_id") == 12
+    ]
+    assert posts[0].kwargs["start"] == datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_a_usage_forecast_is_averaged_within_each_quarter_hour(
+    cem_in_frbc_control_type,
+):
+    """Two halves of a quarter hour, at 1 and 3 thousandths per second, are posted as 2 thousandths per second, per hour."""
+    from s2python.common import Duration
+    from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
+
+    cem, fm_client, _ = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    fm_client.post_sensor_data.reset_mock()
+    half = Duration(root=int(7.5 * 60 * 1000))
+
+    await frbc.send_usage_forecast(
+        FRBCUsageForecast(
+            message_id=get_unique_id(),
+            start_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            elements=[
+                FRBCUsageForecastElement(duration=half, usage_rate_expected=0.001),
+                FRBCUsageForecastElement(duration=half, usage_rate_expected=0.003),
+            ],
+        )
+    )
+
+    posts = [
+        c
+        for c in fm_client.post_sensor_data.await_args_list
+        if c.kwargs.get("sensor_id") == 12
+    ]
+    assert posts[0].kwargs["values"][0] == pytest.approx(0.002 * 3600)
+
+
+@pytest.mark.asyncio
+async def test_planning_reads_its_usage_forecast_back_per_second(
+    cem_in_frbc_control_type,
+):
+    """TUNES posts a usage forecast per hour; the schedule translation takes a rate per second, as S2 states it."""
+    from unittest.mock import patch
+
+    from s2python.common import NumberRange
+    from s2python.frbc import (
+        FRBCLeakageBehaviour,
+        FRBCLeakageBehaviourElement,
+        FRBCStorageStatus,
+    )
+
+    cem, fm_client, _ = cem_in_frbc_control_type
+    frbc = cem._control_types_handlers[cem.control_type]
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=10.0
+    )
+
+    def sensor_data(sensor_id, start=None, duration=None, **kwargs):
+        # As many quarter hours as were asked for: the fixture's fixed day of values fits no other window.
+        steps = int(pd.Timedelta(duration) / pd.Timedelta(minutes=15))
+        # The usage forecast as posted, 3600 per hour, and anything else as a plain efficiency.
+        value = 3600.0 if sensor_id == 12 else 1.0
+        return {
+            "start": str(start),
+            "duration": str(duration),
+            "values": [value] * steps,
+        }
+
+    fm_client.get_sensor_data.side_effect = sensor_data
+    # Not 1, which would hide a missing division: TUNES posts usage scaled into FlexMeasures' units.
+    frbc._fill_level_scale = 0.1
+    leakage = FRBCLeakageBehaviour(
+        message_id=get_unique_id(),
+        valid_from=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        elements=[
+            FRBCLeakageBehaviourElement(
+                fill_level_range=NumberRange(start_of_range=0, end_of_range=100),
+                leakage_rate=0.001,
+            )
+        ],
+    )
+    older = leakage.model_copy(update={"message_id": get_unique_id()})
+    frbc._leakage_behaviour_history[str(older.message_id)] = older
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage  # the latest
+    # TUNES asks for a schedule by trigger and get, rather than trigger_and_get_schedule, over six hours.
+    fm_client.get_schedule.return_value = {"values": [0.0] * 24}
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_tunes.fm_schedule_to_instructions",
+        return_value=[],
+    ) as translate:
+        await frbc.trigger_schedule()
+
+    frame = translate.call_args.args[0]
+    usage = list(frame["usage_forecast"].dropna())
+    # 3600 per hour, scaled by 0.1 on the way out: 10 per second in the resource manager's own units.
+    assert usage and usage == [pytest.approx(10.0)] * len(usage)
+    assert translate.call_args.kwargs["leakage_behaviour"] is leakage

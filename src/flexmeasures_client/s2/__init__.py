@@ -6,7 +6,7 @@ import json
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Coroutine, Dict, Type
+from typing import Callable, Dict, Type
 from zoneinfo import ZoneInfo
 
 import pydantic
@@ -21,6 +21,7 @@ except ImportError:
     )
 
 
+from flexmeasures_client.s2.clock import Clock, WallClock
 from flexmeasures_client.s2.utils import SizeLimitOrderedDict, get_message_id
 
 
@@ -75,7 +76,7 @@ def register(schema: Type[pydantic.BaseModel]) -> Callable:
                 )
                 return outgoing_message
 
-        message_type = schema.__fields__.get("message_type").default
+        message_type = schema.model_fields["message_type"].default
         setattr(wrap, "_tag", Tag(message_type))
 
         return wrap
@@ -126,6 +127,8 @@ class Handler:
         self.outgoing_messages_status = SizeLimitOrderedDict(max_size=max_size)
 
         self._timezone = ZoneInfo(timezone)
+        #: The time this handler goes by; a CEM gives each handler it registers its own clock.
+        self._clock: Clock = WallClock()
 
         self.discover()
 
@@ -176,7 +179,7 @@ class Handler:
         message_type = ""
 
         if isinstance(message, pydantic.BaseModel):
-            message_type = message.message_type
+            message_type = message.model_dump().get("message_type", "")
         elif isinstance(message, dict):
             message_type = message.get("message_type", "")
         elif isinstance(message, str):
@@ -186,7 +189,7 @@ class Handler:
 
     async def handle_message(
         self, message: pydantic.BaseModel | str | Dict
-    ) -> Coroutine:
+    ) -> pydantic.BaseModel | None:
         """
         Calls the handler linked to the message_type and converts the output
         to a serialized dict, i.e. it converts all the inner objects to Python
@@ -243,11 +246,12 @@ class Handler:
         Stores the revoked object ID into the objects_revoked list
         """
 
-        self.objects_revoked.append(message.object_id)
+        self.objects_revoked.append(str(message.object_id))
 
         return ReceptionStatus(
             subject_message_id=str(message.message_id), status=ReceptionStatusValues.OK
         )
 
-    def now(self):
-        return datetime.now(self._timezone)
+    def now(self) -> datetime:
+        """The current moment by this handler's clock, in its time zone."""
+        return self._clock.now().astimezone(self._timezone)

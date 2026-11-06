@@ -301,20 +301,16 @@ async def test_a_fill_level_scale_is_applied_to_the_efficiency():
     ]
 
 
-@pytest.mark.asyncio
-async def test_an_energy_unit_that_cannot_be_compared_to_watts_is_not_guessed_at(
-    caplog,
-):
-    """A fill rate in a unit nothing converts is refused, rather than recorded thousandfold off."""
-    system_description = _heater()
-    frbc = _frbc(system_description, energy_unit="therm")
-
-    with caplog.at_level(logging.ERROR):
-        flex_model = await _asked_for(frbc, system_description)
-
-    assert "charging-efficiency" not in flex_model
-    assert _recordings(frbc) == []
-    assert "cannot be compared" in caplog.text
+def test_an_energy_unit_that_cannot_be_compared_to_watts_is_refused_at_once():
+    """A fill rate in a unit nothing converts would be recorded thousandfold off, so the handler is not made at all."""
+    with pytest.raises(ValueError, match="energy_unit has to be one of"):
+        FRBCSimple(
+            power_sensor_id=1,
+            price_sensor_id=2,
+            soc_sensor_id=3,
+            rm_discharge_sensor_id=4,
+            energy_unit="therm",
+        )
 
 
 def test_a_fill_rate_is_stated_in_watts_by_the_unit_the_fill_level_is_in():
@@ -326,8 +322,8 @@ def test_a_fill_rate_is_stated_in_watts_by_the_unit_the_fill_level_is_in():
         fill_rate_in_watts(1, "therm")
 
 
-def test_an_efficiency_is_taken_at_the_top_of_the_last_element():
-    """A mode states an element per stretch of fill level, and the efficiency is the one at full tilt.
+def test_an_efficiency_is_taken_at_the_top_of_the_element_that_applies():
+    """A mode states an element per stretch of fill level, and the efficiency is that element's, at full tilt.
 
     The ratio, and not the slope over the element's range:
     a mode's ranges can be degenerate, where the actuator runs at one power and one fill rate only,
@@ -353,6 +349,217 @@ def test_an_efficiency_is_taken_at_the_top_of_the_last_element():
         )
     )
 
-    efficiency = operation_mode_conversion_efficiency(mode, 1, "kWh")
+    below, above = (
+        operation_mode_conversion_efficiency(mode, 1, "kWh", fill_level)
+        for fill_level in (RANGE_TOP / 2, 1.5 * RANGE_TOP)
+    )
 
-    assert efficiency == pytest.approx(HEATER_HEAT_IN_WATTS / HEATER_POWER / 2)
+    assert below == pytest.approx(HEATER_HEAT_IN_WATTS / HEATER_POWER)
+    assert above == pytest.approx(HEATER_HEAT_IN_WATTS / HEATER_POWER / 2)
+
+
+@pytest.mark.asyncio
+async def test_a_schedule_is_asked_for_against_the_efficiency_where_it_starts():
+    """A heat pump that converts less once its buffer is warm is planned with the warm efficiency for a warm start."""
+    cold = HEATER_HEAT_IN_WATTS / HEATER_POWER
+    warm = cold / 2
+    mode = _operation_mode(HEATER_POWER, HEATER_FILL_RATE, "on")
+    mode.elements[0].fill_level_range.end_of_range = RANGE_TOP / 2
+    mode.elements.append(
+        FRBCOperationModeElement(
+            fill_level_range=NumberRange(
+                start_of_range=RANGE_TOP / 2, end_of_range=RANGE_TOP
+            ),
+            fill_rate=NumberRange(
+                start_of_range=HEATER_FILL_RATE / 2, end_of_range=HEATER_FILL_RATE / 2
+            ),
+            power_ranges=[
+                PowerRange(
+                    start_of_range=HEATER_POWER,
+                    end_of_range=HEATER_POWER,
+                    commodity_quantity=CommodityQuantity.ELECTRIC_POWER_L1,
+                )
+            ],
+        )
+    )
+    system_description = _system_description(mode)
+    frbc = _frbc(system_description)
+    # The latest status: a buffer warmed past the middle of its range since the one _frbc recorded.
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=0.75 * RANGE_TOP
+    )
+
+    await _asked_for(frbc, system_description)
+
+    assert _recordings(frbc)[0]["values"] == [pytest.approx(warm)]
+    assert warm != pytest.approx(cold)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "energy_unit, soc_unit, per_unit",
+    [
+        ("MJ", "kWh", 1 / 3.6),
+        ("Wh", "kWh", 1 / 1000),
+        ("J", "kWh", 1 / 3.6e6),
+        ("kWh", "kWh", 1.0),
+        ("MWh", "MWh", 1.0),
+    ],
+)
+async def test_a_state_of_charge_goes_out_in_a_unit_flexmeasures_takes(
+    energy_unit, soc_unit, per_unit
+):
+    """FlexMeasures takes kWh or MWh only, so any other energy unit is converted at the edge, not refused by the server."""
+    system_description = _heater()
+    frbc = _frbc(system_description, energy_unit=energy_unit)
+    flex_model = await _asked_for(frbc, system_description)
+    assert flex_model["soc-unit"] == soc_unit
+    assert flex_model["soc-at-start"] == pytest.approx(FILL_LEVEL_AT_START * per_unit)
+    assert flex_model["soc-max"] == pytest.approx(1.5 * RANGE_TOP * per_unit)
+
+
+@pytest.mark.asyncio
+async def test_a_lower_bound_below_zero_goes_out_in_the_same_unit():
+    """Reported below its range, a storage widens the lower bound to take it in, which then needs the conversion too."""
+    system_description = _heater()
+    frbc = _frbc(system_description, energy_unit="J")
+    frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
+        message_id=get_unique_id(), present_fill_level=-3.6e6
+    )
+    flex_model = await _asked_for(frbc, system_description)
+    assert flex_model["soc-at-start"] == pytest.approx(-1.0)
+    assert flex_model["soc-min"] == pytest.approx(-1.0)
+
+
+@pytest.mark.asyncio
+async def test_the_bounds_read_back_stay_in_the_recorded_unit():
+    """Only what goes to FlexMeasures is converted: the schedule is matched against the operation modes in their own units."""
+    from unittest.mock import patch
+
+    system_description = _heater()
+    frbc = _frbc(system_description, energy_unit="MJ")
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.fm_schedule_to_instructions",
+        return_value=[],
+    ) as translate:
+        await frbc.trigger_schedule(system_description.message_id)
+    assert translate.call_args.kwargs["fill_level_bounds"] == (
+        pytest.approx(0.0),
+        pytest.approx(1.5 * RANGE_TOP),
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_measured_state_of_charge_is_not_named_in_the_flex_model():
+    """The state of charge goes out as a number, never as the sensor it is measured on.
+
+    Named there, FlexMeasures would save the state of charge it plans onto that sensor,
+    beside the measurements, where a later schedule would read a plan as if it had been measured.
+    """
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    flex_model = await _asked_for(frbc, system_description)
+    assert "state-of-charge" not in flex_model
+    assert isinstance(flex_model["soc-at-start"], float)
+
+
+@pytest.mark.asyncio
+async def test_feeding_back_is_priced_by_its_own_sensor_where_there_is_one():
+    system_description = _heater()
+    frbc = _frbc(system_description, production_price_sensor_id=42)
+    await frbc.trigger_schedule(system_description.message_id)
+    flex_context = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
+        "flex_context"
+    ]
+    assert flex_context["production-price"] == {"sensor": 42}
+    assert flex_context["consumption-price"] == {"sensor": 2}
+
+
+@pytest.mark.asyncio
+async def test_without_its_own_sensor_feeding_back_is_priced_as_drawing():
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    await frbc.trigger_schedule(system_description.message_id)
+    flex_context = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
+        "flex_context"
+    ]
+    assert flex_context["production-price"] == {"sensor": 2}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("relax", [False, True])
+async def test_the_site_capacity_is_relaxed_or_kept_hard_as_asked(relax):
+    """Sent either way: FlexMeasures reads a missing flag as its relax-constraints umbrella, which relaxes by default.
+
+    So a home whose connection is a physical limit is only kept to it by an explicit False.
+    """
+    system_description = _heater()
+    frbc = _frbc(system_description, relax_site_capacity=relax)
+    await frbc.trigger_schedule(system_description.message_id)
+    flex_context = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
+        "flex_context"
+    ]
+    assert flex_context["relax-site-capacity-constraints"] is relax
+
+
+@pytest.mark.asyncio
+async def test_unset_the_site_capacity_is_left_to_flexmeasures():
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    await frbc.trigger_schedule(system_description.message_id)
+    flex_context = frbc._fm_client.trigger_and_get_schedule.await_args.kwargs[
+        "flex_context"
+    ]
+    assert "relax-site-capacity-constraints" not in flex_context
+
+
+@pytest.mark.asyncio
+async def test_a_schedule_overtaken_while_it_was_planned_is_not_translated():
+    """A newer storage status arrived during the round trip, so turning this schedule into instructions is wasted."""
+    from unittest.mock import patch
+
+    from flexmeasures_client.s2.control_types.FRBC import STORAGE_STATUS_REQUESTS
+
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    request_number = frbc._count_request(STORAGE_STATUS_REQUESTS)
+    planned = frbc._fm_client.trigger_and_get_schedule.return_value
+
+    async def overtaken(**kwargs):
+        frbc._count_request(STORAGE_STATUS_REQUESTS)  # a newer status, mid round trip
+        return planned
+
+    frbc._fm_client.trigger_and_get_schedule = AsyncMock(side_effect=overtaken)
+    with patch(
+        "flexmeasures_client.s2.control_types.FRBC.frbc_simple.fm_schedule_to_instructions"
+    ) as translate:
+        await frbc.trigger_schedule(
+            system_description.message_id, request_number=request_number
+        )
+    translate.assert_not_called()
+    frbc.send_instruction_batch.assert_not_awaited()
+
+
+def test_a_batch_of_instructions_is_logged_once_and_by_name(caplog):
+    from flexmeasures_client.s2.control_types.FRBC.utils import (
+        fm_schedule_to_instructions,
+    )
+
+    system_description = _heater()
+    with caplog.at_level(logging.DEBUG):
+        fm_schedule_to_instructions(
+            {
+                "start": "2024-01-01T00:00:00+00:00",
+                "duration": "PT1H",
+                "values": [0.0, HEATER_POWER, HEATER_POWER, 0.0],
+            },
+            system_description,
+            initial_fill_level=FILL_LEVEL_AT_START,
+        )
+    batches = [
+        r.getMessage()
+        for r in caplog.records
+        if r.getMessage().startswith("Instructions: ")
+    ]
+    assert len(batches) == 1
+    assert "'on'" in batches[0] and "'off'" in batches[0]

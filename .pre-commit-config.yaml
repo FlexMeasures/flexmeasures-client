@@ -53,7 +53,8 @@ repos:
     name: mypy (static typing)
     pass_filenames: false
     language: system
-    entry: uv run poe type-check
+    # With the s2 extra, so that the S2 message types are there to check against.
+    entry: uv run --extra s2 poe type-check
     verbose: true
 
 - repo: local
@@ -66,3 +67,14 @@ repos:
         Put screenshots in the FlexMeasures/screenshots repo, or leave them
         untracked and attach them to the PR/issue manually.
       files: '\.(png|jpe?g|gif|bmp|tiff?|webp|ico|psd)$'
+    - id: no-print-in-unattended-code
+      name: No print() in code that runs unattended
+      # A CEM's handlers run for days without anyone watching standard output,
+      # so what they have to say goes to the log, where a deployment keeps it.
+      # The example scripts print on purpose, and so do the client's interactive confirmations, which live outside s2/.
+      # Matched anywhere on a line, not only at its start, and with a space before the parenthesis too,
+      # so that `if x: print(...)`, `return print(...)`, `print (...)`, pprint and writes to stdout or stderr are caught.
+      language: pygrep
+      entry: '\b(print|pprint)\s*\(|sys\.std(out|err)\.write'
+      files: '^src/flexmeasures_client/s2/.*\.py$'
+      exclude: '^src/flexmeasures_client/s2/script/'

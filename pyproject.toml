@@ -85,15 +85,17 @@ help = "Run the test suite (excluding S2) and generate coverage report."
 cmd = "pytest --ignore=tests/s2 --cov --cov-report="
 
 [tool.poe.tasks.test-s2]
-help = "Run S2 tests."
-cmd = "pytest tests/s2"
+help = "Run S2 tests and generate coverage report."
+cmd = "pytest tests/s2 --cov --cov-report="
 
 [tool.poe.tasks.type-check]
-help = "Run mypy on files with type hints."
-shell = """
-    files=$(find src -name \\*.py | xargs grep -l "from typing import")
-    mypy --follow-imports skip --ignore-missing-imports $files
-"""
+help = "Run mypy on every source file, including the bodies of functions without type hints, against the types of what they import."
+cmd = "mypy --ignore-missing-imports --check-untyped-defs src"
+
+[tool.mypy]
+# The S2 messages are pydantic models, so without the plugin mypy misreads their constructors and fields.
+# It also makes a missing s2 extra fail loudly, rather than leaving every S2 type silently Any.
+plugins = ["pydantic.mypy"]
 
 [tool.poe.tasks.lint]
 help = "Run pre-commit hooks on all files."

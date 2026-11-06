@@ -21,11 +21,7 @@ from flexmeasures_client.client import (
     _parse_sensor_json_fields,
 )
 from flexmeasures_client.constants import CLIENT_VERSION_HEADER
-from flexmeasures_client.response_handling import (
-    check_content_type,
-    check_for_status,
-    parse_retry_after,
-)
+from flexmeasures_client.response_handling import check_for_status, parse_retry_after
 
 
 @pytest.mark.parametrize(
@@ -837,15 +833,27 @@ def test_parse_sensor_json_fields():
     assert sensor["attributes"]["key"] == "value"
 
 
-def test_check_content_type_failure():
-    """check_content_type raises on non-JSON content type."""
-    from aiohttp import ContentTypeError as AiohttpContentTypeError
+@pytest.mark.asyncio
+async def test_an_answer_that_is_not_json_is_a_connection_error() -> None:
+    """A proxy's HTML error page, as during a server restart, is reported like every other failure to reach the API.
 
-    response = MagicMock()
-    response.headers = {"Content-Type": "text/html"}
-    response.text.return_value = "some html"
-    with pytest.raises(AiohttpContentTypeError):
-        check_content_type(response)
+    aiohttp's own json() refuses it inside the request loop, which is where this is handled.
+    The separate content-type check that used to follow the loop is gone:
+    it could only fire on the JSON variants aiohttp accepts, such as application/problem+json, and it should not have refused those.
+    """
+    with aioresponses() as m:
+        m.get(
+            "http://localhost:5000/api/",
+            status=200,
+            body="<html>502 Bad Gateway</html>",
+            content_type="text/html",
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test", access_token="skip-auth"
+        )
+        with pytest.raises(ConnectionError, match="text/html"):
+            await flexmeasures_client.get_versions()
+        await flexmeasures_client.close()
 
 
 def test_check_for_status_failure():
@@ -956,4 +964,66 @@ async def test_server_version_at_least_looks_the_version_up() -> None:
         assert await flexmeasures_client.server_version_at_least("1.0.0") is True
         assert await flexmeasures_client.server_version_at_least("0.27.0") is True
         assert await flexmeasures_client.server_version_at_least("1.1.0") is False
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_an_auth_token_answer_that_is_not_an_object_is_refused() -> None:
+    """A list where the token should be says what came back, instead of failing on the lookup."""
+    with aioresponses() as m:
+        m.post(
+            "http://localhost:5000/api/requestAuthToken",
+            status=200,
+            payload=["auth_token"],
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        with pytest.raises(ValueError, match="requestAuthToken, but got a list"):
+            await flexmeasures_client.get_access_token()
+        assert flexmeasures_client.access_token is None
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_the_access_token_is_returned_as_well_as_stored() -> None:
+    with aioresponses() as m:
+        m.post(
+            "http://localhost:5000/api/requestAuthToken",
+            status=200,
+            payload={"auth_token": "a-token"},
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        assert await flexmeasures_client.get_access_token() == "a-token"
+        assert flexmeasures_client.access_token == "a-token"
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_a_version_answer_that_is_not_an_object_is_refused() -> None:
+    with aioresponses() as m:
+        m.get("http://localhost:5000/api/", status=200, payload=["v3_0"])
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test", access_token="skip-auth"
+        )
+        with pytest.raises(ValueError, match="API root, but got a list"):
+            await flexmeasures_client.get_versions()
+        await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_a_client_without_a_token_authorises_with_the_one_it_fetches() -> None:
+    with aioresponses() as m:
+        m.post(
+            "http://localhost:5000/api/requestAuthToken",
+            status=200,
+            payload={"auth_token": "a-token"},
+        )
+        flexmeasures_client = FlexMeasuresClient(
+            email="test@test.test", password="test"
+        )
+        headers = await flexmeasures_client.get_headers(include_auth=True)
+        assert headers["Authorization"] == "a-token"
         await flexmeasures_client.close()

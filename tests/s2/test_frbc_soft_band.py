@@ -156,12 +156,35 @@ async def test_the_usage_and_the_leakage_a_resource_manager_declares_are_planned
     system_description,
 ):
     """A storage that is drawn from and leaks is not planned for by its prices alone."""
+    from s2python.frbc import FRBCLeakageBehaviour, FRBCLeakageBehaviourElement
+
     frbc = _frbc(system_description)
+    leakage = FRBCLeakageBehaviour(
+        message_id=get_unique_id(),
+        valid_from="2024-01-01T00:00:00+00:00",
+        elements=[
+            FRBCLeakageBehaviourElement(
+                fill_level_range=NumberRange(start_of_range=0, end_of_range=100),
+                leakage_rate=0.001,
+            )
+        ],
+    )
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
 
     flex_model, _ = await _asked_for(frbc, system_description)
 
     assert flex_model["soc-usage"] == [{"sensor": USAGE_FORECAST_SENSOR_ID}]
     assert flex_model["storage-efficiency"] == {"sensor": LEAKAGE_SENSOR_ID}
+
+
+@pytest.mark.asyncio
+async def test_no_storage_efficiency_is_named_before_a_leakage_behaviour_is_known(
+    system_description,
+):
+    """A sensor holding nothing for the window would be planned against as a storage that keeps everything."""
+    frbc = _frbc(system_description)
+    flex_model, _ = await _asked_for(frbc, system_description)
+    assert "storage-efficiency" not in flex_model
 
 
 @pytest.mark.asyncio

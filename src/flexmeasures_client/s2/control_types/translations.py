@@ -1,5 +1,3 @@
-# flake8: noqa
-
 from datetime import timedelta
 
 import numpy as np
@@ -17,11 +15,15 @@ except ImportError:
         "Install it using `pip install flexmeasures-client[s2]`."
     )
 
+from flexmeasures_client.s2.control_types.FRBC.utils import element_for_fill_level
+
 
 def leakage_behaviour_to_storage_efficiency(
     message: FRBCLeakageBehaviour,
     resolution=timedelta(minutes=15),
     fill_level_scale: float = 1,
+    fill_level: float | None = None,
+    share_of: float | None = None,
 ) -> float:
     """
     Convert a FRBC.LeakageBehaviour message into a FlexMeasures compatible storage efficiency.
@@ -32,7 +34,7 @@ def leakage_behaviour_to_storage_efficiency(
     due to leakage within the given range of the fill level. This is defined as a function of the
     fill level.
 
-    Storage Efficiency: percentage of the storage that remains after one time period.
+    Storage Efficiency: percentage of the storage that remains after one time step of the given resolution.
 
     Example:
 
@@ -56,17 +58,32 @@ def leakage_behaviour_to_storage_efficiency(
 
     """
 
-    last_element = message.elements[-1]
+    # FlexMeasures takes one storage efficiency here, for the whole window it covers.
+    # Where the fill level is known, the element that applies at it answers, as for a charging efficiency.
+    # Where it is not, the leakiest answers, looked for rather than assumed to come last,
+    # since S2 does not fix the order the elements are listed in, and the leakiest is not always the top one.
+    if fill_level is not None:
+        element = element_for_fill_level(message.elements, fill_level)
+    else:
+        element = max(message.elements, key=lambda e: e.leakage_rate)
     max_fill_level = max(
         e.fill_level_range.end_of_range * fill_level_scale for e in message.elements
     )
-    leakage = last_element.leakage_rate * fill_level_scale
-    base_resolution = timedelta(hours=1)  # TODO: use timedelta(seconds=1)
-
-    # Discuss conversions
-    storage_efficiency = 100 * (1 - (leakage / max_fill_level)) ** (
-        resolution / base_resolution
+    leakage = element.leakage_rate * fill_level_scale
+    # S2 states a leakage rate per second, so what remains after one second is compounded over the seconds in a step.
+    # This used to compound it over the hours in a step instead,
+    # which declared a buffer losing 1.5 kWh of 10 a day as holding its heat to within 0.002% over twelve hours,
+    # where it loses about 7%, and had the scheduler pre-charge in a cheap hour on the strength of it.
+    # FlexMeasures applies a storage efficiency to the stock as it stands, so the loss is a share of a fill level:
+    # of share_of where given, as the fill level a schedule starts from is,
+    # and otherwise of the top of the range, which understates it at lower fill levels.
+    reference = (
+        share_of * fill_level_scale
+        if share_of is not None and share_of > 0
+        else max_fill_level
     )
+    seconds_per_step = pd.Timedelta(resolution) / pd.Timedelta(seconds=1)
+    storage_efficiency = 100 * max(0.0, 1 - leakage / reference) ** seconds_per_step
 
     return storage_efficiency
 
@@ -75,7 +92,7 @@ def unevenly_ts_to_evenly(
     start: pd.Timestamp,
     values: list[float],
     durations: list[pd.Timedelta],
-    target_resolution: str,
+    target_resolution: str | timedelta,
     strategy="mean",
 ) -> pd.Series:
     """
@@ -132,7 +149,7 @@ def unevenly_ts_to_evenly(
 
 def translate_usage_forecast_to_fm(
     usage_forecast: FRBCUsageForecast,
-    resolution: str = "1h",
+    resolution: str | timedelta = "1h",
     strategy: str = "mean",
     fill_level_scale: float = 1,
 ) -> pd.Series:
@@ -166,7 +183,7 @@ def translate_usage_forecast_to_fm(
 
 def translate_fill_level_target_profile(
     fill_level_target_profile: FRBCFillLevelTargetProfile,
-    resolution: str = "1h",
+    resolution: str | timedelta = "1h",
     fill_level_scale: float = 1,
 ) -> tuple[pd.Series, pd.Series]:
     """

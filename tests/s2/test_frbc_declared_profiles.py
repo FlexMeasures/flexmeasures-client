@@ -9,8 +9,9 @@ recorded none of it.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pandas as pd
@@ -265,6 +266,7 @@ async def test_usage_forecast_is_recorded_from_a_resolution_boundary(
 async def test_leakage_behaviour_is_recorded_as_a_storage_efficiency(
     system_description,
 ):
+    """Recorded when a schedule is asked for, over the window it covers, rather than on arrival."""
     frbc = _frbc(system_description, with_sensors=True)
     leakage = FRBCLeakageBehaviour(
         message_id=get_unique_id(),
@@ -279,12 +281,22 @@ async def test_leakage_behaviour_is_recorded_as_a_storage_efficiency(
         ],
     )
 
-    await frbc.send_leakage_behaviour(leakage)
+    await frbc.handle_message(leakage)
+    await asyncio.gather(*frbc.background_tasks)
+    assert not [
+        c
+        for c in frbc._fm_client.post_sensor_data.await_args_list
+        if c.kwargs.get("sensor_id") == LEAKAGE_SENSOR_ID
+    ]  # nothing on arrival
+
+    start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
+    assert await frbc._record_storage_efficiency(start, (RANGE_BOTTOM + RANGE_TOP) / 2)
 
     posted = _posted(frbc, LEAKAGE_SENSOR_ID)
     assert posted["unit"] == "%"
     assert len(posted["values"]) == 1
-    assert posted["start"].minute % 15 == 0 and posted["start"].second == 0
+    assert posted["start"] == start
+    assert posted["duration"] == frbc._schedule_duration
 
 
 # --- Without the sensors: nothing recorded, and still no exception ---
@@ -397,7 +409,7 @@ async def test_the_energy_unit_is_the_deployment_s_to_choose(system_description)
 async def test_a_schedule_is_asked_for_in_the_unit_the_fill_level_is_recorded_in(
     system_description,
 ):
-    """soc-unit has to follow energy_unit, or the scheduler plans against bounds a thousand times its measurements."""
+    """soc-unit follows energy_unit where FlexMeasures takes it, so the values stated inline are in the unit they are recorded in."""
     frbc = _frbc(system_description, with_sensors=True)
     # A schedule is only asked for once a storage status has said where to start from.
     frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
@@ -601,3 +613,58 @@ async def test_an_actuator_s_fill_rate_is_posted_in_the_fill_rate_unit(
     )
     # The power sensor really does carry a power, and is untouched by this.
     assert _posted(frbc, 1)["unit"] == frbc.power_unit
+
+
+@pytest.mark.asyncio
+async def test_a_storage_efficiency_already_recorded_for_the_window_is_not_recorded_again(
+    system_description,
+):
+    frbc = _frbc(system_description, with_sensors=True)
+    leakage = FRBCLeakageBehaviour(
+        message_id=get_unique_id(),
+        valid_from="2024-01-01T12:00:00+00:00",
+        elements=[
+            FRBCLeakageBehaviourElement(
+                fill_level_range=NumberRange(
+                    start_of_range=RANGE_BOTTOM, end_of_range=RANGE_TOP
+                ),
+                leakage_rate=0.01,
+            )
+        ],
+    )
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+    start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
+    assert await frbc._record_storage_efficiency(start, 50.0)
+    assert await frbc._record_storage_efficiency(start, 50.0)
+    posts = [
+        c
+        for c in frbc._fm_client.post_sensor_data.await_args_list
+        if c.kwargs.get("sensor_id") == LEAKAGE_SENSOR_ID
+    ]
+    assert len(posts) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_storage_efficiency_that_could_not_be_recorded_is_not_planned_against(
+    system_description, caplog
+):
+    """And it is tried again next time, rather than remembered as recorded."""
+    frbc = _frbc(system_description, with_sensors=True)
+    leakage = FRBCLeakageBehaviour(
+        message_id=get_unique_id(),
+        valid_from="2024-01-01T12:00:00+00:00",
+        elements=[
+            FRBCLeakageBehaviourElement(
+                fill_level_range=NumberRange(
+                    start_of_range=RANGE_BOTTOM, end_of_range=RANGE_TOP
+                ),
+                leakage_rate=0.01,
+            )
+        ],
+    )
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+    frbc._fm_client.post_sensor_data.side_effect = ConnectionError("unreachable")
+    start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
+    assert await frbc._record_storage_efficiency(start, 50.0) is False
+    assert frbc._storage_efficiency_recorded is None
+    assert "could not record" in caplog.text

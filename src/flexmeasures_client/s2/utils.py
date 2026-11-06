@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import Mapping, TypeVar
+from typing import Any, Mapping, Protocol, TypeVar
 from uuid import uuid4
 
 import pydantic
@@ -49,15 +49,6 @@ def get_unique_id() -> str:
     return str(uuid4())
 
 
-def get_validation_error_summary(error: pydantic.ValidationError) -> str:
-    error_summary = ""
-
-    for i, e in enumerate(error):
-        error_summary += f"\nValidationEror {i} -> \t {e['msg']}"
-
-    return error_summary[1:]  # skipping the first \n
-
-
 def get_message_id(message: pydantic.BaseModel) -> str | None:
     """
     This function returns the message_id if it is found in the message,
@@ -71,8 +62,14 @@ def get_message_id(message: pydantic.BaseModel) -> str | None:
     return None
 
 
+class _HasMessageId(Protocol):
+    """Any S2 message: every one of them carries a message id."""
+
+    message_id: Any
+
+
 def get_reception_status(
-    subject_message: pydantic.BaseModel,
+    subject_message: _HasMessageId,
     status: ReceptionStatusValues = ReceptionStatusValues.OK,
 ):
     """
