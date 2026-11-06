@@ -171,3 +171,56 @@ async def test_a_timer_is_warned_about_once(caplog):
 
     assert caplog.text.count("does not honour") == 1
     assert len(frbc._timer_status_history) == 2
+
+
+def _two_modes_with(transitions_between, blocking_timers=()):
+    """The heater, with an idle mode beside it, and transitions between the two as given."""
+    from s2python.common import Transition
+
+    system_description = _heater()
+    actuator = system_description.actuators[0]
+    on = actuator.operation_modes[0]
+    off = on.model_copy(update={"id": get_unique_id(), "diagnostic_label": "off"})
+    transitions = [
+        Transition(
+            id=get_unique_id(),
+            from_=a.id,
+            to=b.id,
+            start_timers=[],
+            blocking_timers=list(blocking_timers),
+            abnormal_condition_only=False,
+        )
+        for a, b in transitions_between(on, off)
+    ]
+    return _with(system_description, operation_modes=[on, off], transitions=transitions)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "transitions_between, blocking_timers, warned",
+    [
+        (lambda on, off: [(on, off), (off, on)], (), False),
+        (lambda on, off: [(off, on)], (), True),
+    ],
+    ids=[
+        "every switch allowed",
+        "switching off ruled out",
+    ],
+)
+async def test_transitions_are_warned_about_only_where_they_rule_a_switch_out(
+    transitions_between, blocking_timers, warned, caplog
+):
+    """An on/off device that declares both of its switches rules nothing out, as the example resource manager does."""
+    system_description = _two_modes_with(transitions_between, blocking_timers)
+    frbc = _frbc(system_description)
+    frbc._storage_status_history.clear()
+
+    with caplog.at_level(logging.WARNING):
+        status = await frbc.handle_message(
+            system_description.model_copy(
+                update={"message_id": get_unique_id()}
+            ).to_dict()
+        )
+
+    assert status.status == ReceptionStatusValues.OK
+    assert ("does not honour" in caplog.text) is warned

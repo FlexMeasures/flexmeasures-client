@@ -245,9 +245,9 @@ class FRBC(ControlTypeHandler):
         # Said once per description, since nothing here would otherwise say it at all:
         # an instruction can ask for a switch that a running timer or a missing transition forbids, and the device refuses it.
         actuator = message.actuators[0]
-        if actuator.timers or actuator.transitions:
+        if _transitions_restrict(actuator):
             self._logger.warning(
-                "The actuator declares %s timers and %s transitions, which this CEM does not honour: an instruction may ask for a switch the device refuses.",
+                "The actuator declares %s timers and %s transitions that rule out some switches between its operation modes, which this CEM does not honour: an instruction may ask for a switch the device refuses.",
                 len(actuator.timers),
                 len(actuator.transitions),
             )
@@ -441,3 +441,28 @@ class FRBCTest(FRBC):
         )
 
         await self.send_message(instruction)
+
+
+def _transitions_restrict(actuator) -> bool:
+    """Whether an actuator's timers and transitions rule out a switch between two of its operation modes.
+
+    Transitions that allow every switch between modes usable under normal conditions, with no timer to wait for,
+    rule out nothing, as an on/off device that declares both of its switches does,
+    so only where something is ruled out is there anything this CEM fails to honour.
+    """
+    # A transition can only be blocked by a timer the actuator declares, which s2python checks, so timers cover that too.
+    if actuator.timers:
+        return True
+    if not actuator.transitions:
+        return False
+    modes = [
+        str(mode.id)
+        for mode in actuator.operation_modes
+        if not mode.abnormal_condition_only
+    ]
+    allowed = {
+        (str(t.from_), str(t.to))
+        for t in actuator.transitions
+        if not t.abnormal_condition_only
+    }
+    return any((a, b) not in allowed for a in modes for b in modes if a != b)
