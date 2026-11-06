@@ -712,3 +712,42 @@ async def test_a_bound_that_could_not_be_recorded_leaves_the_other_recorded(
     second = frbc._fm_client.post_sensor_data.await_args_list[1].kwargs
     assert second["sensor_id"] == frbc._soc_maxima_sensor_id
     assert "Could not record a bound" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_fill_rate_that_could_not_be_recorded_is_logged(
+    system_description, caplog
+):
+    """The post runs in a task nobody awaits, so an exception there was asyncio's to report, if anyone's."""
+    frbc = FRBCSimple(
+        power_sensor_id=1,
+        price_sensor_id=2,
+        soc_sensor_id=3,
+        rm_discharge_sensor_id=4,
+        fill_rate_sensor_id=20,
+    )
+    frbc._fm_client = AsyncMock(FlexMeasuresClient)
+    frbc._fm_client.get_sensor = AsyncMock(
+        return_value=power_sensor_recording(consumption_as_positive=True)
+    )
+    # The power goes through; the fill rate does not.
+    frbc._fm_client.post_sensor_data = AsyncMock(
+        side_effect=[({}, 200), ConnectionError("down")]
+    )
+    frbc._logger = logging.getLogger(__name__)
+    frbc._system_description_history = {
+        system_description.message_id: system_description
+    }
+    actuator = system_description.actuators[0]
+
+    await frbc.send_actuator_status(
+        FRBCActuatorStatus(
+            message_id=get_unique_id(),
+            actuator_id=actuator.id,
+            active_operation_mode_id=actuator.operation_modes[0].id,
+            operation_mode_factor=0.5,
+        )
+    )
+
+    assert frbc._fm_client.post_sensor_data.await_count == 2
+    assert "Could not record the fill rate" in caplog.text

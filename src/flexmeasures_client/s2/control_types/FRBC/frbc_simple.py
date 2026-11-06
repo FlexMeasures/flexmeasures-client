@@ -254,11 +254,8 @@ class FRBCSimple(FRBC):
         # Half again as high, so that a storage overshooting its declared range stays feasible.
         # A deployment whose storage cannot overshoot at all can bring this down to 1.
         hard_bound_factor: float = 1.5,
-        # The unit a power value this handler posts is labelled with.
-        # Those values come straight from the operation modes' power ranges, which S2 states in watts,
-        # and nothing converts them on the way out,
-        # so a deployment that sets another unit here has them recorded at the wrong magnitude.
-        # TODO: either convert a power value into this unit before posting it, or drop this and post watts, as S2 states them.
+        # The unit a power value this handler posts is converted into and labelled with.
+        # Those values come from the operation modes' power ranges, which S2 states in watts.
         power_unit: str = "W",
         # The unit a fill level is recorded in: a state of charge and the minima and maxima
         # bounding it all go out in this one unit, so that they can be compared at all.
@@ -799,14 +796,23 @@ class FRBCSimple(FRBC):
                 fill_rate.start_of_range
                 + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
             ) * self._fill_level_scale
-            await self._fm_client.post_sensor_data(
-                self._fill_rate_sensor_id,
-                start=start,
-                prior=self.now(),
-                values=[rate],
-                unit=self.fill_rate_unit(),
-                duration=self._resolution,
-            )
+            # Guarded like the power above, since this runs in a task nobody awaits.
+            try:
+                await self._fm_client.post_sensor_data(
+                    self._fill_rate_sensor_id,
+                    start=start,
+                    prior=self.now(),
+                    values=[rate],
+                    unit=self.fill_rate_unit(),
+                    duration=self._resolution,
+                )
+            except REQUEST_FAILURES:
+                self._logger.exception(
+                    "Could not record the fill rate %s on sensor %s for %s.",
+                    rate,
+                    self._fill_rate_sensor_id,
+                    start,
+                )
 
     async def _record_charging_efficiency(
         self,
@@ -1023,9 +1029,7 @@ class FRBCSimple(FRBC):
         Against an older server, the schedule endpoint follows that fallback job rather than reporting the failure,
         or redirects to it where the server sets FLEXMEASURES_FALLBACK_REDIRECT, which this client follows,
         so either way a schedule nobody asked for arrives looking like the one that was.
-        It is a coarse charging policy rather than a plan,
-        and it records no state of charge, so a later window has nothing to resolve its soc-at-start against:
-        that is how a house in a co-simulation starved mid-run.
+        It is a coarse charging policy rather than a plan, made without the band, the efficiencies and the power bands this handler asked with.
 
         :param schedule: what came back, which names the scheduler that planned it.
         :param start:    the window it was asked for.
@@ -1037,7 +1041,7 @@ class FRBCSimple(FRBC):
         if "fallback" not in scheduler.lower():
             return
         self._logger.error(
-            "The schedule for the window starting %s was planned by %s, which is a fallback scheduler: the problem this handler asked about was infeasible. The schedule is a coarse charging policy, and no state of charge was recorded for a later window to be planned from.",
+            "The schedule for the window starting %s was planned by %s, which is a fallback scheduler: the problem this handler asked about was infeasible. The schedule is a coarse charging policy, not a plan.",
             start,
             scheduler,
         )

@@ -349,7 +349,7 @@ async def test_a_schedule_from_a_fallback_scheduler_is_said_out_loud(caplog):
         await frbc.trigger_schedule(system_description.message_id)
 
     assert "StorageFallbackScheduler" in caplog.text
-    assert "no state of charge was recorded" in caplog.text
+    assert "coarse charging policy, not a plan" in caplog.text
     # The schedule is still followed: a coarse policy beats leaving the actuator to itself.
     frbc.send_instruction_batch.assert_awaited_once()
 
