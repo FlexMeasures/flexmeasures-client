@@ -369,8 +369,7 @@ class FRBCSimple(FRBC):
             return moment
         # Floored on the moment's own clock, in the offset it carries, which is how FlexMeasures floors a series posted with it,
         # so an hourly step in a zone half an hour off UTC, or a daily one, starts where FlexMeasures' steps do.
-        # A boundary in the repeated hour of an autumn DST change exists twice, and the one meant is the later of the two
-        # that is not after the moment: taking the first pass every time put a boundary an hour or more too early.
+        # A boundary in the repeated hour of an autumn DST change exists twice, and the one meant is the later of the two that is not after the moment: taking the first pass every time put a boundary an hour or more too early.
         # A boundary in a spring gap, which only a resolution of more than an hour can land on, moves to the end of the gap.
         # Compared as pandas timestamps, which compare instants: two datetimes on one local clock compare by wall time,
         # whichever pass each is on.
@@ -452,8 +451,7 @@ class FRBCSimple(FRBC):
             await self._fm_client.post_measurements(
                 self._soc_sensor_id,
                 start=now,
-                # Scaled like every other fill level this handler records, or the level and the
-                # band around it would be in different scales wherever fill_level_scale is not 1.
+                # Scaled like every other fill level this handler records, or the level and the band around it would be in different scales wherever fill_level_scale is not 1.
                 values=[status.present_fill_level * self._fill_level_scale],
                 unit=self.energy_unit,
                 duration=await self._soc_duration(),
@@ -1446,8 +1444,7 @@ class FRBCSimple(FRBC):
             or not self._system_description_history
         ):
             return False
-        # S2 states a leakage as a rate, and FlexMeasures takes a share of the stock, so one share stands for the rate
-        # only at one fill level, and the loss scales with the stock away from it.
+        # S2 states a leakage as a rate, and FlexMeasures takes a share of the stock, so one share stands for the rate only at one fill level, and the loss scales with the stock away from it.
         # That fill level is where the schedule starts, as long as that is at least the middle of the storage's range:
         # from a near-empty start, a share of the start level would let almost nothing remain per step,
         # and the loss would be overstated many times over as soon as the plan filled the storage.

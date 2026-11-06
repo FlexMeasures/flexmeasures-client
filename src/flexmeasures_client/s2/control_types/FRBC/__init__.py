@@ -258,8 +258,7 @@ class FRBC(ControlTypeHandler):
         # is answered with a schedule against that latest status.
         # Anything but the message id counts as a difference, its validity included,
         # so a resource manager that re-dates its description on every resend asks for a schedule every time.
-        # Otherwise a resource manager that sends its status first, or whose fill level holds steady
-        # so that no new status follows, is never planned for, or keeps being planned for with what it can no longer do.
+        # Otherwise a resource manager that sends its status first, or whose fill level holds steady so that no new status follows, is never planned for, or keeps being planned for with what it can no longer do.
         if self._storage_status_history:
             request_number = self._count_request(STORAGE_STATUS_REQUESTS)
             task = asyncio.create_task(

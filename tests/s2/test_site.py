@@ -10,6 +10,7 @@ import pytest
 from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
 
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.exceptions import ContentTypeError
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.site import (
     FRBC_SITE_SENSORS,
@@ -331,10 +332,14 @@ async def test_closing_the_cem_stops_a_site_being_configured(
 
 
 @pytest.mark.asyncio
-async def test_a_known_site_that_cannot_be_fetched_is_looked_up_again():
+@pytest.mark.parametrize(
+    "failure",
+    [ValueError("404"), ContentTypeError("Expected an asset, but got a list")],
+)
+async def test_a_known_site_that_cannot_be_fetched_is_looked_up_again(failure):
     """Deleted since, say: the listing finds it by name, or it is made again."""
     fm = _flexmeasures([{"id": 9, "name": "home A", "sensors": []}])
-    fm.get_asset = AsyncMock(side_effect=ValueError("404"))
+    fm.get_asset = AsyncMock(side_effect=failure)
     asset, _ = await ensure_site(
         fm, "home A", asset_specs={}, sensors={}, timezone="UTC", known_asset_id=7
     )
