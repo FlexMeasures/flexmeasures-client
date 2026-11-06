@@ -587,8 +587,7 @@ def power_to_fill_rate_with_metrics(
 
     if pr_end == pr_start:
         # Every factor draws this one power, so the power cannot say which factor is meant.
-        # The top of the fill-rate range is asked for, which is where operation_mode_conversion_efficiency
-        # declares the efficiency FlexMeasures plans with, so the plan and the instruction agree.
+        # The top of the fill-rate range is asked for, which is where operation_mode_conversion_efficiency declares the efficiency FlexMeasures plans with, so the plan and the instruction agree.
         # Where the fill-rate range is a single value too, the factor makes no difference and stays at zero.
         fr_start = best_element.fill_rate.start_of_range
         fr_end = best_element.fill_rate.end_of_range
