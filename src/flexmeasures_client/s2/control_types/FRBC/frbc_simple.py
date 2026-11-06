@@ -25,9 +25,14 @@ except ImportError:
 
 
 import pandas as pd
+from aiohttp import ClientError, ClientResponseError
 
 from flexmeasures_client.client import convert_units
-from flexmeasures_client.exceptions import ContentTypeError, JobFailedError
+from flexmeasures_client.exceptions import (
+    ContentTypeError,
+    JobFailedError,
+    JobTimeoutError,
+)
 from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     WATTS_PER_ENERGY_UNIT_PER_SECOND,
@@ -74,6 +79,23 @@ NON_RETRYABLE_SCHEDULE_FAILURES = (
 #: A schedule can be asked for before the state of charge it is to be planned from has landed,
 #: and FlexMeasures refuses to plan from one it considers too old.
 RETRYABLE_TRIGGER_REFUSALS = ("No recent state-of-charge value found",)
+
+#: What a request to FlexMeasures can fail with, short of a defect in this code:
+#: refused (ValueError), unreachable (ConnectionError, TimeoutError, ClientError), answered oddly (ContentTypeError),
+#: or queued and then failed or never picked up (JobFailedError, JobTimeoutError).
+REQUEST_FAILURES = (
+    JobFailedError,
+    JobTimeoutError,
+    ValueError,
+    ConnectionError,
+    TimeoutError,
+    ContentTypeError,
+    ClientError,
+)
+
+#: What FlexMeasures before v0.33.0 answers a failed scheduling job with, having no job-status API to say so:
+#: an HTTP 400, which the client raises as a ValueError with this message and nothing more.
+BARE_REFUSAL = "Request failed with status code 400"
 
 
 def _merged(ranges: list[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -424,16 +446,26 @@ class FRBCSimple(FRBC):
         # without a prior, FlexMeasures took the moment the request reached it,
         # and a simulated reading was recorded as known years after it was taken.
         now = self.now()
-        await self._fm_client.post_measurements(
-            self._soc_sensor_id,
-            start=now,
-            # Scaled like every other fill level this handler records, or the level and the
-            # band around it would be in different scales wherever fill_level_scale is not 1.
-            values=[status.present_fill_level * self._fill_level_scale],
-            unit=self.energy_unit,
-            duration=await self._soc_duration(),
-            prior=now,
-        )
+        # Guarded, because a failed post would otherwise unwind this method before the planning below,
+        # and a schedule starts from the state of charge this status reports, sent inline, not from the one recorded here.
+        try:
+            await self._fm_client.post_measurements(
+                self._soc_sensor_id,
+                start=now,
+                # Scaled like every other fill level this handler records, or the level and the
+                # band around it would be in different scales wherever fill_level_scale is not 1.
+                values=[status.present_fill_level * self._fill_level_scale],
+                unit=self.energy_unit,
+                duration=await self._soc_duration(),
+                prior=now,
+            )
+        except REQUEST_FAILURES:
+            self._logger.exception(
+                "Could not record the state of charge %s on sensor %s for %s; planning from it all the same.",
+                status.present_fill_level,
+                self._soc_sensor_id,
+                now,
+            )
 
         # The state of charge this status reports is what a schedule starts from, so this is
         # where a schedule is asked for.
@@ -848,8 +880,11 @@ class FRBCSimple(FRBC):
                 # and for a heat pump, whose fill rate is the heat it delivers, it is well above one.
                 unit="dimensionless",
                 duration=self._schedule_duration,
+                # Remembered below as recorded, and so never posted again for this window:
+                # an ingestion still pending at the timeout is not taken as recorded.
+                confirm_ingestion=True,
             )
-        except (JobFailedError, ValueError, ConnectionError, NotImplementedError):
+        except (*REQUEST_FAILURES, NotImplementedError):
             # A schedule planned as if the actuator converted power one for one beats no schedule at all,
             # as long as it is said out loud:
             # that plan overstates what a lossy storage gains from a given power, and understates what a heat pump puts in.
@@ -864,7 +899,9 @@ class FRBCSimple(FRBC):
         self._charging_efficiency_recorded = (start, efficiency)
         return True
 
-    def _is_worth_asking_again(self, failure: Exception) -> bool:
+    async def _is_worth_asking_again(
+        self, failure: Exception, attempt: int = 1
+    ) -> bool:
         """Whether a failed attempt at a schedule is worth making again.
 
         A job that reached the server and failed inside it is,
@@ -880,9 +917,33 @@ class FRBCSimple(FRBC):
         message = str(failure)
         if any(marker in message for marker in NON_RETRYABLE_SCHEDULE_FAILURES):
             return False
-        if isinstance(failure, JobFailedError):
+        # A job nobody picked up in time, and a server that could not be reached, may both be there for the next attempt:
+        # a scheduling queue without a live worker, and a gateway restarting, are the likeliest of either.
+        # A timeout has already waited out the job's whole timeout, and a dead queue will not come back two seconds later,
+        # so it is asked about once more, not on every attempt allowed.
+        if isinstance(failure, JobTimeoutError):
+            return attempt == 1
+        # The client wraps every HTTP error in a ConnectionError,
+        # and one answering 4xx, such as an endpoint an old server lacks, answers the same next time.
+        cause = failure.__cause__
+        if isinstance(cause, ClientResponseError) and cause.status < 500:
+            return False
+        if isinstance(
+            failure,
+            (JobFailedError, ConnectionError, TimeoutError, ClientError),
+        ):
             return True
-        return any(marker in message for marker in RETRYABLE_TRIGGER_REFUSALS)
+        if any(marker in message for marker in RETRYABLE_TRIGGER_REFUSALS):
+            return True
+        # FlexMeasures before v0.33.0 reports a failed job only as a bare HTTP 400,
+        # which cannot be told apart from a refused trigger, so it is asked again, within the attempts allowed.
+        if message != BARE_REFUSAL:
+            return False
+        # Looked up inside the handling of another failure, so a failure of its own must not take that one's place.
+        try:
+            return not await self._fm_client.server_version_at_least("0.33.0")
+        except REQUEST_FAILURES:
+            return False
 
     async def _ask_for_a_schedule(
         self,
@@ -903,8 +964,10 @@ class FRBCSimple(FRBC):
         :param start:          the window the schedule is asked for, which every attempt asks for again.
         :param request_number: the planning request this answers; where a newer one arrives between attempts,
                                no further attempt is made and None is returned, so that the newer one is planned sooner.
-        :raises JobFailedError: where the last attempt worth making failed inside the server.
-        :raises ValueError:     where the trigger itself was refused.
+        :raises JobFailedError:  where the last attempt worth making failed inside the server.
+        :raises JobTimeoutError: where the last attempt worth making was not picked up in time.
+        :raises ConnectionError: where the server could not be reached on the last attempt worth making.
+        :raises ValueError:      where the trigger itself was refused.
         """
         attempt = 0
         while True:
@@ -924,10 +987,10 @@ class FRBCSimple(FRBC):
                     # and not in the power sensor's own unit, which is what a schedule comes back in by default.
                     unit=S2_POWER_UNIT,
                 )
-            except (JobFailedError, ValueError) as failure:
+            except (*REQUEST_FAILURES, NotImplementedError) as failure:
                 if (
                     attempt >= self._schedule_attempts
-                    or not self._is_worth_asking_again(failure)
+                    or not await self._is_worth_asking_again(failure, attempt)
                 ):
                     self._logger.exception(
                         "The storage is left without an instruction for the window starting %s: asking for a schedule failed on attempt %s of %s.",
@@ -1122,7 +1185,18 @@ class FRBCSimple(FRBC):
                 self._fm_client.server_version,
             )
         if self._usage_forecast_sensor_id is not None:
-            flex_model["soc-usage"] = [{"sensor": self._usage_forecast_sensor_id}]
+            # Not where the resource manager said it sends no usage forecast,
+            # since nothing would then be recorded on the sensor for the scheduler to read.
+            # Or where it sent one anyway, which is what it says it will do, whatever its flag says.
+            if (
+                system_description.storage.provides_usage_forecast
+                or self._usage_forecast_history
+            ):
+                flex_model["soc-usage"] = [{"sensor": self._usage_forecast_sensor_id}]
+            else:
+                self._logger.info(
+                    "Planning without usage: the resource manager says it provides no usage forecast, and has sent none."
+                )
         if await self._record_storage_efficiency(start, fill_level_at_start):
             flex_model["storage-efficiency"] = {
                 "sensor": self._leakage_behaviour_sensor_id
@@ -1390,8 +1464,10 @@ class FRBCSimple(FRBC):
                 values=[efficiency],
                 unit="%",
                 duration=self._schedule_duration,
+                # As for the charging efficiency: remembered below as recorded, so only once it is.
+                confirm_ingestion=True,
             )
-        except (JobFailedError, ValueError, ConnectionError):
+        except REQUEST_FAILURES:
             self._logger.exception(
                 "Not asking for a schedule against a storage efficiency: could not record %s %% on sensor %s for %s.",
                 efficiency,

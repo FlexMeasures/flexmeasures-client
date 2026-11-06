@@ -78,13 +78,18 @@ class _HasMessageId(Protocol):
 def get_reception_status(
     subject_message: _HasMessageId,
     status: ReceptionStatusValues = ReceptionStatusValues.OK,
+    diagnostic_label: str | None = None,
 ):
     """
     This function returns a ReceptionStatus message for the subject message
     `subject_message`. By default, the status ReceptionStatusValues.OK is sent.
+
+    :param diagnostic_label: why, for a status other than OK, which the resource manager can log.
     """
     return ReceptionStatus(
-        subject_message_id=str(subject_message.message_id), status=status
+        subject_message_id=str(subject_message.message_id),
+        status=status,
+        diagnostic_label=diagnostic_label,
     )
 
 

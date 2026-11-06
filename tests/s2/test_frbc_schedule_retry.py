@@ -27,7 +27,7 @@ from s2python.frbc import (
 )
 
 from flexmeasures_client.client import FlexMeasuresClient, _server_version_at_least
-from flexmeasures_client.exceptions import JobFailedError
+from flexmeasures_client.exceptions import JobFailedError, JobTimeoutError
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import (
     SCHEDULE_ATTEMPTS,
     FRBCSimple,
@@ -423,3 +423,142 @@ async def test_the_bounds_a_schedule_is_read_back_against_are_in_the_resource_ma
         0.0,
         pytest.approx(RANGE_TOP * 1.5),
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        JobTimeoutError("Job 1 did not finish within 600 seconds."),
+        ConnectionError("Error occurred while communicating with the API: 502"),
+    ],
+    ids=["no worker picked the job up", "the gateway restarted"],
+)
+async def test_the_likeliest_failures_in_production_are_asked_again(failure, caplog):
+    """Neither was caught, so each escaped on the first attempt, and the line saying the storage was left without an instruction never went out."""
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    frbc._fm_client.trigger_and_get_schedule.side_effect = [failure, SCHEDULE]
+
+    await frbc.trigger_schedule(system_description.message_id)
+
+    assert _attempts(frbc) == 2
+    frbc.send_instruction_batch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_giving_up_on_an_unreachable_server_says_the_storage_is_left_without_an_instruction(
+    caplog,
+):
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    frbc._fm_client.trigger_and_get_schedule.side_effect = ConnectionError("down")
+
+    with pytest.raises(ConnectionError):
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert _attempts(frbc) == frbc._schedule_attempts
+    assert "left without an instruction" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("server_version, attempts", [("0.32.0", 3), ("0.33.0", 1)])
+async def test_a_bare_refusal_is_asked_again_only_where_the_server_cannot_say_a_job_failed(
+    server_version, attempts
+):
+    """Before v0.33.0 a failed job comes back as a bare HTTP 400, which matched nothing, so the retry was inert there."""
+    system_description = _heater()
+    frbc = _frbc(system_description, schedule_attempts=3)
+    frbc._fm_client.server_version_at_least = AsyncMock(
+        side_effect=lambda minimum: _server_version_at_least(server_version, minimum)
+    )
+    frbc._fm_client.trigger_and_get_schedule.side_effect = ValueError(
+        "Request failed with status code 400"
+    )
+
+    with pytest.raises(ValueError):
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert _attempts(frbc) == attempts
+
+
+@pytest.mark.asyncio
+async def test_a_state_of_charge_that_could_not_be_recorded_is_planned_from_all_the_same(
+    caplog,
+):
+    """The post went first and unguarded, so a failed ingestion job cancelled the planning it preceded."""
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    frbc._fm_client.post_measurements = AsyncMock(
+        side_effect=JobFailedError("Job 2 ended with status failed.")
+    )
+
+    await frbc.send_storage_status(
+        FRBCStorageStatus(message_id=get_unique_id(), present_fill_level=40.0)
+    )
+
+    assert _attempts(frbc) == 1
+    assert "Could not record the state of charge" in caplog.text
+
+
+def _wrapped_http_error(status: int) -> ConnectionError:
+    """What the client raises for an HTTP error: a ConnectionError, caused by aiohttp's own."""
+    from aiohttp import ClientResponseError
+
+    failure = ConnectionError("Error occurred while communicating with the API")
+    failure.__cause__ = ClientResponseError(None, (), status=status)
+    return failure
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status, attempts", [(404, 1), (503, 3)])
+async def test_an_http_error_is_asked_again_only_where_it_may_be_passing(
+    status, attempts
+):
+    """A 4xx answers the same next time; a 5xx may be a restart."""
+    system_description = _heater()
+    frbc = _frbc(system_description, schedule_attempts=3)
+    frbc._fm_client.trigger_and_get_schedule.side_effect = _wrapped_http_error(status)
+
+    with pytest.raises(ConnectionError):
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert _attempts(frbc) == attempts
+
+
+@pytest.mark.asyncio
+async def test_a_job_nobody_picked_up_is_asked_about_once_more_only():
+    """Each attempt waits out the whole job timeout, and a dead queue is still dead after it."""
+    system_description = _heater()
+    frbc = _frbc(system_description, schedule_attempts=5)
+    frbc._fm_client.trigger_and_get_schedule.side_effect = JobTimeoutError("pending")
+
+    with pytest.raises(JobTimeoutError):
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert _attempts(frbc) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_failed_version_lookup_does_not_take_the_place_of_the_failure_it_was_for(
+    caplog,
+):
+    system_description = _heater()
+    frbc = _frbc(system_description, schedule_attempts=3)
+
+    def version_at_least(minimum):
+        # Only the lookup the retry makes fails; the flex model's own lookups go through.
+        if minimum == "0.33.0":
+            raise ConnectionError("version lookup failed")
+        return _server_version_at_least("1.1.0", minimum)
+
+    frbc._fm_client.server_version_at_least = AsyncMock(side_effect=version_at_least)
+    frbc._fm_client.trigger_and_get_schedule.side_effect = ValueError(
+        "Request failed with status code 400"
+    )
+
+    with pytest.raises(ValueError):
+        await frbc.trigger_schedule(system_description.message_id)
+
+    assert _attempts(frbc) == 1
+    assert "left without an instruction" in caplog.text
