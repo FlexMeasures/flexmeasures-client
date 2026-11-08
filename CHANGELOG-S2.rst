@@ -55,6 +55,15 @@ Added
 * ``CEM(site_configurator=...)`` sets up a resource manager's site once its details arrive. Until then, the CEM answers its messages with a temporary error. The example server enables this with ``S2_SITE_PER_RESOURCE_MANAGER`` [`#265 <https://github.com/FlexMeasures/flexmeasures-client/pull/265>`__]
 * ``examples/S2-co-simulation``: a FlexMeasures stack with one CEM per simulated home, for co-simulations whose resource managers connect over websockets [`#265 <https://github.com/FlexMeasures/flexmeasures-client/pull/265>`__, `#267 <https://github.com/FlexMeasures/flexmeasures-client/pull/267>`__]
 * ``flexmeasures_client.s2.measurements.MeasurementRecorder`` and ``CEM(measurement_recorder=...)`` record a resource manager's measured power. Use one recorder per server, so that a resource manager that reconnects is not recorded twice [`#266 <https://github.com/FlexMeasures/flexmeasures-client/pull/266>`__]
+* ``FRBCSimple`` can correct a usage forecast that no plan can absorb, instead of leaving the storage without a plan. Give it the new ``usage_correction_sensor_id``; it needs FlexMeasures v1.1.0 or newer. A forced gain at a full storage, or a draw at an empty one that the actuator cannot keep up with, used to make every plan infeasible.
+
+  - The plan may move each step's expected usage towards zero, never past it, and only where nothing physical keeps the storage within its hard bounds. It is recorded on the new sensor.
+  - A negative expected usage is then recorded and planned as stated, instead of as zero.
+  - The request sets the breach prices of the fill-level band and the site's capacity relative to the highest market price over the window (``soc_breach_price_factor``, default 10, and ``site_breach_price_factor``, default 100), instead of leaving them to FlexMeasures. The correction is priced above anything else a unit of stock can be worth, including the site's own stored peak and commitment prices.
+  - Where a correction cannot be planned, for example without readable prices, the forecast is planned without its negative values, as before, and the log says why.
+  - ``FRBCSiteConfigurator`` takes ``correct_usage`` to give each site the sensor, and the example server does so with ``S2_CORRECT_USAGE``. Both are off by default.
+
+  [`#286 <https://github.com/FlexMeasures/flexmeasures-client/pull/286>`__]
 
 Changed
 -------
