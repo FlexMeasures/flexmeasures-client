@@ -558,6 +558,7 @@ async def test_the_sites_stored_electricity_context_is_kept_and_its_prices_bound
         ],
         "soc-minima-breach-price": "1000 EUR/kWh",
         "consumption-price": {"sensor": 99},
+        "aggregate-power": {"sensor": 709},
     }
     frbc = _correcting(system_description, stored=stored)
     frbc._usage_forecast_history["f"] = _forecast(0.01)
@@ -571,6 +572,10 @@ async def test_the_sites_stored_electricity_context_is_kept_and_its_prices_bound
     # What the request sets itself wins, and top-level fields stay at the top.
     assert electricity["consumption-price"] == {"sensor": PRICE_SENSOR_ID}
     assert "soc-minima-breach-price" not in electricity
+    # A field a commodity entry does not accept stays where FlexMeasures merges it in: at the top level.
+    assert (
+        "aggregate-power" not in electricity and "aggregate-power" not in flex_context
+    )
     assert flex_context["relax-capacity-constraints"] is False
     expected = _usage_correction_price(
         450.0, 4500.0, 45000.0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=260 + 500

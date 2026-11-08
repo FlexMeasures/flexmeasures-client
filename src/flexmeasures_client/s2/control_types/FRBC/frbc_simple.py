@@ -198,6 +198,37 @@ TOP_LEVEL_FLEX_CONTEXT_FIELDS = (
 )
 
 
+#: Flex-context fields that a commodity's own entry accepts, as FlexMeasures' commodity flex-context schema lists them.
+#: Other stored fields, such as aggregate-power, are only valid at the top level, where FlexMeasures merges them in itself.
+COMMODITY_FLEX_CONTEXT_FIELDS = (
+    "consumption-price",
+    "production-price",
+    "site-power-capacity",
+    "site-consumption-capacity",
+    "site-production-capacity",
+    "site-consumption-breach-price",
+    "site-production-breach-price",
+    "site-peak-consumption",
+    "site-peak-consumption-price",
+    "site-peak-production",
+    "site-peak-production-price",
+    "consumption-breach-price",
+    "production-breach-price",
+    "soc-minima-breach-price",
+    "soc-maxima-breach-price",
+    "relax-constraints",
+    "relax-soc-constraints",
+    "relax-capacity-constraints",
+    "relax-site-capacity-constraints",
+    "commitments",
+    "inflexible-device-sensors",
+    "inflexible-consumption",
+    "inflexible-production",
+    "aggregate-consumption",
+    "aggregate-production",
+)
+
+
 def _price_per_mw(value, currency: str) -> float | None:
     """Return a fixed price per MW, such as "260 EUR/MW" or "0.26 EUR/kW", in the given currency, or None if it is not one."""
     if not isinstance(value, str):
@@ -1884,7 +1915,12 @@ class FRBCSimple(FRBC):
         # and this one does, so they are carried over here, under what the request sets itself.
         electricity = {"commodity": "electricity"}
         electricity.update(
-            {k: v for k, v in stored.items() if k not in TOP_LEVEL_FLEX_CONTEXT_FIELDS}
+            {
+                k: v
+                for k, v in stored.items()
+                if k in COMMODITY_FLEX_CONTEXT_FIELDS
+                and k not in TOP_LEVEL_FLEX_CONTEXT_FIELDS
+            }
         )
         electricity.update({k: v for k, v in flex_context.items() if k in site_fields})
         if site_may_be_breached:
