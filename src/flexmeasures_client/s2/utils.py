@@ -28,14 +28,14 @@ class SizeLimitOrderedDict(OrderedDict, Mapping[KT, VT]):
         super(SizeLimitOrderedDict, self).__init__(*args, **kwargs)
         self._max_size = max_size
 
-        # deleting values to make the dictionary of length _max_size at most, oldest first
+        # Delete the oldest entries until the dictionary holds at most _max_size entries.
         while len(self) > self._max_size:
             self.popitem(last=False)
 
     def __setitem__(self, __key: KT, __value: VT) -> None:
-        # The oldest entry makes room, not the newest, which popitem() takes by default:
-        # a full history otherwise kept a session's first entries and lost every later one but the last.
-        # A key already present takes no room of its own.
+        # Evict the oldest entry, not the newest (which is what popitem() removes by default).
+        # Otherwise, a full history kept a session's first entries and lost all later ones except the last.
+        # A key that is already present needs no extra room.
         if (
             self._max_size is not None
             and __key not in self
@@ -44,7 +44,8 @@ class SizeLimitOrderedDict(OrderedDict, Mapping[KT, VT]):
             self.popitem(last=False)
 
         super().__setitem__(__key, __value)
-        # Set again, an entry is the latest, which is what reading the last entry means everywhere this is used.
+        # An entry that is set again becomes the latest entry.
+        # Everywhere this class is used, reading the last entry means reading the latest one.
         self.move_to_end(__key)
 
 
@@ -72,7 +73,7 @@ def get_message_id(message: pydantic.BaseModel) -> str | None:
 
 
 class _HasMessageId(Protocol):
-    """Any S2 message: every one of them carries a message id."""
+    """Any S2 message, since every S2 message carries a message id."""
 
     message_id: Any
 
@@ -86,7 +87,7 @@ def get_reception_status(
     This function returns a ReceptionStatus message for the subject message
     `subject_message`. By default, the status ReceptionStatusValues.OK is sent.
 
-    :param diagnostic_label: why, for a status other than OK, which the resource manager can log.
+    :param diagnostic_label: For a status other than OK, the reason, which the resource manager can log.
     """
     return ReceptionStatus(
         subject_message_id=str(subject_message.message_id),

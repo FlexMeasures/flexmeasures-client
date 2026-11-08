@@ -44,18 +44,20 @@ class ControlTypeHandler(Handler):
         await self._sending_queue.put(message)
 
     async def close(self):
-        """Stop this handler's work in flight, when the CEM closes as its websocket tears down.
+        """Stop this handler's work in flight.
 
-        Defined here so that CEM.close(), which calls close() on every registered handler, works for any of them:
-        a handler lacking close() raised AttributeError inside CEM.close(),
-        killing the CEM's request handler and hanging the resource manager.
+        The CEM calls this when it closes, which happens when its websocket tears down.
+        CEM.close() calls close() on every registered handler, so every handler needs this method.
+        It is defined here for that reason.
+        Before, a handler without close() raised AttributeError inside CEM.close().
+        That killed the CEM's request handler and left the resource manager hanging.
         """
         self._logger.debug(f"Closing {self.__class__.__name__} handler")
-        # Work still in flight would otherwise go on after the session has ended,
-        # planning for a resource manager that is no longer there and racing the session that replaces it.
-        # That includes recording what the resource manager last reported, which is stopped too:
-        # a reading cut off mid-post is reported again by a resource manager that reconnects.
-        # Not every handler keeps background tasks, so a handler without them has nothing to stop.
+        # Otherwise, work in flight would continue after the session has ended.
+        # It would plan for a resource manager that is gone, and race the session that replaces it.
+        # Recording the resource manager's last reports is stopped too.
+        # That is safe: a resource manager that reconnects reports a reading again if its post was cut off.
+        # Not every handler keeps background tasks; a handler without them has nothing to stop.
         for task in list(getattr(self, "background_tasks", ())):
             task.cancel()
 

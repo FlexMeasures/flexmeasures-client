@@ -37,16 +37,17 @@ def compute_next_fill_level(
     leakage_behaviour: FRBCLeakageBehaviour | None = None,
     usage_rate: float = 0.0,
 ) -> float:
-    """The fill level one step later.
+    """Return the fill level one step later.
 
-    This is the unit contract for every rate it takes, and it is the one S2 states:
-    each is a change in fill level per second, in the resource manager's own fill-level units.
-    A fill rate raises the fill level, while a usage rate and a leakage rate both lower it where they are positive.
-    The step is a duration, rather than a number of some unit, so that it cannot be taken in the wrong one.
+    This function sets the unit contract for every rate it takes, and that contract is the one S2 uses.
+    Each rate is a change in fill level per second, in the resource manager's own fill-level units.
+    A fill rate raises the fill level.
+    A positive usage rate or a positive leakage rate lowers it.
+    The step is a duration, not a number in some unit, so that it cannot be given in the wrong unit.
 
-    :param leakage_behaviour: what the storage loses by itself, from the element that applies at this fill level;
-                              none where the resource manager has not said.
-    :param usage_rate:        what is drawn from the storage, held over this step.
+    :param leakage_behaviour: what the storage loses by itself; the element that applies at this fill level is used.
+                              None if the resource manager has not reported it.
+    :param usage_rate:        what is drawn from the storage, constant over this step.
     """
     leakage_rate = 0.0
     if leakage_behaviour is not None:
@@ -56,23 +57,25 @@ def compute_next_fill_level(
     return fill_level + (fill_rate - usage_rate - leakage_rate) * step.total_seconds()
 
 
-#: How close two factors are to count as the same instruction.
-#: It absorbs the float noise of converting a schedule from MW to W, which is not a new instruction.
+#: How close two factors must be to count as the same instruction.
+#: It absorbs the float noise from converting a schedule from MW to W, which should not lead to a new instruction.
 FACTOR_TOLERANCE = 1e-6
 
 
 class UsageProfile:
-    """What a usage forecast expects, per second, at any moment: piecewise constant, looked up by bisection.
+    """The usage rate per second that a usage forecast expects at any moment.
 
-    A forecast is a run of elements, each lasting its own duration from where the one before it ended.
-    Outside that run, nothing is forecast, and nothing is assumed: the rate is zero.
-    Built once per schedule, since a forecast may hold hundreds of elements and a schedule asks about it often.
+    The rate is piecewise constant, and is looked up by bisection.
+    A forecast is a sequence of elements.
+    Each element starts where the previous one ended, and lasts its own duration.
+    Outside that sequence, nothing is forecast, and nothing is assumed: the rate is zero.
+    Build this once per schedule, because a forecast may hold hundreds of elements, and a schedule looks up the rate often.
     """
 
     def __init__(
         self, usage_forecast: FRBCUsageForecast | None = None, rate: float | None = None
     ):
-        #: The moments the rate changes at, and the rate from each of them on; one constant rate has none.
+        #: The moments at which the rate changes, and the rate from each moment on. A constant rate has no changes.
         self._changes: list[pd.Timestamp] = []
         self._rates: list[float] = []
         self._before = 0.0 if rate is None else rate
@@ -98,14 +101,15 @@ class UsageProfile:
 def usage_rate_at(
     usage_forecast: FRBCUsageForecast | None, moment: pd.Timestamp
 ) -> float:
-    """The usage rate a forecast expects at a moment, per second, as S2 states it (see UsageProfile)."""
+    """Return the usage rate that a forecast expects at a moment, per second as in S2 (see UsageProfile)."""
     return UsageProfile(usage_forecast).rate_at(moment)
 
 
 def _sides(elements, fill_level: float):
-    """The element that applies just below a fill level, and the one just above it.
+    """Return the element that applies just below a fill level, and the element that applies just above it.
 
-    Inside an element both are that element; at a boundary two elements share, they are the two neighbours.
+    Inside an element, both are that element.
+    At a boundary between two elements, they are the two neighbouring elements.
     """
     above = element_for_fill_level(elements, fill_level)
     below_candidates = [
@@ -133,18 +137,20 @@ def follow_operation_mode(
     usage: UsageProfile | None = None,
     bounds: tuple[float, float] | None = None,
 ) -> float:
-    """The fill level after following one operation mode at one factor for a step, as a resource manager does.
+    """Return the fill level after following one operation mode at one factor for one step, as a resource manager does.
 
-    An instruction fixes the mode and the factor, not the element:
-    within the step the fill level can pass from one element into another, of the mode or of the leakage behaviour,
-    and the usage a forecast expects can change.
-    Every rate is constant between such moments, so the step is followed exactly, from one of them to the next.
-    A level that reaches a boundary its far side would push it back from, as where a heat pump cannot heat above it,
-    stays at that boundary, as a real storage does, rather than flipping across it.
-    So does a level that reaches one of the bounds.
+    An instruction fixes the mode and the factor, but not the element.
+    Within the step, the fill level can pass from one element into another, of the mode or of the leakage behaviour.
+    Also, the usage that a forecast expects can change.
+    Every rate is constant between such moments.
+    So the step is followed exactly, from one such moment to the next.
+    Sometimes a fill level reaches a boundary where the rate on the far side would push it back.
+    For example, a heat pump may be unable to heat above that boundary.
+    Then the fill level stays at that boundary, as in a real storage, instead of flipping back and forth across it.
+    The same holds for a fill level that reaches one of the bounds.
 
-    :param usage:  what is drawn from the storage, per second; none where nothing is known.
-    :param bounds: the fill levels the storage is held between.
+    :param usage:  what is drawn from the storage, per second; None if nothing is known.
+    :param bounds: the fill levels between which the storage is held.
     """
     usage = usage or UsageProfile()
     leakage_elements = leakage_behaviour.elements if leakage_behaviour else []
@@ -183,7 +189,7 @@ def follow_operation_mode(
         elif falling < 0 and fill_level > lowest:
             rate = falling
         else:
-            rate = 0.0  # held where it is, at a boundary or a bound, until something changes
+            rate = 0.0  # stay at the boundary or bound until something changes
         horizon = end
         change = usage.next_change_after(moment)
         if change is not None and change < horizon:
@@ -194,7 +200,7 @@ def follow_operation_mode(
         elif rate < 0:
             target = next((b for b in reversed(boundaries) if b < fill_level), None)
         if target is not None:
-            # Compared in seconds first: a slow rate can put a boundary further off than a timedelta can say.
+            # Compare in seconds first: at a slow rate, a boundary can be further away than a timedelta can represent.
             seconds_to_target = (target - fill_level) / rate
             if seconds_to_target < (horizon - moment).total_seconds():
                 fill_level = target
@@ -206,11 +212,11 @@ def follow_operation_mode(
 
 
 def normal_operation_modes(actuator) -> list[FRBCOperationMode]:
-    """The operation modes an actuator may be instructed into under normal conditions.
+    """Return the operation modes an actuator may be instructed into under normal conditions.
 
-    S2 marks a mode abnormal_condition_only where it is reserved for an abnormal condition, such as an emergency boost,
-    and a resource manager refuses an instruction into one that is not marked abnormal itself,
-    which every instruction a schedule is turned into is not.
+    S2 marks a mode as abnormal_condition_only if it is reserved for an abnormal condition, such as an emergency boost.
+    A resource manager refuses an instruction into such a mode, unless the instruction itself is marked abnormal.
+    The instructions made from a schedule are never marked abnormal.
     So such a mode is neither planned in nor instructed into.
     """
     return [
@@ -229,31 +235,33 @@ def fm_schedule_to_instructions(
 ) -> List[FRBCInstruction]:
     """Turn a FlexMeasures schedule into the instructions that follow it.
 
-    Each step is answered with the operation mode, and the factor within it, that draws the power the schedule asks for
-    at the fill level the storage is then at, so a running fill level is kept alongside, under the contract of compute_next_fill_level.
-    An instruction is sent where that answer changes, which can happen at a constant power too,
-    where the fill level passes from one element of a mode into another.
+    For each step, this picks the operation mode, and the factor within it, that draw the power the schedule asks for.
+    That choice depends on the fill level the storage is at during the step.
+    So a running fill level is tracked alongside, under the unit contract of compute_next_fill_level.
+    An instruction is sent whenever the chosen mode or factor changes.
+    That can happen even at constant power, when the fill level passes from one element of a mode into another.
 
     :param schedule:          a schedule as FlexMeasures returns it, or a frame indexed by time with a "schedule" column.
-                              A frame may also carry a "usage_forecast" column, per second as S2 states it,
-                              which then takes the place of usage_forecast.
-    :param fill_level_bounds: the fill levels this conversion holds its own running fill level between,
+                              A frame may also have a "usage_forecast" column, per second as in S2.
+                              If it does, that column is used instead of usage_forecast.
+    :param fill_level_bounds: the fill levels between which this conversion holds its own running fill level,
                               in the resource manager's units.
-                              These have to be the hard bounds the schedule was planned against,
-                              or a step is answered with the operation mode for a fill level the scheduler never planned.
-                              Without them the declared fill-level range is used,
-                              which is right only for a caller that asked for a schedule against that same range.
-    :param leakage_behaviour: what the storage loses by itself, as the resource manager last said.
+                              These must be the hard bounds that the schedule was planned against.
+                              Otherwise, a step may get the operation mode for a fill level that the scheduler never planned.
+                              Without them, the declared fill-level range is used.
+                              That is only right for a caller that asked for a schedule against that same range.
+    :param leakage_behaviour: what the storage loses by itself, as the resource manager last reported it.
     :param usage_forecast:    what is drawn from the storage, as the resource manager last forecast it.
 
-    The step is the schedule's own: a schedule from FlexMeasures states it as its duration over its number of values,
-    which is the resolution of the sensor it was asked for, whatever resolution the caller plans on.
+    The step comes from the schedule itself.
+    A schedule from FlexMeasures gives a duration and a number of values, and the step is the duration divided by that number.
+    That step is the resolution of the sensor the schedule was requested for, whatever resolution the caller plans on.
     """
 
     if fill_level_bounds is not None and fill_level_bounds[0] > fill_level_bounds[1]:
-        # A mistake in the caller, which computes these, rather than anything a resource manager sent:
-        # held between a lower bound above its upper one, the running fill level would sit at the lower one,
-        # and every step would be answered with the operation mode for a fill level the storage is never at.
+        # This is a mistake by the caller, which computes these bounds, not something a resource manager sent.
+        # With a lower bound above the upper bound, the running fill level would stay at the lower bound.
+        # Then every step would get the operation mode for a fill level the storage is never at.
         raise ValueError(
             f"fill_level_bounds runs from its lower bound to its upper one, but {fill_level_bounds} was given."
         )
@@ -270,7 +278,7 @@ def fm_schedule_to_instructions(
         idx = pd.date_range(start=start, periods=len(values), freq=step)
         schedule = pd.Series(values, index=idx, name="schedule").to_frame()
     else:
-        # A frame of one row has no later step for its fill level to matter to.
+        # A frame with one row has no later step, so the fill level after it does not matter, and a zero step will do.
         step = (
             pd.Timedelta(schedule.index[1] - schedule.index[0])
             if len(schedule) > 1
@@ -290,9 +298,9 @@ def fm_schedule_to_instructions(
         )
     modes_by_id = {str(mode.id): mode for mode in operation_modes}
 
-    # Held between the hard bounds the schedule was planned against,
-    # so that each step is answered with the operation mode for the fill level the scheduler planned.
-    # Falling back to the declared range keeps every other caller as it was.
+    # Hold the running fill level between the hard bounds that the schedule was planned against.
+    # Then each step gets the operation mode for the fill level that the scheduler planned.
+    # Falling back to the declared range keeps the behaviour unchanged for every other caller.
     if fill_level_bounds is None:
         fill_level_range: NumberRange = system_description.storage.fill_level_range
         fill_level_min = fill_level_range.start_of_range
@@ -309,8 +317,8 @@ def fm_schedule_to_instructions(
     for timestamp, row in schedule.iterrows():
         power = row["schedule"]
 
-        # The mode and factor for this power at this fill level, every step,
-        # since the element that applies can change while the power does not.
+        # Pick the mode and factor for this power at this fill level in every step,
+        # because the element that applies can change while the power stays the same.
         results = [
             (om, *power_to_fill_rate_with_metrics(om, power, fill_level))
             for om in operation_modes
@@ -353,10 +361,10 @@ def fm_schedule_to_instructions(
             explain_choice(results, best),
         )
 
-        # The factor is the one that draws the power asked for, taken from the power range itself.
-        # It used to be worked back out of the fill rate instead,
-        # which fails wherever the fill-rate range is a single value and the power range is not:
-        # asked for 1200 W from a mode running 800 to 1200 W at one fill rate, that asked for 800 W.
+        # Take the factor that draws the requested power from the power range itself.
+        # It used to be derived from the fill rate instead.
+        # That fails wherever the fill-rate range is a single value but the power range is not.
+        # For example, given a request for 1200 W from a mode that runs at 800 to 1200 W with a single fill rate, the old code instructed 800 W.
         answer = (str(best_operation_mode.id), operation_mode_factor)
         if last_instructed is None or not (
             answer[0] == last_instructed[0]
@@ -377,8 +385,9 @@ def fm_schedule_to_instructions(
             instructions.append(instruction)
             last_instructed = answer
 
-        # A gap in a usage column, as FlexMeasures returns for a moment it holds nothing for, is no usage known, not NaN:
-        # a NaN fill level would be held at the top of the bounds, and answered there from then on.
+        # FlexMeasures returns a gap in a usage column for a moment it holds no data for.
+        # Treat such a gap as no known usage, not as NaN.
+        # A NaN fill level would be held at the top of the bounds, and every later step would be chosen from there.
         usage = forecast_usage
         if has_usage_column:
             usage = UsageProfile(
@@ -400,7 +409,7 @@ def fm_schedule_to_instructions(
         )
 
     if logger.isEnabledFor(logging.DEBUG):
-        # The whole batch in one line, by mode name, which the per-step lines above do not give.
+        # Log the whole batch in one line, by mode name, which the per-step log lines above do not show.
         logger.debug(
             "Instructions: %s",
             [
@@ -429,9 +438,9 @@ def get_soc_min_max(
     return soc_min, soc_max
 
 
-#: What one unit of energy per second is in watts, for the units a fill level can be recorded in.
-#: A joule per second is a watt by definition,
-#: and an hour's worth of a watt is 3600 times as much energy as a watt-second.
+#: The number of watts in one unit of energy per second, for each unit a fill level can be recorded in.
+#: A joule per second is a watt, by definition.
+#: A watt-hour is 3600 times as much energy as a watt-second.
 WATTS_PER_ENERGY_UNIT_PER_SECOND = {
     "J": 1.0,
     "kJ": 1e3,
@@ -443,15 +452,15 @@ WATTS_PER_ENERGY_UNIT_PER_SECOND = {
 
 
 def fill_rate_in_watts(fill_rate: float, energy_unit: str) -> float:
-    """A fill rate, stated per second in the unit a fill level is recorded in, as watts.
+    """Convert a fill rate to watts, given the unit that the fill level is recorded in.
 
-    S2 states a fill rate as fill level per second, so what it is in watts depends on the unit the fill level itself is in:
-    a kilowatt hour per second is 3.6 million watts.
-    The conversion is needed wherever a fill rate is compared against a power value,
-    which S2 always states in watts.
+    S2 gives a fill rate as fill level per second.
+    So its value in watts depends on the unit of the fill level itself.
+    For example, one kilowatt-hour per second is 3.6 million watts.
+    This conversion is needed wherever a fill rate is compared with a power value, which S2 always gives in watts.
 
-    :raises NotImplementedError: for an energy unit this does not know,
-                                 rather than returning a number that is wrong by a factor of thousands.
+    :raises NotImplementedError: for an unknown energy unit,
+                                 instead of returning a number that is wrong by a factor of thousands.
     """
     try:
         return fill_rate * WATTS_PER_ENERGY_UNIT_PER_SECOND[energy_unit]
@@ -468,41 +477,42 @@ def operation_mode_conversion_efficiency(
     energy_unit: str,
     fill_level: float,
 ) -> float | None:
-    """How much energy an operation mode puts into the storage for each unit of power it draws, at a fill level.
+    """Return how much energy an operation mode puts into the storage per unit of power it draws, at a fill level.
 
-    An operation mode states a fill rate and a power range,
-    so the ratio between the two is what the mode converts drawn power into stored energy at:
-    a heat pump's coefficient of performance, or a battery's charging efficiency.
-    Both sides are taken in watts, since FlexMeasures asks for a charging efficiency as a dimensionless ratio,
-    and for a thermal actuator that ratio is well above one.
+    An operation mode gives a fill rate and a power range.
+    The ratio between the two is the rate at which the mode converts drawn power into stored energy.
+    Examples are a heat pump's coefficient of performance and a battery's charging efficiency.
+    Both sides are taken in watts, because FlexMeasures expects a charging efficiency as a dimensionless ratio.
+    For a thermal actuator, that ratio is well above one.
 
-    A mode may convert differently at different fill levels, as a heat pump does when its buffer warms,
-    and FlexMeasures takes one charging efficiency for a whole schedule.
-    The element that applies at the fill level the schedule starts from answers,
-    since the start of a schedule is the part that runs before the next storage status asks for a new one.
-    Not the lowest element over the whole range:
-    that overstates what the actuator needs to fill the storage, so the plan overshoots its upper band and buys more than it uses,
-    and against a usage the plan cannot relax it can turn a problem the actuator can meet into one the scheduler finds infeasible.
+    A mode may convert differently at different fill levels, as a heat pump does when its buffer warms up.
+    But FlexMeasures takes a single charging efficiency for a whole schedule.
+    So this uses the element that applies at the fill level where the schedule starts.
+    The start of a schedule is the part that runs before the next storage status triggers a new schedule.
+    The lowest element over the whole range would be the wrong choice.
+    It overstates what the actuator needs to fill the storage.
+    The plan then overshoots its upper band, and buys more than it uses.
+    And if the plan cannot relax the usage, the scheduler may find a problem infeasible that the actuator can actually meet.
 
-    The ratio is taken at the top of that element's range, rather than as the slope over it.
-    An actuator may well declare degenerate ranges,
-    where a mode runs at one power and one fill rate only (the heaters in our own smoke tests state on as [883.7, 883.7] W),
-    and a slope is zero over such a range while the ratio is the efficiency the mode really runs at.
+    The ratio is taken at the top of that element's range, not as the slope over the range.
+    An actuator may well declare degenerate ranges, where a mode runs at only one power and one fill rate.
+    For example, the heaters in our own smoke tests declare their on mode as [883.7, 883.7] W.
+    Over such a range the slope is zero, while the ratio is the efficiency the mode really runs at.
 
     :param fill_level_scale: converts a fill level, and so a fill rate,
                              from the resource manager's own units into the unit it is recorded in.
-    :param energy_unit:      the unit a fill level is recorded in, which the fill rate is per second of.
-    :param fill_level:       where the schedule starts, in the resource manager's own units, as the elements' ranges are.
-    :returns: the efficiency, or None where the element that applies converts no drawn power into stored energy.
-              It converts nothing where it draws no power, as an idle mode does,
-              where it only feeds power back, which FlexMeasures takes as a separate discharging efficiency,
-              or where it draws power while the storage does not fill, as a standby or circulation mode does:
-              no single ratio states that, and a ratio of zero would tell the scheduler the storage cannot be filled at all.
+    :param energy_unit:      the unit a fill level is recorded in; the fill rate is in this unit per second.
+    :param fill_level:       where the schedule starts, in the resource manager's own units, like the elements' ranges.
+    :returns: the efficiency, or None if the element that applies converts no drawn power into stored energy.
+              That is the case in three situations.
+              The element draws no power, as in an idle mode.
+              The element only feeds power back, which FlexMeasures handles with a separate discharging efficiency.
+              Or the element draws power while the storage does not fill, as in a standby or circulation mode.
+              No single ratio can express that, and a ratio of zero would tell the scheduler that the storage cannot be filled at all.
     """
     element = element_for_fill_level(operation_mode.elements, fill_level)
-    # todo: an element states one power range per commodity quantity,
-    # and no distinction is made between them here,
-    # as the rest of this handler does not make one either (see power_to_fill_rate_with_metrics).
+    # todo: an element gives one power range per commodity quantity, and this makes no distinction between them.
+    # Neither does the rest of this handler (see power_to_fill_rate_with_metrics).
     power = element.power_ranges[0].end_of_range
     fill_rate = element.fill_rate.end_of_range * fill_level_scale
     if power <= 0 or fill_rate <= 0:
@@ -562,7 +572,7 @@ def power_to_fill_rate_with_metrics(
         power_penalty: float
         efficiency: float
         element: FRBCOperationModeElement that produced fill_rate
-        factor: the operation mode factor that draws this power, which is what an instruction asks for
+        factor: the operation mode factor that draws this power; an instruction asks for this factor
     """
     # --- 1. Select the element that applies at this fill level ---
     best_element = element_for_fill_level(operation_mode.elements, fill_level)
@@ -586,9 +596,10 @@ def power_to_fill_rate_with_metrics(
     pr_end = power_range.end_of_range
 
     if pr_end == pr_start:
-        # Every factor draws this one power, so the power cannot say which factor is meant.
-        # The top of the fill-rate range is asked for, which is where operation_mode_conversion_efficiency declares the efficiency FlexMeasures plans with, so the plan and the instruction agree.
-        # Where the fill-rate range is a single value too, the factor makes no difference and stays at zero.
+        # Every factor draws this same power, so the power cannot tell which factor is meant.
+        # Ask for the top of the fill-rate range.
+        # That is where operation_mode_conversion_efficiency declares the efficiency that FlexMeasures plans with, so the plan and the instruction agree.
+        # If the fill-rate range is a single value too, the factor makes no difference, and it stays at zero.
         fr_start = best_element.fill_rate.start_of_range
         fr_end = best_element.fill_rate.end_of_range
         factor = 0.0 if fr_end == fr_start else 1.0
@@ -624,23 +635,24 @@ ElementWithFillLevelRange = TypeVar(
 def element_for_fill_level(
     elements: Sequence[ElementWithFillLevelRange], fill_level: float
 ) -> ElementWithFillLevelRange:
-    """The element that applies at a fill level, whatever order the elements were listed in.
+    """Return the element that applies at a fill level, whatever order the elements are listed in.
 
     S2 lets the elements of an operation mode, or of a leakage behaviour, cover the fill-level range in pieces, in any order.
-    s2python checks that an operation mode's elements are contiguous, on a sorted copy, and leaves the list as it was sent;
-    it checks nothing of the kind for a leakage behaviour, whose elements may leave gaps or overlap.
+    s2python checks that an operation mode's elements are contiguous, using a sorted copy, and leaves the list in the order it was sent.
+    It does not check this for a leakage behaviour, whose elements may leave gaps or overlap.
 
-    Two neighbouring elements share a boundary, which belongs to the upper of the two:
-    of every element whose range holds the fill level, the one starting highest applies, and of two starting together, the one reaching higher.
-    A range that is a single point therefore applies only at the very top.
-    The standard says a range starts below where it ends, so such a range is outside it, though s2python lets it through.
-    Two elements with the same range are ambiguous, which overlapping elements always are, and the first listed answers.
+    Two neighbouring elements share a boundary, which belongs to the upper of the two.
+    Of all elements whose range holds the fill level, the one that starts highest applies.
+    If two of them start at the same level, the one that reaches higher applies.
+    So a range that is a single point only applies at the very top.
+    The standard says a range starts below where it ends, so such a range breaks the standard, but s2python lets it through.
+    Two elements with the same range are ambiguous (as overlapping elements always are), and then the first one listed applies.
 
-    A fill level outside the range the elements cover is answered as the nearest end of that range is,
-    since a storage may be outside its declared range, and the answer should not jump as it crosses that end.
-    A fill level in a gap between elements is answered by the nearer, and on a tie the lower.
+    A fill level outside the range the elements cover is treated as the nearest end of that range.
+    That is because a storage may be outside its declared range, and the result should not jump when the fill level crosses that end.
+    For a fill level in a gap between elements, the nearer element applies; on a tie, the lower one applies.
 
-    :raises ValueError: for a fill level that is not a number, which no element applies at.
+    :raises ValueError: for a fill level that is not a number, since no element applies there.
     """
     if math.isnan(fill_level):
         raise ValueError("No element applies at a fill level that is not a number.")

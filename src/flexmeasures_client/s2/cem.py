@@ -48,7 +48,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ConfiguredHandler(Protocol):
-    """What a site configurator gives back: the handler for a resource manager, and its measured-power sensors."""
+    """What a site configurator returns: the handler for a resource manager, and its measured-power sensors."""
 
     @property
     def handler(self) -> ControlTypeHandler: ...
@@ -60,10 +60,10 @@ class ConfiguredHandler(Protocol):
     def asset_id(self) -> int: ...
 
 
-#: Gives a resource manager a site and a handler of its own, from its details (see flexmeasures_client.s2.site).
+#: A callable that takes a resource manager's details and gives it its own site and handler (see flexmeasures_client.s2.site).
 SiteConfigurator = Callable[[ResourceManagerDetails], Awaitable[ConfiguredHandler]]
 
-#: The control type each family of control-type messages belongs to, by the prefix of its message type.
+#: Maps the prefix of a message type to the control type that its messages belong to.
 CONTROL_TYPE_BY_MESSAGE_PREFIX: dict[str, ControlType] = {
     "FRBC.": ControlType.FILL_RATE_BASED_CONTROL,
     "PEBC.": ControlType.POWER_ENVELOPE_BASED_CONTROL,
@@ -111,22 +111,24 @@ class CEM(Handler):
         """
         Customer Energy Manager (CEM)
 
-        :param site_configurator:           where a resource manager gets a site and a handler of its own on connecting;
-                                            called with its details, in the background (see FRBCSiteConfigurator).
-                                            Until the handler is registered, its messages are answered with TEMPORARY_ERROR.
-                                            Without one, the handlers registered up front serve every resource manager.
-        :param measurement_recorder:        where the resource manager's measured power is recorded; one of its own by default.
-                                            A server that makes a CEM per connection hands each the same one,
-                                            so a resource manager that reconnects is not recorded twice.
-        :param clock:                       the time this CEM and every handler it registers go by;
-                                            the wall clock by default.
-        :param accept_simulation_metadata:  whether to take messages wrapped with a simulated time, as a co-simulation sends them,
+        :param site_configurator:           gives a resource manager its own site and handler when it connects.
+                                            It is called with the resource manager's details, in the background (see FRBCSiteConfigurator).
+                                            Until the handler is registered, the CEM responds to the resource manager's messages with TEMPORARY_ERROR.
+                                            Without a site configurator, the handlers registered up front serve every resource manager.
+                                            By default, there is none.
+        :param measurement_recorder:        records the resource manager's measured power.
+                                            By default, the CEM creates its own recorder.
+                                            A server that creates a CEM per connection should hand each CEM the same recorder.
+                                            Then a resource manager that reconnects does not get its measurements recorded twice.
+        :param clock:                       the clock that this CEM and every handler it registers read the time from.
+                                            By default, this is the wall clock.
+        :param accept_simulation_metadata:  whether to accept messages wrapped with a simulated time, as a co-simulation sends them,
                                             and set the clock to that time (see flexmeasures_client.s2.wrapper.S2Wrapper).
-                                            Off by default, since the wrapper is not part of S2,
+                                            This is off by default, because the wrapper is not part of S2,
                                             and a live CEM should not let a resource manager set its time.
-                                            A resource manager that wraps its messages, from its handshake on,
-                                            is then refused with INVALID_MESSAGE and cannot connect.
-                                            On, the clock has to be a SimulatedClock, and one is made where none is given.
+                                            When it is off, a resource manager that wraps its messages from its handshake on is refused with INVALID_MESSAGE, and cannot connect.
+                                            When it is on, the clock must be a SimulatedClock.
+                                            If no clock is given, a SimulatedClock is created.
         """
         super(CEM, self).__init__()
         if accept_simulation_metadata:
@@ -149,7 +151,7 @@ class CEM(Handler):
             fm_client, logger=logger
         )
         self._configuring: asyncio.Task | None = None
-        #: The control type this CEM asked the resource manager to select, and the id of that message, until confirmed.
+        #: The control type this CEM asked the resource manager to select, and the id of that request. Reset once confirmed.
         self._selecting: tuple[ControlType, str] | None = None
         self._default_control_type = default_control_type
 
@@ -163,11 +165,11 @@ class CEM(Handler):
         self._datastore = datastore if datastore is not None else {}
 
     def _is_timer_due(self, name: str) -> bool:
-        # By this handler's clock, so that a co-simulation's timers run on simulated time.
+        # Use this handler's clock, so that a co-simulation's timers run on simulated time.
         now = self.now()
         due_time = self._timers.get(name, now - self._minimum_measurement_period)
         if due_time.tzinfo is None:
-            # A timer handed in without a zone was compared with the host's local time, so it is read as that, as before.
+            # A timer without a timezone used to be compared with the host's local time, so keep reading it as local time.
             due_time = due_time.astimezone(self._timezone)
         if due_time <= now:
             # Get total seconds of the period
@@ -185,8 +187,8 @@ class CEM(Handler):
             next_due = now.replace(minute=0, second=0, microsecond=0) + timedelta(
                 seconds=next_tick_seconds
             )
-            # On a period boundary the ceiling is the moment itself,
-            # and a clock that stands still, as a simulated one does between messages, then found the timer due on every call.
+            # On a period boundary, the ceiling equals the current moment.
+            # A clock that stands still (as a simulated clock does between messages) would then find the timer due on every call.
             if next_due <= now:
                 next_due += self._minimum_measurement_period
             self._timers[name] = next_due
@@ -231,7 +233,7 @@ class CEM(Handler):
         # add fm_client to control_type handler
         control_type_handler._fm_client = self._fm_client
 
-        # The handler goes by the CEM's time, which a co-simulation sets.
+        # The handler uses the CEM's clock, which a co-simulation sets.
         control_type_handler._clock = self._clock
 
         # add sending queue
@@ -261,7 +263,7 @@ class CEM(Handler):
             message = json.loads(message)
         assert isinstance(
             message, dict
-        )  # what a message is from here on, whatever form it came in
+        )  # from here on, the message is a dict, whatever form it came in
 
         if "metadata" in message and "message" in message:
             unwrapped = self._unwrap(message)
@@ -273,8 +275,8 @@ class CEM(Handler):
         self._activate_implicitly(message)
 
         # try to handle the message with the control_type handle
-        # A control type without a handler yet, as while a resource manager's site is being configured,
-        # leaves its messages unhandled, so they are answered with a TEMPORARY_ERROR for the resource manager to retry.
+        # A control type may have no handler yet, for example while the resource manager's site is being configured.
+        # Its messages are then left unhandled, so the CEM responds with a TEMPORARY_ERROR, and the resource manager retries.
         handler = self._control_types_handlers.get(self._control_type)
         if handler is None and self._control_type is not None:
             self._ensure_configuring()
@@ -308,10 +310,11 @@ class CEM(Handler):
             await self._sending_queue.put(response)
 
     def _unwrap(self, wrapped: dict) -> dict | None:
-        """The S2 message inside a co-simulation's wrapper, with the clock set to the simulated time it carries.
+        """Return the S2 message inside a co-simulation's wrapper, and set the clock to the wrapper's simulated time.
 
-        Where this CEM does not accept the wrapper, the time cannot be read, or there is no message inside,
-        the message is refused, the clock is left as it was, and None is returned so that nothing is handled.
+        The message is refused in three cases:
+        this CEM does not accept the wrapper, the time cannot be read, or there is no message inside.
+        Then the clock is left unchanged, and None is returned, so that nothing is handled.
         """
         inner = wrapped["message"]
         reason = None
@@ -345,15 +348,16 @@ class CEM(Handler):
         return None
 
     def _activate_implicitly(self, message: dict) -> None:
-        """Take a message of the control type this CEM is selecting as the resource manager's acceptance of it.
+        """Treat a message of the control type being selected as the resource manager's acceptance of that control type.
 
-        A resource manager sends a control type's messages only once that control type is active on its side.
-        So where one arrives for the control type this CEM asked for, while the CEM still waits for the confirmation,
-        the resource manager is working in it already. #188 saw the CEM stay in NO_SELECTION while a resource manager,
-        reconnecting during setup in a co-simulation, kept sending FRBC messages, each answered with a TEMPORARY_ERROR
-        and retried; whether the confirmation was lost or never sent was not established.
-        Only the control type being selected is activated, never another one a message happens to belong to,
-        and its pending confirmation is then no longer waited for.
+        A resource manager only sends a control type's messages once that control type is active on its side.
+        Suppose such a message arrives for the control type this CEM asked for, while the CEM still waits for the confirmation.
+        Then the resource manager is already working in that control type.
+        In #188, a resource manager reconnected during setup in a co-simulation, and kept sending FRBC messages.
+        The CEM stayed in NO_SELECTION, responded to each message with a TEMPORARY_ERROR, and the resource manager retried.
+        It was not established whether the confirmation was lost or never sent.
+        This method only activates the control type being selected, never another control type that a message happens to belong to.
+        After that, the CEM no longer waits for the pending confirmation.
         """
         if self._control_type != ControlType.NO_SELECTION or self._selecting is None:
             return
@@ -481,12 +485,12 @@ class CEM(Handler):
         return get_reception_status(message)
 
     def _ensure_configuring(self) -> None:
-        """Set the resource manager's site up in the background, unless that is done or under way.
+        """Set up the resource manager's site in the background, unless that is already done or under way.
 
-        In the background, since a site takes a few requests to FlexMeasures to set up,
-        and the resource manager waits for a reception status meanwhile.
-        A setup that failed is tried again on the next message that needs it,
-        while the resource manager's messages are answered with TEMPORARY_ERROR, which it retries.
+        Setting up a site takes a few requests to FlexMeasures, and meanwhile the resource manager waits for a reception status.
+        That is why this runs in the background.
+        If the setup fails, it is tried again on the next message that needs it.
+        Meanwhile, the CEM responds to the resource manager's messages with TEMPORARY_ERROR, and the resource manager retries them.
         """
         if (
             self._site_configurator is None
@@ -523,7 +527,7 @@ class CEM(Handler):
     async def handle_power_measurement(self, message: PowerMeasurement):
 
         if self._site_configurator is not None and not self._control_types_handlers:
-            # Its site is still being set up, so there is nowhere to record it yet: the resource manager is asked to resend it.
+            # The site is still being set up, so there is no sensor to record on yet. Ask the resource manager to resend the message.
             self._ensure_configuring()
             return get_reception_status(message, ReceptionStatusValues.TEMPORARY_ERROR)
 
@@ -531,8 +535,8 @@ class CEM(Handler):
         for power_measurement in message.values:
             commodity_quantity = power_measurement.commodity_quantity.value
 
-            # Without a sensor for it, a measurement is not recorded.
-            # It used to go to sensor 357 for ELECTRIC.POWER.L1, a sensor of whichever site on the server had that id.
+            # A measurement without a sensor is not recorded.
+            # An ELECTRIC.POWER.L1 measurement used to go to sensor 357, which could belong to any site on the server.
             sensor_id = (self.power_sensor_id or {}).get(commodity_quantity)
             if sensor_id is None:
                 self._logger.debug(
@@ -544,7 +548,8 @@ class CEM(Handler):
                 continue
             taken.append((sensor_id, power_measurement.value))
 
-        # Every sensor is made ready before any value is taken, so that a message asked for again is not taken in part twice.
+        # Get every sensor ready before taking any value.
+        # Otherwise, part of a message could be taken twice, if the resource manager is asked to send it again.
         try:
             for sensor_id, _ in taken:
                 await self._measurement_recorder.resolution(sensor_id)

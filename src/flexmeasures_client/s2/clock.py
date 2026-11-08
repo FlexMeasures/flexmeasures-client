@@ -1,9 +1,9 @@
-"""The time an S2 CEM and its handlers go by.
+"""Clocks that tell an S2 CEM and its handlers what time it is.
 
-A CEM that runs live goes by the wall clock.
-One that steers a co-simulation goes by the time the simulation says it is,
-which a resource manager sends along with its messages (see CEM's accept_simulation_metadata),
-so that what the CEM records and plans is placed at simulated moments rather than at the moment it ran.
+A CEM that runs live uses the wall clock.
+A CEM that steers a co-simulation uses the simulated time instead.
+The resource manager sends that time along with its messages (see the CEM's accept_simulation_metadata).
+This way, the CEM records and plans at simulated moments, not at the moments the code actually ran.
 """
 
 from __future__ import annotations
@@ -14,24 +14,26 @@ from typing import Protocol
 
 class Clock(Protocol):
     def now(self) -> datetime:
-        """The current moment, timezone-aware."""
+        """Return the current moment, timezone-aware."""
         ...
 
 
 class WallClock:
-    """The time it is."""
+    """A clock that returns the current wall-clock time, in UTC."""
 
     def now(self) -> datetime:
         return datetime.now(timezone.utc)
 
 
 class SimulatedClock:
-    """The time a simulation says it is, as last set.
+    """A clock that returns the simulated time it was last set to.
 
-    It stands still between settings, as a simulation's time does between the messages that carry it.
-    Until it is first set it goes by the wall clock, for a resource manager that does not wrap its first messages;
-    one that wraps every message from its handshake on, as the co-simulation's does, sets it with the first.
-    Background work, such as a schedule being planned, reads it as it stands, which may be a later message's time.
+    The clock stands still between settings, just as simulated time stands still between the messages that carry it.
+    Until it is first set, it returns the wall-clock time.
+    This suits a resource manager that does not wrap its first messages.
+    A resource manager that wraps every message from its handshake on (as the co-simulation's does) sets the clock with its first message.
+    Background work, such as planning a schedule, reads the clock at the moment it runs.
+    By then, a later message may have set it to a later time.
     """
 
     def __init__(self, start: datetime | None = None) -> None:

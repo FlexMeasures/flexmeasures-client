@@ -1,12 +1,12 @@
-"""An example resource manager: a heat pump keeping a hot-water buffer warm, speaking S2's FRBC to a CEM.
+"""An example resource manager: a heat pump that keeps a hot-water buffer warm, and talks S2's FRBC to a CEM.
 
 Run it by path, next to the example CEM server, as the CEM documentation shows.
-It declares what the heat pump can do and what its buffer needs, then simulates that buffer:
-it follows each instruction from the moment it is due, and reports its fill level every so often,
-which is what asks the CEM for a new schedule.
+It declares what the heat pump can do and what its buffer needs, and then simulates that buffer.
+The simulation follows each instruction from the moment it is due.
+Every so often, it reports its fill level, which triggers the CEM to plan a new schedule.
 
-The buffer is simulated from S2's own definitions, and not with the CEM's code,
-so that it is a second opinion on where the instructions take the storage rather than a copy of the first.
+The buffer is simulated from S2's own definitions, not with the CEM's code.
+That way, the simulation is an independent check on where the instructions take the storage, not a copy of the CEM's own calculation.
 """
 
 from __future__ import annotations
@@ -58,20 +58,20 @@ from flexmeasures_client.s2.utils import get_unique_id
 
 #: The range the buffer's fill level should stay in, in kilowatt hours of stored heat.
 FILL_LEVEL_RANGE = (2.0, 10.0)
-#: Below this fill level the water is cold enough for the heat pump to run at a COP of 4; above it, 3.
+#: Below this fill level, the water is cold enough for the heat pump to run at a COP of 4. Above it, the COP is 3.
 COLD_BELOW = 6.0
-#: What the buffer holds when the simulation starts, and what it can physically hold at most.
+#: The buffer's fill level when the simulation starts, and the most it can physically hold.
 STARTING_FILL_LEVEL = 5.0
 PHYSICAL_CAPACITY = 12.0
 #: How often the simulated buffer reports its fill level, in seconds of wall-clock time.
 STATUS_INTERVAL = float(os.getenv("S2_EXAMPLE_STATUS_INTERVAL", "300"))
-#: How often the forecasts are sent again, each covering the day from then on, so that planning never runs out of them.
+#: How often the forecasts are sent again, each covering the next day, so that planning never runs out of them.
 FORECAST_INTERVAL = float(os.getenv("S2_EXAMPLE_FORECAST_INTERVAL", "3600"))
 ELECTRIC_POWER = CommodityQuantity.ELECTRIC_POWER_3_PHASE_SYMMETRIC
 
 
 def heat(watts: float) -> float:
-    """A rate of heat in watts as a fill rate in kilowatt hours per second, which is how S2 states a fill rate."""
+    """Convert a heat rate in watts into a fill rate in kilowatt-hours per second, which is how S2 expresses a fill rate."""
     return watts / 3.6e6
 
 
@@ -101,7 +101,7 @@ def _element(
 
 
 def operation_modes() -> list[FRBCOperationMode]:
-    """Idle, or heating at anything from 400 to 1500 W, at a COP of 4 while the buffer is cold and 3 once it is warm."""
+    """Return two modes: idle, and heating at 400 to 1500 W, with a COP of 4 while the buffer is cold and 3 once it is warm."""
     idle = FRBCOperationMode(
         id=get_unique_id(),
         diagnostic_label="idle",
@@ -123,8 +123,8 @@ def operation_modes() -> list[FRBCOperationMode]:
 def system_description(
     modes: list[FRBCOperationMode], valid_from: datetime
 ) -> FRBCSystemDescription:
-    # S2 lists the transitions an actuator can make, so the heat pump says it can go from either mode to the other,
-    # at once and at no cost.
+    # S2 lists the transitions an actuator can make.
+    # This heat pump declares that it can switch from either mode to the other, immediately and at no cost.
     transitions = [
         Transition(
             id=get_unique_id(),
@@ -165,7 +165,7 @@ def system_description(
 
 
 def leakage_behaviour(valid_from: datetime) -> FRBCLeakageBehaviour:
-    """A warmer buffer loses more: 0.8 kWh a day while cold, 1.5 kWh a day once warm."""
+    """Return the leakage behaviour: a warmer buffer loses more, 0.8 kWh a day while cold, and 1.5 kWh a day once warm."""
     return FRBCLeakageBehaviour(
         message_id=get_unique_id(),
         valid_from=valid_from,
@@ -185,12 +185,12 @@ def leakage_behaviour(valid_from: datetime) -> FRBCLeakageBehaviour:
 
 
 def expected_usage(hour: int) -> float:
-    """Hot water drawn in a given hour of the day, in kWh: showers in the morning, washing up in the evening."""
+    """Return the hot water drawn in a given hour of the day, in kWh: showers in the morning, washing up in the evening."""
     return {7: 3.0, 19: 1.0, 20: 1.0}.get(hour, 0.1)
 
 
 def usage_forecast(start: datetime) -> FRBCUsageForecast:
-    """A day of hot-water use, hour by hour, from the hour start falls in."""
+    """Return a forecast for a day of hot-water use, hour by hour, from the start of the hour that start falls in."""
     start = start.replace(minute=0, second=0, microsecond=0)
     return FRBCUsageForecast(
         message_id=get_unique_id(),
@@ -206,7 +206,7 @@ def usage_forecast(start: datetime) -> FRBCUsageForecast:
 
 
 def fill_level_target_profile(start: datetime) -> FRBCFillLevelTargetProfile:
-    """Kept within the declared range, and at least 6 kWh in the hour before the morning showers."""
+    """Return a target profile within the declared range: at least 3 kWh, and at least 6 kWh in the hour before the morning showers."""
     start = start.replace(minute=0, second=0, microsecond=0)
     return FRBCFillLevelTargetProfile(
         message_id=get_unique_id(),
@@ -226,12 +226,12 @@ def fill_level_target_profile(start: datetime) -> FRBCFillLevelTargetProfile:
 
 @dataclass
 class Buffer:
-    """The simulated buffer: where its fill level goes, following S2's definitions.
+    """The simulated buffer, whose fill level changes according to S2's definitions.
 
-    S2 states every rate per second, in the fill level's own units:
-    a fill rate raises the fill level, and usage and leakage lower it.
-    An operation mode's fill rate is interpolated between the ends of its element's range by the factor,
-    from the element whose fill-level range holds the fill level.
+    S2 gives every rate per second, in the fill level's own units.
+    A fill rate raises the fill level, and usage and leakage lower it.
+    An operation mode's fill rate comes from the element whose fill-level range holds the fill level.
+    It is interpolated between the ends of that element's fill-rate range, using the factor.
     """
 
     modes: dict[str, FRBCOperationMode]
@@ -243,7 +243,11 @@ class Buffer:
 
     @staticmethod
     def _holding(elements, fill_level: float):
-        """The element whose range holds the fill level, the upper one at a shared boundary, the nearest outside."""
+        """Return the element whose range holds the fill level.
+
+        At a shared boundary, the upper element applies.
+        Outside all ranges, the nearest element applies.
+        """
         lowest = min(e.fill_level_range.start_of_range for e in elements)
         highest = max(e.fill_level_range.end_of_range for e in elements)
         level = min(max(fill_level, lowest), highest)
@@ -262,7 +266,7 @@ class Buffer:
         )
 
     def rates(self, moment: datetime) -> tuple[float, float, float]:
-        """Fill, usage and leakage, each per second, at this fill level and moment."""
+        """Return the fill, usage and leakage rates, each per second, at this fill level and moment."""
         fill = 0.0
         if self.mode_id is not None:
             element = self._holding(self.modes[self.mode_id].elements, self.fill_level)
@@ -273,7 +277,7 @@ class Buffer:
         return fill, usage, leakage
 
     def advance(self, until: datetime, step: timedelta = timedelta(minutes=1)) -> None:
-        """Move the fill level forward to a moment, a minute at a time, so that an element boundary is crossed in time."""
+        """Move the fill level forward to a moment, a minute at a time, so that element boundaries are crossed at the right time."""
         while self.at < until:
             dt = min(step, until - self.at)
             fill, usage, leakage = self.rates(self.at)
@@ -290,7 +294,10 @@ class Buffer:
 async def send_instruction_status(
     ws, instruction_id, status: InstructionStatus
 ) -> None:
-    """Tell the CEM where an instruction stands, which is what it revokes by: only one not yet carried out."""
+    """Send the CEM the status of an instruction.
+
+    The CEM uses these statuses to decide what to revoke: it only revokes instructions that are not yet carried out.
+    """
     await ws.send_str(
         InstructionStatusUpdate(
             message_id=get_unique_id(),
@@ -310,14 +317,14 @@ async def apply_at_execution_time(
 ) -> None:
     """Enter the operation mode an instruction asks for, at the moment it asks for it.
 
-    An instruction carries an execution_time,
-    which is when the resource manager is to be in that mode, not when the instruction happens to arrive.
-    A resource manager that answers on arrival reports a mode it is not in yet,
-    and a customer energy manager recording that status has a measurement of a power the device is not drawing,
+    An instruction has an execution_time.
+    That is when the resource manager should be in that mode, not when the instruction happens to arrive.
+    A resource manager that acts on arrival reports a mode it is not in yet.
+    A customer energy manager that records that status then has a measurement of a power the device is not drawing,
     timestamped now.
 
-    The mode it reports leaving is the one the last instruction carried out put it in, kept in applied,
-    rather than whatever the instruction before it asked for, which may have been revoked and never carried out.
+    The mode it reports leaving is the mode the last executed instruction put it in, which is kept in applied.
+    It is not the mode the previous instruction asked for, because that instruction may have been revoked and never carried out.
     """
 
     delay = (instruction.execution_time - datetime.now(timezone.utc)).total_seconds()
@@ -325,7 +332,7 @@ async def apply_at_execution_time(
         print(f"WAITING: {delay:.0f}s until this instruction is due")
         await asyncio.sleep(delay)
 
-    # From here on it is being carried out, so a revocation arriving now is too late to stop it.
+    # From here on, the instruction is being carried out, so a revocation that arrives now is too late to stop it.
     if on_due is not None:
         on_due()
     now = datetime.now(timezone.utc)
@@ -351,8 +358,9 @@ async def apply_at_execution_time(
 async def answer_instructions(ws, buffer: Buffer | None = None) -> None:
     """Acknowledge every instruction, and report the transition each one asks for when it is due.
 
-    An instruction the CEM revokes, because a newer plan replaces the one it belonged to, is not followed:
-    without that, the buffer would end up in whatever the last instruction to fire across every plan ever sent said.
+    The CEM revokes an instruction when a newer plan replaces the plan it belonged to.
+    A revoked instruction is not followed.
+    Otherwise, the buffer would end up in whatever mode the last instruction to fire said, across every plan ever sent.
     """
 
     applied: dict = {"mode": None}
@@ -405,7 +413,7 @@ async def answer_instructions(ws, buffer: Buffer | None = None) -> None:
 async def report_fill_level(
     ws, buffer: Buffer, interval: float = STATUS_INTERVAL
 ) -> None:
-    """Report where the buffer is every interval, which is what asks the CEM for a new schedule."""
+    """Report the buffer's fill level every interval, which triggers the CEM to plan a new schedule."""
     while True:
         await asyncio.sleep(interval)
         buffer.advance(datetime.now(timezone.utc))
@@ -420,9 +428,9 @@ async def report_fill_level(
 async def refresh_forecasts(
     ws, leakage: FRBCLeakageBehaviour, interval: float = FORECAST_INTERVAL
 ) -> None:
-    """Send the leakage, the usage forecast and the comfort profile again every interval, each from now on.
+    """Send the leakage behaviour, the usage forecast and the comfort profile again every interval, each starting now.
 
-    Sent only once, they would cover the first day, and the CEM would plan without them from then on.
+    If they were sent only once, they would only cover the first day, and after that the CEM would plan without them.
     """
     while True:
         await asyncio.sleep(interval)
@@ -439,7 +447,7 @@ async def refresh_forecasts(
 
 
 async def receive_until(ws, message_type: str) -> dict:
-    """The next message of a type, past the reception statuses that arrive in between."""
+    """Return the next message of a type, skipping the reception statuses that arrive in between."""
     while True:
         message = (await ws.receive()).json()
         print("RECEIVED: ", message)
@@ -450,10 +458,10 @@ async def receive_until(ws, message_type: str) -> dict:
 async def run_resource_manager(
     ws, interval: float = STATUS_INTERVAL, forecast_interval: float = FORECAST_INTERVAL
 ) -> Buffer:
-    """Introduce the heat pump, declare what it can do and what its buffer needs, then follow and report.
+    """Introduce the heat pump, declare what it can do and what its buffer needs, then follow instructions and report.
 
-    In the order S2 suggests: the system description first, then the storage's status.
-    Returns the simulated buffer, for whoever wants to look at where the instructions took it.
+    The messages follow the order that S2 suggests: the system description first, then the storage's status.
+    Returns the simulated buffer, so that a caller can inspect where the instructions took it.
     """
     await ws.send_str(
         Handshake(
@@ -469,7 +477,7 @@ async def run_resource_manager(
             message_id=get_unique_id(),
             resource_id=get_unique_id(),
             name="heat pump with a hot-water buffer",
-            # It draws electricity and stores heat, so it is a consumer of the commodity it is planned in.
+            # It draws electricity and stores heat, so it consumes the commodity it is planned in.
             roles=[
                 Role(role=RoleType.ENERGY_CONSUMER, commodity=Commodity.ELECTRICITY)
             ],
@@ -478,8 +486,8 @@ async def run_resource_manager(
                 ControlType.FILL_RATE_BASED_CONTROL,
                 ControlType.NO_SELECTION,
             ],
-            # It sends no PowerForecast. It could measure its power, which is what the next field says,
-            # and S2 requires at least one type there.
+            # It sends no PowerForecast.
+            # It could measure its power, which is what the next field declares, and S2 requires at least one type there.
             provides_forecast=False,
             provides_power_measurement_types=[ELECTRIC_POWER],
         ).model_dump_json()

@@ -209,16 +209,17 @@ class FRBC(ControlTypeHandler):
     def handle_system_description(
         self, message: FRBCSystemDescription
     ) -> pydantic.BaseModel:
-        # A resend is acknowledged, and otherwise ignored: storing it again would push a
-        # description out of a bounded history for no reason, and a handler that did act on a
-        # description would act on it twice.
-        # Acknowledging it still matters, or the resource manager retries.
-        # Ignoring a resend is safe now that planning hangs off storage statuses rather than
-        # descriptions, and not before: it would otherwise have dropped a planning request.
-        # The TUNES handler has fingerprinted its descriptions this way all along, and can adopt
-        # this shared helper separately.
-        # Every plan is made for one actuator, so a description of several is refused when it arrives,
-        # rather than acknowledged and then failing in the background on every round, after a solve.
+        # A resend is acknowledged, and otherwise ignored.
+        # Storing it again would push an older description out of the bounded history for no reason.
+        # Also, a handler that acts on a description would act on it twice.
+        # The acknowledgement still matters, because without it the resource manager retries.
+        # Ignoring a resend is safe because planning is triggered by storage statuses, not by descriptions.
+        # Before that was the case, ignoring a resend would have dropped a planning request.
+        # The TUNES handler has always fingerprinted its descriptions this way.
+        # It can adopt this shared helper separately.
+        # Every plan is made for exactly one actuator.
+        # So a description with several actuators is refused on arrival.
+        # Otherwise it would be acknowledged, and then fail in the background on every round, after a solve.
         if len(message.actuators) != 1:
             self._logger.error(
                 "Refusing an FRBC.SystemDescription with %s actuators: this CEM plans for exactly one.",
@@ -242,8 +243,8 @@ class FRBC(ControlTypeHandler):
         # store system_description message for later
         self._system_description_history[system_description_id] = message
 
-        # Said once per description, since nothing here would otherwise say it at all:
-        # an instruction can ask for a switch that a running timer or a missing transition forbids, and the device refuses it.
+        # Warn once per description, because nothing else here would mention it.
+        # An instruction can ask for a switch that a running timer or a missing transition forbids, and then the device refuses it.
         actuator = message.actuators[0]
         if _transitions_restrict(actuator):
             self._logger.warning(
@@ -252,13 +253,16 @@ class FRBC(ControlTypeHandler):
                 len(actuator.transitions),
             )
 
-        # A description says what the device can do, and a storage status what it holds now,
-        # and a schedule needs both. Planning normally hangs off a storage status (see handle_storage_status),
-        # but a description that arrives after the latest status, and differs from the description before it,
-        # is answered with a schedule against that latest status.
-        # Anything but the message id counts as a difference, its validity included,
-        # so a resource manager that re-dates its description on every resend asks for a schedule every time.
-        # Otherwise a resource manager that sends its status first, or whose fill level holds steady so that no new status follows, is never planned for, or keeps being planned for with what it can no longer do.
+        # A description says what the device can do, and a storage status says what it holds now.
+        # A schedule needs both.
+        # Planning is normally triggered by a storage status (see handle_storage_status).
+        # But suppose a description arrives after the latest status, and differs from the previous description.
+        # Then the CEM plans a schedule from that latest status.
+        # Any difference other than the message id counts, including the validity period.
+        # So a resource manager that re-dates its description on every resend triggers a schedule every time.
+        # Without this, two kinds of resource managers would be served badly.
+        # One that sends its status first would never be planned for.
+        # One whose fill level holds steady sends no new status, so it would keep being planned for with capabilities it no longer has.
         if self._storage_status_history:
             request_number = self._count_request(STORAGE_STATUS_REQUESTS)
             task = asyncio.create_task(
@@ -353,8 +357,8 @@ class FRBC(ControlTypeHandler):
 
     @register(FRBCTimerStatus)
     def handle_frbc_timer_status(self, message: FRBCTimerStatus) -> pydantic.BaseModel:
-        # Kept, so that what the resource manager said is there to see, though nothing plans with it yet.
-        # Warned about once per timer, since a resource manager sends a status on every run of every timer.
+        # Store the timer status, so that it can be inspected, even though no planning uses it yet.
+        # Warn only once per timer, because a resource manager sends a status every time any timer runs.
         warned = any(
             known.timer_id == message.timer_id
             for known in self._timer_status_history.values()
@@ -425,7 +429,7 @@ class FRBCTest(FRBC):
 
         actuator = system_description.actuators[0]
 
-        # Imported here, since the utilities import from this package.
+        # Import here, because the utilities module imports from this package.
         from flexmeasures_client.s2.control_types.FRBC.utils import (
             normal_operation_modes,
         )
@@ -444,13 +448,15 @@ class FRBCTest(FRBC):
 
 
 def _transitions_restrict(actuator) -> bool:
-    """Whether an actuator's timers and transitions rule out a switch between two of its operation modes.
+    """Return whether an actuator's timers and transitions rule out a switch between two of its operation modes.
 
-    Transitions that allow every switch between modes usable under normal conditions, with no timer to wait for,
-    rule out nothing, as an on/off device that declares both of its switches does,
-    so only where something is ruled out is there anything this CEM fails to honour.
+    Some transitions rule out nothing.
+    That is the case when they allow every switch between the modes usable under normal conditions, and there is no timer to wait for.
+    An example is an on/off device that declares both of its switches.
+    This CEM does not honour timers and transitions, but that only matters if they rule something out.
     """
-    # A transition can only be blocked by a timer the actuator declares, which s2python checks, so timers cover that too.
+    # A transition can only be blocked by a timer that the actuator declares (s2python checks this).
+    # So checking for timers covers blocked transitions too.
     if actuator.timers:
         return True
     if not actuator.transitions:
