@@ -21,20 +21,20 @@ Added
 
 * ``server_version_at_least``, which answers whether the server is of a given version or newer, looking its version up where that is not known yet, for a caller that sends a field or calls an endpoint only where the server has it. Release generations are compared, so a development build such as ``0.33.0.dev26`` counts as ``0.33.0`` [`#248 <https://github.com/FlexMeasures/flexmeasures-client/pull/248>`__]
 * ``ingestion_polling_interval``, ``ingestion_polling_max_interval`` and ``ingestion_polling_timeout``, which govern how the ingestion of posted sensor data is waited for, on a tighter profile than the ``job_polling_*`` settings give other background jobs [`#242 <https://github.com/FlexMeasures/flexmeasures-client/pull/242>`__]
-* ``post_sensor_data`` takes ``confirm_ingestion``, which raises where the ingestion of the posted data could not be confirmed, rather than logging it and carrying on, for a caller that remembers having recorded the data and would otherwise never record it again [`#273 <https://github.com/FlexMeasures/flexmeasures-client/pull/273>`__]
+* ``post_sensor_data`` takes ``confirm_ingestion``. With ``True``, it raises an error if it cannot confirm that FlexMeasures ingested the posted data, instead of logging this and carrying on. Use it if your code remembers what it has recorded, and would otherwise never record the data again [`#273 <https://github.com/FlexMeasures/flexmeasures-client/pull/273>`__]
 * Optional ``rate_limit_notifier`` and ``job_status_notifier`` callbacks, to report rate limits and the progress of jobs being waited for, instead of logging them [`#225 <https://github.com/FlexMeasures/flexmeasures-client/pull/225>`__]
 * ``get_automations``, ``get_automation``, ``add_automation``, ``update_automation``, ``delete_automation``, ``trigger_automation`` and ``trigger_and_await_automation``, to manage and run automations through the API on FlexMeasures v1.1.0 and up [`#230 <https://github.com/FlexMeasures/flexmeasures-client/pull/230>`__]
 
 Changed
 -------
 
-* ``add_asset`` no longer requires a ``latitude`` and ``longitude``, which FlexMeasures does not require either, for an asset with no location, such as one standing for a community. ``generic_asset_type_id`` stays required, and half a location is refused [`#261 <https://github.com/FlexMeasures/flexmeasures-client/pull/261>`__]
+* ``add_asset`` no longer requires a ``latitude`` and ``longitude``, just like FlexMeasures. This allows assets without a location, such as one that represents a community. ``generic_asset_type_id`` is still required, and a latitude without a longitude (or the other way around) is refused [`#261 <https://github.com/FlexMeasures/flexmeasures-client/pull/261>`__]
 * ``post_sensor_data``, and the deprecated ``post_measurements`` it was renamed from, wait for a server of FlexMeasures 0.33.0 or above that ingests the posted data asynchronously, answering ``202 Accepted`` with a job id, to finish doing so, so that a caller can read the data back or schedule over it; a failed job raises ``JobFailedError``, while a job still pending at the timeout, or one that cannot be looked up, is logged as an error and leaves the post successful. Pass ``await_ingestion=False`` to return as soon as the data is accepted [`#242 <https://github.com/FlexMeasures/flexmeasures-client/pull/242>`__]
 
 Removed
 -------
 
-* ``response_handling.check_content_type``, which refused an answer in a JSON variant that aiohttp parses, such as ``application/problem+json``, with an error that raised an ``AttributeError`` of its own when printed. Such an answer is now read like any other. A content type that is not JSON at all is still reported as a ``ConnectionError``, by aiohttp's own check [`#257 <https://github.com/FlexMeasures/flexmeasures-client/pull/257>`__]
+* ``response_handling.check_content_type``. It refused responses in JSON variants that aiohttp can parse, such as ``application/problem+json``, and the error it raised caused an ``AttributeError`` of its own when printed. Such responses are now read like any other. A response that is not JSON at all is still reported as a ``ConnectionError``, by aiohttp's own check [`#257 <https://github.com/FlexMeasures/flexmeasures-client/pull/257>`__]
 
 Fixed
 -----
