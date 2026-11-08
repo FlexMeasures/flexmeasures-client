@@ -148,8 +148,8 @@ async def test_each_resource_manager_gets_a_site_named_after_it_and_a_handler_wi
     assert handler._price_sensor_id == made["price"]["id"]
     assert handler._production_price_sensor_id == made["production price"]["id"]
     assert handler._soc_sensor_id == made["state of charge"]["id"]
-    assert handler._usage_correction_sensor_id == made["usage correction"]["id"]
-    assert made["usage correction"]["attributes"] == {"consumption_is_positive": True}
+    assert handler._usage_correction_sensor_id is None
+    assert "usage correction" not in made, "a correction is the deployment's to ask for"
     assert handler._valid_from_shift == timedelta(0)
     assert handler._schedule_duration == timedelta(hours=24)
     assert handler.send_revocations is True
@@ -407,3 +407,15 @@ async def test_of_several_sites_with_one_name_the_newest_is_taken():
         fm, "home A", asset_specs={}, sensors={}, timezone="UTC"
     )
     assert asset["id"] == 12
+
+
+@pytest.mark.asyncio
+async def test_a_site_gets_a_usage_correction_where_the_deployment_asks_for_one(
+    named_details,
+):
+    fm = _flexmeasures()
+    configurator = FRBCSiteConfigurator(fm, asset_type_id=6, correct_usage=True)
+    site = await configurator(named_details)
+    made = fm.made
+    assert site.handler._usage_correction_sensor_id == made["usage correction"]["id"]
+    assert made["usage correction"]["attributes"] == {"consumption_is_positive": True}

@@ -44,6 +44,7 @@ from flexmeasures_client.s2.utils import get_unique_id
 
 USAGE_FORECAST_SENSOR_ID = 12
 CORRECTION_SENSOR_ID = 20
+ASSET_ID = 7
 SOC_SENSOR_ID = 3
 PRICE_SENSOR_ID = 2
 START = pd.Timestamp("2024-01-01T00:00:00+00:00")
@@ -134,7 +135,12 @@ def _forecast(*rates: float) -> FRBCUsageForecast:
 
 
 def _correcting(
-    system_description, *, prices=(100.0, -40.0, 450.0), soc_resolution="PT0M", **kwargs
+    system_description,
+    *,
+    prices=(100.0, -40.0, 450.0),
+    soc_resolution="PT0M",
+    stored=None,
+    **kwargs,
 ):
     """A handler with a correction sensor, against a server that can plan one, with readable prices."""
     frbc = _frbc(
@@ -145,9 +151,16 @@ def _correcting(
     async def get_sensor(sensor_id, **_):
         if sensor_id == SOC_SENSOR_ID:
             return {"event_resolution": soc_resolution, "unit": "kWh"}
-        return {"event_resolution": "PT15M", "unit": "EUR/kWh"}
+        return {
+            "event_resolution": "PT15M",
+            "unit": "EUR/kWh",
+            "generic_asset_id": ASSET_ID,
+        }
 
     frbc._fm_client.get_sensor = AsyncMock(side_effect=get_sensor)
+    frbc._fm_client.get_asset = AsyncMock(
+        return_value={"id": ASSET_ID, "flex_context": stored or {}}
+    )
     frbc._fm_client.get_sensor_data = AsyncMock(return_value={"values": list(prices)})
     # Pin the window, so that it starts where the forecast does.
     frbc.schedule_start = lambda valid_from: START.to_pydatetime()
@@ -215,13 +228,19 @@ async def test_a_schedule_is_asked_for_with_a_correction_on_the_storages_stock(
 
     actuator, stock, correction = flex_model
     assert actuator["sensor"] == 1 and actuator["commodity"] == "electricity"
-    assert "consumption-capacity" in actuator and "soc-at-start" not in actuator
+    assert "consumption-capacity" in actuator
+    assert "soc-at-start" not in actuator and "soc-usage" not in actuator
     assert (
         stock["state-of-charge"]
         == {"sensor": SOC_SENSOR_ID}
         == actuator["state-of-charge"]
     )
-    assert "sensor" not in stock and "soc-usage" in stock and "soc-minima" in stock
+    assert "sensor" not in stock and "soc-minima" in stock
+    # The usage planned is the forecast the limits come from, not whatever the sensor holds.
+    assert [s["value"] for s in stock["soc-usage"][0]] == [
+        "0.01 kWh/s",
+        "-0.02 kWh/s",
+    ]
     assert correction["sensor"] == CORRECTION_SENSOR_ID
     assert correction["commodity"] == USAGE_CORRECTION_COMMODITY
     assert correction["state-of-charge"] == {"sensor": SOC_SENSOR_ID}
@@ -507,13 +526,164 @@ async def test_prices_that_cannot_be_read_leave_the_plan_without_a_correction(
 
 
 @pytest.mark.asyncio
-async def test_before_any_forecast_arrives_there_is_nothing_to_correct(
+async def test_before_any_forecast_arrives_the_plan_goes_without_usage(
     system_description,
 ):
+    """The sensor may hold negative usage recorded as stated before a restart, which no plan without a correction can absorb."""
     frbc = _correcting(system_description)
 
     flex_model, flex_context = await _request(frbc, system_description)
 
     assert isinstance(flex_model, dict)
-    assert flex_model["soc-usage"] == [{"sensor": USAGE_FORECAST_SENSOR_ID}]
+    assert "soc-usage" not in flex_model
     assert "commodities" not in flex_context
+
+
+@pytest.mark.asyncio
+async def test_the_sites_stored_electricity_context_is_kept_and_its_prices_bounded(
+    system_description,
+):
+    """FlexMeasures reads stored electricity fields only where a request names no electricity commodity, so they are carried over."""
+    stored = {
+        "site-consumption-capacity": "10 kW",
+        "site-peak-consumption": "5 kW",
+        "site-peak-consumption-price": "260 EUR/MW",
+        "commitments": [
+            {
+                "name": "contract",
+                "baseline": "0 kW",
+                "up-price": "0.5 EUR/kW",
+                "down-price": "0 EUR/kW",
+            }
+        ],
+        "soc-minima-breach-price": "1000 EUR/kWh",
+        "consumption-price": {"sensor": 99},
+    }
+    frbc = _correcting(system_description, stored=stored)
+    frbc._usage_forecast_history["f"] = _forecast(0.01)
+
+    _, flex_context = await _request(frbc, system_description)
+
+    electricity, correction = flex_context["commodities"]
+    assert electricity["site-consumption-capacity"] == "10 kW"
+    assert electricity["site-peak-consumption-price"] == "260 EUR/MW"
+    assert electricity["commitments"] == stored["commitments"]
+    # What the request sets itself wins, and top-level fields stay at the top.
+    assert electricity["consumption-price"] == {"sensor": PRICE_SENSOR_ID}
+    assert "soc-minima-breach-price" not in electricity
+    assert flex_context["relax-capacity-constraints"] is False
+    expected = _usage_correction_price(
+        450.0, 4500.0, 45000.0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=260 + 500
+    )
+    assert correction["consumption-price"] == f"{expected} EUR/MWh"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stored, said",
+    [
+        (
+            {"site-peak-consumption-price": {"sensor": 5}},
+            "stored site-peak-consumption-price is not a fixed price per MW",
+        ),
+        (
+            {
+                "commitments": [
+                    {"name": "c", "baseline": "0 kW", "up-price": "1 SEK/kW"}
+                ]
+            },
+            "stored commitment 'c' has a up-price",
+        ),
+        ({"commodities": []}, "stores a flex context with commodities"),
+    ],
+)
+async def test_a_stored_price_that_cannot_be_bounded_leaves_the_plan_without_a_correction(
+    system_description, caplog, stored, said
+):
+    frbc = _correcting(system_description, stored=stored)
+    frbc._usage_forecast_history["f"] = _forecast(0.01, -0.02)
+
+    flex_model, _ = await _request(frbc, system_description)
+
+    assert isinstance(flex_model, dict)
+    assert said in caplog.text
+
+
+def test_efficiencies_above_one_do_not_lower_the_bound():
+    """A heat pump's COP, or a storage that gains by itself, makes neither buying nor holding stock cheaper than one for one."""
+    one = _usage_correction_price(450, 4500, 0, 1.0, 1.0, 48, 0.25)
+    assert _usage_correction_price(450, 4500, 0, 4.0, 1.01, 48, 0.25) == one
+
+
+def test_other_per_mw_prices_raise_the_bound_by_their_worth_per_mwh_in_one_step():
+    """A peak or commitment price per MW costs at most that price over one step's length per MWh."""
+    without = _usage_correction_price(450, 4500, 0, 1.0, 1.0, 48, 0.25)
+    with_peak = _usage_correction_price(
+        450, 4500, 0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=760
+    )
+    assert with_peak - without == pytest.approx(2 * 760 / 0.25)
+
+
+@pytest.mark.parametrize(
+    "value, per_mw",
+    [
+        ("260 EUR/MW", 260.0),
+        ("0.26 EUR/kW", 260.0),
+        ("-0.00026 EUR/W", 260.0),
+        ("260 SEK/MW", None),
+        ("260 EUR/MWh", None),
+        ("lots EUR/MW", None),
+        ("260", None),
+        ({"sensor": 5}, None),
+    ],
+)
+def test_only_a_fixed_price_per_mw_in_the_currency_can_be_bounded(value, per_mw):
+    from flexmeasures_client.s2.control_types.FRBC.frbc_simple import _price_per_mw
+
+    assert _price_per_mw(value, "EUR") == per_mw
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "power_sensor, said",
+    [
+        (ConnectionError("unreachable"), "could not be read: unreachable"),
+        ({"unit": "W"}, "could not be read: power sensor 1 states no asset"),
+    ],
+)
+async def test_a_stored_flex_context_that_cannot_be_read_leaves_the_plan_without_a_correction(
+    system_description, caplog, power_sensor, said
+):
+    frbc = _correcting(system_description)
+    lookup = frbc._fm_client.get_sensor.side_effect
+
+    async def get_sensor(sensor_id, **kwargs):
+        if sensor_id == 1:
+            if isinstance(power_sensor, Exception):
+                raise power_sensor
+            return power_sensor
+        return await lookup(sensor_id, **kwargs)
+
+    frbc._fm_client.get_sensor = AsyncMock(side_effect=get_sensor)
+    frbc._usage_forecast_history["f"] = _forecast(0.01, -0.02)
+
+    flex_model, _ = await _request(frbc, system_description)
+
+    assert isinstance(flex_model, dict)
+    assert said in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_commitment_with_one_price_is_bounded_by_that_price(system_description):
+    stored = {
+        "commitments": [{"name": "c", "baseline": "0 kW", "up-price": "100 EUR/MW"}]
+    }
+    frbc = _correcting(system_description, stored=stored)
+    frbc._usage_forecast_history["f"] = _forecast(0.01)
+
+    _, flex_context = await _request(frbc, system_description)
+
+    expected = _usage_correction_price(
+        450.0, 4500.0, 45000.0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=100
+    )
+    assert flex_context["commodities"][1]["consumption-price"] == f"{expected} EUR/MWh"
