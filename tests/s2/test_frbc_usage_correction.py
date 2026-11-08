@@ -583,8 +583,8 @@ async def test_the_sites_stored_electricity_context_is_kept_and_its_prices_bound
     "stored, said",
     [
         (
-            {"site-peak-consumption-price": {"sensor": 5}},
-            "stored site-peak-consumption-price is not a fixed price per MW",
+            {"site-peak-consumption-price": "lots"},
+            "stored site-peak-consumption-price is not a price per MW in EUR",
         ),
         (
             {
@@ -592,7 +592,7 @@ async def test_the_sites_stored_electricity_context_is_kept_and_its_prices_bound
                     {"name": "c", "baseline": "0 kW", "up-price": "1 SEK/kW"}
                 ]
             },
-            "stored commitment 'c' has a up-price",
+            "stored commitment 'c' has a up-price that is not a price per MW",
         ),
         ({"commodities": []}, "stores a flex context with commodities"),
     ],
@@ -687,3 +687,61 @@ async def test_a_commitment_with_one_price_is_bounded_by_that_price(system_descr
         450.0, 4500.0, 45000.0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=100
     )
     assert flex_context["commodities"][1]["consumption-price"] == f"{expected} EUR/MWh"
+
+
+@pytest.mark.asyncio
+async def test_a_stored_price_on_a_sensor_is_bounded_by_its_highest_value_over_the_window(
+    system_description,
+):
+    """A co-simulation's controller steers each home with peak prices on sensors, which the bound reads like the market prices."""
+    stored = {
+        "site-peak-consumption-price": {"sensor": 705},
+        "site-peak-production-price": {"sensor": 706},
+        "site-consumption-capacity": {"sensor": 707},
+    }
+    frbc = _correcting(system_description, stored=stored)
+    market = frbc._fm_client.get_sensor_data.return_value
+
+    async def get_sensor_data(sensor_id, **kwargs):
+        if sensor_id == 705:
+            assert kwargs["unit"] == "EUR/MW"
+            return {"values": [None, 300.0, -800.0]}
+        if sensor_id == 706:
+            return {"values": []}
+        return market
+
+    frbc._fm_client.get_sensor_data = AsyncMock(side_effect=get_sensor_data)
+    frbc._usage_forecast_history["f"] = _forecast(0.01)
+
+    _, flex_context = await _request(frbc, system_description)
+
+    electricity, correction = flex_context["commodities"]
+    assert electricity["site-peak-consumption-price"] == {"sensor": 705}
+    assert electricity["site-consumption-capacity"] == {"sensor": 707}
+    expected = _usage_correction_price(
+        450.0, 4500.0, 45000.0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=800.0
+    )
+    assert correction["consumption-price"] == f"{expected} EUR/MWh"
+
+
+@pytest.mark.asyncio
+async def test_a_stored_price_sensor_that_cannot_be_read_leaves_the_plan_without_a_correction(
+    system_description, caplog
+):
+    frbc = _correcting(
+        system_description, stored={"site-peak-consumption-price": {"sensor": 705}}
+    )
+    market = frbc._fm_client.get_sensor_data.return_value
+
+    async def get_sensor_data(sensor_id, **kwargs):
+        if sensor_id == 705:
+            raise ConnectionError("unreachable")
+        return market
+
+    frbc._fm_client.get_sensor_data = AsyncMock(side_effect=get_sensor_data)
+    frbc._usage_forecast_history["f"] = _forecast(0.01, -0.02)
+
+    flex_model, _ = await _request(frbc, system_description)
+
+    assert isinstance(flex_model, dict)
+    assert "Could not read the prices on sensor 705: unreachable" in caplog.text

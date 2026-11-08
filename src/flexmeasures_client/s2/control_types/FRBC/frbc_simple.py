@@ -1670,13 +1670,53 @@ class FRBCSimple(FRBC):
         stored = asset.get("flex_context") if isinstance(asset, dict) else None
         return stored if isinstance(stored, dict) else {}
 
-    def _bound_stored_prices(
-        self, stored: dict, request_fields, currency: str
+    async def _highest_per_mw_on_sensor(
+        self, sensor_id: int, start: datetime, currency: str
+    ) -> float | None:
+        """Return the highest absolute price per MW on a sensor over the window, zero if it holds none, or None if it cannot be read."""
+        try:
+            data = await self._fm_client.get_sensor_data(
+                sensor_id,
+                start=start,
+                duration=self._schedule_duration,
+                unit=f"{currency}/MW",
+                resolution=self._resolution,
+            )
+        except REQUEST_FAILURES as exc:
+            self._logger.warning(
+                "Could not read the prices on sensor %s: %s", sensor_id, exc
+            )
+            return None
+        values = data.get("values", []) if isinstance(data, dict) else []
+        return max(
+            (
+                abs(value)
+                for value in values
+                if value is not None and not math.isnan(value)
+            ),
+            default=0.0,
+        )
+
+    async def _per_mw(self, value, start: datetime, currency: str) -> float | None:
+        """Return the highest price per MW a stored price can take over the window, or None if it cannot be bounded.
+
+        A fixed price is read as it is; a price on a sensor is read from the sensor over the window,
+        as a co-simulation's controller sets its steering prices.
+        """
+        if isinstance(value, dict) and set(value) == {"sensor"}:
+            return await self._highest_per_mw_on_sensor(
+                value["sensor"], start, currency
+            )
+        return _price_per_mw(value, currency)
+
+    async def _bound_stored_prices(
+        self, stored: dict, request_fields, start: datetime, currency: str
     ) -> tuple[float, str | None]:
         """Return the sum of the stored per-MW prices that the request keeps, or a reason why one cannot be bounded.
 
         A stored price that the request sets itself is overridden, and one that FlexMeasures reads at the top level is set by the request.
-        Every other price is part of what a unit of stock can be worth, so it has to be a fixed price per MW to be bounded.
+        Every other price is part of what a unit of stock can be worth.
+        So it has to be a fixed price per MW, or a sensor of prices per MW, to be bounded.
         """
         total = 0.0
         for key, value in stored.items():
@@ -1687,19 +1727,19 @@ class FRBCSimple(FRBC):
                     for side in ("up-price", "down-price"):
                         if side not in commitment:
                             continue
-                        price = _price_per_mw(commitment[side], currency)
+                        price = await self._per_mw(commitment[side], start, currency)
                         if price is None:
                             return (
                                 0.0,
-                                f"the stored commitment {commitment.get('name')!r} has a {side} that is not a fixed price per MW in {currency}",
+                                f"the stored commitment {commitment.get('name')!r} has a {side} that is not a price per MW in {currency}",
                             )
                         total += price
             elif key.endswith("-price"):
-                price = _price_per_mw(value, currency)
+                price = await self._per_mw(value, start, currency)
                 if price is None:
                     return (
                         0.0,
-                        f"the stored {key} is not a fixed price per MW in {currency}",
+                        f"the stored {key} is not a price per MW in {currency}",
                     )
                 total += price
         return total, None
@@ -1760,8 +1800,8 @@ class FRBCSimple(FRBC):
                     if "commodities" in stored:
                         reason = "the site's asset stores a flex context with commodities, which this request would replace"
                     else:
-                        other_prices_per_mw, reason = self._bound_stored_prices(
-                            stored, site_fields + site_breach_fields, prices[1]
+                        other_prices_per_mw, reason = await self._bound_stored_prices(
+                            stored, site_fields + site_breach_fields, start, prices[1]
                         )
         if prices is None or reason is not None:
             self._logger.warning(
