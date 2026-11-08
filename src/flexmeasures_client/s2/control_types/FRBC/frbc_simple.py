@@ -249,7 +249,6 @@ def _price_per_mw(value, currency: str) -> float | None:
 def _usage_correction_price(
     max_abs_price: float,
     soc_breach_price: float,
-    site_breach_price: float,
     charging_efficiency: float,
     storage_efficiency: float,
     steps: int,
@@ -258,19 +257,18 @@ def _usage_correction_price(
 ) -> float:
     """Return a price per MWh of stock at which correcting the usage forecast is always the last resort.
 
-    It is twice an upper bound on what one MWh of stock can be worth to the scheduler.
-    Below that worth, the scheduler would rather correct the forecast than buy energy, breach the band, or exceed the site's capacity.
+    It is twice an upper bound on what one MWh of stock can be worth to the scheduler, short of a breach of the site's capacity.
+    Below that worth, the scheduler would rather correct the forecast than buy energy or breach the band.
     The bound adds two ways a MWh of stock can be worth something.
 
     - Through the actuator: buying it, or disposing of it, at the highest absolute market price,
-      plus the site's capacity breach, priced once for the largest breach and once for every step a breach lasts.
+      plus any other price per MW on the site's power.
       This is divided by the charging efficiency, and by the storage losses of every step it may have to be held.
     - Through the fill-level band: avoiding a breach on either side,
       priced once for the largest breach and once for every step a breach lasts.
 
     :param max_abs_price:       the highest absolute market price over the window, per MWh of electricity.
     :param soc_breach_price:    the breach price of the fill-level band, per MWh of stock, on each side.
-    :param site_breach_price:   the breach price of the site's capacity, per MW, or zero if it is not relaxed.
     :param charging_efficiency: the stock gained per unit of electricity, which a heat pump's COP puts above one.
     :param storage_efficiency:  the share of the stock that remains after one step.
     :param other_prices_per_mw: the sum of any other prices per MW on the site's power, such as peak prices and commitments,
@@ -279,13 +277,16 @@ def _usage_correction_price(
     An efficiency above one is counted as one.
     A heat pump's COP makes buying stock cheaper, but feeding it back is then worth up to the price itself,
     and a storage that gains by itself makes holding stock no costlier.
+
+    A breach of the site's capacity is left out of the bound, so a correction can be cheaper than one.
+    Pricing the correction above it would take a price far beyond what the solver handles reliably at FlexMeasures' default site breach price,
+    and lowering the site breach price to fit makes a site ignore the capacity it is steered with.
+    The correction stays dearer than a breach of the band, so a plan still breaches the band before it corrects the forecast.
     """
     per_breach = 1 / step_hours + steps
-    via_actuator = (
-        max_abs_price
-        + site_breach_price * (1 / step_hours + 1)
-        + other_prices_per_mw / step_hours
-    ) / (min(charging_efficiency, 1.0) * min(storage_efficiency, 1.0) ** steps)
+    via_actuator = (max_abs_price + other_prices_per_mw / step_hours) / (
+        min(charging_efficiency, 1.0) * min(storage_efficiency, 1.0) ** steps
+    )
     via_band = 2 * soc_breach_price * per_breach
     return 2 * (via_actuator + via_band)
 
@@ -408,11 +409,10 @@ class FRBCSimple(FRBC):
         # A negative expected usage is then planned as the gain it states, instead of as no usage.
         # Without it, a negative expected usage is recorded and planned as no usage, as before.
         usage_correction_sensor_id: int | None = None,
-        # The breach prices sent with a corrected request, as multiples of the highest absolute market price over the window:
-        # per MWh of stock for the fill-level band, and per MW for the site's connection capacity.
-        # The correction is priced from them, so they are only sent where a correction is planned.
+        # The breach price of the fill-level band sent with a corrected request, per MWh of stock,
+        # as a multiple of the highest absolute market price over the window.
+        # The correction is priced from it, so it is only sent where a correction is planned.
         soc_breach_price_factor: float = 10.0,
-        site_breach_price_factor: float = 100.0,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         # How many times to request a schedule before leaving the storage without an instruction,
@@ -459,13 +459,12 @@ class FRBCSimple(FRBC):
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._charging_efficiency_sensor_id = charging_efficiency_sensor_id
         self._usage_correction_sensor_id = usage_correction_sensor_id
-        if soc_breach_price_factor <= 0 or site_breach_price_factor <= 0:
-            # A breach price of zero makes breaching free, so the band and the capacity would mean nothing.
+        if soc_breach_price_factor <= 0:
+            # A breach price of zero makes breaching free, so the band would mean nothing.
             raise ValueError(
-                f"soc_breach_price_factor and site_breach_price_factor have to be greater than zero, but {soc_breach_price_factor} and {site_breach_price_factor} were given."
+                f"soc_breach_price_factor has to be greater than zero, but {soc_breach_price_factor} was given."
             )
         self._soc_breach_price_factor = soc_breach_price_factor
-        self._site_breach_price_factor = site_breach_price_factor
         #: The charging and storage efficiencies that the last plan was asked for with, which the correction price depends on.
         self._planned_charging_efficiency: float | None = None
         self._planned_storage_efficiency: float | None = None
@@ -1741,17 +1740,18 @@ class FRBCSimple(FRBC):
         return _price_per_mw(value, currency)
 
     async def _bound_stored_prices(
-        self, stored: dict, request_fields, start: datetime, currency: str
+        self, stored: dict, skipped_fields, start: datetime, currency: str
     ) -> tuple[float, str | None]:
-        """Return the sum of the stored per-MW prices that the request keeps, or a reason why one cannot be bounded.
+        """Return the sum of the stored per-MW prices that count towards the correction price, or a reason why one cannot be bounded.
 
-        A stored price that the request sets itself is overridden, and one that FlexMeasures reads at the top level is set by the request.
+        The skipped fields do not count: the request overrides some, and the site's breach prices are left out of the bound.
+        A price that FlexMeasures reads at the top level is set by the request, so it does not count either.
         Every other price is part of what a unit of stock can be worth.
         So it has to be a fixed price per MW, or a sensor of prices per MW, to be bounded.
         """
         total = 0.0
         for key, value in stored.items():
-            if key in request_fields or key in TOP_LEVEL_FLEX_CONTEXT_FIELDS:
+            if key in skipped_fields or key in TOP_LEVEL_FLEX_CONTEXT_FIELDS:
                 continue
             if key == "commitments":
                 for commitment in value or []:
@@ -1787,8 +1787,9 @@ class FRBCSimple(FRBC):
         So it is only used where nothing physical can keep the plan within the hard bounds.
 
         The request carries a coherent set of prices to make that hold.
-        The breach prices of the fill-level band, and of the site's capacity where it may be breached, are set relative to the market price.
-        The correction price follows from those, and from any other per-MW price stored on the site's asset (see _usage_correction_price).
+        The breach price of the fill-level band is set relative to the market price.
+        The correction price follows from it, and from any other per-MW price stored on the site's asset, except a breach of the site's capacity (see _usage_correction_price).
+        The site's breach prices are left to the asset, or to FlexMeasures' default, so that the site keeps to the capacity it is steered with.
         Device capacities are kept hard, so that the correction cannot move a usage past zero.
 
         The usage is sent with the request, from the same forecast as the correction's limits and the translation back into instructions.
@@ -1811,6 +1812,7 @@ class FRBCSimple(FRBC):
         prices = None
         stored: dict = {}
         site_fields = ("consumption-price", "production-price", "site-power-capacity")
+        # A stored breach price of the site's capacity is carried over, but left out of the correction price.
         site_breach_fields = (
             "site-consumption-breach-price",
             "site-production-breach-price",
@@ -1848,12 +1850,6 @@ class FRBCSimple(FRBC):
         steps = int(self._schedule_duration / self._resolution)
         step_hours = self._resolution / timedelta(hours=1)
         soc_breach_price = self._soc_breach_price_factor * reference_price
-        site_may_be_breached = self._relax_site_capacity is not False
-        site_breach_price = (
-            self._site_breach_price_factor * reference_price
-            if site_may_be_breached
-            else 0.0
-        )
         charging_efficiency = (
             self._planned_charging_efficiency
             if "charging-efficiency" in flex_model and self._planned_charging_efficiency
@@ -1867,7 +1863,6 @@ class FRBCSimple(FRBC):
         correction_price = _usage_correction_price(
             max_abs_price=max_abs_price,
             soc_breach_price=soc_breach_price,
-            site_breach_price=site_breach_price,
             charging_efficiency=charging_efficiency,
             storage_efficiency=storage_efficiency,
             steps=steps,
@@ -1923,13 +1918,6 @@ class FRBCSimple(FRBC):
             }
         )
         electricity.update({k: v for k, v in flex_context.items() if k in site_fields})
-        if site_may_be_breached:
-            electricity["site-consumption-breach-price"] = (
-                f"{site_breach_price} {currency}/MW"
-            )
-            electricity["site-production-breach-price"] = (
-                f"{site_breach_price} {currency}/MW"
-            )
         context = {k: v for k, v in flex_context.items() if k not in site_fields}
         context["commodities"] = [
             electricity,

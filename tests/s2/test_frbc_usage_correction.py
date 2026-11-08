@@ -202,19 +202,15 @@ def test_the_correction_price_bounds_every_worth_of_a_unit_of_stock():
     price = _usage_correction_price(
         max_abs_price=450,
         soc_breach_price=4500,
-        site_breach_price=0,
         charging_efficiency=1,
         storage_efficiency=1,
         steps=96,
         step_hours=0.25,
     )
     assert price == pytest.approx(2 * (450 + 2 * 4500 * (4 + 96)))
-    # A unit of stock is worth more where buying it loses more on the way in, or leaks while it waits,
-    # and where exceeding the site's capacity costs something.
-    lossy = _usage_correction_price(450, 4500, 0, 0.8, 0.99, 96, 0.25)
-    breachable = _usage_correction_price(450, 4500, 45000, 1, 1, 96, 0.25)
+    # A unit of stock is worth more where buying it loses more on the way in, or leaks while it waits.
+    lossy = _usage_correction_price(450, 4500, 0.8, 0.99, 96, 0.25)
     assert lossy - price == pytest.approx(2 * 450 * (1 / (0.8 * 0.99**96) - 1))
-    assert breachable - price == pytest.approx(2 * 45000 * 5)
 
 
 @pytest.mark.asyncio
@@ -264,10 +260,11 @@ async def test_the_request_carries_a_coherent_set_of_prices(system_description):
     # Breach prices relative to the highest absolute market price, 450.
     assert flex_context["soc-minima-breach-price"] == "4500.0 EUR/MWh"
     assert flex_context["soc-maxima-breach-price"] == "4500.0 EUR/MWh"
-    # The site's capacity is left to FlexMeasures, which may relax it, so its breach is priced too.
-    assert electricity["site-consumption-breach-price"] == "45000.0 EUR/MW"
+    # The site's breach prices are left to the asset or to FlexMeasures, so the site keeps to the capacity it is steered with.
+    assert "site-consumption-breach-price" not in electricity
+    assert "site-production-breach-price" not in electricity
     steps = 48  # the handler's default twelve hours
-    expected = _usage_correction_price(450.0, 4500.0, 45000.0, 1.0, 1.0, steps, 0.25)
+    expected = _usage_correction_price(450.0, 4500.0, 1.0, 1.0, steps, 0.25)
     assert correction == {
         "commodity": USAGE_CORRECTION_COMMODITY,
         "consumption-price": f"{expected} EUR/MWh",
@@ -276,16 +273,23 @@ async def test_the_request_carries_a_coherent_set_of_prices(system_description):
 
 
 @pytest.mark.asyncio
-async def test_a_hard_site_capacity_has_no_breach_price(system_description):
-    frbc = _correcting(system_description, relax_site_capacity=False)
+async def test_a_stored_site_breach_price_is_kept_but_does_not_raise_the_correction_price(
+    system_description,
+):
+    """A correction may be cheaper than a breach of the site's capacity, so a steering site keeps its breach price."""
+    stored = {
+        "site-consumption-breach-price": "10000 EUR/kW",
+        "site-production-breach-price": "10000 EUR/kW",
+    }
+    frbc = _correcting(system_description, stored=stored)
     frbc._usage_forecast_history["f"] = _forecast(0.01)
 
     _, flex_context = await _request(frbc, system_description)
 
     electricity, correction = flex_context["commodities"]
-    assert "site-consumption-breach-price" not in electricity
-    assert flex_context["relax-site-capacity-constraints"] is False
-    expected = _usage_correction_price(450.0, 4500.0, 0.0, 1.0, 1.0, 48, 0.25)
+    assert electricity["site-consumption-breach-price"] == "10000 EUR/kW"
+    assert electricity["site-production-breach-price"] == "10000 EUR/kW"
+    expected = _usage_correction_price(450.0, 4500.0, 1.0, 1.0, 48, 0.25)
     assert correction["consumption-price"] == f"{expected} EUR/MWh"
 
 
@@ -404,7 +408,7 @@ async def test_the_correction_price_counts_the_efficiencies_the_schedule_is_aske
 
     _, flex_context = await _request(frbc, system_description)
 
-    expected = _usage_correction_price(450.0, 4500.0, 45000.0, 0.8, 0.99, 48, 0.25)
+    expected = _usage_correction_price(450.0, 4500.0, 0.8, 0.99, 48, 0.25)
     assert flex_context["commodities"][1]["consumption-price"] == f"{expected} EUR/MWh"
 
 
@@ -578,7 +582,7 @@ async def test_the_sites_stored_electricity_context_is_kept_and_its_prices_bound
     )
     assert flex_context["relax-capacity-constraints"] is False
     expected = _usage_correction_price(
-        450.0, 4500.0, 45000.0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=260 + 500
+        450.0, 4500.0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=260 + 500
     )
     assert correction["consumption-price"] == f"{expected} EUR/MWh"
 
@@ -616,15 +620,15 @@ async def test_a_stored_price_that_cannot_be_bounded_leaves_the_plan_without_a_c
 
 def test_efficiencies_above_one_do_not_lower_the_bound():
     """A heat pump's COP, or a storage that gains by itself, makes neither buying nor holding stock cheaper than one for one."""
-    one = _usage_correction_price(450, 4500, 0, 1.0, 1.0, 48, 0.25)
-    assert _usage_correction_price(450, 4500, 0, 4.0, 1.01, 48, 0.25) == one
+    one = _usage_correction_price(450, 4500, 1.0, 1.0, 48, 0.25)
+    assert _usage_correction_price(450, 4500, 4.0, 1.01, 48, 0.25) == one
 
 
 def test_other_per_mw_prices_raise_the_bound_by_their_worth_per_mwh_in_one_step():
     """A peak or commitment price per MW costs at most that price over one step's length per MWh."""
-    without = _usage_correction_price(450, 4500, 0, 1.0, 1.0, 48, 0.25)
+    without = _usage_correction_price(450, 4500, 1.0, 1.0, 48, 0.25)
     with_peak = _usage_correction_price(
-        450, 4500, 0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=760
+        450, 4500, 1.0, 1.0, 48, 0.25, other_prices_per_mw=760
     )
     assert with_peak - without == pytest.approx(2 * 760 / 0.25)
 
@@ -689,7 +693,7 @@ async def test_a_commitment_with_one_price_is_bounded_by_that_price(system_descr
     _, flex_context = await _request(frbc, system_description)
 
     expected = _usage_correction_price(
-        450.0, 4500.0, 45000.0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=100
+        450.0, 4500.0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=100
     )
     assert flex_context["commodities"][1]["consumption-price"] == f"{expected} EUR/MWh"
 
@@ -724,7 +728,7 @@ async def test_a_stored_price_on_a_sensor_is_bounded_by_its_highest_value_over_t
     assert electricity["site-peak-consumption-price"] == {"sensor": 705}
     assert electricity["site-consumption-capacity"] == {"sensor": 707}
     expected = _usage_correction_price(
-        450.0, 4500.0, 45000.0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=800.0
+        450.0, 4500.0, 1.0, 1.0, 48, 0.25, other_prices_per_mw=800.0
     )
     assert correction["consumption-price"] == f"{expected} EUR/MWh"
 
