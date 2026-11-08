@@ -34,11 +34,7 @@ from flexmeasures_client.exceptions import (
     WrongAPIVersionError,
     WrongHostError,
 )
-from flexmeasures_client.response_handling import (
-    check_content_type,
-    check_for_status,
-    check_response,
-)
+from flexmeasures_client.response_handling import check_for_status, check_response
 from flexmeasures_client.utils import apply_deprecated_parameter_aliases, merge_updates
 
 LOGGER = logging.getLogger(__name__)
@@ -463,8 +459,11 @@ class FlexMeasuresClient:
                 "Request retry timeout while connecting to the API."
             ) from exception
 
-        check_content_type(response)
-
+        # request_once has already parsed this answer with aiohttp's json(),
+        # which refuses a content type that is not JSON, and the loop above reports that as a ConnectionError.
+        # A check that used to follow here refused the JSON variants aiohttp accepts too, such as application/problem+json,
+        # with an error that could not even be printed, so it is gone.
+        # A body that is not JSON under a JSON content type is refused by json() itself, as a JSONDecodeError.
         return await response.json(), response.status
 
     async def request_once(
@@ -563,9 +562,10 @@ class FlexMeasuresClient:
 
         headers = dict(CONTENT_TYPE_HEADERS) | {CLIENT_VERSION_HEADER: client_version}
         if include_auth:
-            if self.access_token is None:
-                await self.get_access_token()
-            headers |= {"Authorization": self.access_token}
+            access_token = self.access_token
+            if access_token is None:
+                access_token = await self.get_access_token()
+            headers |= {"Authorization": access_token}
         return headers
 
     def build_url(self, uri: str, path: str = path) -> URL:
@@ -577,8 +577,8 @@ class FlexMeasuresClient:
         )
         return url
 
-    async def get_access_token(self):
-        """Get access token and store it on the FlexMeasuresClient."""
+    async def get_access_token(self) -> str:
+        """Get access token, store it on the FlexMeasuresClient, and return it."""
         response, _status = await self.request(
             uri="requestAuthToken",
             path="/api/",
@@ -588,7 +588,13 @@ class FlexMeasuresClient:
             },
             include_auth=False,
         )
-        self.access_token = response["auth_token"]
+        if not isinstance(response, dict):
+            raise ValueError(
+                f"Expected a JSON object from requestAuthToken, but got a {type(response).__name__}."
+            )
+        access_token: str = response["auth_token"]
+        self.access_token = access_token
+        return access_token
 
     async def get_versions(self):
         """Get the FlexMeasures version and the supported API versions of the FlexMeasures server.
@@ -601,6 +607,10 @@ class FlexMeasuresClient:
             method="GET",
             include_auth=False,
         )
+        if not isinstance(response, dict):
+            raise ValueError(
+                f"Expected a JSON object from the API root, but got a {type(response).__name__}."
+            )
 
         # Check whether the API version used by the client is supported by the server
         server_api_versions = response["versions"]
@@ -1501,9 +1511,9 @@ class FlexMeasuresClient:
         self,
         name: str,
         account_id: int,
-        latitude: float,
-        longitude: float,
-        generic_asset_type_id: int,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        generic_asset_type_id: int | None = None,
         parent_asset_id: int | None = None,
         sensors_to_show: list | None = None,
         flex_context: dict | None = None,
@@ -1527,15 +1537,27 @@ class FlexMeasuresClient:
                     'status': 200
                 }
 
-        This function raises a ValueError when an unhandled status code is returned.
+        This function raises a ValueError when an unhandled status code is returned,
+        when no generic_asset_type_id is given, and when only one of latitude and longitude is.
         """
-        asset = dict(
+        if generic_asset_type_id is None:
+            # Optional in the signature only so that latitude and longitude, before it, can be left out,
+            # while every argument keeps its position.
+            raise ValueError("add_asset needs a generic_asset_type_id.")
+        if (latitude is None) != (longitude is None):
+            raise ValueError(
+                "add_asset takes a location as both a latitude and a longitude, or neither."
+            )
+        asset: dict = dict(
             name=name,
             account_id=account_id,
-            latitude=latitude,
-            longitude=longitude,
             generic_asset_type_id=generic_asset_type_id,
         )
+        # A location is optional to FlexMeasures, which many assets have no use for, such as one standing for a community.
+        if latitude is not None:
+            asset["latitude"] = latitude
+        if longitude is not None:
+            asset["longitude"] = longitude
         if parent_asset_id:
             asset["parent_asset_id"] = parent_asset_id
         if sensors_to_show:

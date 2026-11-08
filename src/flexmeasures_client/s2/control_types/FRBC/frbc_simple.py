@@ -4,6 +4,7 @@ Used it at your own risk :)
 """
 
 import asyncio
+import math
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -26,12 +27,15 @@ except ImportError:
 import pandas as pd
 
 from flexmeasures_client.client import convert_units
-from flexmeasures_client.exceptions import JobFailedError
+from flexmeasures_client.exceptions import ContentTypeError, JobFailedError
 from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
+    WATTS_PER_ENERGY_UNIT_PER_SECOND,
     clip_fill_level_target_profile,
+    element_for_fill_level,
     fm_schedule_to_instructions,
     get_soc_min_max,
+    om_label,
     operation_mode_conversion_efficiency,
 )
 from flexmeasures_client.s2.control_types.translations import (
@@ -118,6 +122,8 @@ def _operation_mode_power_bands(
 class FRBCSimple(FRBC):
     _power_sensor_id: int
     _price_sensor_id: int
+    _production_price_sensor_id: int
+    _relax_site_capacity: bool | None
     _soc_sensor_id: int
     _rm_discharge_sensor_id: int
     _fill_rate_sensor_id: int | None
@@ -141,7 +147,7 @@ class FRBCSimple(FRBC):
     _power_sensor_takes_consumption_as_positive: bool | None
     #: When a power value was last recorded for the actuator, and for which moment,
     #: so that a second status inside one event does not collide with the first.
-    _last_power_recorded: tuple[datetime, datetime] | None
+    _power_recorded_at: dict[datetime, datetime]
     #: The charging efficiency last recorded, and the window it was recorded for,
     #: so that the same value for the same window is not recorded again on every schedule.
     _charging_efficiency_recorded: tuple[datetime, float] | None
@@ -155,6 +161,15 @@ class FRBCSimple(FRBC):
         soc_sensor_id: int,
         rm_discharge_sensor_id: int,
         price_sensor_id: int,
+        # Where feeding power back is priced differently from drawing it, as a feed-in tariff is.
+        # Without one, both directions are priced by price_sensor_id.
+        production_price_sensor_id: int | None = None,
+        # Whether the site's connection capacity may be breached at a price (True) or never (False).
+        # Unset, it is left to FlexMeasures, which since v1.0 relaxes it at a high default breach price,
+        # under its relax-constraints umbrella, and before that did not.
+        # A home whose connection is a physical limit can pass False;
+        # a site whose capacity is a target set by others, as in a community steering its members, can pass True.
+        relax_site_capacity: bool | None = None,
         # Optional so existing callers keep working; when absent the actuator's fill rate is
         # simply not recorded, rather than being posted onto the power sensor.
         fill_rate_sensor_id: int | None = None,
@@ -162,6 +177,9 @@ class FRBCSimple(FRBC):
         soc_minima_sensor_id: int | None = None,
         soc_maxima_sensor_id: int | None = None,
         usage_forecast_sensor_id: int | None = None,
+        # Its resolution has to be the handler's resolution: a storage efficiency is what remains after one step,
+        # computed here for a step of the handler's resolution,
+        # and FlexMeasures reads it as one step of the sensor's own resolution.
         leakage_behaviour_sensor_id: int | None = None,
         # Likewise optional: without a sensor to record it on, no charging efficiency is declared,
         # and the scheduler plans the storage as if the actuator converted power into stored energy one for one.
@@ -197,6 +215,12 @@ class FRBCSimple(FRBC):
         super().__init__(max_size)
         self._power_sensor_id = power_sensor_id
         self._price_sensor_id = price_sensor_id
+        self._production_price_sensor_id = (
+            production_price_sensor_id
+            if production_price_sensor_id is not None
+            else price_sensor_id
+        )
+        self._relax_site_capacity = relax_site_capacity
         self._schedule_duration = schedule_duration
         self._resolution = resolution
         self._soc_sensor_id = soc_sensor_id
@@ -208,6 +232,18 @@ class FRBCSimple(FRBC):
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._charging_efficiency_sensor_id = charging_efficiency_sensor_id
         self._charging_efficiency_recorded = None
+        self._storage_efficiency_recorded: tuple[datetime, float] | None = None
+        if resolution <= timedelta(0) or schedule_duration <= timedelta(0):
+            raise ValueError(
+                f"resolution and schedule_duration have to be positive, but {resolution} and {schedule_duration} were given."
+            )
+        if schedule_duration % resolution:
+            # FlexMeasures answers with whole steps of the power sensor's resolution only,
+            # so a duration between two whole numbers of steps comes back with fewer values than it spans,
+            # and the schedule's step, read as its duration over its number of values, would come out wrong.
+            raise ValueError(
+                f"schedule_duration has to be a whole number of resolution steps, but {schedule_duration} is not a multiple of {resolution}."
+            )
         if schedule_attempts < 1:
             # A schedule is asked for at least once, or no schedule is asked for at all.
             raise ValueError(
@@ -225,7 +261,9 @@ class FRBCSimple(FRBC):
             )
         self._fill_level_scale = fill_level_scale
         self._power_sensor_takes_consumption_as_positive = None
-        self._last_power_recorded = None
+        self._power_recorded_at = {}
+        self._soc_sensor_records_instants: bool | None = None
+        self._planning = asyncio.Lock()
         if hard_bound_factor < 1:
             # Below one, the hard upper bound sits inside the declared range,
             # and FlexMeasures clips the band into the hard bounds,
@@ -235,14 +273,17 @@ class FRBCSimple(FRBC):
             )
         self._hard_bound_factor = hard_bound_factor
         self.power_unit = power_unit
+        if energy_unit not in WATTS_PER_ENERGY_UNIT_PER_SECOND:
+            # A fill rate is per second of this unit, and has to be compared with the watts S2 states a power in,
+            # so a unit that cannot be converted to watts cannot be planned with.
+            raise ValueError(
+                f"energy_unit has to be one of {', '.join(WATTS_PER_ENERGY_UNIT_PER_SECOND)}, but {energy_unit!r} was given."
+            )
         self.energy_unit = energy_unit
 
         # delay the start of the schedule from the time `valid_from`
         # of the FRBC.SystemDescription.
         self._valid_from_shift = valid_from_shift
-
-    def now(self):
-        return datetime.now(self._timezone)
 
     def fill_rate_unit(self) -> str:
         """The unit a rate of change of the fill level is recorded in.
@@ -272,33 +313,100 @@ class FRBCSimple(FRBC):
         resolution_seconds = int(self._resolution.total_seconds())
         if resolution_seconds <= 0:
             return moment
-        seconds_into_the_day = (
-            moment.hour * 3600 + moment.minute * 60 + moment.second
-        ) % resolution_seconds
-        return moment.replace(microsecond=0) - timedelta(seconds=seconds_into_the_day)
+        # Floored on the moment's own clock, in the offset it carries, which is how FlexMeasures floors a series posted with it,
+        # so an hourly step in a zone half an hour off UTC, or a daily one, starts where FlexMeasures' steps do.
+        # A boundary in the repeated hour of an autumn DST change exists twice, and the one meant is the later of the two
+        # that is not after the moment: taking the first pass every time put a boundary an hour or more too early.
+        # A boundary in a spring gap, which only a resolution of more than an hour can land on, moves to the end of the gap.
+        # Compared as pandas timestamps, which compare instants: two datetimes on one local clock compare by wall time,
+        # whichever pass each is on.
+        at = pd.Timestamp(moment)
+        candidates = [
+            at.floor(
+                self._resolution, ambiguous=first_pass, nonexistent="shift_forward"
+            )
+            for first_pass in (True, False)
+        ]
+        boundary = max(c for c in candidates if c <= at)
+        return boundary.to_pydatetime()
 
     def schedule_start(self, valid_from: datetime) -> datetime:
-        """Where a schedule asked for at valid_from starts: shifted, then floored to a boundary."""
-        return self.align_to_resolution(valid_from + self._valid_from_shift)
+        """Where a schedule asked for at valid_from starts: shifted and floored to a boundary, but never before now.
+
+        Never before now, since planning happens on every storage status while a description may be days old:
+        anchored to that description alone, every status in a long session was answered with the same window,
+        which slid into the past, so its instructions were all due already and arrived as one burst.
+        Where now is past that boundary, the schedule starts at the next one, not at the start of the step now is in.
+        A schedule is planned from the fill level reported now, and FlexMeasures takes that to be the level at its start,
+        so a schedule starting at a step already under way was planned as if the whole step were left,
+        and every replan within it asked for less power over what remained of it, delivering less than planned.
+        The step under way keeps the instruction it is already following.
+        """
+        now = self.now()
+        start = self.align_to_resolution(valid_from + self._valid_from_shift)
+        if start >= now:
+            return start
+        current = self.align_to_resolution(now)
+        return current if current == now else current + self._resolution
+
+    async def _soc_duration(self) -> timedelta:
+        """What a reported fill level is posted as lasting: an instant, where the state-of-charge sensor records instants.
+
+        Posted over the minute after it, a reading on such a sensor was taken for a forecast of that minute.
+        FlexMeasures refuses a single value of no duration on a sensor with a resolution, though,
+        so on any other sensor, or one that cannot be read, it is posted over a minute, as before.
+        The sensor is asked until it answers, and its answer kept, since its resolution is a property of how it was set up.
+        """
+        if self._soc_sensor_records_instants is None:
+            try:
+                sensor = await self._fm_client.get_sensor(self._soc_sensor_id)
+            except (ValueError, ConnectionError, ContentTypeError) as exc:
+                self._logger.warning(
+                    "Could not read the resolution of state-of-charge sensor %s, so a fill level is posted over a minute: %s",
+                    self._soc_sensor_id,
+                    exc,
+                )
+                return timedelta(minutes=1)
+            resolution = (
+                sensor.get("event_resolution") if isinstance(sensor, dict) else None
+            )
+            try:
+                self._soc_sensor_records_instants = resolution is not None and (
+                    pd.Timedelta(resolution) == pd.Timedelta(0)
+                )
+            except ValueError:
+                self._logger.warning(
+                    "State-of-charge sensor %s states a resolution of %r, which is not a duration, so a fill level is posted over a minute.",
+                    self._soc_sensor_id,
+                    resolution,
+                )
+                self._soc_sensor_records_instants = False
+        return (
+            timedelta(0) if self._soc_sensor_records_instants else timedelta(minutes=1)
+        )
 
     async def send_storage_status(
         self, status: FRBCStorageStatus, request_number: int | None = None
     ):
+        # Read by this handler's clock, and known as of then, which in a co-simulation is the simulated time:
+        # without a prior, FlexMeasures took the moment the request reached it,
+        # and a simulated reading was recorded as known years after it was taken.
+        now = self.now()
         await self._fm_client.post_measurements(
             self._soc_sensor_id,
-            start=self.now(),
+            start=now,
             # Scaled like every other fill level this handler records, or the level and the
             # band around it would be in different scales wherever fill_level_scale is not 1.
             values=[status.present_fill_level * self._fill_level_scale],
             unit=self.energy_unit,
-            duration=timedelta(minutes=1),
+            duration=await self._soc_duration(),
+            prior=now,
         )
 
         # The state of charge this status reports is what a schedule starts from, so this is
         # where a schedule is asked for.
-        # A system description is needed to turn that schedule into instructions, and a resource
-        # manager sends one before its first status, so its absence here means the two have gone
-        # out of step rather than that nothing has arrived yet.
+        # A system description is needed to turn that schedule into instructions.
+        # Without one yet, nothing is planned here, and the description plans against this status when it arrives.
         if not self._system_description_history:
             self._logger.warning(
                 "Cannot ask for a schedule: no FRBC.SystemDescription has arrived yet."
@@ -393,6 +501,27 @@ class FRBCSimple(FRBC):
             return power
         return convert_units([power], S2_POWER_UNIT, self.power_unit)[0]
 
+    @staticmethod
+    def _latest(history: dict):
+        """The message a history holds that arrived last, or None while it holds none."""
+        return list(history.values())[-1] if history else None
+
+    def _soc_unit(self) -> tuple[str, float]:
+        """The unit a state of charge goes to FlexMeasures in, and what a fill level is multiplied by to be in it."""
+        if self.energy_unit in ("kWh", "MWh"):
+            return self.energy_unit, 1.0
+        return "kWh", (
+            WATTS_PER_ENERGY_UNIT_PER_SECOND[self.energy_unit]
+            / WATTS_PER_ENERGY_UNIT_PER_SECOND["kWh"]
+        )
+
+    def _latest_fill_level(self) -> float | None:
+        """The fill level the latest storage status reported, in the resource manager's own units, if it reported a number."""
+        if not self._storage_status_history:
+            return None
+        fill_level = list(self._storage_status_history.values())[-1].present_fill_level
+        return None if math.isnan(fill_level) else fill_level
+
     async def send_actuator_status(self, status: FRBCActuatorStatus):
         factor = status.operation_mode_factor
         sd: FRBCSystemDescription = list(self._system_description_history.values())[-1]
@@ -426,7 +555,22 @@ class FRBCSimple(FRBC):
                 status.actuator_id,
             )
             operation_mode = actuator.operation_modes[0]
-        element = operation_mode.elements[0]
+
+        # The element the actuator runs on depends on the fill level, as a heat pump derates while its buffer warms,
+        # so it is the one that applies at the latest fill level reported, not whichever the mode happens to list first.
+        fill_level = self._latest_fill_level()
+        if fill_level is not None:
+            element = element_for_fill_level(operation_mode.elements, fill_level)
+        else:
+            # As if at the bottom of the range, which is as good a guess as any, and is said to be one below.
+            element = element_for_fill_level(operation_mode.elements, float("-inf"))
+            if len(operation_mode.elements) > 1:
+                self._logger.warning(
+                    "FRBC.ActuatorStatus for operation mode %s arrived with no usable FRBC.StorageStatus yet, "
+                    "so its power is recorded as the element at the bottom of the fill-level range states it, "
+                    "which need not be the element the actuator runs on.",
+                    om_label(operation_mode),
+                )
 
         # Interpolate the element's POWER range, not its fill rate. A fill rate is the thermal
         # output a heat pump delivers into its buffer; the power range is what it draws
@@ -456,15 +600,21 @@ class FRBCSimple(FRBC):
         # and this handler sends several at once, so that is the ordinary case rather than an edge.
         # The comparison is on the event as FlexMeasures keys it,
         # since two statuses seconds apart still land on the same resolution step.
+        # Kept per event, since statuses for different steps can interleave within a second,
+        # and a comparison with the latest status alone then missed the one before it about the same step.
         event = self.align_to_resolution(start)
         recorded_at = self.now()
-        if self._last_power_recorded is not None:
-            last_event, last_recorded_at = self._last_power_recorded
-            if last_event == event and recorded_at - last_recorded_at < timedelta(
-                seconds=1
-            ):
-                recorded_at = last_recorded_at + timedelta(seconds=1)
-        self._last_power_recorded = (event, recorded_at)
+        last_recorded_at = self._power_recorded_at.get(event)
+        if last_recorded_at is not None and recorded_at - last_recorded_at < timedelta(
+            seconds=1
+        ):
+            recorded_at = last_recorded_at + timedelta(seconds=1)
+        self._power_recorded_at[event] = recorded_at
+        # Steps more than a day older than this one are forgotten, to keep this bounded: a status that late is not expected.
+        for old_event in [
+            e for e in self._power_recorded_at if e < event - timedelta(days=1)
+        ]:
+            del self._power_recorded_at[old_event]
 
         # The value and the unit it is in travel together,
         # so that what is reported below is a pair that agrees even where the conversion is what failed.
@@ -482,7 +632,7 @@ class FRBCSimple(FRBC):
                 prior=recorded_at,
                 values=[value],
                 unit=unit,
-                duration=timedelta(minutes=15),
+                duration=self._resolution,
             )
         except (JobFailedError, ValueError, ConnectionError, NotImplementedError):
             # This runs in a task nobody awaits,
@@ -511,11 +661,14 @@ class FRBCSimple(FRBC):
                 prior=self.now(),
                 values=[rate],
                 unit=self.fill_rate_unit(),
-                duration=timedelta(minutes=15),
+                duration=self._resolution,
             )
 
     async def _record_charging_efficiency(
-        self, system_description: FRBCSystemDescription, start: datetime
+        self,
+        system_description: FRBCSystemDescription,
+        start: datetime,
+        fill_level: float,
     ) -> bool:
         """Record what the actuator converts drawn power into stored energy at, over the window a schedule covers.
 
@@ -525,6 +678,8 @@ class FRBCSimple(FRBC):
         a schedule planned against a sensor holding nothing for its window is planned as if the actuator converted power one for one.
 
         :param start: where the schedule starts, which is where the value is recorded from.
+        :param fill_level: the fill level the schedule starts from, in the resource manager's own units,
+                           which picks the element of each mode that answers.
         :returns: whether that schedule may be planned against the sensor,
                   which it may not where nothing is recorded on it for this window.
         """
@@ -534,19 +689,13 @@ class FRBCSimple(FRBC):
         # One actuator, as everywhere else in this handler.
         actuator = system_description.actuators[0]
         efficiencies: dict[str, float] = {}
-        try:
-            for operation_mode in actuator.operation_modes:
-                efficiency = operation_mode_conversion_efficiency(
-                    operation_mode, self._fill_level_scale, self.energy_unit
-                )
-                if efficiency is not None:
-                    efficiencies[operation_mode.id] = efficiency
-        except NotImplementedError:
-            self._logger.exception(
-                "Not asking for a schedule against a charging efficiency: a fill rate in %s cannot be compared against the watts S2 states a power range in.",
-                self.fill_rate_unit(),
+        # The energy unit is one fill_rate_in_watts knows, which the constructor saw to.
+        for operation_mode in actuator.operation_modes:
+            efficiency = operation_mode_conversion_efficiency(
+                operation_mode, self._fill_level_scale, self.energy_unit, fill_level
             )
-            return False
+            if efficiency is not None:
+                efficiencies[str(operation_mode.id)] = efficiency
 
         if not efficiencies:
             # Every mode is idle, or every mode only feeds back, and neither converts drawn power into anything.
@@ -621,8 +770,12 @@ class FRBCSimple(FRBC):
         return any(marker in message for marker in RETRYABLE_TRIGGER_REFUSALS)
 
     async def _ask_for_a_schedule(
-        self, start: datetime, flex_context: dict, flex_model: dict
-    ) -> dict | list[dict]:
+        self,
+        start: datetime,
+        flex_context: dict,
+        flex_model: dict,
+        request_number: int | None = None,
+    ) -> dict | list[dict] | None:
         """Ask FlexMeasures for a schedule, and ask again where the attempt is worth making again.
 
         One failed scheduling job otherwise leaves the storage without an instruction for its window.
@@ -632,7 +785,9 @@ class FRBCSimple(FRBC):
         a worker crashed inside its solver,
         and the resource manager it belonged to polled until its round timed out, every round, for the rest of the run.
 
-        :param start: the window the schedule is asked for, which every attempt asks for again.
+        :param start:          the window the schedule is asked for, which every attempt asks for again.
+        :param request_number: the planning request this answers; where a newer one arrives between attempts,
+                               no further attempt is made and None is returned, so that the newer one is planned sooner.
         :raises JobFailedError: where the last attempt worth making failed inside the server.
         :raises ValueError:     where the trigger itself was refused.
         """
@@ -674,6 +829,14 @@ class FRBCSimple(FRBC):
                     failure,
                 )
                 await asyncio.sleep(self._schedule_retry_interval.total_seconds())
+                if request_number is not None and not self._is_latest_request(
+                    STORAGE_STATUS_REQUESTS, request_number
+                ):
+                    self._logger.info(
+                        "Not asking again for planning request %s: a newer one arrived, and is planned instead.",
+                        request_number,
+                    )
+                    return None
 
     def _warn_where_a_fallback_scheduler_answered(
         self, schedule: dict | list[dict], start: datetime
@@ -706,11 +869,38 @@ class FRBCSimple(FRBC):
     async def trigger_schedule(
         self, system_description_id: str, request_number: int | None = None
     ):
+        """Plan, one schedule at a time, and only for the newest request once it is this one's turn.
+
+        Each storage status is a planning request.
+        One arriving while a schedule was being planned used to start a second solve beside it, whose answer replaced the first's,
+        so a resource manager reporting faster than FlexMeasures plans kept several solves running for nothing.
+        Now a request waits for the one in flight, and is dropped where a newer one has arrived meanwhile;
+        the one in flight, once out of date, makes no further attempt after a failed one.
+        So a burst of statuses costs at most the attempt in flight and one plan more, for the newest,
+        which starts once that attempt is over rather than beside it.
+
+        :param system_description_id: system description to base the schedule on
+        :param request_number:        which planning request this schedule answers, which is checked when its turn comes,
+                                      between attempts, and before the schedule is translated and sent
+        """
+        async with self._planning:
+            if request_number is not None and not self._is_latest_request(
+                STORAGE_STATUS_REQUESTS, request_number
+            ):
+                self._logger.info(
+                    "Not planning for request %s: a newer one arrived while the schedule before it was being planned.",
+                    request_number,
+                )
+                return
+            await self._plan(system_description_id, request_number)
+
+    async def _plan(
+        self, system_description_id: str, request_number: int | None = None
+    ):
         """Translates S2 System Description into FM API calls.
 
         :param system_description_id: system description to base the schedule on
-        :param request_number:        which planning request this schedule answers, which is
-                                      checked once more before the instructions go out
+        :param request_number:        which planning request this schedule answers
         """
 
         system_description: FRBCSystemDescription = self._system_description_history[
@@ -726,7 +916,9 @@ class FRBCSimple(FRBC):
                 -1
             ].present_fill_level
         else:
-            print("Can't trigger schedule without knowing the status of the storage...")
+            self._logger.warning(
+                "Cannot ask for a schedule: no FRBC.StorageStatus has arrived yet, so there is no state of charge to plan from."
+            )
             return
 
         # Scaled at the FlexMeasures edge, like every bound and level below it.
@@ -741,7 +933,10 @@ class FRBCSimple(FRBC):
         # TODO: an element states one power range per commodity quantity, and no distinction is made between them here,
         # as the schedule translation does not make one either (see power_to_fill_rate_with_metrics).
         power_ranges = [
-            tuple(sorted((power_range.start_of_range, power_range.end_of_range)))
+            (
+                min(power_range.start_of_range, power_range.end_of_range),
+                max(power_range.start_of_range, power_range.end_of_range),
+            )
             for operation_mode in actuator.operation_modes
             for element in operation_mode.elements
             for power_range in element.power_ranges
@@ -772,12 +967,17 @@ class FRBCSimple(FRBC):
         # and the window a charging efficiency has to be recorded over to be planned against.
         start = self.schedule_start(system_description.valid_from)
 
+        # FlexMeasures takes a state of charge in kWh or MWh only.
+        # So a fill level recorded in another energy unit is converted here, at the edge, rather than refused,
+        # and the bounds read back below stay in the recorded unit.
+        # The band, the usage and the leakage are read from sensors, which FlexMeasures converts itself.
+        soc_unit, to_soc_unit = self._soc_unit()
         flex_model: dict = {
-            # The same unit the fill level is recorded in, or the scheduler would plan against bounds a thousandfold off the measurements it plans from.
-            "soc-unit": self.energy_unit,
-            "soc-at-start": soc_at_start,  # TODO: use forecast of the SOC instead
-            "soc-min": soc_min,
-            "soc-max": soc_max,
+            "soc-unit": soc_unit,
+            # TODO: use forecast of the SOC instead
+            "soc-at-start": soc_at_start * to_soc_unit,
+            "soc-min": soc_min * to_soc_unit,
+            "soc-max": soc_max * to_soc_unit,
         }
         # What the resource manager declared about its storage, each entry only where a sensor holds it:
         # an entry naming a sensor that was never configured has the scheduler plan against nothing at all.
@@ -801,14 +1001,16 @@ class FRBCSimple(FRBC):
             )
         if self._usage_forecast_sensor_id is not None:
             flex_model["soc-usage"] = [{"sensor": self._usage_forecast_sensor_id}]
-        if self._leakage_behaviour_sensor_id is not None:
+        if await self._record_storage_efficiency(start, fill_level_at_start):
             flex_model["storage-efficiency"] = {
                 "sensor": self._leakage_behaviour_sensor_id
             }
         # What the operation modes say about converting drawn power into stored energy.
         # Recorded first, since FlexMeasures reads it from the sensor named here and not from the flex model,
         # and named only where it was recorded.
-        if await self._record_charging_efficiency(system_description, start):
+        if await self._record_charging_efficiency(
+            system_description, start, fill_level_at_start
+        ):
             flex_model["charging-efficiency"] = {
                 "sensor": self._charging_efficiency_sensor_id
             }
@@ -850,7 +1052,7 @@ class FRBCSimple(FRBC):
         self._logger.debug("flex model: %s", flex_model)
 
         flex_context: dict = {
-            "production-price": {"sensor": self._price_sensor_id},
+            "production-price": {"sensor": self._production_price_sensor_id},
             "consumption-price": {"sensor": self._price_sensor_id},
             "site-power-capacity": f"{3 * 25 * 230} VA",
         }
@@ -860,9 +1062,26 @@ class FRBCSimple(FRBC):
             # The breach price is left to FlexMeasures' own default,
             # since what a breach of comfort is worth is the deployment's judgement, not the protocol's.
             flex_context["relax-soc-constraints"] = True
+        if self._relax_site_capacity is not None:
+            flex_context["relax-site-capacity-constraints"] = self._relax_site_capacity
 
-        schedule = await self._ask_for_a_schedule(start, flex_context, flex_model)
+        schedule = await self._ask_for_a_schedule(
+            start, flex_context, flex_model, request_number=request_number
+        )
+        if schedule is None:
+            return
         self._warn_where_a_fallback_scheduler_answered(schedule, start)
+
+        # send_instruction_batch checks this once more, but translating a schedule follows every step of it,
+        # which is wasted on a request that is already out of date.
+        if request_number is not None and not self._is_latest_request(
+            STORAGE_STATUS_REQUESTS, request_number
+        ):
+            self._logger.info(
+                "Not turning the schedule for planning request %s into instructions: a newer storage status arrived while it was being planned.",
+                request_number,
+            )
+            return
 
         # translate FlexMeasures schedule into instructions. SOC -> Power -> PowerFactor
         instructions = fm_schedule_to_instructions(
@@ -877,6 +1096,10 @@ class FRBCSimple(FRBC):
                 soc_min / self._fill_level_scale,
                 soc_max / self._fill_level_scale,
             ),
+            # What the storage loses by itself and what is drawn from it, as the resource manager last said,
+            # so that the fill level each step is answered at falls as well as rises.
+            leakage_behaviour=self._latest(self._leakage_behaviour_history),
+            usage_forecast=self._latest(self._usage_forecast_history),
         )
 
         await self.send_instruction_batch(
@@ -975,25 +1198,67 @@ class FRBCSimple(FRBC):
         )
 
     async def send_leakage_behaviour(self, leakage_behaviour: FRBCLeakageBehaviour):
-        """Record what a resource manager's storage loses on its own, as a storage efficiency."""
+        """Keep a resource manager's leakage behaviour for planning, which records it when it asks for a schedule.
+
+        Recorded on arrival instead, it covered the hours after the message rather than the window being planned,
+        at a fill level nobody had reported yet, and planning went on without it once those hours had passed.
+        """
         if self._leakage_behaviour_sensor_id is None:
             self._logger.info(
                 "Not recording an FRBC.LeakageBehaviour: no leakage-behaviour sensor is configured."
             )
-            return
 
-        storage_efficiency = leakage_behaviour_to_storage_efficiency(
+    async def _record_storage_efficiency(
+        self, start: datetime, fill_level: float
+    ) -> bool:
+        """Record what the storage keeps of itself per step, over the window a schedule covers, from where it starts.
+
+        :returns: whether the schedule may be planned against the sensor, which it may not where nothing is recorded on it.
+        """
+        leakage_behaviour = self._latest(self._leakage_behaviour_history)
+        if (
+            self._leakage_behaviour_sensor_id is None
+            or leakage_behaviour is None
+            or not self._system_description_history
+        ):
+            return False
+        # S2 states a leakage as a rate, and FlexMeasures takes a share of the stock, so one share stands for the rate
+        # only at one fill level, and the loss scales with the stock away from it.
+        # That fill level is where the schedule starts, as long as that is at least the middle of the storage's range:
+        # from a near-empty start, a share of the start level would let almost nothing remain per step,
+        # and the loss would be overstated many times over as soon as the plan filled the storage.
+        # Below the middle the loss is understated instead, by at most the ratio of the middle to the stock, which is the milder error.
+        storage_range = list(self._system_description_history.values())[
+            -1
+        ].storage.fill_level_range
+        middle = (storage_range.start_of_range + storage_range.end_of_range) / 2
+        # What remains after one step of this handler's resolution,
+        # which FlexMeasures reads as one step of the leakage sensor's resolution, so the two have to agree.
+        efficiency = leakage_behaviour_to_storage_efficiency(
             message=leakage_behaviour,
             resolution=self._resolution,
             fill_level_scale=self._fill_level_scale,
+            fill_level=fill_level,
+            share_of=max(fill_level, middle),
         )
-
-        now = self.now()
-        await self._fm_client.post_sensor_data(
-            sensor_id=self._leakage_behaviour_sensor_id,
-            start=self.align_to_resolution(leakage_behaviour.valid_from or now),
-            prior=now,
-            values=[storage_efficiency],
-            unit="%",
-            duration=self._schedule_duration,
-        )
+        if self._storage_efficiency_recorded == (start, efficiency):
+            return True
+        try:
+            await self._fm_client.post_sensor_data(
+                sensor_id=self._leakage_behaviour_sensor_id,
+                start=start,
+                prior=self.now(),
+                values=[efficiency],
+                unit="%",
+                duration=self._schedule_duration,
+            )
+        except (JobFailedError, ValueError, ConnectionError):
+            self._logger.exception(
+                "Not asking for a schedule against a storage efficiency: could not record %s %% on sensor %s for %s.",
+                efficiency,
+                self._leakage_behaviour_sensor_id,
+                start,
+            )
+            return False
+        self._storage_efficiency_recorded = (start, efficiency)
+        return True

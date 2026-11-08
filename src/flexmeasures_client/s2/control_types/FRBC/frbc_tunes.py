@@ -169,8 +169,12 @@ class FillRateBasedControlTUNES(FRBC):
         self._datastore = datastore if datastore is not None else {}
 
     def _is_timer_due(self, name: str) -> bool:
-        now = datetime.now()
+        # By this handler's clock, so that a co-simulation's timers run on simulated time.
+        now = self.now()
         due_time = self._timers.get(name, now - self._minimum_measurement_period)
+        if due_time.tzinfo is None:
+            # A timer handed in without a zone was compared with the host's local time, so it is read as that, as before.
+            due_time = due_time.astimezone(self._timezone)
         if due_time <= now:
             # Get total seconds of the period
             period_seconds = self._minimum_measurement_period.total_seconds()
@@ -187,6 +191,10 @@ class FillRateBasedControlTUNES(FRBC):
             next_due = now.replace(minute=0, second=0, microsecond=0) + timedelta(
                 seconds=next_tick_seconds
             )
+            # On a period boundary the ceiling is the moment itself,
+            # and a clock that stands still, as a simulated one does between messages, then found the timer due on every call.
+            if next_due <= now:
+                next_due += self._minimum_measurement_period
             self._timers[name] = next_due
             return True
         else:
@@ -194,9 +202,6 @@ class FillRateBasedControlTUNES(FRBC):
                 f"Timer for {name} is not due until {self._timers[name]}"
             )
             return False
-
-    def now(self):
-        return datetime.now(self._timezone)
 
     async def send_storage_status(
         self, status: FRBCStorageStatus, request_number: int | None = None
@@ -239,7 +244,7 @@ class FillRateBasedControlTUNES(FRBC):
                     leakage_behaviour_to_storage_efficiency(
                         message=leakage,
                         resolution=timedelta(minutes=15),
-                        fill_level_scale=self._fill_level_scalefill_level_scale,
+                        fill_level_scale=self._fill_level_scale,
                     )
                 ],
                 unit=PERCENTAGE,
@@ -278,10 +283,10 @@ class FillRateBasedControlTUNES(FRBC):
             active_operation_mode_fill_rate_sensor_id = self._nes_fill_rate_sensor_id
 
         # Operation Mode Factor to fill rate
-        fill_rate = operation_mode.elements[0].fill_rate
+        fill_rate_range = operation_mode.elements[0].fill_rate
         fill_rate = (
-            fill_rate.start_of_range
-            + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
+            fill_rate_range.start_of_range
+            + (fill_rate_range.end_of_range - fill_rate_range.start_of_range) * factor
         ) * self._fill_level_scale
 
         # Send data to the sensor of the fill rate corresponding to the active operation mode
@@ -310,7 +315,10 @@ class FillRateBasedControlTUNES(FRBC):
             duration=timedelta(minutes=15),
         )
 
-    async def trigger_schedule(self):
+    # It takes neither argument the base class declares: TUNES plans from its latest description,
+    # and does not take part in dropping superseded requests.
+    # Accepting them and ignoring them would turn a caller's mistake into a silent one, so the mismatch stays.
+    async def trigger_schedule(self):  # type: ignore[override]
         """
         Ask FlexMeasures for a new schedule and create FRBC.Instructions to send back to the ResourceManager
         """
@@ -328,10 +336,10 @@ class FillRateBasedControlTUNES(FRBC):
         operation_mode = None
         efficiency_sensor_id = None
         for _operation_mode in actuator.operation_modes:
-            if "THP" in _operation_mode.diagnostic_label:
+            if "THP" in (_operation_mode.diagnostic_label or ""):
                 operation_mode = _operation_mode
                 efficiency_sensor_id = self._thp_efficiency_sensor_id
-            elif "NES" in _operation_mode.diagnostic_label:
+            elif "NES" in (_operation_mode.diagnostic_label or ""):
                 operation_mode = _operation_mode
                 efficiency_sensor_id = self._nes_efficiency_sensor_id
             else:
@@ -477,9 +485,11 @@ class FillRateBasedControlTUNES(FRBC):
         except Exception as exc:
             self._logger.error(str(exc))
 
+        # Posted per hour and scaled into FlexMeasures' units by send_usage_forecast, and read back as such,
+        # while the schedule translation takes a usage rate per second, in the resource manager's own units, as S2 states it.
         usage_forecast = pd.Series(
             usage_forecast["values"], index=idx, name="usage_forecast"
-        )
+        ) / ((pd.Timedelta(hours=1) / pd.Timedelta(seconds=1)) * self._fill_level_scale)
 
         schedule_series = pd.Series(schedule["values"], index=idx, name="schedule")
 
@@ -502,6 +512,12 @@ class FillRateBasedControlTUNES(FRBC):
             system_description,
             initial_fill_level=soc_at_start / self._fill_level_scale,
             logger=self._logger,
+            # What the storage loses by itself, so that the running fill level falls as well as rises.
+            leakage_behaviour=(
+                list(self._leakage_behaviour_history.values())[-1]
+                if self._leakage_behaviour_history
+                else None
+            ),
         )
 
         # Revoke all previous instructions
@@ -604,9 +620,9 @@ class FillRateBasedControlTUNES(FRBC):
         )
 
         for operation_mode in actuator.operation_modes:
-            if "THP" in operation_mode.diagnostic_label:
+            if "THP" in (operation_mode.diagnostic_label or ""):
                 sensor_id = self._thp_efficiency_sensor_id
-            elif "NES" in operation_mode.diagnostic_label:
+            elif "NES" in (operation_mode.diagnostic_label or ""):
                 sensor_id = self._nes_efficiency_sensor_id
             else:
                 continue
@@ -653,12 +669,6 @@ class FillRateBasedControlTUNES(FRBC):
             parse_json_fields=True,
         )
 
-    async def close(self):
-        """
-        Can be used to stop recurring tasks.
-        """
-        self._logger.debug(f"Closing {self.__class__.__name__} handler")
-
     async def send_usage_forecast(self, usage_forecast: FRBCUsageForecast):
         """
         Send FRBC.UsageForecast to FlexMeasures.
@@ -676,23 +686,25 @@ class FillRateBasedControlTUNES(FRBC):
             minute=(start_time.minute // 15) * 15, second=0, microsecond=0
         )
 
-        usage_forecast = translate_usage_forecast_to_fm(
+        usage_forecast_series = translate_usage_forecast_to_fm(
             usage_forecast,
             RESOLUTION,
             strategy="mean",
             fill_level_scale=self._fill_level_scale,
         )
 
-        # Scale usage forecast e.g. [0, 100] %/s ->  [0, 100] %/(15 min)
-        scale = timedelta(minutes=15) / timedelta(seconds=1)
-        scaled_usage_forecast = usage_forecast * scale
+        # From per second, as S2 states a usage rate, to per hour, which is what a value labelled MW means:
+        # FlexMeasures reads soc-usage as a power and multiplies it by the step's share of an hour.
+        # Posted per quarter hour instead, it was planned as a quarter of the real draw.
+        scale = timedelta(hours=1) / timedelta(seconds=1)
+        scaled_usage_forecast = usage_forecast_series * scale
 
         await self._fm_client.post_sensor_data(
             sensor_id=self._usage_forecast_sensor_id,
             start=start_time,
             values=scaled_usage_forecast.tolist(),
-            unit=POWER_UNIT,  # e.g. [0, 100] MW/(15 min)
-            duration=str(pd.Timedelta(RESOLUTION) * len(usage_forecast)),
+            unit=POWER_UNIT,  # a rate per hour, as MW is
+            duration=str(pd.Timedelta(RESOLUTION) * len(usage_forecast_series)),
         )
 
     async def send_fill_level_target_profile(
