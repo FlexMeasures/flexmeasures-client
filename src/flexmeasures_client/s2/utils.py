@@ -34,7 +34,7 @@ class SizeLimitOrderedDict(OrderedDict, Mapping[KT, VT]):
 
     def __setitem__(self, __key: KT, __value: VT) -> None:
         # Evict the oldest entry, not the newest (which is what popitem() removes by default).
-        # Otherwise, a full history kept a session's first entries and lost all later ones except the last.
+        # Popping the newest instead made a full history keep a session's first entries, and lose all later ones except the last.
         # A key that is already present needs no extra room.
         if (
             self._max_size is not None

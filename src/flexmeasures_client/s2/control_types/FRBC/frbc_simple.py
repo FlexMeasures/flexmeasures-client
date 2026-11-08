@@ -250,8 +250,8 @@ class FRBCSimple(FRBC):
         schedule_duration: timedelta = timedelta(hours=12),
         # How many times to request a schedule before leaving the storage without an instruction,
         # and how long to wait between two attempts.
-        # One attempt means a failure is never retried.
-        # Before this limit existed, a failure was always retried with another attempt.
+        # One attempt means a failure is never retried,
+        # which is how this handler behaved before retries were added.
         schedule_attempts: int = SCHEDULE_ATTEMPTS,
         schedule_retry_interval: timedelta = SCHEDULE_RETRY_INTERVAL,
         # The resolution that schedules are planned on; a schedule's start must line up with it.
@@ -396,7 +396,7 @@ class FRBCSimple(FRBC):
 
         Planning happens on every storage status, while a description may be days old.
         If the start were based on that description alone, every status in a long session would get the same window.
-        That window slid into the past, so all its instructions were already due, and arrived as one burst.
+        That window would slide into the past, so all its instructions would already be due, and arrive as one burst.
         Hence the start is never before now.
         If now is past that boundary, the schedule starts at the next boundary, not at the start of the current step.
         A schedule is planned from the fill level reported now, and FlexMeasures takes that as the fill level at the schedule's start.
@@ -592,7 +592,7 @@ class FRBCSimple(FRBC):
         The latest fill-level target profile, held inside that range, applies to the steps it covers.
         The range used to reach FlexMeasures only through the band sensors, and only where a target profile was recorded on them.
         So a storage without those sensors, or past the profile's end, was planned without any band.
-        It could then be planned down to empty, and up to half again above its range.
+        It could then be planned down to empty, and up to the hard upper bound (by default, half again above its range).
         The values are clipped at zero, because FlexMeasures does not accept negative minima.
         """
         steps = int(
@@ -715,7 +715,7 @@ class FRBCSimple(FRBC):
             )
             operation_mode = actuator.operation_modes[0]
 
-        # The element the actuator runs on depends on the fill level, just as a heat pump derates while its buffer warms up.
+        # The element the actuator runs on depends on the fill level; for example, a heat pump derates while its buffer warms up.
         # So use the element that applies at the latest reported fill level, not the element that the mode happens to list first.
         fill_level = self._latest_fill_level()
         if fill_level is not None:
@@ -1142,7 +1142,7 @@ class FRBCSimple(FRBC):
                 max(power_range.start_of_range, power_range.end_of_range),
             )
             # Only use the modes the actuator may be instructed into under normal conditions.
-            # The actuator may be instructed into any band that the scheduler plans in.
+            # This is because the actuator may then be instructed into any band that the scheduler plans in.
             for operation_mode in normal_operation_modes(actuator)
             for element in operation_mode.elements
             for power_range in element.power_ranges
@@ -1211,7 +1211,7 @@ class FRBCSimple(FRBC):
         if self._usage_forecast_sensor_id is not None:
             # Skip this if the resource manager says it provides no usage forecast,
             # because then nothing is recorded on the sensor for the scheduler to read.
-            # But use it if the resource manager sent a forecast anyway, whatever its flag says.
+            # But use it if the resource manager sent a forecast anyway, since sending one says it provides one, whatever its flag says.
             if (
                 system_description.storage.provides_usage_forecast
                 or self._usage_forecast_history

@@ -205,7 +205,7 @@ def step_of(moment: datetime, resolution: timedelta) -> datetime:
     The step start is in the moment's own timezone, floored the way FlexMeasures floors it.
     During the repeated hour of an autumn DST change, a step boundary occurs twice.
     The step then starts at the later of the two boundaries that is not after the moment.
-    Flooring based only on which of the two passes the moment is in does not always work.
+    Flooring based only on which of the two passes the moment is in cannot always be done.
     """
     if not resolution:
         return moment

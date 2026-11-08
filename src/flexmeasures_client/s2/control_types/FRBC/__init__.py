@@ -213,7 +213,7 @@ class FRBC(ControlTypeHandler):
         # Storing it again would push an older description out of the bounded history for no reason.
         # Also, a handler that acts on a description would act on it twice.
         # The acknowledgement still matters, because without it the resource manager retries.
-        # Ignoring a resend is safe because planning is triggered by storage statuses, not by descriptions.
+        # Ignoring a resend is safe because planning is normally triggered by storage statuses, and a resend never differs from the previous description.
         # Before that was the case, ignoring a resend would have dropped a planning request.
         # The TUNES handler has always fingerprinted its descriptions this way.
         # It can adopt this shared helper separately.

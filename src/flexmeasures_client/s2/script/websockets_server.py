@@ -335,7 +335,7 @@ async def configure_site_once(app: web.Application) -> None:
             # The co-simulation's resource managers are heat pumps, which cannot feed power back.
             # With this attribute, FlexMeasures keeps their production at zero, even where constraints are relaxed.
             power_sensor_attributes={"is_strictly_non_positive": True},
-            # A community's capacity is a target for steering its members, so it may be breached at a price, as #188 asked for.
+            # Each member's site capacity is a target set by the community that steers it, so it may be breached at a price, as #188 asked for.
             handler_options={"relax_site_capacity": True},
             logger=LOGGER,
         )

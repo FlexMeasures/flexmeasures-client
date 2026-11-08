@@ -126,7 +126,8 @@ class CEM(Handler):
                                             and set the clock to that time (see flexmeasures_client.s2.wrapper.S2Wrapper).
                                             This is off by default, because the wrapper is not part of S2,
                                             and a live CEM should not let a resource manager set its time.
-                                            When it is off, a resource manager that wraps its messages from its handshake on is refused with INVALID_MESSAGE, and cannot connect.
+                                            When it is off, a resource manager that wraps its messages from its handshake on is refused with INVALID_MESSAGE,
+                                            and cannot connect.
                                             When it is on, the clock must be a SimulatedClock.
                                             If no clock is given, a SimulatedClock is created.
         """

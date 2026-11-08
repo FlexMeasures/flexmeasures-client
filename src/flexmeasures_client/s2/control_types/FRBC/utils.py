@@ -492,7 +492,7 @@ def operation_mode_conversion_efficiency(
     The lowest element over the whole range would be the wrong choice.
     It overstates what the actuator needs to fill the storage.
     The plan then overshoots its upper band, and buys more than it uses.
-    And if the plan cannot relax the usage, the scheduler may find a problem infeasible that the actuator can actually meet.
+    And because the plan cannot relax the usage, the scheduler may find a problem infeasible that the actuator can actually meet.
 
     The ratio is taken at the top of that element's range, not as the slope over the range.
     An actuator may well declare degenerate ranges, where a mode runs at only one power and one fill rate.
