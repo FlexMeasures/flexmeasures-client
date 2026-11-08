@@ -134,6 +134,92 @@ def _without_negative_usage(usage_forecast):
     )
 
 
+#: The FlexMeasures version from which a usage forecast is planned with a correction, instead of being clipped.
+#: The correction is a second device sharing the storage's stock, priced on a commodity of its own.
+USAGE_CORRECTION_SINCE = "1.1.0"
+#: The commodity that a usage correction is planned on, apart from the site's electricity.
+USAGE_CORRECTION_COMMODITY = "usage correction"
+
+
+def _usage_correction_limits(
+    usage_per_hour: pd.Series,
+    start: datetime,
+    steps: int,
+    resolution: timedelta,
+    unit: str,
+) -> tuple[list[dict], list[dict]]:
+    """Return the correction's consumption and production capacities per step, as FlexMeasures time series.
+
+    The correction may only move the expected usage towards zero.
+    Where usage is expected, it may give up to that usage back to the stock: that is its consumption capacity.
+    Where a gain is expected, it may take up to that gain away: that is its production capacity.
+    A step without a forecast allows no correction.
+
+    :param usage_per_hour: expected usage per step, in stock units per hour, indexed by the start of each step.
+    :param unit:           the power unit that matches the stock unit, such as kW for a stock in kWh.
+    """
+
+    def segments(values: list[float]) -> list[dict]:
+        merged: list[dict] = []
+        for i, value in enumerate(values):
+            if merged and merged[-1]["_value"] == value:
+                merged[-1]["_steps"] += 1
+                continue
+            merged.append(
+                {"_start": start + i * resolution, "_steps": 1, "_value": value}
+            )
+        return [
+            {
+                "start": pd.Timestamp(m["_start"]).isoformat(),
+                "duration": pd.Timedelta(resolution * m["_steps"]).isoformat(),
+                "value": f"{m['_value']} {unit}",
+            }
+            for m in merged
+        ]
+
+    index = pd.date_range(start, periods=steps, freq=resolution)
+    usage = usage_per_hour.reindex(index).fillna(0.0)
+    return (
+        segments([max(0.0, float(u)) for u in usage]),
+        segments([max(0.0, -float(u)) for u in usage]),
+    )
+
+
+def _usage_correction_price(
+    max_abs_price: float,
+    soc_breach_price: float,
+    site_breach_price: float,
+    charging_efficiency: float,
+    storage_efficiency: float,
+    steps: int,
+    step_hours: float,
+) -> float:
+    """Return a price per MWh of stock at which correcting the usage forecast is always the last resort.
+
+    It is twice an upper bound on what one MWh of stock can be worth to the scheduler.
+    Below that worth, the scheduler would rather correct the forecast than buy energy, breach the band, or exceed the site's capacity.
+    The bound adds two ways a MWh of stock can be worth something.
+
+    - Through the actuator: buying it, or disposing of it, at the highest absolute market price,
+      plus the site's capacity breach, priced once for the largest breach and once for every step a breach lasts.
+      This is divided by the charging efficiency, and by the storage losses of every step it may have to be held.
+    - Through the fill-level band: avoiding a breach on either side,
+      priced once for the largest breach and once for every step a breach lasts.
+
+    :param max_abs_price:       the highest absolute market price over the window, per MWh of electricity.
+    :param soc_breach_price:    the breach price of the fill-level band, per MWh of stock, on each side.
+    :param site_breach_price:   the breach price of the site's capacity, per MW, or zero if it is not relaxed.
+    :param charging_efficiency: the stock gained per unit of electricity, which a heat pump's COP puts above one.
+    :param storage_efficiency:  the share of the stock that remains after one step.
+    """
+    per_breach = 1 / step_hours + steps
+    via_actuator = (max_abs_price + site_breach_price * (1 / step_hours + 1)) / (
+        charging_efficiency * storage_efficiency**steps
+    )
+    via_band = 2 * soc_breach_price * per_breach
+    return 2 * (via_actuator + via_band)
+
+
 def _operation_mode_power_bands(
     power_ranges: list[tuple[float, float]], power_unit: str
 ) -> list[dict[str, list[str]]]:
@@ -246,6 +332,17 @@ class FRBCSimple(FRBC):
         # Without a sensor to record it on, no charging efficiency is declared.
         # Then the scheduler plans the storage as if the actuator converted power into stored energy one to one.
         charging_efficiency_sensor_id: int | None = None,
+        # Also optional: a power sensor on the site's asset, to plan a correction of the usage forecast on.
+        # With it, and FlexMeasures v1.1.0 or newer, an expected usage or gain that no plan can absorb is corrected towards zero,
+        # instead of making every plan infeasible.
+        # A negative expected usage is then planned as the gain it states, instead of as no usage.
+        # Without it, a negative expected usage is recorded and planned as no usage, as before.
+        usage_correction_sensor_id: int | None = None,
+        # The breach prices sent with a corrected request, as multiples of the highest absolute market price over the window:
+        # per MWh of stock for the fill-level band, and per MW for the site's connection capacity.
+        # The correction is priced from them, so they are only sent where a correction is planned.
+        soc_breach_price_factor: float = 10.0,
+        site_breach_price_factor: float = 100.0,
         timezone: str = "UTC",
         schedule_duration: timedelta = timedelta(hours=12),
         # How many times to request a schedule before leaving the storage without an instruction,
@@ -291,6 +388,19 @@ class FRBCSimple(FRBC):
         self._usage_forecast_sensor_id = usage_forecast_sensor_id
         self._leakage_behaviour_sensor_id = leakage_behaviour_sensor_id
         self._charging_efficiency_sensor_id = charging_efficiency_sensor_id
+        self._usage_correction_sensor_id = usage_correction_sensor_id
+        if soc_breach_price_factor <= 0 or site_breach_price_factor <= 0:
+            # A breach price of zero makes breaching free, so the band and the capacity would mean nothing.
+            raise ValueError(
+                f"soc_breach_price_factor and site_breach_price_factor have to be greater than zero, but {soc_breach_price_factor} and {site_breach_price_factor} were given."
+            )
+        self._soc_breach_price_factor = soc_breach_price_factor
+        self._site_breach_price_factor = site_breach_price_factor
+        #: The charging and storage efficiencies that the last plan was asked for with, which the correction price depends on.
+        self._planned_charging_efficiency: float | None = None
+        self._planned_storage_efficiency: float | None = None
+        #: The currency of each price sensor, read once, since it is fixed when the sensor is set up.
+        self._price_currency: dict[int, str] = {}
         self._charging_efficiency_recorded = None
         self._storage_efficiency_recorded: tuple[datetime, float] | None = None
         if resolution <= timedelta(0) or schedule_duration <= timedelta(0):
@@ -873,6 +983,7 @@ class FRBCSimple(FRBC):
             return False
 
         efficiency = min(efficiencies.values())
+        self._planned_charging_efficiency = efficiency
         if len(set(efficiencies.values())) > 1:
             # FlexMeasures takes one charging efficiency for the whole device, and the modes disagree.
             # The lowest goes out: a plan that converts less than the actuator really does reaches its target early,
@@ -969,7 +1080,7 @@ class FRBCSimple(FRBC):
         self,
         start: datetime,
         flex_context: dict,
-        flex_model: dict,
+        flex_model: dict | list[dict],
         request_number: int | None = None,
     ) -> dict | list[dict] | None:
         """Ask FlexMeasures for a schedule, and retry if the failure is worth retrying.
@@ -1287,8 +1398,15 @@ class FRBCSimple(FRBC):
         if self._relax_site_capacity is not None:
             flex_context["relax-site-capacity-constraints"] = self._relax_site_capacity
 
+        # Plan a correction of the usage forecast where one is configured and the server supports it.
+        # Then an expected usage or gain that no plan can absorb is corrected towards zero, instead of making every plan infeasible.
+        corrected = await self._with_usage_correction(start, flex_model, flex_context)
+        request_model: dict | list[dict] = flex_model
+        if corrected is not None:
+            request_model, flex_context = corrected
+
         schedule = await self._ask_for_a_schedule(
-            start, flex_context, flex_model, request_number=request_number
+            start, flex_context, request_model, request_number=request_number
         )
         if schedule is None:
             return
@@ -1321,9 +1439,14 @@ class FRBCSimple(FRBC):
             # Pass what the storage loses by itself and what is drawn from it, as the resource manager last reported.
             # Then the fill level used for each step can fall as well as rise.
             leakage_behaviour=self._latest(self._leakage_behaviour_history),
-            # Leave out negative usage, as when the forecast was recorded and planned against (see send_usage_forecast).
-            usage_forecast=_without_negative_usage(
+            # Use the usage that the schedule was planned against (see send_usage_forecast).
+            # With a correction, that is the forecast as stated: the plan corrects it only at the hard bounds,
+            # where this translation holds the fill level as well.
+            # Without one, negative usage is left out.
+            usage_forecast=(
                 self._latest(self._usage_forecast_history)
+                if corrected is not None
+                else _without_negative_usage(self._latest(self._usage_forecast_history))
             ),
         )
 
@@ -1404,6 +1527,231 @@ class FRBCSimple(FRBC):
                     start,
                 )
 
+    async def _corrects_usage(self) -> bool:
+        """Return whether a usage forecast is recorded as stated, and planned with a correction.
+
+        That needs a sensor to plan the correction on, and a FlexMeasures that can share a stock between devices.
+        If the server's version cannot be read, the forecast is treated as before.
+        """
+        if self._usage_correction_sensor_id is None:
+            return False
+        try:
+            return await self._fm_client.server_version_at_least(USAGE_CORRECTION_SINCE)
+        except REQUEST_FAILURES:
+            return False
+
+    def _aligned_usage(self) -> pd.Series | None:
+        """Return the latest usage forecast per step, in the fill-rate unit, indexed by step start, as it is recorded."""
+        usage_forecast = self._latest(self._usage_forecast_history)
+        if usage_forecast is None:
+            return None
+        translated = translate_usage_forecast_to_fm(
+            usage_forecast,
+            self._resolution,
+            strategy="mean",
+            fill_level_scale=self._fill_level_scale,
+        )
+        return pd.Series(
+            translated.values,
+            index=pd.date_range(
+                self.align_to_resolution(usage_forecast.start_time),
+                periods=len(translated),
+                freq=self._resolution,
+            ),
+        )
+
+    def _as_time_series(self, usage: pd.Series) -> list[dict]:
+        """Return a usage per step as a FlexMeasures time series, in the fill-rate unit."""
+        return [
+            {
+                "start": pd.Timestamp(moment).isoformat(),
+                "duration": pd.Timedelta(self._resolution).isoformat(),
+                "value": f"{float(value)} {self.fill_rate_unit()}",
+            }
+            for moment, value in usage.items()
+        ]
+
+    async def _max_abs_price(self, start: datetime) -> tuple[float, str] | None:
+        """Return the highest absolute market price over the window, per MWh, and its currency.
+
+        Both price sensors are read, for drawing and for feeding back.
+        None is returned if either cannot be read, if they use different currencies, or if neither holds a price for the window.
+        """
+        highest: float | None = None
+        currency: str | None = None
+        for sensor_id in dict.fromkeys(
+            (self._price_sensor_id, self._production_price_sensor_id)
+        ):
+            try:
+                if sensor_id not in self._price_currency:
+                    sensor = await self._fm_client.get_sensor(sensor_id)
+                    unit = sensor.get("unit", "") if isinstance(sensor, dict) else ""
+                    self._price_currency[sensor_id] = unit.split("/")[0].strip()
+                sensor_currency = self._price_currency[sensor_id]
+                data = await self._fm_client.get_sensor_data(
+                    sensor_id,
+                    start=start,
+                    duration=self._schedule_duration,
+                    unit=f"{sensor_currency}/MWh",
+                    resolution=self._resolution,
+                )
+            except REQUEST_FAILURES as exc:
+                self._logger.warning(
+                    "Could not read the prices on sensor %s: %s", sensor_id, exc
+                )
+                return None
+            if currency is not None and sensor_currency != currency:
+                self._logger.warning(
+                    "The price sensors use different currencies, %s and %s.",
+                    currency,
+                    sensor_currency,
+                )
+                return None
+            currency = sensor_currency
+            values = data.get("values", []) if isinstance(data, dict) else []
+            for value in values:
+                if value is not None and not math.isnan(value):
+                    highest = (
+                        abs(value) if highest is None else max(highest, abs(value))
+                    )
+        if highest is None or currency is None:
+            return None
+        return highest, currency
+
+    async def _with_usage_correction(
+        self, start: datetime, flex_model: dict, flex_context: dict
+    ) -> tuple[list[dict], dict] | None:
+        """Return the request for a schedule with a correction of the usage forecast, or None to plan without one.
+
+        A forecast may expect more usage, or more gain, than any plan can absorb within the hard bounds.
+        S2 does not say what happens then, so the expectation is corrected towards zero, by as little as needed.
+        The correction is a second device on the storage's stock, on a commodity of its own, so it never touches the site's electricity.
+        It may only move each step's expected usage towards zero, and is priced above anything else a unit of stock can be worth to the scheduler.
+        So it is only used where nothing physical can keep the plan within the hard bounds.
+
+        The request carries a coherent set of prices to make that hold.
+        The breach prices of the fill-level band, and of the site's capacity where it may be breached, are set relative to the market price.
+        The correction price follows from those (see _usage_correction_price).
+        A deployment that adds commitments or peak prices to the asset's own flex context adds worths that this bound does not include.
+
+        Where a correction is configured but cannot be planned, the forecast is sent without its negative values instead, as before.
+        """
+        if "soc-usage" not in flex_model or not await self._corrects_usage():
+            return None
+        usage = self._aligned_usage()
+        if usage is None:
+            return None
+        reason = None
+        prices = None
+        if await self._soc_duration() != timedelta(0):
+            reason = f"state-of-charge sensor {self._soc_sensor_id} does not record instants, which FlexMeasures needs to share a stock between devices"
+        else:
+            prices = await self._max_abs_price(start)
+            if prices is None:
+                reason = "the correction is priced from the market prices over the window, which could not be read"
+        if prices is None:
+            self._logger.warning(
+                "Planning the usage forecast without a correction, and without its negative values: %s.",
+                reason,
+            )
+            flex_model["soc-usage"] = [self._as_time_series(usage.clip(lower=0))]
+            return None
+        max_abs_price, currency = prices
+        # A market without prices would make every breach free, so a floor of one unit of currency per MWh is kept.
+        reference_price = max(max_abs_price, 1.0)
+
+        steps = int(self._schedule_duration / self._resolution)
+        step_hours = self._resolution / timedelta(hours=1)
+        soc_breach_price = self._soc_breach_price_factor * reference_price
+        site_may_be_breached = self._relax_site_capacity is not False
+        site_breach_price = (
+            self._site_breach_price_factor * reference_price
+            if site_may_be_breached
+            else 0.0
+        )
+        charging_efficiency = (
+            self._planned_charging_efficiency
+            if "charging-efficiency" in flex_model and self._planned_charging_efficiency
+            else 1.0
+        )
+        storage_efficiency = (
+            self._planned_storage_efficiency
+            if "storage-efficiency" in flex_model and self._planned_storage_efficiency
+            else 1.0
+        )
+        correction_price = _usage_correction_price(
+            max_abs_price=max_abs_price,
+            soc_breach_price=soc_breach_price,
+            site_breach_price=site_breach_price,
+            charging_efficiency=charging_efficiency,
+            storage_efficiency=storage_efficiency,
+            steps=steps,
+            step_hours=step_hours,
+        )
+        consumption_limits, production_limits = _usage_correction_limits(
+            usage, start, steps, self._resolution, self.fill_rate_unit()
+        )
+
+        stock_fields = (
+            "soc-unit",
+            "soc-at-start",
+            "soc-min",
+            "soc-max",
+            "soc-minima",
+            "soc-maxima",
+            "soc-usage",
+            "storage-efficiency",
+        )
+        state_of_charge = {"sensor": self._soc_sensor_id}
+        stock = {"state-of-charge": state_of_charge}
+        stock.update({k: v for k, v in flex_model.items() if k in stock_fields})
+        actuator = {
+            "sensor": self._power_sensor_id,
+            "state-of-charge": state_of_charge,
+            "commodity": "electricity",
+        }
+        actuator.update({k: v for k, v in flex_model.items() if k not in stock_fields})
+        correction = {
+            "sensor": self._usage_correction_sensor_id,
+            "state-of-charge": state_of_charge,
+            "commodity": USAGE_CORRECTION_COMMODITY,
+            "power-capacity": f"{float(usage.abs().max())} {self.fill_rate_unit()}",
+            "consumption-capacity": consumption_limits,
+            "production-capacity": production_limits,
+            # It changes the stock directly, so one for one.
+            "charging-efficiency": 1,
+            "discharging-efficiency": 1,
+        }
+
+        site_fields = ("consumption-price", "production-price", "site-power-capacity")
+        electricity = {"commodity": "electricity"}
+        electricity.update({k: v for k, v in flex_context.items() if k in site_fields})
+        if site_may_be_breached:
+            electricity["site-consumption-breach-price"] = (
+                f"{site_breach_price} {currency}/MW"
+            )
+            electricity["site-production-breach-price"] = (
+                f"{site_breach_price} {currency}/MW"
+            )
+        context = {k: v for k, v in flex_context.items() if k not in site_fields}
+        context["commodities"] = [
+            electricity,
+            {
+                "commodity": USAGE_CORRECTION_COMMODITY,
+                # Correcting in either direction costs the same: drawing pays it, and feeding back earns minus it.
+                "consumption-price": f"{correction_price} {currency}/MWh",
+                "production-price": f"{-correction_price} {currency}/MWh",
+            },
+        ]
+        context["soc-minima-breach-price"] = f"{soc_breach_price} {currency}/MWh"
+        context["soc-maxima-breach-price"] = f"{soc_breach_price} {currency}/MWh"
+        self._logger.debug(
+            "Planning with a usage correction, priced at %s %s/MWh.",
+            correction_price,
+            currency,
+        )
+        return [actuator, stock, correction], context
+
     async def send_usage_forecast(self, usage_forecast: FRBCUsageForecast):
         """Record what a resource manager expects its storage to be drawn down by."""
         if self._usage_forecast_sensor_id is None:
@@ -1423,7 +1771,15 @@ class FRBCSimple(FRBC):
         # S2 allows the negative sign, but no storage that this handler controls fills up by being drawn from.
         # So a negative value is treated as an artefact of the forecast: it is counted, and recorded as no usage.
         negative = translated < 0
-        if negative.any():
+        if negative.any() and await self._corrects_usage():
+            # Planned with a correction instead (see _with_usage_correction), so recorded as stated.
+            self._logger.info(
+                "An FRBC.UsageForecast expects negative usage on %s of %s steps, down to %s; recorded as stated, and planned with a correction.",
+                int(negative.sum()),
+                len(translated),
+                float(translated.min()),
+            )
+        elif negative.any():
             self._logger.warning(
                 "An FRBC.UsageForecast expects negative usage on %s of %s steps, down to %s; recorded as no usage there, since FlexMeasures would plan it as a gain the storage cannot refuse.",
                 int(negative.sum()),
@@ -1491,6 +1847,8 @@ class FRBCSimple(FRBC):
             fill_level=fill_level,
             share_of=max(fill_level, middle),
         )
+        # A percentage, as FlexMeasures takes it; the correction price takes the share.
+        self._planned_storage_efficiency = efficiency / 100
         if self._storage_efficiency_recorded == (start, efficiency):
             return True
         try:

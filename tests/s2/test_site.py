@@ -148,6 +148,8 @@ async def test_each_resource_manager_gets_a_site_named_after_it_and_a_handler_wi
     assert handler._price_sensor_id == made["price"]["id"]
     assert handler._production_price_sensor_id == made["production price"]["id"]
     assert handler._soc_sensor_id == made["state of charge"]["id"]
+    assert handler._usage_correction_sensor_id == made["usage correction"]["id"]
+    assert made["usage correction"]["attributes"] == {"consumption_is_positive": True}
     assert handler._valid_from_shift == timedelta(0)
     assert handler._schedule_duration == timedelta(hours=24)
     assert handler.send_revocations is True

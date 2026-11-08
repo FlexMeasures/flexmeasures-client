@@ -59,6 +59,9 @@ FRBC_SITE_SENSORS: dict[str, SiteSensor] = {
     "usage forecast": SiteSensor("kWh/s", "PT15M"),
     "storage efficiency": SiteSensor("%", "PT15M"),
     "charging efficiency": SiteSensor("dimensionless", "PT15M"),
+    # Where the plan corrects the usage forecast towards zero, because no plan could absorb it as forecast.
+    # In the rate of fill level that the correction adds to the stock, positive where it gives back usage, negative where it takes away a gain.
+    "usage correction": SiteSensor("kW", "PT15M", {"consumption_is_positive": True}),
 }
 
 
@@ -263,6 +266,7 @@ class FRBCSiteConfigurator:
             usage_forecast_sensor_id=sensor_id("usage forecast"),
             leakage_behaviour_sensor_id=sensor_id("storage efficiency"),
             charging_efficiency_sensor_id=sensor_id("charging efficiency"),
+            usage_correction_sensor_id=sensor_id("usage correction"),
             timezone=self._timezone,
             **self._handler_options,
         )

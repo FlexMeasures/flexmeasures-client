@@ -205,6 +205,8 @@ def fixed_site_handler(sensors: dict[str, dict]) -> FRBCSimple:
         usage_forecast_sensor_id=sensors["usage forecast"]["id"],
         leakage_behaviour_sensor_id=sensors["storage efficiency"]["id"],
         charging_efficiency_sensor_id=sensors["charging efficiency"]["id"],
+        # A site set up before this sensor existed plans without a correction, as before.
+        usage_correction_sensor_id=sensors.get("usage correction", {}).get("id"),
         timezone=SITE_TIMEZONE,
         # Plan from now, not from a day after the description, so that a demo shows its instructions being followed.
         valid_from_shift=timedelta(0),
