@@ -198,6 +198,10 @@ TOP_LEVEL_FLEX_CONTEXT_FIELDS = (
 )
 
 
+#: The breach price per kW that FlexMeasures fills in for a site's capacity, where that capacity may be breached.
+#: It only does so for a flex context without commodities, so a request with commodities states it itself.
+FLEXMEASURES_SITE_BREACH_PRICE_PER_KW = 10000
+
 #: Flex-context fields that a commodity's own entry accepts, as FlexMeasures' commodity flex-context schema lists them.
 #: Other stored fields, such as aggregate-power, are only valid at the top level, where FlexMeasures merges them in itself.
 COMMODITY_FLEX_CONTEXT_FIELDS = (
@@ -1789,7 +1793,7 @@ class FRBCSimple(FRBC):
         The request carries a coherent set of prices to make that hold.
         The breach price of the fill-level band is set relative to the market price.
         The correction price follows from it, and from any other per-MW price stored on the site's asset, except a breach of the site's capacity (see _usage_correction_price).
-        The site's breach prices are left to the asset, or to FlexMeasures' default, so that the site keeps to the capacity it is steered with.
+        The site's breach prices are left to the asset, or else set at FlexMeasures' default, so that the site keeps to the capacity it is steered with.
         Device capacities are kept hard, so that the correction cannot move a usage past zero.
 
         The usage is sent with the request, from the same forecast as the correction's limits and the translation back into instructions.
@@ -1918,6 +1922,16 @@ class FRBCSimple(FRBC):
             }
         )
         electricity.update({k: v for k, v in flex_context.items() if k in site_fields})
+        if self._relax_site_capacity is not False:
+            # FlexMeasures leaves a commodity's site capacity hard where no breach price is given,
+            # unlike the same capacity in a flex context without commodities, so its default is stated here.
+            for field in (
+                "site-consumption-breach-price",
+                "site-production-breach-price",
+            ):
+                electricity.setdefault(
+                    field, f"{FLEXMEASURES_SITE_BREACH_PRICE_PER_KW} {currency}/kW"
+                )
         context = {k: v for k, v in flex_context.items() if k not in site_fields}
         context["commodities"] = [
             electricity,

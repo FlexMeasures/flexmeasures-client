@@ -260,9 +260,10 @@ async def test_the_request_carries_a_coherent_set_of_prices(system_description):
     # Breach prices relative to the highest absolute market price, 450.
     assert flex_context["soc-minima-breach-price"] == "4500.0 EUR/MWh"
     assert flex_context["soc-maxima-breach-price"] == "4500.0 EUR/MWh"
-    # The site's breach prices are left to the asset or to FlexMeasures, so the site keeps to the capacity it is steered with.
-    assert "site-consumption-breach-price" not in electricity
-    assert "site-production-breach-price" not in electricity
+    # FlexMeasures' default site breach price, which it fills in only without commodities,
+    # so the site keeps to the capacity it is steered with, softly as without a correction.
+    assert electricity["site-consumption-breach-price"] == "10000 EUR/kW"
+    assert electricity["site-production-breach-price"] == "10000 EUR/kW"
     steps = 48  # the handler's default twelve hours
     expected = _usage_correction_price(450.0, 4500.0, 1.0, 1.0, steps, 0.25)
     assert correction == {
@@ -273,13 +274,26 @@ async def test_the_request_carries_a_coherent_set_of_prices(system_description):
 
 
 @pytest.mark.asyncio
+async def test_a_hard_site_capacity_has_no_breach_price(system_description):
+    frbc = _correcting(system_description, relax_site_capacity=False)
+    frbc._usage_forecast_history["f"] = _forecast(0.01)
+
+    _, flex_context = await _request(frbc, system_description)
+
+    electricity, _ = flex_context["commodities"]
+    assert "site-consumption-breach-price" not in electricity
+    assert "site-production-breach-price" not in electricity
+    assert flex_context["relax-site-capacity-constraints"] is False
+
+
+@pytest.mark.asyncio
 async def test_a_stored_site_breach_price_is_kept_but_does_not_raise_the_correction_price(
     system_description,
 ):
     """A correction may be cheaper than a breach of the site's capacity, so a steering site keeps its breach price."""
     stored = {
-        "site-consumption-breach-price": "10000 EUR/kW",
-        "site-production-breach-price": "10000 EUR/kW",
+        "site-consumption-breach-price": "5000 EUR/kW",
+        "site-production-breach-price": "5000 EUR/kW",
     }
     frbc = _correcting(system_description, stored=stored)
     frbc._usage_forecast_history["f"] = _forecast(0.01)
@@ -287,8 +301,8 @@ async def test_a_stored_site_breach_price_is_kept_but_does_not_raise_the_correct
     _, flex_context = await _request(frbc, system_description)
 
     electricity, correction = flex_context["commodities"]
-    assert electricity["site-consumption-breach-price"] == "10000 EUR/kW"
-    assert electricity["site-production-breach-price"] == "10000 EUR/kW"
+    assert electricity["site-consumption-breach-price"] == "5000 EUR/kW"
+    assert electricity["site-production-breach-price"] == "5000 EUR/kW"
     expected = _usage_correction_price(450.0, 4500.0, 1.0, 1.0, 48, 0.25)
     assert correction["consumption-price"] == f"{expected} EUR/MWh"
 

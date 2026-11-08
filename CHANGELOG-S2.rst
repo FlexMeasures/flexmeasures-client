@@ -59,7 +59,7 @@ Added
 
   - The plan may move each step's expected usage towards zero, never past it, and only where nothing physical keeps the storage within its hard bounds. It is recorded on the new sensor.
   - A negative expected usage is then recorded and planned as stated, instead of as zero.
-  - The request sets the breach price of the fill-level band relative to the highest market price over the window (``soc_breach_price_factor``, default 10), instead of leaving it to FlexMeasures. The correction is priced above anything else a unit of stock can be worth, including the site's own stored peak and commitment prices, except a breach of the site's capacity. The site's breach prices are left to the asset or to FlexMeasures, so a site keeps to the capacity it is steered with.
+  - The request sets the breach price of the fill-level band relative to the highest market price over the window (``soc_breach_price_factor``, default 10), instead of leaving it to FlexMeasures. The correction is priced above anything else a unit of stock can be worth, including the site's own stored peak and commitment prices, except a breach of the site's capacity. The site's breach prices are kept from the asset, or else set at FlexMeasures' default, which FlexMeasures itself only fills in for a flex context without commodities, so a site keeps to the capacity it is steered with.
   - Where a correction cannot be planned, for example without readable prices, the forecast is planned without its negative values, as before, and the log says why.
   - ``FRBCSiteConfigurator`` takes ``correct_usage`` to give each site the sensor, and the example server does so with ``S2_CORRECT_USAGE``. Both are off by default.
 
