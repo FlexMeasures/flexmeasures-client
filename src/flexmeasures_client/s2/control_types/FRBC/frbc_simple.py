@@ -137,6 +137,10 @@ def _without_negative_usage(usage_forecast):
 #: The FlexMeasures version from which a usage forecast is planned with a correction, instead of being clipped.
 #: The correction is a second device sharing the storage's stock, priced on a commodity of its own.
 USAGE_CORRECTION_SINCE = "1.1.0"
+
+#: The FlexMeasures version from which a flex model takes a usage as a time series, rather than only as a sensor.
+#: From then on, a usage forecast is recorded as stated, and a schedule request carries the forecast it plans with.
+INLINE_USAGE_SINCE = "0.23.0"
 #: The commodity that a usage correction is planned on, apart from the site's electricity.
 USAGE_CORRECTION_COMMODITY = "usage correction"
 
@@ -1609,7 +1613,7 @@ class FRBCSimple(FRBC):
                 )
 
     async def _corrects_usage(self) -> bool:
-        """Return whether a usage forecast is recorded as stated, and planned with a correction.
+        """Return whether a usage forecast is planned with a correction.
 
         That needs a sensor to plan the correction on, and a FlexMeasures that can share a stock between devices.
         If the server's version cannot be read, the forecast is treated as before.
@@ -1618,6 +1622,13 @@ class FRBCSimple(FRBC):
             return False
         try:
             return await self._fm_client.server_version_at_least(USAGE_CORRECTION_SINCE)
+        except REQUEST_FAILURES:
+            return False
+
+    async def _plans_usage_inline(self) -> bool:
+        """Whether a schedule request carries the usage forecast it plans with, rather than pointing at the usage sensor."""
+        try:
+            return await self._fm_client.server_version_at_least(INLINE_USAGE_SINCE)
         except REQUEST_FAILURES:
             return False
 
@@ -1807,9 +1818,15 @@ class FRBCSimple(FRBC):
         The usage is sent with the request, from the same forecast as the correction's limits and the translation back into instructions.
         The usage sensor can hold other forecasts, including negative ones recorded as stated, which the correction would not cover.
 
-        Where a correction is configured but cannot be planned, the forecast is sent without its negative values, as before.
+        Where a correction is configured but cannot be planned, the forecast is sent without its negative values.
+        Without a correction, it is sent the same way, from a server that takes a usage with the request on;
+        an older server plans with what is recorded, which is then recorded without its negative values.
         """
-        if "soc-usage" not in flex_model or not await self._corrects_usage():
+        if "soc-usage" not in flex_model:
+            return None
+        corrects = await self._corrects_usage()
+        if not corrects and not await self._plans_usage_inline():
+            # This server plans with what is recorded, and no negative usage is recorded for it.
             return None
         usage = self._aligned_usage()
         if usage is None:
@@ -1819,6 +1836,13 @@ class FRBCSimple(FRBC):
                 "Planning without usage: no FRBC.UsageForecast has arrived since this handler started."
             )
             del flex_model["soc-usage"]
+            return None
+        if not corrects:
+            if (usage < 0).any():
+                self._logger.warning(
+                    "Planning the usage forecast without its negative values, as no usage there: without a usage correction, FlexMeasures would plan them as a gain the storage cannot refuse."
+                )
+            flex_model["soc-usage"] = [self._as_time_series(usage.clip(lower=0))]
             return None
         reason = None
         prices = None
@@ -1981,22 +2005,21 @@ class FRBCSimple(FRBC):
             strategy="mean",
             fill_level_scale=self._fill_level_scale,
         )
-        # A negative usage is a gain that the storage is forced to take, and FlexMeasures cannot relax it.
-        # Above the hard ceiling, it makes every schedule for the window infeasible, so the storage gets no instruction at all.
-        # S2 allows the negative sign, but no storage that this handler controls fills up by being drawn from.
-        # So a negative value is treated as an artefact of the forecast: it is counted, and recorded as no usage.
+        # S2 allows a negative usage, a gain, so it is recorded as stated.
+        # What to plan with is decided when a schedule is requested (see _with_usage_correction).
+        # Only a server that takes no usage with the request plans with what is recorded,
+        # and there a negative usage would be a gain the storage is forced to take, which makes every schedule above the hard ceiling infeasible.
         negative = translated < 0
-        if negative.any() and await self._corrects_usage():
-            # Planned with a correction instead (see _with_usage_correction), so recorded as stated.
+        if negative.any() and await self._plans_usage_inline():
             self._logger.info(
-                "An FRBC.UsageForecast expects negative usage on %s of %s steps, down to %s; recorded as stated, and planned with a correction.",
+                "An FRBC.UsageForecast expects negative usage on %s of %s steps, down to %s; recorded as stated.",
                 int(negative.sum()),
                 len(translated),
                 float(translated.min()),
             )
         elif negative.any():
             self._logger.warning(
-                "An FRBC.UsageForecast expects negative usage on %s of %s steps, down to %s; recorded as no usage there, since FlexMeasures would plan it as a gain the storage cannot refuse.",
+                "An FRBC.UsageForecast expects negative usage on %s of %s steps, down to %s; recorded as no usage there, since this server plans with what is recorded, and would plan it as a gain the storage cannot refuse.",
                 int(negative.sum()),
                 len(translated),
                 float(translated.min()),

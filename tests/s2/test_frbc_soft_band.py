@@ -182,7 +182,15 @@ async def test_the_usage_and_the_leakage_a_resource_manager_declares_are_planned
     system_description,
 ):
     """A storage that is drawn from and leaks is not planned for by its prices alone."""
-    from s2python.frbc import FRBCLeakageBehaviour, FRBCLeakageBehaviourElement
+    from datetime import timedelta
+
+    from s2python.common import Duration
+    from s2python.frbc import (
+        FRBCLeakageBehaviour,
+        FRBCLeakageBehaviourElement,
+        FRBCUsageForecast,
+        FRBCUsageForecastElement,
+    )
 
     frbc = _frbc(system_description)
     leakage = FRBCLeakageBehaviour(
@@ -196,10 +204,21 @@ async def test_the_usage_and_the_leakage_a_resource_manager_declares_are_planned
         ],
     )
     frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+    frbc._usage_forecast_history["f"] = FRBCUsageForecast(
+        message_id=get_unique_id(),
+        start_time="2024-01-01T00:00:00+00:00",
+        elements=[
+            FRBCUsageForecastElement(
+                duration=Duration.from_timedelta(timedelta(minutes=15)),
+                usage_rate_expected=0.01,
+            )
+        ],
+    )
 
     flex_model, _ = await _asked_for(frbc, system_description)
 
-    assert flex_model["soc-usage"] == [{"sensor": USAGE_FORECAST_SENSOR_ID}]
+    # The forecast goes with the request.
+    assert [step["value"] for step in flex_model["soc-usage"][0]] == ["0.01 kWh/s"]
     assert flex_model["storage-efficiency"] == {"sensor": LEAKAGE_SENSOR_ID}
 
 
@@ -533,15 +552,16 @@ def test_bounds_that_run_backwards_are_refused():
 
 
 @pytest.mark.asyncio
-async def test_a_negative_usage_forecast_is_recorded_as_no_usage_and_said_so(
+async def test_a_negative_usage_forecast_is_recorded_as_stated_and_said_so(
     system_description, caplog
 ):
-    """A forced gain FlexMeasures cannot relax made every schedule for the window infeasible."""
+    """S2 allows a negative usage, so it is recorded; whether a plan can absorb it is decided when a schedule is requested."""
     from datetime import timedelta
 
     from s2python.common import Duration
     from s2python.frbc import FRBCUsageForecast, FRBCUsageForecastElement
 
+    caplog.set_level("INFO")
     frbc = _frbc(system_description)
     forecast = FRBCUsageForecast(
         message_id=get_unique_id(),
@@ -556,8 +576,7 @@ async def test_a_negative_usage_forecast_is_recorded_as_no_usage_and_said_so(
     )
     await frbc.send_usage_forecast(forecast)
     posted = frbc._fm_client.post_sensor_data.await_args.kwargs
-    assert min(posted["values"]) == 0.0
-    assert posted["values"][0] == pytest.approx(0.01)
+    assert posted["values"] == pytest.approx([0.01, -0.02, 0.0, -0.005])
     assert "negative usage on 2 of 4 steps" in caplog.text
 
 

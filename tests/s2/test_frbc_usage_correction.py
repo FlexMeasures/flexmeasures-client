@@ -370,7 +370,7 @@ async def test_without_what_a_correction_needs_negative_usage_is_planned_as_none
 
 
 @pytest.mark.asyncio
-async def test_an_older_server_is_asked_as_before(system_description):
+async def test_a_server_before_the_correction_plans_without_one(system_description):
     frbc = _correcting(system_description)
     frbc._fm_client.server_version_at_least = AsyncMock(
         side_effect=lambda version: version != "1.1.0"
@@ -380,11 +380,17 @@ async def test_an_older_server_is_asked_as_before(system_description):
     flex_model, _ = await _request(frbc, system_description)
 
     assert isinstance(flex_model, dict)
-    assert flex_model["soc-usage"] == [{"sensor": USAGE_FORECAST_SENSOR_ID}]
+    # Planned without a correction: the forecast goes with the request, without its negative values.
+    assert [step["value"] for step in flex_model["soc-usage"][0]] == [
+        "0.01 kWh/s",
+        "0.0 kWh/s",
+    ]
 
 
 @pytest.mark.asyncio
-async def test_without_a_correction_sensor_nothing_changes(system_description):
+async def test_without_a_correction_sensor_the_request_carries_the_clipped_forecast(
+    system_description,
+):
     frbc = _frbc(system_description)
     frbc._fm_client.server_version_at_least = AsyncMock(return_value=True)
     frbc._usage_forecast_history["f"] = _forecast(0.01, -0.02)
@@ -392,11 +398,65 @@ async def test_without_a_correction_sensor_nothing_changes(system_description):
     flex_model, flex_context = await _request(frbc, system_description)
 
     assert isinstance(flex_model, dict)
-    assert flex_model["soc-usage"] == [{"sensor": USAGE_FORECAST_SENSOR_ID}]
+    # Planned without a correction: the forecast goes with the request, without its negative values.
+    assert [step["value"] for step in flex_model["soc-usage"][0]] == [
+        "0.01 kWh/s",
+        "0.0 kWh/s",
+    ]
     assert (
         "commodities" not in flex_context
         and "soc-minima-breach-price" not in flex_context
     )
+
+
+@pytest.mark.asyncio
+async def test_a_server_that_takes_no_usage_with_the_request_plans_with_what_is_recorded(
+    system_description,
+):
+    """Before FlexMeasures v0.23.0, a flex model takes a usage only as a sensor, so the sensor holds no negative usage."""
+    frbc = _correcting(system_description)
+    frbc._fm_client.server_version_at_least = AsyncMock(return_value=False)
+    frbc._usage_forecast_history["f"] = _forecast(0.01, -0.02)
+
+    flex_model, _ = await _request(frbc, system_description)
+    await frbc.send_usage_forecast(_forecast(0.01, -0.02))
+
+    assert flex_model["soc-usage"] == [{"sensor": USAGE_FORECAST_SENSOR_ID}]
+    assert min(frbc._fm_client.post_sensor_data.await_args.kwargs["values"]) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_a_server_whose_version_cannot_be_read_plans_with_what_is_recorded(
+    system_description,
+):
+    """Not knowing whether the server takes a usage with the request, the handler treats it as one that does not."""
+    frbc = _correcting(system_description)
+
+    async def version_at_least(version):
+        if version in ("0.23.0", "1.1.0"):
+            raise ConnectionError("unreachable")
+        return True
+
+    frbc._fm_client.server_version_at_least = AsyncMock(side_effect=version_at_least)
+    frbc._usage_forecast_history["f"] = _forecast(0.01, -0.02)
+
+    flex_model, _ = await _request(frbc, system_description)
+    await frbc.send_usage_forecast(_forecast(0.01, -0.02))
+
+    assert flex_model["soc-usage"] == [{"sensor": USAGE_FORECAST_SENSOR_ID}]
+    assert min(frbc._fm_client.post_sensor_data.await_args.kwargs["values"]) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_a_negative_usage_is_recorded_as_stated_without_a_correction(
+    system_description,
+):
+    frbc = _frbc(system_description)
+    frbc._fm_client.server_version_at_least = AsyncMock(return_value=True)
+
+    await frbc.send_usage_forecast(_forecast(0.01, -0.02))
+
+    assert frbc._fm_client.post_sensor_data.await_args.kwargs["values"] == [0.01, -0.02]
 
 
 def test_a_breach_price_factor_of_zero_is_refused(system_description):
@@ -508,7 +568,7 @@ async def test_a_forecast_that_is_not_planned_with_is_not_corrected(system_descr
 
 
 @pytest.mark.asyncio
-async def test_a_server_whose_version_cannot_be_read_is_asked_as_before(
+async def test_a_server_whose_version_cannot_be_read_plans_without_a_correction(
     system_description,
 ):
     frbc = _correcting(system_description)
@@ -524,7 +584,11 @@ async def test_a_server_whose_version_cannot_be_read_is_asked_as_before(
     flex_model, _ = await _request(frbc, system_description)
 
     assert isinstance(flex_model, dict)
-    assert flex_model["soc-usage"] == [{"sensor": USAGE_FORECAST_SENSOR_ID}]
+    # Planned without a correction: the forecast goes with the request, without its negative values.
+    assert [step["value"] for step in flex_model["soc-usage"][0]] == [
+        "0.01 kWh/s",
+        "0.0 kWh/s",
+    ]
 
 
 @pytest.mark.asyncio

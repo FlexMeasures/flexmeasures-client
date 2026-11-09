@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 import pytest
 from s2python.common import Duration, ReceptionStatusValues, Timer
@@ -111,17 +112,39 @@ async def _flex_model(frbc, system_description) -> dict:
 async def test_usage_is_planned_with_only_where_the_resource_manager_says_it_sends_it(
     provided,
 ):
-    """Named regardless, the scheduler read a sensor nothing was ever recorded on."""
+    """Named regardless, the scheduler read a sensor nothing was ever recorded on.
+
+    Only a server that takes no usage with the request reads the sensor (before FlexMeasures v0.23.0).
+    """
     system_description = _heater()
     storage = system_description.storage.model_copy(
         update={"provides_usage_forecast": provided}
     )
     system_description = system_description.model_copy(update={"storage": storage})
     frbc = _frbc(system_description, usage_forecast_sensor_id=7)
+    frbc._fm_client.server_version_at_least = AsyncMock(return_value=False)
 
     flex_model = await _flex_model(frbc, system_description)
 
     assert ("soc-usage" in flex_model) is provided
+
+
+@pytest.mark.asyncio
+async def test_no_usage_is_planned_before_a_forecast_arrives(caplog):
+    """The sensor may hold negative usage recorded as stated, which a plan without a correction cannot absorb."""
+    system_description = _heater()
+    storage = system_description.storage.model_copy(
+        update={"provides_usage_forecast": True}
+    )
+    system_description = system_description.model_copy(update={"storage": storage})
+    frbc = _frbc(system_description, usage_forecast_sensor_id=7)
+    caplog.set_level("INFO")
+    frbc._fm_client.server_version_at_least = AsyncMock(return_value=True)
+
+    flex_model = await _flex_model(frbc, system_description)
+
+    assert "soc-usage" not in flex_model
+    assert "no FRBC.UsageForecast has arrived" in caplog.text
 
 
 @pytest.mark.asyncio

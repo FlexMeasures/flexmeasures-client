@@ -19,7 +19,7 @@ Added
 * ``FRBCSimple`` can record what a resource manager declares about its storage, so it can be seen and planned with. Give it any of the new ``soc_minima_sensor_id``, ``soc_maxima_sensor_id``, ``usage_forecast_sensor_id`` and ``leakage_behaviour_sensor_id``; a declaration without a sensor is not recorded.
 
   - A fill-level target profile is recorded on the minima and maxima sensors, if both are given. It is recorded on the handler's ``resolution`` steps, starting from the step its start falls in. It is kept inside the declared fill-level range: a target past either end, such as a night setback below the range, is cut back to the range, and a target band wholly outside the range is recorded at its nearest end, with a warning. If one of the two bounds cannot be recorded, this is logged and the other is still recorded.
-  - A usage forecast is recorded in ``<energy_unit>/s``. A negative expected usage is recorded as zero, with a warning.
+  - A usage forecast is recorded in ``<energy_unit>/s``. A negative expected usage, which S2 allows, is recorded as stated. Without a usage correction (see below), a schedule request carries the latest forecast without its negative values, since FlexMeasures would plan them as a gain the storage cannot refuse. A FlexMeasures server before v0.23.0 only plans with what is recorded, so there a negative expected usage is recorded as zero, with a warning [`#286 <https://github.com/FlexMeasures/flexmeasures-client/pull/286>`__].
   - A leakage behaviour is recorded as a storage efficiency, each time a schedule is requested (see Changed).
 
   [`#244 <https://github.com/FlexMeasures/flexmeasures-client/pull/244>`__, `#259 <https://github.com/FlexMeasures/flexmeasures-client/pull/259>`__, `#271 <https://github.com/FlexMeasures/flexmeasures-client/pull/271>`__, `#274 <https://github.com/FlexMeasures/flexmeasures-client/pull/274>`__]
@@ -58,9 +58,9 @@ Added
 * ``FRBCSimple`` can correct a usage forecast that no plan can absorb, instead of leaving the storage without a plan. Give it the new ``usage_correction_sensor_id``; it needs FlexMeasures v1.1.0 or newer. A forced gain at a full storage, or a draw at an empty one that the actuator cannot keep up with, used to make every plan infeasible.
 
   - The plan may move each step's expected usage towards zero, never past it, and only where nothing physical keeps the storage within its hard bounds. It is recorded on the new sensor.
-  - A negative expected usage is then recorded and planned as stated, instead of as zero.
+  - A negative expected usage is then planned as stated, instead of as zero.
   - The request sets the breach price of the fill-level band relative to the highest market price over the window (``soc_breach_price_factor``, default 10), instead of leaving it to FlexMeasures. The correction is priced above anything else a unit of stock can be worth, including the site's own stored peak and commitment prices, except a breach of the site's capacity. The site's breach prices are kept from the asset, or else set at FlexMeasures' default, which FlexMeasures itself only fills in for a flex context without commodities, so a site keeps to the capacity it is steered with.
-  - Where a correction cannot be planned, for example without readable prices, the forecast is planned without its negative values, as before, and the log says why.
+  - Where a correction cannot be planned, for example without readable prices, the forecast is planned without its negative values, and the log says why.
   - ``FRBCSiteConfigurator`` takes ``correct_usage`` to give each site the sensor, and the example server does so with ``S2_CORRECT_USAGE``. Both are off by default.
 
   [`#286 <https://github.com/FlexMeasures/flexmeasures-client/pull/286>`__]
