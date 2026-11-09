@@ -465,24 +465,26 @@ def test_a_breach_price_factor_of_zero_is_refused(system_description):
 
 
 @pytest.mark.asyncio
-async def test_the_correction_price_counts_the_efficiencies_the_schedule_is_asked_with(
+async def test_the_correction_price_counts_the_charging_efficiency_and_not_the_leakage(
     system_description,
 ):
-    """Buying a unit of stock through a lossy actuator, or holding it while it leaks, makes it worth more."""
+    """Buying a unit of stock through a lossy actuator makes it worth more.
+
+    Leakage planned as a usage drains the same whatever the stock, so holding stock costs nothing extra.
+    """
     frbc = _correcting(
         system_description,
         charging_efficiency_sensor_id=30,
         leakage_behaviour_sensor_id=31,
     )
     frbc._usage_forecast_history["f"] = _forecast(0.01)
+    frbc._leakage_behaviour_history["l"] = _leakage(0.001)
     frbc._record_charging_efficiency = AsyncMock(return_value=True)
-    frbc._record_storage_efficiency = AsyncMock(return_value=True)
     frbc._planned_charging_efficiency = 0.8
-    frbc._planned_storage_efficiency = 0.99
 
     _, flex_context = await _request(frbc, system_description)
 
-    expected = _usage_correction_price(450.0, 4500.0, 0.8, 0.99, 48, 0.25)
+    expected = _usage_correction_price(450.0, 4500.0, 0.8, 1.0, 48, 0.25)
     assert flex_context["commodities"][1]["consumption-price"] == f"{expected} EUR/MWh"
 
 
@@ -520,39 +522,143 @@ async def test_price_sensors_in_different_currencies_are_not_combined(
 
 
 @pytest.mark.asyncio
-async def test_the_efficiencies_recorded_for_a_schedule_are_the_ones_it_is_priced_with(
+async def test_the_charging_efficiency_recorded_for_a_schedule_is_the_one_it_is_priced_with(
     system_description,
 ):
-    """The correction price uses the very values recorded for the window: the charging efficiency, and the storage efficiency as a share."""
-    from s2python.frbc import FRBCLeakageBehaviour, FRBCLeakageBehaviourElement
-
-    frbc = _correcting(
-        system_description,
-        charging_efficiency_sensor_id=30,
-        leakage_behaviour_sensor_id=31,
-    )
-    leakage = FRBCLeakageBehaviour(
-        message_id=get_unique_id(),
-        valid_from=START.isoformat(),
-        elements=[
-            FRBCLeakageBehaviourElement(
-                fill_level_range=NumberRange(start_of_range=0, end_of_range=100),
-                leakage_rate=0.001,
-            )
-        ],
-    )
-    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+    """The correction price uses the very value recorded for the window."""
+    frbc = _correcting(system_description, charging_efficiency_sensor_id=30)
 
     assert await frbc._record_charging_efficiency(
         system_description, START.to_pydatetime(), 30.0
     )
     charging_posted = frbc._fm_client.post_sensor_data.await_args.kwargs["values"][0]
-    assert await frbc._record_storage_efficiency(START.to_pydatetime(), 30.0)
-    storage_posted = frbc._fm_client.post_sensor_data.await_args.kwargs["values"][0]
 
     assert frbc._planned_charging_efficiency == charging_posted
-    assert frbc._planned_storage_efficiency == pytest.approx(storage_posted / 100)
-    assert 0 < frbc._planned_storage_efficiency < 1
+
+
+def _leakage(rate: float):
+    from s2python.frbc import FRBCLeakageBehaviour, FRBCLeakageBehaviourElement
+
+    return FRBCLeakageBehaviour(
+        message_id=get_unique_id(),
+        valid_from=START.isoformat(),
+        elements=[
+            FRBCLeakageBehaviourElement(
+                fill_level_range=NumberRange(start_of_range=0, end_of_range=100),
+                leakage_rate=rate,
+            )
+        ],
+    )
+
+
+def _values(series: list[dict]) -> list[float]:
+    return [float(step["value"].split()[0]) for step in series]
+
+
+@pytest.mark.asyncio
+async def test_the_correction_covers_the_forecast_and_the_leakage_together(
+    system_description,
+):
+    """An empty storage cannot give its leakage either, so the correction may take that away too."""
+    frbc = _correcting(system_description, leakage_behaviour_sensor_id=31)
+    frbc._usage_forecast_history["f"] = _forecast(0.01, -0.02)
+    frbc._leakage_behaviour_history["l"] = _leakage(0.001)
+
+    flex_model, _ = await _request(frbc, system_description)
+
+    _, stock, correction = flex_model
+    usage = _values(stock["soc-usage"][0])
+    assert usage[:3] == pytest.approx([0.011, -0.019, 0.001])
+    assert len(usage) == 48  # the whole window, beyond the forecast
+    assert "storage-efficiency" not in stock
+    # Each step may be moved towards zero by as much as the usage and the leakage there add up to.
+    up = {
+        s["start"]: float(s["value"].split()[0])
+        for s in correction["consumption-capacity"]
+    }
+    down = {
+        s["start"]: float(s["value"].split()[0])
+        for s in correction["production-capacity"]
+    }
+    assert up[START.isoformat()] == pytest.approx(0.011)
+    assert down[(START + STEP).isoformat()] == pytest.approx(0.019)
+    assert up[(START + 2 * STEP).isoformat()] == pytest.approx(0.001)
+
+
+@pytest.mark.asyncio
+async def test_leakage_alone_is_planned_and_corrected_without_a_forecast(
+    system_description,
+):
+    frbc = _correcting(system_description, leakage_behaviour_sensor_id=31)
+    frbc._leakage_behaviour_history["l"] = _leakage(0.001)
+
+    flex_model, _ = await _request(frbc, system_description)
+
+    _, stock, correction = flex_model
+    assert _values(stock["soc-usage"][0]) == pytest.approx([0.001] * 48)
+    assert correction["sensor"] == CORRECTION_SENSOR_ID
+
+
+@pytest.mark.asyncio
+async def test_leakage_is_planned_without_a_usage_forecast_sensor(system_description):
+    """Leakage is what the storage loses by itself, whether or not a usage forecast is planned with."""
+    frbc = _correcting(
+        system_description,
+        usage_forecast_sensor_id=None,
+        leakage_behaviour_sensor_id=31,
+    )
+    frbc._leakage_behaviour_history["l"] = _leakage(0.001)
+
+    flex_model, _ = await _request(frbc, system_description)
+
+    _, stock, _ = flex_model
+    assert _values(stock["soc-usage"][0]) == pytest.approx([0.001] * 48)
+
+
+@pytest.mark.asyncio
+async def test_the_leakage_is_scaled_like_every_other_fill_rate(system_description):
+    frbc = _correcting(
+        system_description, leakage_behaviour_sensor_id=31, fill_level_scale=2
+    )
+    frbc._leakage_behaviour_history["l"] = _leakage(0.001)
+
+    flex_model, _ = await _request(frbc, system_description)
+
+    _, stock, _ = flex_model
+    assert _values(stock["soc-usage"][0]) == pytest.approx([0.002] * 48)
+
+
+@pytest.mark.asyncio
+async def test_no_leakage_is_planned_without_a_sensor_to_record_it_on(
+    system_description,
+):
+    """The leakage sensor is what opts a handler in, as it was for the storage efficiency."""
+    frbc = _correcting(system_description)
+    frbc._usage_forecast_history["f"] = _forecast(0.01)
+    frbc._leakage_behaviour_history["l"] = _leakage(0.001)
+
+    flex_model, _ = await _request(frbc, system_description)
+
+    _, stock, _ = flex_model
+    assert _values(stock["soc-usage"][0]) == pytest.approx([0.01])
+
+
+@pytest.mark.asyncio
+async def test_without_a_correction_the_forecast_and_the_leakage_are_clipped_together(
+    system_description,
+):
+    frbc = _frbc(system_description, leakage_behaviour_sensor_id=31)
+    frbc._fm_client.server_version_at_least = AsyncMock(return_value=True)
+    # Pin the window, so that it starts where the forecast does.
+    frbc.schedule_start = lambda valid_from: START.to_pydatetime()
+    frbc._usage_forecast_history["f"] = _forecast(0.01, -0.02)
+    frbc._leakage_behaviour_history["l"] = _leakage(0.001)
+
+    flex_model, _ = await _request(frbc, system_description)
+
+    usage = _values(flex_model["soc-usage"][0])
+    assert usage[:3] == pytest.approx([0.011, 0.0, 0.001])
+    assert "storage-efficiency" not in flex_model
 
 
 @pytest.mark.asyncio

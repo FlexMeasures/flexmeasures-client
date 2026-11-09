@@ -178,7 +178,7 @@ async def test_the_shipped_resource_manager_is_planned_for_and_instructed():
         "soc minima",
         "soc maxima",
         "usage forecast",
-        "storage efficiency",
+        "leakage",
         "charging efficiency",
     ):
         assert sensors[name]["id"] in posted_to, name
@@ -538,7 +538,7 @@ def test_the_site_sensors_are_what_the_cem_records_in():
         server.SITE_SENSORS["state of charge"].unit,
         server.SITE_SENSORS["state of charge"].resolution,
     ) == ("kWh", "PT0M")
-    assert server.SITE_SENSORS["storage efficiency"].unit == "%"
+    assert server.SITE_SENSORS["leakage"].unit == "kWh/s"
     assert server.SITE_SENSORS["usage forecast"].unit == "kWh/s"
 
 
@@ -561,18 +561,21 @@ async def test_the_demo_prices_are_seeded_again_while_the_server_runs():
     assert fm.post_sensor_data.await_args.kwargs["sensor_id"] == 10
 
 
-def test_the_loss_is_a_share_of_the_fill_level_a_schedule_starts_from():
-    """1.5 kWh a day from a 5 kWh buffer is a larger share of it than of a 12 kWh one."""
-    from flexmeasures_client.s2.control_types.translations import (
-        leakage_behaviour_to_storage_efficiency,
+@pytest.mark.asyncio
+async def test_the_loss_is_planned_at_the_rate_of_the_range_a_schedule_starts_in():
+    """1.5 kWh a day once the buffer is warm, whatever its fill level within that range."""
+    frbc = server.fixed_site_handler(
+        {name: {"id": i} for i, name in enumerate(server.SITE_SENSORS, start=1)}
     )
-
+    frbc._fm_client = AsyncMock()
+    frbc._fm_client.server_version_at_least = AsyncMock(return_value=True)
     leakage = leakage_behaviour(NOON)
-    at_five = leakage_behaviour_to_storage_efficiency(
-        leakage, resolution=timedelta(minutes=15), fill_level=7.0, share_of=5.0
-    )
-    rate = per_second(1.5 / 24)  # the warm element, which applies at 7
-    assert at_five == pytest.approx(100 * (1 - rate / 5.0) ** 900, rel=1e-12)
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+
+    planned = await frbc._planned_leakage(NOON, 7.0)
+
+    assert list(planned) == pytest.approx([per_second(1.5 / 24)] * len(planned))
+    assert len(planned) > 0
 
 
 @pytest.mark.asyncio

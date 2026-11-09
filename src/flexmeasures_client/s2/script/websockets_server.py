@@ -211,7 +211,7 @@ def fixed_site_handler(sensors: dict[str, dict]) -> FRBCSimple:
         soc_minima_sensor_id=sensors["soc minima"]["id"],
         soc_maxima_sensor_id=sensors["soc maxima"]["id"],
         usage_forecast_sensor_id=sensors["usage forecast"]["id"],
-        leakage_behaviour_sensor_id=sensors["storage efficiency"]["id"],
+        leakage_behaviour_sensor_id=sensors["leakage"]["id"],
         charging_efficiency_sensor_id=sensors["charging efficiency"]["id"],
         # Only where S2_CORRECT_USAGE asked for a correction (see SITE_SENSORS).
         usage_correction_sensor_id=sensors.get("usage correction", {}).get("id"),

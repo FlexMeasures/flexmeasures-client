@@ -206,7 +206,7 @@ async def test_the_usage_and_the_leakage_a_resource_manager_declares_are_planned
     frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
     frbc._usage_forecast_history["f"] = FRBCUsageForecast(
         message_id=get_unique_id(),
-        start_time="2024-01-01T00:00:00+00:00",
+        start_time=frbc.schedule_start(system_description.valid_from),
         elements=[
             FRBCUsageForecastElement(
                 duration=Duration.from_timedelta(timedelta(minutes=15)),
@@ -217,9 +217,13 @@ async def test_the_usage_and_the_leakage_a_resource_manager_declares_are_planned
 
     flex_model, _ = await _asked_for(frbc, system_description)
 
-    # The forecast goes with the request.
-    assert [step["value"] for step in flex_model["soc-usage"][0]] == ["0.01 kWh/s"]
-    assert flex_model["storage-efficiency"] == {"sensor": LEAKAGE_SENSOR_ID}
+    # The forecast goes with the request, with the leakage added to it as a rate over the whole window,
+    # rather than as a share of the stock the storage keeps.
+    planned = [float(step["value"].split()[0]) for step in flex_model["soc-usage"][0]]
+    assert planned[0] == pytest.approx(0.01 + 0.001)
+    assert planned[1:] == pytest.approx([0.001] * (len(planned) - 1))
+    assert len(planned) == frbc._schedule_duration / frbc._resolution
+    assert "storage-efficiency" not in flex_model
 
 
 @pytest.mark.asyncio

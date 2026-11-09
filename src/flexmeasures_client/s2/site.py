@@ -57,7 +57,8 @@ FRBC_SITE_SENSORS: dict[str, SiteSensor] = {
     "soc minima": SiteSensor("kWh", "PT15M"),
     "soc maxima": SiteSensor("kWh", "PT15M"),
     "usage forecast": SiteSensor("kWh/s", "PT15M"),
-    "storage efficiency": SiteSensor("%", "PT15M"),
+    # The leakage rate the resource manager declares, as it is planned with: per second, like the usage forecast.
+    "leakage": SiteSensor("kWh/s", "PT15M"),
     "charging efficiency": SiteSensor("dimensionless", "PT15M"),
 }
 
@@ -274,7 +275,7 @@ class FRBCSiteConfigurator:
             soc_minima_sensor_id=sensor_id("soc minima"),
             soc_maxima_sensor_id=sensor_id("soc maxima"),
             usage_forecast_sensor_id=sensor_id("usage forecast"),
-            leakage_behaviour_sensor_id=sensor_id("storage efficiency"),
+            leakage_behaviour_sensor_id=sensor_id("leakage"),
             charging_efficiency_sensor_id=sensor_id("charging efficiency"),
             usage_correction_sensor_id=sensor_id("usage correction"),
             timezone=self._timezone,

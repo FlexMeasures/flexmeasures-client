@@ -45,7 +45,6 @@ from flexmeasures_client.s2.control_types.FRBC.utils import (
     operation_mode_conversion_efficiency,
 )
 from flexmeasures_client.s2.control_types.translations import (
-    leakage_behaviour_to_storage_efficiency,
     translate_fill_level_target_profile,
     translate_usage_forecast_to_fm,
 )
@@ -109,6 +108,17 @@ def _merged(ranges: list[tuple[float, float]]) -> list[tuple[float, float]]:
         else:
             merged.append((lower, upper))
     return merged
+
+
+def _added_up(*usages: pd.Series | None) -> pd.Series | None:
+    """Return the sum of the usages given, per step, counting a step a usage does not cover as zero, or None if none is given."""
+    given = [usage for usage in usages if usage is not None]
+    if not given:
+        return None
+    total = given[0]
+    for usage in given[1:]:
+        total = total.add(usage, fill_value=0)
+    return total
 
 
 def _without_negative_usage(usage_forecast):
@@ -411,9 +421,9 @@ class FRBCSimple(FRBC):
         soc_minima_sensor_id: int | None = None,
         soc_maxima_sensor_id: int | None = None,
         usage_forecast_sensor_id: int | None = None,
-        # The resolution of this sensor must equal the handler's resolution.
-        # A storage efficiency is what remains after one step, and this handler computes it for a step of its own resolution.
-        # FlexMeasures reads it as one step of the sensor's resolution.
+        # Also optional: a sensor to record the leakage rate on, in the fill-rate unit.
+        # With it, and FlexMeasures v0.23.0 or newer, the leakage the resource manager declares is planned as part of the usage.
+        # Without it, the storage is planned as if it lost nothing by itself.
         leakage_behaviour_sensor_id: int | None = None,
         # Also optional.
         # Without a sensor to record it on, no charging efficiency is declared.
@@ -481,13 +491,13 @@ class FRBCSimple(FRBC):
                 f"soc_breach_price_factor has to be greater than zero, but {soc_breach_price_factor} was given."
             )
         self._soc_breach_price_factor = soc_breach_price_factor
-        #: The charging and storage efficiencies that the last plan was asked for with, which the correction price depends on.
+        #: The charging efficiency that the last plan was asked for with, which the correction price depends on.
         self._planned_charging_efficiency: float | None = None
-        self._planned_storage_efficiency: float | None = None
         #: The currency of each price sensor, read once, since it is fixed when the sensor is set up.
         self._price_currency: dict[int, str] = {}
         self._charging_efficiency_recorded = None
-        self._storage_efficiency_recorded: tuple[datetime, float] | None = None
+        #: The window and rate of the leakage last recorded, so that the same one is not recorded again.
+        self._leakage_recorded: tuple[datetime, float] | None = None
         if resolution <= timedelta(0) or schedule_duration <= timedelta(0):
             raise ValueError(
                 f"resolution and schedule_duration have to be positive, but {resolution} and {schedule_duration} were given."
@@ -1379,7 +1389,7 @@ class FRBCSimple(FRBC):
         # FlexMeasures only accepts a state of charge in kWh or MWh.
         # So a fill level recorded in another energy unit is converted here, at the edge, instead of being refused.
         # The bounds used for translating the schedule below stay in the recorded unit.
-        # The usage and the leakage are read from sensors, which FlexMeasures converts itself.
+        # The usage and the leakage are given in fill-rate units, which FlexMeasures converts itself.
         # The band is converted here.
         soc_unit, to_soc_unit = self._soc_unit()
         flex_model: dict = {
@@ -1417,10 +1427,8 @@ class FRBCSimple(FRBC):
                 self._logger.info(
                     "Planning without usage: the resource manager says it provides no usage forecast, and has sent none."
                 )
-        if await self._record_storage_efficiency(start, fill_level_at_start):
-            flex_model["storage-efficiency"] = {
-                "sensor": self._leakage_behaviour_sensor_id
-            }
+        # What the storage loses by itself, planned as part of the usage (see _with_usage_correction).
+        leakage = await self._planned_leakage(start, fill_level_at_start)
         # What the operation modes say about converting drawn power into stored energy.
         # Recorded first, since FlexMeasures reads it from the sensor named here and not from the flex model,
         # and named only where it was recorded.
@@ -1485,7 +1493,9 @@ class FRBCSimple(FRBC):
 
         # Plan a correction of the usage forecast where one is configured and the server supports it.
         # Then an expected usage or gain that no plan can absorb is corrected towards zero, instead of making every plan infeasible.
-        corrected = await self._with_usage_correction(start, flex_model, flex_context)
+        corrected = await self._with_usage_correction(
+            start, flex_model, flex_context, leakage
+        )
         request_model: dict | list[dict] = flex_model
         if corrected is not None:
             request_model, flex_context = corrected
@@ -1799,7 +1809,11 @@ class FRBCSimple(FRBC):
         return total, None
 
     async def _with_usage_correction(
-        self, start: datetime, flex_model: dict, flex_context: dict
+        self,
+        start: datetime,
+        flex_model: dict,
+        flex_context: dict,
+        leakage: pd.Series | None = None,
     ) -> tuple[list[dict], dict] | None:
         """Return the request for a schedule with a correction of the usage forecast, or None to plan without one.
 
@@ -1821,21 +1835,26 @@ class FRBCSimple(FRBC):
         Where a correction is configured but cannot be planned, the forecast is sent without its negative values.
         Without a correction, it is sent the same way, from a server that takes a usage with the request on;
         an older server plans with what is recorded, which is then recorded without its negative values.
+
+        The leakage, if planned (see _planned_leakage), is added to the forecast before any of this.
+        So the correction can also take away leakage that an empty storage cannot give.
         """
-        if "soc-usage" not in flex_model:
-            return None
+        forecast_named = "soc-usage" in flex_model
         corrects = await self._corrects_usage()
         if not corrects and not await self._plans_usage_inline():
             # This server plans with what is recorded, and no negative usage is recorded for it.
+            # No leakage is planned for it either (see _planned_leakage).
             return None
-        usage = self._aligned_usage()
-        if usage is None:
+        forecast = self._aligned_usage() if forecast_named else None
+        if forecast_named and forecast is None:
             # The sensor may hold negative usage recorded as stated, from before this handler started,
             # which a plan without a correction cannot absorb. A plan without usage can.
             self._logger.info(
-                "Planning without usage: no FRBC.UsageForecast has arrived since this handler started."
+                "Planning without a usage forecast: no FRBC.UsageForecast has arrived since this handler started."
             )
-            del flex_model["soc-usage"]
+        usage = _added_up(forecast, leakage)
+        if usage is None:
+            flex_model.pop("soc-usage", None)
             return None
         if not corrects:
             if (usage < 0).any():
@@ -1891,16 +1910,12 @@ class FRBCSimple(FRBC):
             if "charging-efficiency" in flex_model and self._planned_charging_efficiency
             else 1.0
         )
-        storage_efficiency = (
-            self._planned_storage_efficiency
-            if "storage-efficiency" in flex_model and self._planned_storage_efficiency
-            else 1.0
-        )
         correction_price = _usage_correction_price(
             max_abs_price=max_abs_price,
             soc_breach_price=soc_breach_price,
             charging_efficiency=charging_efficiency,
-            storage_efficiency=storage_efficiency,
+            # The leakage is planned as a usage, which does not grow with the stock, so holding stock loses nothing extra.
+            storage_efficiency=1.0,
             steps=steps,
             step_hours=step_hours,
             other_prices_per_mw=other_prices_per_mw,
@@ -1917,7 +1932,6 @@ class FRBCSimple(FRBC):
             "soc-minima",
             "soc-maxima",
             "soc-usage",
-            "storage-efficiency",
         )
         state_of_charge = {"sensor": self._soc_sensor_id}
         stock: dict = {"state-of-charge": state_of_charge}
@@ -2051,62 +2065,55 @@ class FRBCSimple(FRBC):
                 "Not recording an FRBC.LeakageBehaviour: no leakage-behaviour sensor is configured."
             )
 
-    async def _record_storage_efficiency(
+    async def _planned_leakage(
         self, start: datetime, fill_level: float
-    ) -> bool:
-        """Record the share of its stock that the storage keeps per step, over the window a schedule covers, from the schedule's start.
+    ) -> pd.Series | None:
+        """Return the leakage to plan with, per step of the window a schedule covers, in the fill-rate unit, or None to plan without.
 
-        :returns: whether the schedule may be planned against the sensor. It may not, if nothing is recorded on the sensor.
+        S2 states leakage as a rate, per fill-level range, so it is planned as a usage, rather than as a share of the stock the storage keeps.
+        A share would make the storage leak in proportion to how full it is, which S2 does not say.
+        The rate is that of the range the schedule starts in, constant over the window, since the plan moves the fill level.
+        A flat rate keeps draining an empty storage, as any forced usage does, which a usage correction can take away.
+
+        The rate is also recorded on the leakage sensor, over the same window, so that it can be seen next to the schedule.
         """
         leakage_behaviour = self._latest(self._leakage_behaviour_history)
-        if (
-            self._leakage_behaviour_sensor_id is None
-            or leakage_behaviour is None
-            or not self._system_description_history
-        ):
-            return False
-        # S2 gives leakage as a rate, but FlexMeasures takes a share of the stock.
-        # So one share matches the rate at only one fill level; at other fill levels, the loss scales with the stock.
-        # That fill level is where the schedule starts, as long as that is at least the middle of the storage's range.
-        # From a near-empty start, a share of the start level would let almost nothing remain per step.
-        # The loss would then be overstated many times over, as soon as the plan filled the storage.
-        # Below the middle, the loss is understated instead, by at most the ratio of the middle to the stock.
-        # That is the milder error.
-        storage_range = list(self._system_description_history.values())[
-            -1
-        ].storage.fill_level_range
-        middle = (storage_range.start_of_range + storage_range.end_of_range) / 2
-        # The share that remains after one step of this handler's resolution.
-        # FlexMeasures reads it as one step of the leakage sensor's resolution, so the two resolutions must be equal.
-        efficiency = leakage_behaviour_to_storage_efficiency(
-            message=leakage_behaviour,
-            resolution=self._resolution,
-            fill_level_scale=self._fill_level_scale,
-            fill_level=fill_level,
-            share_of=max(fill_level, middle),
+        if self._leakage_behaviour_sensor_id is None or leakage_behaviour is None:
+            return None
+        if not await self._plans_usage_inline():
+            # Only a usage given with the request can carry the leakage.
+            self._logger.info(
+                "Planning without leakage: FlexMeasures takes a usage with the request from v%s, and this server reports %s.",
+                INLINE_USAGE_SINCE,
+                self._fm_client.server_version,
+            )
+            return None
+        element = element_for_fill_level(leakage_behaviour.elements, fill_level)
+        rate = element.leakage_rate * self._fill_level_scale
+        steps = int(self._schedule_duration / self._resolution)
+        leakage = pd.Series(
+            float(rate),
+            index=pd.date_range(start, periods=steps, freq=self._resolution),
         )
-        # A percentage, as FlexMeasures takes it; the correction price takes the share.
-        self._planned_storage_efficiency = efficiency / 100
-        if self._storage_efficiency_recorded == (start, efficiency):
-            return True
-        try:
-            await self._fm_client.post_sensor_data(
-                sensor_id=self._leakage_behaviour_sensor_id,
-                start=start,
-                prior=self.now(),
-                values=[efficiency],
-                unit="%",
-                duration=self._schedule_duration,
-                # As for the charging efficiency: the value is remembered below as recorded, so it must really be recorded.
-                confirm_ingestion=True,
-            )
-        except REQUEST_FAILURES:
-            self._logger.exception(
-                "Not asking for a schedule against a storage efficiency: could not record %s %% on sensor %s for %s.",
-                efficiency,
-                self._leakage_behaviour_sensor_id,
-                start,
-            )
-            return False
-        self._storage_efficiency_recorded = (start, efficiency)
-        return True
+        if self._leakage_recorded != (start, rate):
+            try:
+                await self._fm_client.post_sensor_data(
+                    sensor_id=self._leakage_behaviour_sensor_id,
+                    start=start,
+                    prior=self.now(),
+                    values=[rate],
+                    unit=self.fill_rate_unit(),
+                    duration=self._schedule_duration,
+                )
+            except REQUEST_FAILURES:
+                # The leakage goes with the request, so the plan does not depend on it being recorded.
+                self._logger.exception(
+                    "Could not record the leakage rate %s %s on sensor %s for %s; planning with it all the same.",
+                    rate,
+                    self.fill_rate_unit(),
+                    self._leakage_behaviour_sensor_id,
+                    start,
+                )
+            else:
+                self._leakage_recorded = (start, rate)
+        return leakage
