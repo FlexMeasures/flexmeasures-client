@@ -38,7 +38,7 @@ class SiteSensor:
 
 
 #: The sensors an FRBC site needs, by name.
-#: Their units are the units the CEM records in: fill levels in kWh, and fill rates, usage and leakage in W, which S2 states per second.
+#: Their units suit a residential site, and match the handler's defaults: energy and fill levels in kWh, prices per kWh, and powers and rates of fill level in W.
 #: The names are a contract with any reader of the site, such as a co-simulation.
 #: A co-simulation looks up "price", "production price", "power", "state of charge" and "measured-power" by name.
 FRBC_SITE_SENSORS: dict[str, SiteSensor] = {
@@ -48,9 +48,9 @@ FRBC_SITE_SENSORS: dict[str, SiteSensor] = {
     # This sensor holds both an actuator's power and the schedule planned for it.
     # Without this attribute, FlexMeasures treats production as positive on a power sensor.
     # It would then flip the sign of an incoming schedule, so the power and the schedule would point in opposite directions.
-    "power": SiteSensor("kW", "PT15M", {"consumption_is_positive": True}),
+    "power": SiteSensor("W", "PT15M", {"consumption_is_positive": True}),
     # The power the resource manager measures its site drawing, kept separate from the schedule on "power".
-    "measured-power": SiteSensor("kW", "PT15M", {"consumption_is_positive": True}),
+    "measured-power": SiteSensor("W", "PT15M", {"consumption_is_positive": True}),
     "state of charge": SiteSensor("kWh", "PT0M"),
     "RM discharge": SiteSensor("dimensionless", "PT15M"),
     "fill rate": SiteSensor("W", "PT15M"),
@@ -66,7 +66,7 @@ FRBC_SITE_SENSORS: dict[str, SiteSensor] = {
 #: It holds the rate of fill level the correction adds to the stock: positive where it gives back usage, negative where it takes away a gain.
 #: Kept apart from FRBC_SITE_SENSORS, since a site only gets it where the deployment asks for a correction.
 USAGE_CORRECTION_SENSORS: dict[str, SiteSensor] = {
-    "usage correction": SiteSensor("kW", "PT15M", {"consumption_is_positive": True}),
+    "usage correction": SiteSensor("W", "PT15M", {"consumption_is_positive": True}),
 }
 
 
@@ -106,6 +106,7 @@ async def ensure_site(
     """Find or create the site asset with this name, with its specs, all of these sensors, and its graphs.
 
     Running this again is safe: existing parts are kept, and missing parts are created.
+    An existing sensor in another unit than its spec is kept as well, with a warning.
     A flex model in the specs is merged into the asset's existing flex model, because others write to it too.
     For example, a co-simulation's controller sets the value of the asset's stock at the end.
     Graphs are only set if the asset has none, because others add to them too.
@@ -154,7 +155,17 @@ async def ensure_site(
     existing = {sensor["name"]: sensor for sensor in site_asset.get("sensors", [])}
     made: dict[str, dict] = {}
     for sensor_name, spec in sensors.items():
-        made[sensor_name] = existing.get(sensor_name) or await fm_client.add_sensor(
+        kept = existing.get(sensor_name)
+        if kept is not None and kept.get("unit") not in (None, spec.unit):
+            # A sensor with data cannot change its unit, and FlexMeasures converts what is posted into it, so it is kept.
+            _LOGGER.warning(
+                "Site %r keeps its sensor %r in %s, where a new site would get one in %s; values posted to it are converted.",
+                name,
+                sensor_name,
+                kept["unit"],
+                spec.unit,
+            )
+        made[sensor_name] = kept or await fm_client.add_sensor(
             name=sensor_name,
             event_resolution=spec.resolution,
             unit=spec.unit,

@@ -14,6 +14,7 @@ from flexmeasures_client.exceptions import ContentTypeError
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.site import (
     FRBC_SITE_SENSORS,
+    USAGE_CORRECTION_SENSORS,
     FRBCSiteConfigurator,
     SiteSensor,
     ensure_site,
@@ -82,6 +83,58 @@ async def test_an_existing_site_keeps_its_sensors_and_gets_the_missing_ones():
     fm.add_asset.assert_not_awaited()
     specs_update = fm.update_asset.await_args_list[0]
     assert specs_update.args == (7, {"generic_asset_type_id": 6})
+
+
+@pytest.mark.asyncio
+async def test_an_existing_sensor_in_another_unit_is_kept_and_said_so(caplog):
+    fm = _flexmeasures(
+        [
+            {
+                "id": 7,
+                "name": "home A",
+                "sensors": [
+                    {"id": 70, "name": "power", "unit": "kW"},
+                    {"id": 71, "name": "state of charge", "unit": "kWh"},
+                ],
+            },
+        ]
+    )
+    with caplog.at_level("WARNING"):
+        _, sensors = await ensure_site(
+            fm,
+            "home A",
+            asset_specs={},
+            sensors=FRBC_SITE_SENSORS,
+            timezone="UTC",
+        )
+    assert sensors["power"]["id"] == 70
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert warnings == [
+        "Site 'home A' keeps its sensor 'power' in kW, where a new site would get one in W; values posted to it are converted."
+    ]
+
+
+def test_a_site_s_sensors_suit_a_residential_site():
+    """Powers and rates of fill level in W, energy in kWh: in kWh/s, a heat buffer's leakage of some tens of watts would read about 0.00001."""
+    units = {
+        name: spec.unit
+        for name, spec in {**FRBC_SITE_SENSORS, **USAGE_CORRECTION_SENSORS}.items()
+    }
+    assert units == {
+        "price": "EUR/kWh",
+        "production price": "EUR/kWh",
+        "power": "W",
+        "measured-power": "W",
+        "state of charge": "kWh",
+        "RM discharge": "dimensionless",
+        "fill rate": "W",
+        "soc minima": "kWh",
+        "soc maxima": "kWh",
+        "usage forecast": "W",
+        "leakage": "W",
+        "charging efficiency": "dimensionless",
+        "usage correction": "W",
+    }
 
 
 @pytest.mark.asyncio
