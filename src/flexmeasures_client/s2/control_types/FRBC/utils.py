@@ -451,6 +451,19 @@ WATTS_PER_ENERGY_UNIT_PER_SECOND = {
 }
 
 
+#: The unit a fill rate is recorded in, for each unit a fill level can be recorded in, and how many of it one unit of energy per second is.
+#: S2 states rates per second, which in kWh/s puts a heat buffer's leakage of some tens of watts near 1e-5, so they are recorded per hour instead.
+#: A joule per second is a watt, and a kilowatt-hour per second is 3600 kilowatts.
+FILL_RATE_UNIT_PER_ENERGY_UNIT: dict[str, tuple[str, float]] = {
+    "J": ("W", 1.0),
+    "kJ": ("kW", 1.0),
+    "MJ": ("MW", 1.0),
+    "Wh": ("W", 3600.0),
+    "kWh": ("kW", 3600.0),
+    "MWh": ("MW", 3600.0),
+}
+
+
 def fill_rate_in_watts(fill_rate: float, energy_unit: str) -> float:
     """Convert a fill rate to watts, given the unit that the fill level is recorded in.
 

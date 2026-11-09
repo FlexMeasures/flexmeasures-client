@@ -35,6 +35,7 @@ from flexmeasures_client.exceptions import (
 )
 from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
+    FILL_RATE_UNIT_PER_ENERGY_UNIT,
     WATTS_PER_ENERGY_UNIT_PER_SECOND,
     clip_fill_level_target_profile,
     element_for_fill_level,
@@ -170,7 +171,7 @@ def _usage_correction_limits(
     A step without a forecast allows no correction.
 
     :param usage_per_hour: expected usage per step, as a rate of fill level, indexed by the start of each step.
-    :param unit:           the unit of that rate, such as kWh/s, which FlexMeasures converts like any power.
+    :param unit:           the unit of that rate, such as kW (see fill_rate_unit).
     """
 
     def segments(values: list[float]) -> list[dict]:
@@ -551,18 +552,20 @@ class FRBCSimple(FRBC):
         self._valid_from_shift = valid_from_shift
 
     def fill_rate_unit(self) -> str:
-        """The unit a rate of change of the fill level is recorded in.
+        """The unit a rate of change of the fill level is recorded in: the power unit that goes with the energy unit, such as kW for kWh.
 
-        S2 states a fill rate, and a usage forecast, as fill level per second, so this follows
-        whatever unit the fill level itself is recorded in. It is not the power unit: a fill rate
-        is what an actuator delivers into its buffer, which for a heat buffer is not electricity
-        at all, and which even for a battery differs from kilowatts by the seconds in an hour.
+        S2 states a fill rate, a usage forecast and a leakage as fill level per second.
+        Per second, a residential heat buffer's rates are tiny numbers in kWh/s, so they are recorded per hour, which for kWh is kW (see _per_second_in_fill_rate_unit).
+        It is not the power unit: a fill rate is what an actuator delivers into its buffer, which for a heat buffer is not electricity at all.
 
-        A method rather than a property, because S2 Handler's discover() walks dir(self) and
-        getattrs every name during __init__, before a subclass has assigned its own attributes.
+        A method rather than a property, because S2 Handler's discover() walks dir(self) and getattrs every name during __init__, before a subclass has assigned its own attributes.
         A property would be evaluated there and raise on the energy_unit it reads.
         """
-        return f"{self.energy_unit}/s"
+        return FILL_RATE_UNIT_PER_ENERGY_UNIT[self.energy_unit][0]
+
+    def _per_second_in_fill_rate_unit(self, rate):
+        """Return a rate of fill level per second, as S2 states it, in the fill-rate unit; a number or a series."""
+        return rate * FILL_RATE_UNIT_PER_ENERGY_UNIT[self.energy_unit][1]
 
     def align_to_resolution(self, moment: datetime) -> datetime:
         """The last resolution boundary at or before that moment.
@@ -1013,10 +1016,13 @@ class FRBCSimple(FRBC):
         # useful quantity - what the actuator delivers into its buffer - it simply is not power.
         if self._fill_rate_sensor_id is not None:
             fill_rate = element.fill_rate
-            rate = (
-                fill_rate.start_of_range
-                + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
-            ) * self._fill_level_scale
+            rate = self._per_second_in_fill_rate_unit(
+                (
+                    fill_rate.start_of_range
+                    + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
+                )
+                * self._fill_level_scale
+            )
             # Catch failures, like for the power above, because this runs in a task that nobody awaits.
             try:
                 await self._fm_client.post_sensor_data(
@@ -1647,11 +1653,13 @@ class FRBCSimple(FRBC):
         usage_forecast = self._latest(self._usage_forecast_history)
         if usage_forecast is None:
             return None
-        translated = translate_usage_forecast_to_fm(
-            usage_forecast,
-            self._resolution,
-            strategy="mean",
-            fill_level_scale=self._fill_level_scale,
+        translated = self._per_second_in_fill_rate_unit(
+            translate_usage_forecast_to_fm(
+                usage_forecast,
+                self._resolution,
+                strategy="mean",
+                fill_level_scale=self._fill_level_scale,
+            )
         )
         return pd.Series(
             translated.values,
@@ -2013,11 +2021,13 @@ class FRBCSimple(FRBC):
             )
             return
 
-        translated = translate_usage_forecast_to_fm(
-            usage_forecast,
-            self._resolution,
-            strategy="mean",
-            fill_level_scale=self._fill_level_scale,
+        translated = self._per_second_in_fill_rate_unit(
+            translate_usage_forecast_to_fm(
+                usage_forecast,
+                self._resolution,
+                strategy="mean",
+                fill_level_scale=self._fill_level_scale,
+            )
         )
         # S2 allows a negative usage, a gain, so it is recorded as stated.
         # What to plan with is decided when a schedule is requested (see _with_usage_correction).
@@ -2047,7 +2057,6 @@ class FRBCSimple(FRBC):
             start=self.align_to_resolution(usage_forecast.start_time),
             prior=self.now(),
             values=translated.tolist(),
-            # translate_usage_forecast_to_fm returns fill level per second, scaled.
             unit=self.fill_rate_unit(),
             duration=pd.Timedelta(self._resolution) * len(translated),
         )
@@ -2089,7 +2098,9 @@ class FRBCSimple(FRBC):
             )
             return None
         element = element_for_fill_level(leakage_behaviour.elements, fill_level)
-        rate = element.leakage_rate * self._fill_level_scale
+        rate = self._per_second_in_fill_rate_unit(
+            element.leakage_rate * self._fill_level_scale
+        )
         steps = int(self._schedule_duration / self._resolution)
         leakage = pd.Series(
             float(rate),

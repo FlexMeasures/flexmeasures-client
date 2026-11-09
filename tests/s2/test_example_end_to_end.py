@@ -326,7 +326,7 @@ async def test_the_site_gets_a_sensor_for_every_declaration_and_prices_from_toda
     made = {call.kwargs["name"]: call.kwargs for call in fm.add_sensor.await_args_list}
     assert "price" not in made
     assert made["power"]["attributes"] == {"consumption_is_positive": True}
-    assert made["fill rate"]["unit"] == "kWh/s"
+    assert made["fill rate"]["unit"] == "kW"
     assert made["soc minima"]["unit"] == "kWh"
     prices = fm.post_sensor_data.await_args.kwargs
     assert prices["sensor_id"] == 50
@@ -538,8 +538,8 @@ def test_the_site_sensors_are_what_the_cem_records_in():
         server.SITE_SENSORS["state of charge"].unit,
         server.SITE_SENSORS["state of charge"].resolution,
     ) == ("kWh", "PT0M")
-    assert server.SITE_SENSORS["leakage"].unit == "kWh/s"
-    assert server.SITE_SENSORS["usage forecast"].unit == "kWh/s"
+    assert server.SITE_SENSORS["leakage"].unit == "kW"
+    assert server.SITE_SENSORS["usage forecast"].unit == "kW"
 
 
 @pytest.mark.asyncio
@@ -574,7 +574,9 @@ async def test_the_loss_is_planned_at_the_rate_of_the_range_a_schedule_starts_in
 
     planned = await frbc._planned_leakage(NOON, 7.0)
 
-    assert list(planned) == pytest.approx([per_second(1.5 / 24)] * len(planned))
+    assert list(planned) == pytest.approx(
+        [1.5 / 24] * len(planned)
+    )  # 1.5 kWh a day, in kW
     assert len(planned) > 0
 
 
