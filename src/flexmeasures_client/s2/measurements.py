@@ -1,4 +1,7 @@
-"""Recording what a resource manager measures on FlexMeasures sensors, one value per step of each sensor's resolution."""
+"""Record what a resource manager measures on FlexMeasures sensors.
+
+Each sensor gets one value per step of its resolution.
+"""
 
 from __future__ import annotations
 
@@ -19,17 +22,17 @@ from flexmeasures_client.exceptions import (
 
 _LOGGER = getLogger(__name__)
 
-#: The unit S2 states every power in, measured ones included.
+#: The unit of every power value in S2, including measured power.
 S2_POWER_UNIT = "W"
 
-#: How long a recorded step is remembered, so that a resource manager sending it again is not recorded twice.
+#: How long a recorded step is remembered. A step that a resource manager sends again within this time is not recorded twice.
 REMEMBERED_FOR = timedelta(days=7)
 
-#: How often a step is tried before it is given up on, and how long to wait between tries.
+#: How many times to try recording a step before giving up, and how long to wait between tries.
 ATTEMPTS = 3
 RETRY_AFTER = timedelta(seconds=30)
 
-#: What a post can fail with, short of a defect in this code.
+#: The exceptions a post can raise when there is no defect in this code.
 POST_FAILURES = (
     ValueError,
     ConnectionError,
@@ -41,24 +44,30 @@ POST_FAILURES = (
 
 
 class MeasurementRecorder:
-    """Records measured power on a sensor as the average of what was measured in each step of its resolution.
+    """Record measured power on a sensor, as the average of the measurements in each step of its resolution.
 
-    A step is recorded once it is over by the CEM's clock, as it stands when the step's last measurement arrives,
-    with the moment it ended as the moment it became known,
-    so a measurement is a belief formed at the end of what it measures, rather than a forecast of it.
-    Steps are taken by the time each measurement is stamped with, not by when it arrives,
-    since a co-simulation's resource manager sends a window's measurements together once the window has passed,
-    each stamped at the start of its quarter hour, while a live one sends them as they are taken,
-    in which case a step is recorded with the first measurement after it is over.
+    A step is recorded once it is over, according to the CEM's clock when the step's last measurement arrives.
+    The recorded belief time is the moment the step ended.
+    So a measurement is recorded as a belief formed at the end of the period it measures, not as a forecast of it.
 
-    Recording happens in the background, so that a resource manager is not kept waiting for FlexMeasures
-    before its measurement is acknowledged, one post at a time per sensor.
-    A step that could not be recorded is tried again a while later, and given up on after a few tries.
+    Each measurement is assigned to a step by its timestamp, not by its arrival time.
+    This matters because resource managers send measurements in different ways.
+    A co-simulation's resource manager sends a window's measurements together, once the window has passed.
+    It stamps each one at the start of its quarter hour.
+    A live resource manager sends each measurement when it is taken.
+    In that case, a step is recorded when the first measurement after the step arrives.
 
-    Made once per server and handed to each CEM, it outlives the reconnections of a resource manager,
-    which a co-simulation makes every round, and so remembers what was recorded:
-    a step sent again is not recorded again, and the first value recorded for a step stands.
-    A sensor is meant to be one resource manager's: one that several share has their measurements averaged together.
+    Recording happens in the background, so the resource manager does not wait for FlexMeasures before its measurement is acknowledged.
+    Per sensor, only one post runs at a time.
+    If a step could not be recorded, it is tried again a while later.
+    After a few failed tries, it is given up on.
+
+    The server creates one recorder and hands it to each CEM.
+    So the recorder outlives the reconnections of a resource manager, which a co-simulation makes every round.
+    The recorder therefore remembers what it recorded.
+    A step that is sent again is not recorded again, and the first value recorded for a step stands.
+    Each sensor is meant to belong to one resource manager.
+    If several resource managers share a sensor, their measurements are averaged together.
     """
 
     def __init__(self, fm_client: FlexMeasuresClient, logger: Logger | None = None):
@@ -67,16 +76,17 @@ class MeasurementRecorder:
         self._resolutions: dict[int, timedelta] = {}
         self._pending: dict[int, dict[datetime, list[float]]] = defaultdict(dict)
         self._attempts: dict[int, dict[datetime, int]] = defaultdict(dict)
-        #: By sensor, the steps recorded, in the order they were, which is roughly that of time.
+        #: The recorded steps per sensor, in recording order, which is roughly chronological.
         self._recorded: dict[int, dict[datetime, None]] = defaultdict(dict)
         self._locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._tasks: set[asyncio.Task] = set()
 
     async def resolution(self, sensor_id: int) -> timedelta:
-        """The sensor's resolution, asked once, since it is a property of how the sensor was set up.
+        """Return the sensor's resolution.
 
-        A caller taking several measurements at once asks this for each sensor first,
-        so that none is taken where one of them cannot be.
+        The resolution is fetched from FlexMeasures only once, because it is fixed when the sensor is set up.
+        A caller that takes several measurements at once should first call this for each sensor.
+        Then, if any one sensor fails, no measurement is taken at all.
         """
         if sensor_id not in self._resolutions:
             sensor = await self._fm_client.get_sensor(sensor_id)
@@ -93,7 +103,7 @@ class MeasurementRecorder:
     async def add(
         self, sensor_id: int, measured_at: datetime, watts: float, now: datetime
     ) -> None:
-        """Take one measurement, and record in the background every step of this sensor that is over by now."""
+        """Take one measurement, then record every step of this sensor that is over by now, in the background."""
         resolution = await self.resolution(sensor_id)
         step = step_of(measured_at, resolution)
         if step in self._recorded[sensor_id]:
@@ -105,10 +115,11 @@ class MeasurementRecorder:
         self._in_background(self.record(sensor_id, now))
 
     async def record(self, sensor_id: int, now: datetime) -> None:
-        """Record every pending step of this sensor that is over by now, each in a request of its own.
+        """Record every pending step of this sensor that is over by now, each in its own request.
 
-        Each with its own end as the moment it became known, which one request for several steps cannot say.
-        One at a time per sensor, so a step is not posted twice, nor taken from under a post in flight.
+        Each step needs its own end as its belief time, and a single request for several steps cannot express that.
+        Per sensor, only one call runs at a time.
+        This way, a step is never posted twice, and no step is removed while a post for it is in flight.
         """
         async with self._locks[sensor_id]:
             resolution = await self.resolution(sensor_id)
@@ -159,7 +170,7 @@ class MeasurementRecorder:
         await self.record(sensor_id, now)
 
     async def settle(self) -> None:
-        """Wait for every recording in the background to finish, retries included."""
+        """Wait for every background recording to finish, including retries."""
         while self._tasks:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
 
@@ -176,7 +187,10 @@ class MeasurementRecorder:
             )
 
     def _forget_before(self, sensor_id: int, cutoff: datetime) -> None:
-        """Forget recorded steps from before the cutoff, oldest first, so that this costs little when nothing is old."""
+        """Forget recorded steps from before the cutoff.
+
+        Steps are checked oldest first, so this costs little when no step is old.
+        """
         recorded = self._recorded[sensor_id]
         while recorded:
             oldest = next(iter(recorded))
@@ -186,10 +200,12 @@ class MeasurementRecorder:
 
 
 def step_of(moment: datetime, resolution: timedelta) -> datetime:
-    """The start of the step a moment falls in, on the moment's own clock, as FlexMeasures floors it.
+    """Return the start of the step that a moment falls in.
 
-    In the repeated hour of an autumn DST change a boundary exists twice, and the step is the later of the two
-    that is not after the moment; taken from the moment's pass alone, flooring cannot always be done at all.
+    The step start is in the moment's own timezone, floored the way FlexMeasures floors it.
+    During the repeated hour of an autumn DST change, a step boundary occurs twice.
+    The step then starts at the later of the two boundaries that is not after the moment.
+    Flooring based only on which of the two passes the moment is in cannot always be done.
     """
     if not resolution:
         return moment

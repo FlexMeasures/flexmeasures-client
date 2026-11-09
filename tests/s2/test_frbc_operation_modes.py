@@ -170,12 +170,11 @@ async def test_a_band_that_spans_zero_is_split_at_zero():
 @pytest.mark.asyncio
 async def test_a_band_that_spans_zero_reaches_both_directions_from_zero():
     """FlexMeasures reads the two ranges of one band as a single band through zero."""
-    system_description = _system_description((0.0, 0.0), (-500.0, 1000.0))
-    frbc = _frbc(system_description)
+    from flexmeasures_client.s2.control_types.FRBC.frbc_simple import (
+        _operation_mode_power_bands,
+    )
 
-    flex_model = await _asked_for(frbc, system_description)
-
-    assert flex_model["operation-modes"] == [
+    assert _operation_mode_power_bands([(0.0, 0.0), (-500.0, 1000.0)], "W") == [
         {"consumption-range": ["0 W", "0 W"]},
         {
             "consumption-range": ["0.0 W", "1000.0 W"],
@@ -316,12 +315,150 @@ async def test_the_bands_are_in_watts_whatever_the_handler_posts_power_in():
 @pytest.mark.asyncio
 async def test_a_bound_of_zero_is_stated_as_zero():
     """Flipping the sign of a range that reaches up to zero leaves a negative zero behind."""
-    system_description = _system_description((0.0, 0.0), (-2000.0, 0.0))
-    frbc = _frbc(system_description)
+    from flexmeasures_client.s2.control_types.FRBC.frbc_simple import (
+        _operation_mode_power_bands,
+    )
 
-    flex_model = await _asked_for(frbc, system_description)
-
-    assert flex_model["operation-modes"][1] == {
+    assert _operation_mode_power_bands([(0.0, 0.0), (-2000.0, 0.0)], "W")[1] == {
         "production-range": ["0.0 W", "2000.0 W"]
     }
+    system_description = _system_description((0.0, 0.0), (-2000.0, 0.0))
+    flex_model = await _asked_for(_frbc(system_description), system_description)
     assert flex_model["production-capacity"] == "2000.0 W"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ranges, bands_sent",
+    [
+        (
+            ((0.0, 0.0), (0.0, 1500.0)),
+            False,
+        ),  # idle beside a mode from zero up: nothing the capacities lack
+        (((0.0, 0.0), (-500.0, 1000.0)), False),
+        (
+            ((0.0, 0.0), (0.0, 800.0), (800.0, 1500.0)),
+            False,
+        ),  # touching ranges leave no gap
+        (((0.0, 0.0), (400.0, 1500.0)), True),  # nothing between 0 and 400 W
+        (((400.0, 1500.0),), True),  # and nothing at all below 400 W
+        (((0.0, 0.0), (-2000.0, -500.0)), True),
+    ],
+)
+async def test_bands_go_out_only_where_they_rule_out_what_the_capacities_allow(
+    ranges, bands_sent
+):
+    """Each band costs the solver a binary per step, so bands that only repeat the capacities turned an LP into a MILP."""
+    system_description = _system_description(*ranges)
+    flex_model = await _asked_for(_frbc(system_description), system_description)
+    assert ("operation-modes" in flex_model) is bands_sent
+
+
+@pytest.mark.asyncio
+async def test_a_mode_for_abnormal_conditions_only_is_neither_planned_in_nor_instructed_into():
+    """An instruction into it is not marked abnormal, so a conforming resource manager refuses it."""
+    system_description = _system_description((0.0, 0.0), (400.0, 1000.0), (0.0, 5000.0))
+    actuator = system_description.actuators[0]
+    boost = actuator.operation_modes[2].model_copy(
+        update={"abnormal_condition_only": True}
+    )
+    system_description = system_description.model_copy(
+        update={
+            "actuators": [
+                actuator.model_copy(
+                    update={"operation_modes": [*actuator.operation_modes[:2], boost]}
+                )
+            ]
+        }
+    )
+    frbc = _frbc(system_description)
+    flex_model = await _asked_for(frbc, system_description)
+    assert flex_model["consumption-capacity"] == "1000.0 W"
+    assert all(
+        band.get("consumption-range", ["", ""])[1] != "5000.0 W"
+        for band in flex_model["operation-modes"]
+    )
+    from flexmeasures_client.s2.control_types.FRBC.utils import normal_operation_modes
+
+    assert str(boost.id) not in {
+        str(m.id) for m in normal_operation_modes(system_description.actuators[0])
+    }
+
+
+def test_an_actuator_with_no_normal_mode_cannot_be_instructed():
+
+    from flexmeasures_client.s2.control_types.FRBC.utils import (
+        fm_schedule_to_instructions,
+    )
+
+    system_description = _system_description((0.0, 1000.0))
+    actuator = system_description.actuators[0]
+    only = actuator.operation_modes[0].model_copy(
+        update={"abnormal_condition_only": True}
+    )
+    system_description = system_description.model_copy(
+        update={"actuators": [actuator.model_copy(update={"operation_modes": [only]})]}
+    )
+    with pytest.raises(ValueError, match="no operation mode"):
+        fm_schedule_to_instructions(
+            {
+                "start": "2024-01-01T00:00:00+00:00",
+                "duration": "PT15M",
+                "values": [500.0],
+            },
+            system_description,
+            initial_fill_level=50.0,
+        )
+
+
+@pytest.mark.asyncio
+async def test_no_schedule_is_asked_for_an_actuator_with_no_normal_mode(caplog):
+    """A solve whose answer could only be instructed into modes the resource manager refuses is a solve for nothing."""
+    system_description = _system_description((0.0, 1000.0))
+    actuator = system_description.actuators[0]
+    only = actuator.operation_modes[0].model_copy(
+        update={"abnormal_condition_only": True}
+    )
+    system_description = system_description.model_copy(
+        update={"actuators": [actuator.model_copy(update={"operation_modes": [only]})]}
+    )
+    frbc = _frbc(system_description)
+    await frbc.trigger_schedule(system_description.message_id)
+    frbc._fm_client.trigger_and_get_schedule.assert_not_awaited()
+    assert "under normal conditions" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_mode_for_abnormal_conditions_only_does_not_set_the_charging_efficiency():
+    """Less efficient than the normal modes, an emergency boost lowered the efficiency every plan was made against."""
+    system_description = _system_description((0.0, 1000.0), (0.0, 5000.0))
+    actuator = system_description.actuators[0]
+    boost = actuator.operation_modes[1].model_copy(
+        update={"abnormal_condition_only": True}
+    )
+    system_description = system_description.model_copy(
+        update={
+            "actuators": [
+                actuator.model_copy(
+                    update={"operation_modes": [actuator.operation_modes[0], boost]}
+                )
+            ]
+        }
+    )
+    frbc = _frbc(system_description, charging_efficiency_sensor_id=9)
+    seen = []
+    from flexmeasures_client.s2.control_types.FRBC import frbc_simple
+
+    real = frbc_simple.operation_mode_conversion_efficiency
+
+    def spy(mode, *args):
+        seen.append(str(mode.id))
+        return real(mode, *args)
+
+    from unittest.mock import patch
+
+    with patch.object(
+        frbc_simple, "operation_mode_conversion_efficiency", side_effect=spy
+    ):
+        await _asked_for(frbc, system_description)
+    assert str(boost.id) not in seen

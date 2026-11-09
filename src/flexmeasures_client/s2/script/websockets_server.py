@@ -35,8 +35,8 @@ LOGGER = logging.getLogger(__name__)
 
 SITE_NAME = "My CEM"
 SITE_TIMEZONE = "Europe/Amsterdam"
-# Enough days of demo prices to cover what the CEM plans for, which is twelve hours from now,
-# with the seeding repeated every SEED_PRICES_EVERY so that a demo left running never runs out.
+# Enough days of demo prices to cover the CEM's planning horizon, which is twelve hours from now.
+# Seeding is repeated every SEED_PRICES_EVERY, so that a demo left running never runs out of prices.
 SEED_PRICE_DAYS = 3
 SEED_PRICES_EVERY = timedelta(hours=12)
 
@@ -47,17 +47,17 @@ ACCEPT_SIMULATION_METADATA = os.getenv("S2_ACCEPT_SIMULATION_METADATA", "").lowe
     "yes",
 )
 
-#: Each sensor the site needs, which is the library's table of what an FRBC site records.
+#: The sensors the site needs, taken from the library's table of sensors for an FRBC site.
 SITE_SENSORS = FRBC_SITE_SENSORS
 
-#: What every site asset is made with: a building, whose connection takes three phases of 25 A at 230 V.
+#: The specs to create every site asset with: a building with a three-phase connection of 25 A per phase at 230 V.
 SITE_ASSET_SPECS: dict[str, Any] = dict(
     generic_asset_type_id=6,
     flex_model={"power-capacity": f"{3 * 25 * 230} VA"},
 )
 
-#: Whether each resource manager gets a site of its own, named after it, as in a co-simulation of a community,
-#: rather than all of them sharing the one site this server sets up at startup.
+#: Whether each resource manager gets its own site, named after it, as in a co-simulation of a community.
+#: If not, they all share the one site that this server sets up at startup.
 SITE_PER_RESOURCE_MANAGER = os.getenv("S2_SITE_PER_RESOURCE_MANAGER", "").lower() in (
     "1",
     "true",
@@ -92,8 +92,8 @@ async def rm_details_watchdog(ws, cem: CEM):
 
     cem._logger.debug(f"CONTROL TYPE: {cem._control_type}")
 
-    # From here on, a schedule is asked for on each storage status,
-    # and on a system description that arrives after one.
+    # From here on, each storage status triggers a schedule request.
+    # So does a system description that arrives after a storage status.
 
 
 async def websocket_producer(ws, cem: CEM):
@@ -168,22 +168,22 @@ async def serve_resource_manager(
 ) -> None:
     """Act as the CEM for one resource manager connected over ws, until it disconnects.
 
-    On the site whose sensors are given, or, with a configurator, on a site of the resource manager's own,
-    which is set up once its details arrive.
+    The CEM uses the site whose sensors are given.
+    With a configurator, it uses the resource manager's own site instead, which is set up once its details arrive.
     """
     cem = CEM(
         fm_client=fm_client,
         logger=LOGGER,
         site_configurator=configurator,
-        # The server's, which outlives a connection, so a resource manager that reconnects is not recorded twice.
+        # The server's recorder outlives a connection, so a resource manager that reconnects is not recorded twice.
         measurement_recorder=recorder,
-        # Where what the resource manager measures is recorded, on the fixed site; a configured site wires its own.
+        # The sensor to record the resource manager's measurements on, for the fixed site. A configured site wires its own.
         power_sensor_id=(
             {"ELECTRIC.POWER.L1": sensors["measured-power"]["id"]}
             if sensors is not None and "measured-power" in sensors
             else None
         ),
-        # A co-simulation's resource manager sends its messages wrapped with the simulated time, which this sets the clock to.
+        # A co-simulation's resource manager wraps its messages with the simulated time, and this sets the clock to that time.
         accept_simulation_metadata=ACCEPT_SIMULATION_METADATA,
     )
     if sensors is not None:
@@ -192,13 +192,13 @@ async def serve_resource_manager(
 
 
 def fixed_site_handler(sensors: dict[str, dict]) -> FRBCSimple:
-    """The handler for a resource manager on the one site this server sets up at startup."""
+    """Return the handler for a resource manager on the one site that this server sets up at startup."""
     frbc = FRBCSimple(
         power_sensor_id=sensors["power"]["id"],
         price_sensor_id=sensors["price"]["id"],
         soc_sensor_id=sensors["state of charge"]["id"],
         rm_discharge_sensor_id=sensors["RM discharge"]["id"],
-        # Where the resource manager's declarations are recorded, so that each can be seen next to the schedule planned against it.
+        # Record the resource manager's declarations, so that each can be inspected next to the schedule planned against it.
         fill_rate_sensor_id=sensors["fill rate"]["id"],
         soc_minima_sensor_id=sensors["soc minima"]["id"],
         soc_maxima_sensor_id=sensors["soc maxima"]["id"],
@@ -206,20 +206,21 @@ def fixed_site_handler(sensors: dict[str, dict]) -> FRBCSimple:
         leakage_behaviour_sensor_id=sensors["storage efficiency"]["id"],
         charging_efficiency_sensor_id=sensors["charging efficiency"]["id"],
         timezone=SITE_TIMEZONE,
-        # Plan from now, rather than from a day after the description, so that a demo shows its instructions being followed.
+        # Plan from now, not from a day after the description, so that a demo shows its instructions being followed.
         valid_from_shift=timedelta(0),
     )
-    # A newer plan revokes what is left of the one before, so the resource manager does not follow both.
+    # A newer plan revokes the remainder of the previous plan, so the resource manager does not follow both.
     frbc.send_revocations = True
     return frbc
 
 
 async def serve(ws, cem: CEM) -> None:
     """Serve one resource manager with this CEM, for as long as its connection lasts."""
-    # The session lasts as long as the resource manager's messages do.
-    # When they end, the CEM is closed, which stops what its handlers still have in flight,
-    # and the producer and the watchdog stop with it: left running, they outlived the connection,
-    # and a resource manager that reconnected was served by two sessions planning for it at once.
+    # The session lasts as long as the resource manager keeps sending messages.
+    # When the messages end, the CEM is closed, which stops any work its handlers still have in flight.
+    # The producer and the watchdog stop too.
+    # When they were left running, they outlived the connection.
+    # A resource manager that reconnected was then served by two sessions, both planning for it at once.
     consumer = asyncio.create_task(websocket_consumer(ws, cem))
     side_tasks = [
         asyncio.create_task(websocket_producer(ws, cem)),
@@ -244,7 +245,7 @@ async def configure_site(
         asset_specs=SITE_ASSET_SPECS,
         sensors=SITE_SENSORS,
         timezone=SITE_TIMEZONE,
-        # The demo's own graphs, on every start, so changes made to them in the UI do not outlive a restart.
+        # Reset the demo's graphs on every start, so that changes made to them in the UI do not survive a restart.
         reset_graphs=True,
     )
     await seed_prices(fm_client, sensors["price"]["id"])
@@ -252,12 +253,12 @@ async def configure_site(
 
 
 async def seed_prices(fm_client: FlexMeasuresClient, price_sensor_id: int) -> None:
-    """Demo prices, so that a site has something to schedule against.
+    """Post demo prices, so that a site has something to schedule against.
 
-    One day's hourly shape, repeated over SEED_PRICE_DAYS from this morning, because the CEM
-    plans ahead of the moment a resource manager reports its storage:
-    a fixed date here goes stale the day after it is written, and the scheduler then fails the
-    job with UnknownPricesException rather than returning a schedule.
+    The prices repeat one day's hourly shape over SEED_PRICE_DAYS, starting this morning.
+    The CEM plans ahead of the moment a resource manager reports its storage.
+    A fixed date here would go stale the day after it was written.
+    The scheduler would then fail the job with UnknownPricesException, instead of returning a schedule.
     """
     one_day = [
         0.10, 0.11, 0.12, 0.15, 0.18, 0.17, 0.11, 0.09,
@@ -277,9 +278,10 @@ async def seed_prices(fm_client: FlexMeasuresClient, price_sensor_id: int) -> No
 
 
 async def keep_prices_seeded(app: web.Application):
-    """Seed the prices again every SEED_PRICES_EVERY for as long as the server runs, so a demo never runs out of them.
+    """Seed the prices again every SEED_PRICES_EVERY for as long as the server runs, so that a demo never runs out of them.
 
-    Not where each resource manager has a site of its own, whose prices are whoever runs them to post.
+    This is skipped if each resource manager has its own site.
+    Then whoever runs those resource managers is responsible for posting their prices.
     """
     if SITE_PER_RESOURCE_MANAGER:
         yield
@@ -324,16 +326,16 @@ async def configure_site_once(app: web.Application) -> None:
     app[FM_CLIENT] = fm_client
     app[RECORDER] = MeasurementRecorder(fm_client, logger=LOGGER)
     if SITE_PER_RESOURCE_MANAGER:
-        # One configurator for the server's lifetime, so a resource manager that reconnects finds its site again by id.
+        # Use one configurator for the server's lifetime, so that a resource manager that reconnects finds its site again by id.
         app[CONFIGURATOR] = FRBCSiteConfigurator(
             fm_client,
             asset_type_id=SITE_ASSET_SPECS["generic_asset_type_id"],
             asset_specs={"flex_model": SITE_ASSET_SPECS["flex_model"]},
             timezone=SITE_TIMEZONE,
-            # The co-simulation's resource managers are heat pumps, which cannot feed power back:
-            # FlexMeasures then keeps their production at zero even where constraints are relaxed.
+            # The co-simulation's resource managers are heat pumps, which cannot feed power back.
+            # With this attribute, FlexMeasures keeps their production at zero, even where constraints are relaxed.
             power_sensor_attributes={"is_strictly_non_positive": True},
-            # A community's capacity is a target set by its members' steering, breached at a price, as #188 asked for.
+            # Each member's site capacity is a target set by the community that steers it, so it may be breached at a price, as #188 asked for.
             handler_options={"relax_site_capacity": True},
             logger=LOGGER,
         )

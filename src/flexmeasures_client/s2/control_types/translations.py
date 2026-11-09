@@ -58,10 +58,10 @@ def leakage_behaviour_to_storage_efficiency(
 
     """
 
-    # FlexMeasures takes one storage efficiency here, for the whole window it covers.
-    # Where the fill level is known, the element that applies at it answers, as for a charging efficiency.
-    # Where it is not, the leakiest answers, looked for rather than assumed to come last,
-    # since S2 does not fix the order the elements are listed in, and the leakiest is not always the top one.
+    # FlexMeasures takes a single storage efficiency here, for the whole window it covers.
+    # If the fill level is known, use the element that applies at that fill level, as for a charging efficiency.
+    # If not, use the leakiest element.
+    # Search for it instead of assuming it comes last: S2 does not fix the order of the elements, and the leakiest one is not always the top one.
     if fill_level is not None:
         element = element_for_fill_level(message.elements, fill_level)
     else:
@@ -70,13 +70,15 @@ def leakage_behaviour_to_storage_efficiency(
         e.fill_level_range.end_of_range * fill_level_scale for e in message.elements
     )
     leakage = element.leakage_rate * fill_level_scale
-    # S2 states a leakage rate per second, so what remains after one second is compounded over the seconds in a step.
-    # This used to compound it over the hours in a step instead,
-    # which declared a buffer losing 1.5 kWh of 10 a day as holding its heat to within 0.002% over twelve hours,
-    # where it loses about 7%, and had the scheduler pre-charge in a cheap hour on the strength of it.
-    # FlexMeasures applies a storage efficiency to the stock as it stands, so the loss is a share of a fill level:
-    # of share_of where given, as the fill level a schedule starts from is,
-    # and otherwise of the top of the range, which understates it at lower fill levels.
+    # S2 gives a leakage rate per second.
+    # So the share that remains after one second is compounded over the number of seconds in a step.
+    # This used to be compounded over the number of hours in a step instead.
+    # Take a buffer that loses 1.5 kWh of 10 kWh a day: over twelve hours, it loses about 7%.
+    # The old calculation declared that it lost only 0.002% over those twelve hours.
+    # Because of that, the scheduler pre-charged the buffer in a cheap hour.
+    # FlexMeasures applies a storage efficiency to the current stock, so the loss is a share of a fill level.
+    # That fill level is share_of, if given, such as the fill level a schedule starts from.
+    # Otherwise, it is the top of the range, which understates the loss at lower fill levels.
     reference = (
         share_of * fill_level_scale
         if share_of is not None and share_of > 0

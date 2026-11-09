@@ -27,7 +27,7 @@ from s2python.frbc import (
 )
 
 from flexmeasures_client.client import FlexMeasuresClient, _server_version_at_least
-from flexmeasures_client.exceptions import JobFailedError
+from flexmeasures_client.exceptions import JobFailedError, JobTimeoutError
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     fill_rate_in_watts,
@@ -419,16 +419,17 @@ async def test_a_state_of_charge_goes_out_in_a_unit_flexmeasures_takes(
 
 
 @pytest.mark.asyncio
-async def test_a_lower_bound_below_zero_goes_out_in_the_same_unit():
-    """Reported below its range, a storage widens the lower bound to take it in, which then needs the conversion too."""
+async def test_a_storage_reported_below_zero_is_planned_from_zero(caplog):
+    """FlexMeasures refuses a negative soc-min, so widening the bound to take the storage in got it no schedule at all."""
     system_description = _heater()
     frbc = _frbc(system_description, energy_unit="J")
     frbc._storage_status_history[get_unique_id()] = FRBCStorageStatus(
         message_id=get_unique_id(), present_fill_level=-3.6e6
     )
     flex_model = await _asked_for(frbc, system_description)
-    assert flex_model["soc-at-start"] == pytest.approx(-1.0)
-    assert flex_model["soc-min"] == pytest.approx(-1.0)
+    assert flex_model["soc-at-start"] == 0.0
+    assert flex_model["soc-min"] == 0.0
+    assert "below zero" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -563,3 +564,24 @@ def test_a_batch_of_instructions_is_logged_once_and_by_name(caplog):
     ]
     assert len(batches) == 1
     assert "'on'" in batches[0] and "'off'" in batches[0]
+
+
+@pytest.mark.asyncio
+async def test_an_efficiency_whose_ingestion_is_unconfirmed_is_recorded_again():
+    """Remembered as recorded, it was never posted again for its window, and the schedule named a sensor empty for it."""
+    system_description = _heater()
+    frbc = _frbc(system_description)
+    frbc._fm_client.post_sensor_data = AsyncMock(
+        side_effect=[JobTimeoutError("still pending"), ({}, 200)]
+    )
+
+    first = await _asked_for(frbc, system_description)
+    second = await _asked_for(frbc, system_description)
+
+    assert "charging-efficiency" not in first
+    assert "charging-efficiency" in second
+    assert frbc._fm_client.post_sensor_data.await_count == 2
+    assert all(
+        c.kwargs.get("confirm_ingestion") is True
+        for c in frbc._fm_client.post_sensor_data.await_args_list
+    )
