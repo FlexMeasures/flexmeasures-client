@@ -38,7 +38,7 @@ class SiteSensor:
 
 
 #: The sensors an FRBC site needs, by name.
-#: Their units are the units the CEM records in: fill levels in kWh, and fill rates, usage and leakage in kW, which S2 states per second.
+#: Their units are the units the CEM records in: fill levels in kWh, and fill rates, usage and leakage in W, which S2 states per second.
 #: The names are a contract with any reader of the site, such as a co-simulation.
 #: A co-simulation looks up "price", "production price", "power", "state of charge" and "measured-power" by name.
 FRBC_SITE_SENSORS: dict[str, SiteSensor] = {
@@ -53,12 +53,12 @@ FRBC_SITE_SENSORS: dict[str, SiteSensor] = {
     "measured-power": SiteSensor("kW", "PT15M", {"consumption_is_positive": True}),
     "state of charge": SiteSensor("kWh", "PT0M"),
     "RM discharge": SiteSensor("dimensionless", "PT15M"),
-    "fill rate": SiteSensor("kW", "PT15M"),
+    "fill rate": SiteSensor("W", "PT15M"),
     "soc minima": SiteSensor("kWh", "PT15M"),
     "soc maxima": SiteSensor("kWh", "PT15M"),
-    "usage forecast": SiteSensor("kW", "PT15M"),
+    "usage forecast": SiteSensor("W", "PT15M"),
     # The leakage rate the resource manager declares, as it is planned with, in the same unit as the usage forecast.
-    "leakage": SiteSensor("kW", "PT15M"),
+    "leakage": SiteSensor("W", "PT15M"),
     "charging efficiency": SiteSensor("dimensionless", "PT15M"),
 }
 

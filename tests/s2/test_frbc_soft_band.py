@@ -220,8 +220,8 @@ async def test_the_usage_and_the_leakage_a_resource_manager_declares_are_planned
     # The forecast goes with the request, with the leakage added to it as a rate over the whole window,
     # rather than as a share of the stock the storage keeps.
     planned = [float(step["value"].split()[0]) for step in flex_model["soc-usage"][0]]
-    assert planned[0] == pytest.approx((0.01 + 0.001) * 3600)  # in kW
-    assert planned[1:] == pytest.approx([0.001 * 3600] * (len(planned) - 1))
+    assert planned[0] == pytest.approx((0.01 + 0.001) * 3.6e6)  # in W
+    assert planned[1:] == pytest.approx([0.001 * 3.6e6] * (len(planned) - 1))
     assert len(planned) == frbc._schedule_duration / frbc._resolution
     assert "storage-efficiency" not in flex_model
 
@@ -580,7 +580,7 @@ async def test_a_negative_usage_forecast_is_recorded_as_stated_and_said_so(
     )
     await frbc.send_usage_forecast(forecast)
     posted = frbc._fm_client.post_sensor_data.await_args.kwargs
-    assert posted["values"] == pytest.approx([36.0, -72.0, 0.0, -18.0])  # in kW
+    assert posted["values"] == pytest.approx([36000.0, -72000.0, 0.0, -18000.0])  # in W
     assert "negative usage on 2 of 4 steps" in caplog.text
 
 

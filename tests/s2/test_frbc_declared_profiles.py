@@ -259,7 +259,7 @@ async def test_usage_forecast_is_recorded_from_a_resolution_boundary(
     assert posted["start"] == frbc.align_to_resolution(usage_forecast.start_time)
     assert posted["start"].minute % 15 == 0 and posted["start"].second == 0
     # A usage forecast is a rate of fill level, not a power.
-    assert posted["unit"] == frbc.fill_rate_unit() == "kW"
+    assert posted["unit"] == frbc.fill_rate_unit() == "W"
 
 
 @pytest.mark.asyncio
@@ -295,10 +295,10 @@ async def test_leakage_behaviour_is_recorded_as_a_rate(
     # Planned as a usage over the window, at the rate S2 states, rather than as a share of the stock.
     assert planned.index[0] == start
     assert len(planned) == frbc._schedule_duration / frbc._resolution
-    assert set(planned) == {36.0}  # 0.01 kWh/s, in kW
+    assert set(planned) == {36000.0}  # 0.01 kWh/s, in W
     posted = _posted(frbc, LEAKAGE_SENSOR_ID)
     assert posted["unit"] == frbc.fill_rate_unit()
-    assert posted["values"] == [36.0]
+    assert posted["values"] == [36000.0]
     assert posted["start"] == start
     assert posted["duration"] == frbc._schedule_duration
 
@@ -549,43 +549,44 @@ async def test_the_instruction_translation_stays_in_the_resource_managers_units(
     assert translate.call_args.kwargs["initial_fill_level"] == 30.0
 
 
-def test_a_fill_rate_is_recorded_per_hour_of_the_energy_unit_whatever_the_power_unit():
-    """S2 states a fill rate as fill level per second, which per second of kWh makes tiny numbers, so it is recorded in the power unit that goes with the energy unit.
+def _handler(**units) -> FRBCSimple:
+    return FRBCSimple(
+        power_sensor_id=1,
+        price_sensor_id=2,
+        soc_sensor_id=3,
+        rm_discharge_sensor_id=4,
+        **units,
+    )
+
+
+@pytest.mark.parametrize(
+    "units, fill_rate_unit, recorded",
+    [
+        # 0.01 kWh/s is 36 kW.
+        ({}, "W", 36000.0),
+        ({"fill_rate_unit": "kW"}, "kW", 36.0),
+        ({"energy_unit": "MWh", "fill_rate_unit": "MW"}, "MW", 36.0),
+        # A joule per second is a watt.
+        ({"energy_unit": "kJ"}, "W", 10.0),
+        ({"energy_unit": "J", "fill_rate_unit": "kW"}, "kW", 0.00001),
+    ],
+)
+def test_a_fill_rate_is_recorded_in_the_fill_rate_unit_whatever_the_power_unit(
+    units, fill_rate_unit, recorded
+):
+    """S2 states a fill rate as fill level per second, which in kWh/s makes tiny numbers, so it is recorded in a power unit, by default W.
 
     That is not the power unit, which says how an actuator's electric power is posted: for a heat buffer, a fill rate is not electricity at all.
     """
-    frbc = FRBCSimple(
-        power_sensor_id=1,
-        price_sensor_id=2,
-        soc_sensor_id=3,
-        rm_discharge_sensor_id=4,
-        energy_unit="kWh",
-        power_unit="W",
-    )
-    assert frbc.fill_rate_unit() == "kW"
-    assert frbc.fill_rate_unit() != frbc.power_unit
-    assert frbc._per_second_in_fill_rate_unit(0.01) == pytest.approx(36.0)
+    frbc = _handler(power_unit="kW", **units)
+    assert frbc.fill_rate_unit() == fill_rate_unit
+    assert frbc._per_second_in_fill_rate_unit(0.01) == pytest.approx(recorded)
 
-    megawatt_hours = FRBCSimple(
-        power_sensor_id=1,
-        price_sensor_id=2,
-        soc_sensor_id=3,
-        rm_discharge_sensor_id=4,
-        energy_unit="MWh",
-    )
-    assert megawatt_hours.fill_rate_unit() == "MW"
-    assert megawatt_hours._per_second_in_fill_rate_unit(0.01) == pytest.approx(36.0)
 
-    # A joule per second already is a watt.
-    joules = FRBCSimple(
-        power_sensor_id=1,
-        price_sensor_id=2,
-        soc_sensor_id=3,
-        rm_discharge_sensor_id=4,
-        energy_unit="kJ",
-    )
-    assert joules.fill_rate_unit() == "kW"
-    assert joules._per_second_in_fill_rate_unit(0.01) == pytest.approx(0.01)
+@pytest.mark.parametrize("fill_rate_unit", ["kWh/s", "kWh", "GW"])
+def test_a_fill_rate_unit_that_is_no_power_unit_is_refused(fill_rate_unit):
+    with pytest.raises(ValueError, match="fill_rate_unit has to be one of W, kW, MW"):
+        _handler(fill_rate_unit=fill_rate_unit)
 
 
 @pytest.mark.asyncio
@@ -624,7 +625,7 @@ async def test_an_actuator_s_fill_rate_is_posted_in_the_fill_rate_unit(
         )
     )
 
-    assert _posted(frbc, fill_rate_sensor_id)["unit"] == frbc.fill_rate_unit() == "kW"
+    assert _posted(frbc, fill_rate_sensor_id)["unit"] == frbc.fill_rate_unit() == "W"
     # The power sensor really does carry a power, and is untouched by this.
     assert _posted(frbc, 1)["unit"] == frbc.power_unit
 
@@ -679,7 +680,7 @@ async def test_a_leakage_that_could_not_be_recorded_is_planned_all_the_same(
     frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
     frbc._fm_client.post_sensor_data.side_effect = ConnectionError("unreachable")
     start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
-    assert set(await frbc._planned_leakage(start, 50.0)) == {36.0}
+    assert set(await frbc._planned_leakage(start, 50.0)) == {36000.0}
     assert frbc._leakage_recorded is None
     assert "could not record" in caplog.text.lower()
 

@@ -234,17 +234,17 @@ async def test_a_schedule_is_asked_for_with_a_correction_on_the_storages_stock(
     assert "sensor" not in stock and "soc-minima" in stock
     # The usage planned is the forecast the limits come from, not whatever the sensor holds.
     assert [s["value"] for s in stock["soc-usage"][0]] == [
-        "36.0 kW",
-        "-72.0 kW",
+        "36000.0 W",
+        "-72000.0 W",
     ]
     assert correction["sensor"] == CORRECTION_SENSOR_ID
     assert correction["commodity"] == USAGE_CORRECTION_COMMODITY
     assert correction["state-of-charge"] == {"sensor": SOC_SENSOR_ID}
-    # Usage of 0.01 kWh/s (36 kW), then a gain of 0.02 kWh/s (72 kW): each may only be moved towards zero.
-    assert correction["consumption-capacity"][0]["value"] == "36.0 kW"
-    assert correction["consumption-capacity"][1]["value"] == "0.0 kW"
-    assert correction["production-capacity"][0]["value"] == "0.0 kW"
-    assert correction["production-capacity"][1]["value"] == "72.0 kW"
+    # Usage of 0.01 kWh/s (36000 W), then a gain of 0.02 kWh/s (72000 W): each may only be moved towards zero.
+    assert correction["consumption-capacity"][0]["value"] == "36000.0 W"
+    assert correction["consumption-capacity"][1]["value"] == "0.0 W"
+    assert correction["production-capacity"][0]["value"] == "0.0 W"
+    assert correction["production-capacity"][1]["value"] == "72000.0 W"
 
 
 @pytest.mark.asyncio
@@ -316,7 +316,7 @@ async def test_a_negative_usage_is_recorded_as_stated_where_it_is_corrected(
     await frbc.send_usage_forecast(_forecast(0.01, -0.02))
 
     posted = frbc._fm_client.post_sensor_data.await_args.kwargs
-    assert posted["values"] == pytest.approx([36.0, -72.0])  # in kW
+    assert posted["values"] == pytest.approx([36000.0, -72000.0])  # in W
 
 
 @pytest.mark.asyncio
@@ -363,8 +363,8 @@ async def test_without_what_a_correction_needs_negative_usage_is_planned_as_none
     assert isinstance(flex_model, dict), why
     assert "commodities" not in flex_context
     assert [s["value"] for s in flex_model["soc-usage"][0]] == [
-        "36.0 kW",
-        "0.0 kW",
+        "36000.0 W",
+        "0.0 W",
     ]
     assert said in caplog.text
 
@@ -382,8 +382,8 @@ async def test_a_server_before_the_correction_plans_without_one(system_descripti
     assert isinstance(flex_model, dict)
     # Planned without a correction: the forecast goes with the request, without its negative values.
     assert [step["value"] for step in flex_model["soc-usage"][0]] == [
-        "36.0 kW",
-        "0.0 kW",
+        "36000.0 W",
+        "0.0 W",
     ]
 
 
@@ -400,8 +400,8 @@ async def test_without_a_correction_sensor_the_request_carries_the_clipped_forec
     assert isinstance(flex_model, dict)
     # Planned without a correction: the forecast goes with the request, without its negative values.
     assert [step["value"] for step in flex_model["soc-usage"][0]] == [
-        "36.0 kW",
-        "0.0 kW",
+        "36000.0 W",
+        "0.0 W",
     ]
     assert (
         "commodities" not in flex_context
@@ -458,7 +458,7 @@ async def test_a_negative_usage_is_recorded_as_stated_without_a_correction(
 
     assert frbc._fm_client.post_sensor_data.await_args.kwargs[
         "values"
-    ] == pytest.approx([36.0, -72.0])
+    ] == pytest.approx([36000.0, -72000.0])
 
 
 def test_a_breach_price_factor_of_zero_is_refused(system_description):
@@ -570,7 +570,7 @@ async def test_the_correction_covers_the_forecast_and_the_leakage_together(
 
     _, stock, correction = flex_model
     usage = _values(stock["soc-usage"][0])
-    assert usage[:3] == pytest.approx([39.6, -68.4, 3.6])  # in kW
+    assert usage[:3] == pytest.approx([39600.0, -68400.0, 3600.0])  # in W
     assert len(usage) == 48  # the whole window, beyond the forecast
     assert "storage-efficiency" not in stock
     # Each step may be moved towards zero by as much as the usage and the leakage there add up to.
@@ -582,9 +582,9 @@ async def test_the_correction_covers_the_forecast_and_the_leakage_together(
         s["start"]: float(s["value"].split()[0])
         for s in correction["production-capacity"]
     }
-    assert up[START.isoformat()] == pytest.approx(39.6)
-    assert down[(START + STEP).isoformat()] == pytest.approx(68.4)
-    assert up[(START + 2 * STEP).isoformat()] == pytest.approx(3.6)
+    assert up[START.isoformat()] == pytest.approx(39600.0)
+    assert down[(START + STEP).isoformat()] == pytest.approx(68400.0)
+    assert up[(START + 2 * STEP).isoformat()] == pytest.approx(3600.0)
 
 
 @pytest.mark.asyncio
@@ -597,7 +597,7 @@ async def test_leakage_alone_is_planned_and_corrected_without_a_forecast(
     flex_model, _ = await _request(frbc, system_description)
 
     _, stock, correction = flex_model
-    assert _values(stock["soc-usage"][0]) == pytest.approx([3.6] * 48)
+    assert _values(stock["soc-usage"][0]) == pytest.approx([3600.0] * 48)
     assert correction["sensor"] == CORRECTION_SENSOR_ID
 
 
@@ -614,7 +614,7 @@ async def test_leakage_is_planned_without_a_usage_forecast_sensor(system_descrip
     flex_model, _ = await _request(frbc, system_description)
 
     _, stock, _ = flex_model
-    assert _values(stock["soc-usage"][0]) == pytest.approx([3.6] * 48)
+    assert _values(stock["soc-usage"][0]) == pytest.approx([3600.0] * 48)
 
 
 @pytest.mark.asyncio
@@ -627,7 +627,7 @@ async def test_the_leakage_is_scaled_like_every_other_fill_rate(system_descripti
     flex_model, _ = await _request(frbc, system_description)
 
     _, stock, _ = flex_model
-    assert _values(stock["soc-usage"][0]) == pytest.approx([7.2] * 48)
+    assert _values(stock["soc-usage"][0]) == pytest.approx([7200.0] * 48)
 
 
 @pytest.mark.asyncio
@@ -642,7 +642,7 @@ async def test_no_leakage_is_planned_without_a_sensor_to_record_it_on(
     flex_model, _ = await _request(frbc, system_description)
 
     _, stock, _ = flex_model
-    assert _values(stock["soc-usage"][0]) == pytest.approx([36.0])
+    assert _values(stock["soc-usage"][0]) == pytest.approx([36000.0])
 
 
 @pytest.mark.asyncio
@@ -659,7 +659,7 @@ async def test_without_a_correction_the_forecast_and_the_leakage_are_clipped_tog
     flex_model, _ = await _request(frbc, system_description)
 
     usage = _values(flex_model["soc-usage"][0])
-    assert usage[:3] == pytest.approx([39.6, 0.0, 3.6])
+    assert usage[:3] == pytest.approx([39600.0, 0.0, 3600.0])
     assert "storage-efficiency" not in flex_model
 
 
@@ -694,8 +694,8 @@ async def test_a_server_whose_version_cannot_be_read_plans_without_a_correction(
     assert isinstance(flex_model, dict)
     # Planned without a correction: the forecast goes with the request, without its negative values.
     assert [step["value"] for step in flex_model["soc-usage"][0]] == [
-        "36.0 kW",
-        "0.0 kW",
+        "36000.0 W",
+        "0.0 W",
     ]
 
 

@@ -542,10 +542,10 @@ async def test_the_handler_plans_and_records_the_leakage_of_the_range_it_starts_
         datetime(2024, 1, 2, tzinfo=timezone.utc), fill_level
     )
 
-    assert set(planned) == {rate * 3600}  # in kW
+    assert set(planned) == {rate * 3.6e6}  # in W
     posted = [
         call.kwargs["values"]
         for call in frbc._fm_client.post_sensor_data.await_args_list
         if call.kwargs.get("sensor_id") == 9
     ]
-    assert posted == [[rate * 3600]]
+    assert posted == [[rate * 3.6e6]]

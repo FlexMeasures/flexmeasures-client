@@ -35,8 +35,8 @@ from flexmeasures_client.exceptions import (
 )
 from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
-    FILL_RATE_UNIT_PER_ENERGY_UNIT,
     WATTS_PER_ENERGY_UNIT_PER_SECOND,
+    WATTS_PER_FILL_RATE_UNIT,
     clip_fill_level_target_profile,
     element_for_fill_level,
     fm_schedule_to_instructions,
@@ -465,6 +465,10 @@ class FRBCSimple(FRBC):
         # The default is kilowatt-hours, because S2 is a residential protocol, and a home battery or heat buffer is of that order.
         # A deployment at another scale can set a different unit here.
         energy_unit: str = "kWh",
+        # The unit that rates of fill level are recorded in: the fill rate, the usage forecast and the leakage.
+        # S2 states them per second, which in kWh/s makes tiny numbers, so they are recorded in a power unit: W, kW or MW.
+        # The default is watts, in which a residential heat buffer's leakage of some tens of watts reads as such.
+        fill_rate_unit: str = "W",
     ) -> None:
         super().__init__(max_size)
         self._power_sensor_id = power_sensor_id
@@ -546,26 +550,34 @@ class FRBCSimple(FRBC):
                 f"energy_unit has to be one of {', '.join(WATTS_PER_ENERGY_UNIT_PER_SECOND)}, but {energy_unit!r} was given."
             )
         self.energy_unit = energy_unit
+        if fill_rate_unit not in WATTS_PER_FILL_RATE_UNIT:
+            raise ValueError(
+                f"fill_rate_unit has to be one of {', '.join(WATTS_PER_FILL_RATE_UNIT)}, but {fill_rate_unit!r} was given."
+            )
+        self._fill_rate_unit = fill_rate_unit
 
         # delay the start of the schedule from the time `valid_from`
         # of the FRBC.SystemDescription.
         self._valid_from_shift = valid_from_shift
 
     def fill_rate_unit(self) -> str:
-        """The unit a rate of change of the fill level is recorded in: the power unit that goes with the energy unit, such as kW for kWh.
+        """The unit a rate of change of the fill level is recorded in: the fill_rate_unit given, by default W.
 
         S2 states a fill rate, a usage forecast and a leakage as fill level per second.
-        Per second, a residential heat buffer's rates are tiny numbers in kWh/s, so they are recorded per hour, which for kWh is kW (see _per_second_in_fill_rate_unit).
+        Per second, a residential heat buffer's rates are tiny numbers in kWh/s, so they are recorded in a power unit instead (see _per_second_in_fill_rate_unit).
         It is not the power unit: a fill rate is what an actuator delivers into its buffer, which for a heat buffer is not electricity at all.
 
         A method rather than a property, because S2 Handler's discover() walks dir(self) and getattrs every name during __init__, before a subclass has assigned its own attributes.
         A property would be evaluated there and raise on the energy_unit it reads.
         """
-        return FILL_RATE_UNIT_PER_ENERGY_UNIT[self.energy_unit][0]
+        return self._fill_rate_unit
 
     def _per_second_in_fill_rate_unit(self, rate):
         """Return a rate of fill level per second, as S2 states it, in the fill-rate unit; a number or a series."""
-        return rate * FILL_RATE_UNIT_PER_ENERGY_UNIT[self.energy_unit][1]
+        return rate * (
+            WATTS_PER_ENERGY_UNIT_PER_SECOND[self.energy_unit]
+            / WATTS_PER_FILL_RATE_UNIT[self._fill_rate_unit]
+        )
 
     def align_to_resolution(self, moment: datetime) -> datetime:
         """The last resolution boundary at or before that moment.
