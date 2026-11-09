@@ -55,6 +55,8 @@ class FRBC(ControlTypeHandler):
 
     _timer_status_history: SizeLimitOrderedDict[str, FRBCTimerStatus]
     _actuator_status_history: SizeLimitOrderedDict[str, FRBCActuatorStatus]
+    #: Per actuator, the latest status that arrived before any system description, to be handled once one arrives.
+    _statuses_awaiting_a_description: dict[str, FRBCActuatorStatus]
     _storage_status_history: SizeLimitOrderedDict[str, FRBCStorageStatus]
     background_tasks: set
     _sent_instructions: dict[str, FRBCInstruction]
@@ -75,6 +77,7 @@ class FRBC(ControlTypeHandler):
 
         self._timer_status_history = SizeLimitOrderedDict(max_size=max_size)
         self._actuator_status_history = SizeLimitOrderedDict(max_size=max_size)
+        self._statuses_awaiting_a_description = {}
         self._storage_status_history = SizeLimitOrderedDict(max_size=max_size)
 
         self._system_description_history = SizeLimitOrderedDict(max_size=max_size)
@@ -242,6 +245,15 @@ class FRBC(ControlTypeHandler):
 
         # store system_description message for later
         self._system_description_history[system_description_id] = message
+
+        # A status that arrived before any description could not be handled then, since only a description says what its operation mode stands for.
+        # A status describes the actuator's present state, so the latest per actuator is handled now.
+        awaiting = list(self._statuses_awaiting_a_description.values())
+        self._statuses_awaiting_a_description.clear()
+        for status in awaiting:
+            task = asyncio.create_task(self.send_actuator_status(status))
+            self.background_tasks.add(task)
+            task.add_done_callback(self.background_tasks.discard)
 
         # Warn once per description, because nothing else here would mention it.
         # An instruction can ask for a switch that a running timer or a missing transition forbids, and then the device refuses it.
