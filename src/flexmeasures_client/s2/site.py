@@ -106,7 +106,6 @@ async def ensure_site(
     """Find or create the site asset with this name, with its specs, all of these sensors, and its graphs.
 
     Running this again is safe: existing parts are kept, and missing parts are created.
-    An existing sensor in another unit than its spec is kept as well, with a warning.
     A flex model in the specs is merged into the asset's existing flex model, because others write to it too.
     For example, a co-simulation's controller sets the value of the asset's stock at the end.
     Graphs are only set if the asset has none, because others add to them too.
@@ -155,17 +154,7 @@ async def ensure_site(
     existing = {sensor["name"]: sensor for sensor in site_asset.get("sensors", [])}
     made: dict[str, dict] = {}
     for sensor_name, spec in sensors.items():
-        kept = existing.get(sensor_name)
-        if kept is not None and kept.get("unit") not in (None, spec.unit):
-            # A sensor with data cannot change its unit, and FlexMeasures converts what is posted into it, so it is kept.
-            _LOGGER.warning(
-                "Site %r keeps its sensor %r in %s, where a new site would get one in %s; values posted to it are converted.",
-                name,
-                sensor_name,
-                kept["unit"],
-                spec.unit,
-            )
-        made[sensor_name] = kept or await fm_client.add_sensor(
+        made[sensor_name] = existing.get(sensor_name) or await fm_client.add_sensor(
             name=sensor_name,
             event_resolution=spec.resolution,
             unit=spec.unit,

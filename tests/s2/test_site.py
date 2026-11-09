@@ -85,35 +85,6 @@ async def test_an_existing_site_keeps_its_sensors_and_gets_the_missing_ones():
     assert specs_update.args == (7, {"generic_asset_type_id": 6})
 
 
-@pytest.mark.asyncio
-async def test_an_existing_sensor_in_another_unit_is_kept_and_said_so(caplog):
-    fm = _flexmeasures(
-        [
-            {
-                "id": 7,
-                "name": "home A",
-                "sensors": [
-                    {"id": 70, "name": "power", "unit": "kW"},
-                    {"id": 71, "name": "state of charge", "unit": "kWh"},
-                ],
-            },
-        ]
-    )
-    with caplog.at_level("WARNING"):
-        _, sensors = await ensure_site(
-            fm,
-            "home A",
-            asset_specs={},
-            sensors=FRBC_SITE_SENSORS,
-            timezone="UTC",
-        )
-    assert sensors["power"]["id"] == 70
-    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
-    assert warnings == [
-        "Site 'home A' keeps its sensor 'power' in kW, where a new site would get one in W; values posted to it are converted."
-    ]
-
-
 def test_a_site_s_sensors_suit_a_residential_site():
     """Powers and rates of fill level in W, energy in kWh: in kWh/s, a heat buffer's leakage of some tens of watts would read about 0.00001."""
     units = {
