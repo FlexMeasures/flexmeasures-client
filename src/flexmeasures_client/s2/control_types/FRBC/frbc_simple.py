@@ -36,6 +36,7 @@ from flexmeasures_client.exceptions import (
 from flexmeasures_client.s2.control_types.FRBC import FRBC, STORAGE_STATUS_REQUESTS
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     WATTS_PER_ENERGY_UNIT_PER_SECOND,
+    WATTS_PER_FILL_RATE_UNIT,
     clip_fill_level_target_profile,
     element_for_fill_level,
     fm_schedule_to_instructions,
@@ -271,6 +272,10 @@ class FRBCSimple(FRBC):
         # The default is kilowatt-hours, because S2 is a residential protocol, and a home battery or heat buffer is of that order.
         # A deployment at another scale can set a different unit here.
         energy_unit: str = "kWh",
+        # The unit that rates of fill level are recorded in: the fill rate and the usage forecast.
+        # S2 states them per second, which in kWh/s makes tiny numbers, so they are recorded in a power unit: W, kW or MW.
+        # The default is watts, in which a residential heat buffer's rates read as such.
+        fill_rate_unit: str = "W",
     ) -> None:
         super().__init__(max_size)
         self._power_sensor_id = power_sensor_id
@@ -340,24 +345,34 @@ class FRBCSimple(FRBC):
                 f"energy_unit has to be one of {', '.join(WATTS_PER_ENERGY_UNIT_PER_SECOND)}, but {energy_unit!r} was given."
             )
         self.energy_unit = energy_unit
+        if fill_rate_unit not in WATTS_PER_FILL_RATE_UNIT:
+            raise ValueError(
+                f"fill_rate_unit has to be one of {', '.join(WATTS_PER_FILL_RATE_UNIT)}, but {fill_rate_unit!r} was given."
+            )
+        self._fill_rate_unit = fill_rate_unit
 
         # delay the start of the schedule from the time `valid_from`
         # of the FRBC.SystemDescription.
         self._valid_from_shift = valid_from_shift
 
     def fill_rate_unit(self) -> str:
-        """The unit a rate of change of the fill level is recorded in.
+        """The unit a rate of change of the fill level is recorded in: the fill_rate_unit given, by default W.
 
-        S2 states a fill rate, and a usage forecast, as fill level per second, so this follows
-        whatever unit the fill level itself is recorded in. It is not the power unit: a fill rate
-        is what an actuator delivers into its buffer, which for a heat buffer is not electricity
-        at all, and which even for a battery differs from kilowatts by the seconds in an hour.
+        S2 states a fill rate and a usage forecast as fill level per second.
+        Per second, a residential heat buffer's rates are tiny numbers in kWh/s, so they are recorded in a power unit instead (see _per_second_in_fill_rate_unit).
+        It is not the power unit: a fill rate is what an actuator delivers into its buffer, which for a heat buffer is not electricity at all.
 
-        A method rather than a property, because S2 Handler's discover() walks dir(self) and
-        getattrs every name during __init__, before a subclass has assigned its own attributes.
+        A method rather than a property, because S2 Handler's discover() walks dir(self) and getattrs every name during __init__, before a subclass has assigned its own attributes.
         A property would be evaluated there and raise on the energy_unit it reads.
         """
-        return f"{self.energy_unit}/s"
+        return self._fill_rate_unit
+
+    def _per_second_in_fill_rate_unit(self, rate):
+        """Return a rate of fill level per second, as S2 states it, in the fill-rate unit; a number or a series."""
+        return rate * (
+            WATTS_PER_ENERGY_UNIT_PER_SECOND[self.energy_unit]
+            / WATTS_PER_FILL_RATE_UNIT[self._fill_rate_unit]
+        )
 
     def align_to_resolution(self, moment: datetime) -> datetime:
         """The last resolution boundary at or before that moment.
@@ -810,10 +825,13 @@ class FRBCSimple(FRBC):
         # useful quantity - what the actuator delivers into its buffer - it simply is not power.
         if self._fill_rate_sensor_id is not None:
             fill_rate = element.fill_rate
-            rate = (
-                fill_rate.start_of_range
-                + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
-            ) * self._fill_level_scale
+            rate = self._per_second_in_fill_rate_unit(
+                (
+                    fill_rate.start_of_range
+                    + (fill_rate.end_of_range - fill_rate.start_of_range) * factor
+                )
+                * self._fill_level_scale
+            )
             # Catch failures, like for the power above, because this runs in a task that nobody awaits.
             try:
                 await self._fm_client.post_sensor_data(
@@ -1414,11 +1432,13 @@ class FRBCSimple(FRBC):
             )
             return
 
-        translated = translate_usage_forecast_to_fm(
-            usage_forecast,
-            self._resolution,
-            strategy="mean",
-            fill_level_scale=self._fill_level_scale,
+        translated = self._per_second_in_fill_rate_unit(
+            translate_usage_forecast_to_fm(
+                usage_forecast,
+                self._resolution,
+                strategy="mean",
+                fill_level_scale=self._fill_level_scale,
+            )
         )
         # A negative usage is a gain that the storage is forced to take, and FlexMeasures cannot relax it.
         # Above the hard ceiling, it makes every schedule for the window infeasible, so the storage gets no instruction at all.
@@ -1441,7 +1461,6 @@ class FRBCSimple(FRBC):
             start=self.align_to_resolution(usage_forecast.start_time),
             prior=self.now(),
             values=translated.tolist(),
-            # translate_usage_forecast_to_fm returns fill level per second, scaled.
             unit=self.fill_rate_unit(),
             duration=pd.Timedelta(self._resolution) * len(translated),
         )

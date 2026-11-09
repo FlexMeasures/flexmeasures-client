@@ -557,7 +557,7 @@ async def test_a_negative_usage_forecast_is_recorded_as_no_usage_and_said_so(
     await frbc.send_usage_forecast(forecast)
     posted = frbc._fm_client.post_sensor_data.await_args.kwargs
     assert min(posted["values"]) == 0.0
-    assert posted["values"][0] == pytest.approx(0.01)
+    assert posted["values"][0] == pytest.approx(36000.0)  # 0.01 kWh/s, in W
     assert "negative usage on 2 of 4 steps" in caplog.text
 
 

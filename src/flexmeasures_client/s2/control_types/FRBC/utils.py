@@ -451,6 +451,11 @@ WATTS_PER_ENERGY_UNIT_PER_SECOND = {
 }
 
 
+#: The units a rate of fill level can be recorded in, and the number of watts in one of each.
+#: S2 states rates per second, which in kWh/s puts a heat buffer's rates of some tens of watts near 1e-5, so they are recorded in a power unit instead, by default W.
+WATTS_PER_FILL_RATE_UNIT: dict[str, float] = {"W": 1.0, "kW": 1e3, "MW": 1e6}
+
+
 def fill_rate_in_watts(fill_rate: float, energy_unit: str) -> float:
     """Convert a fill rate to watts, given the unit that the fill level is recorded in.
 
