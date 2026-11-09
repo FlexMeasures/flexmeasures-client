@@ -202,6 +202,14 @@ TOP_LEVEL_FLEX_CONTEXT_FIELDS = (
 #: It only does so for a flex context without commodities, so a request with commodities states it itself.
 FLEXMEASURES_SITE_BREACH_PRICE_PER_KW = 10000
 
+#: The flex-context fields that name inflexible devices, which FlexMeasures treats as one family.
+#: Where a request names any of them at the top level, FlexMeasures does not merge in the stored ones.
+INFLEXIBLE_DEVICE_FIELDS = (
+    "inflexible-device-sensors",
+    "inflexible-consumption",
+    "inflexible-production",
+)
+
 #: Flex-context fields that a commodity's own entry accepts, as FlexMeasures' commodity flex-context schema lists them.
 #: Other stored fields, such as aggregate-power, are only valid at the top level, where FlexMeasures merges them in itself.
 COMMODITY_FLEX_CONTEXT_FIELDS = (
@@ -1933,6 +1941,12 @@ class FRBCSimple(FRBC):
                     field, f"{FLEXMEASURES_SITE_BREACH_PRICE_PER_KW} {currency}/kW"
                 )
         context = {k: v for k, v in flex_context.items() if k not in site_fields}
+        # FlexMeasures also merges the stored flex context in at the top level, and counts inflexible devices from there as well as from the electricity entry,
+        # so each would be counted twice (FlexMeasures/flexmeasures#2848).
+        # Naming the same fields empty at the top level keeps the stored ones out of it.
+        for field in INFLEXIBLE_DEVICE_FIELDS:
+            if field in electricity:
+                context[field] = []
         context["commodities"] = [
             electricity,
             {

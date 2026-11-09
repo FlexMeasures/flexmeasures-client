@@ -557,6 +557,51 @@ async def test_before_any_forecast_arrives_the_plan_goes_without_usage(
     assert "commodities" not in flex_context
 
 
+@pytest.mark.parametrize(
+    "stored",
+    [
+        {"inflexible-device-sensors": [827, 829]},
+        {
+            "inflexible-consumption": [{"sensor": 827}],
+            "inflexible-production": [{"sensor": 829}],
+        },
+    ],
+)
+@pytest.mark.asyncio
+async def test_stored_inflexible_devices_are_counted_once(system_description, stored):
+    """FlexMeasures counts inflexible devices from the top level, where it merges the stored context, and from the electricity entry."""
+    frbc = _correcting(system_description, stored=stored)
+    frbc._usage_forecast_history["f"] = _forecast(0.01)
+
+    _, flex_context = await _request(frbc, system_description)
+
+    electricity, _ = flex_context["commodities"]
+    for field, devices in stored.items():
+        # Counted from the electricity entry,
+        assert electricity[field] == devices
+        # and named empty at the top level, which keeps FlexMeasures from merging the stored ones in there.
+        assert flex_context[field] == []
+
+
+@pytest.mark.asyncio
+async def test_no_inflexible_devices_are_named_where_none_are_stored(
+    system_description,
+):
+    frbc = _correcting(
+        system_description, stored={"site-consumption-capacity": "10 kW"}
+    )
+    frbc._usage_forecast_history["f"] = _forecast(0.01)
+
+    _, flex_context = await _request(frbc, system_description)
+
+    for field in (
+        "inflexible-device-sensors",
+        "inflexible-consumption",
+        "inflexible-production",
+    ):
+        assert field not in flex_context
+
+
 @pytest.mark.asyncio
 async def test_the_sites_stored_electricity_context_is_kept_and_its_prices_bounded(
     system_description,
