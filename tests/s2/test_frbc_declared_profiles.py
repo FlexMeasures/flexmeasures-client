@@ -626,6 +626,13 @@ async def test_an_actuator_s_fill_rate_is_posted_in_the_fill_rate_unit(
     )
 
     assert _posted(frbc, fill_rate_sensor_id)["unit"] == frbc.fill_rate_unit() == "W"
+    # Halfway through the mode's fill rate, from kWh/s into W.
+    fill_rate = actuator.operation_modes[0].elements[0].fill_rate
+    halfway = (fill_rate.start_of_range + fill_rate.end_of_range) / 2
+    assert halfway > 0
+    assert _posted(frbc, fill_rate_sensor_id)["values"] == pytest.approx(
+        [halfway * 3.6e6]
+    )
     # The power sensor really does carry a power, and is untouched by this.
     assert _posted(frbc, 1)["unit"] == frbc.power_unit
 
