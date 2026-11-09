@@ -84,6 +84,25 @@ async def test_an_existing_site_keeps_its_sensors_and_gets_the_missing_ones():
     assert specs_update.args == (7, {"generic_asset_type_id": 6})
 
 
+def test_a_site_s_sensors_suit_a_residential_site():
+    """Powers and rates of fill level in W, energy in kWh: in kWh/s, a heat buffer's usage of some tens of watts would read about 0.00001."""
+    units = {name: spec.unit for name, spec in FRBC_SITE_SENSORS.items()}
+    assert units == {
+        "price": "EUR/kWh",
+        "production price": "EUR/kWh",
+        "power": "W",
+        "measured-power": "W",
+        "state of charge": "kWh",
+        "RM discharge": "dimensionless",
+        "fill rate": "W",
+        "soc minima": "kWh",
+        "soc maxima": "kWh",
+        "usage forecast": "W",
+        "storage efficiency": "%",
+        "charging efficiency": "dimensionless",
+    }
+
+
 @pytest.mark.asyncio
 async def test_a_known_site_is_fetched_by_id_rather_than_found_in_a_listing():
     """A resource manager reconnects every round of a co-simulation; a listing of every asset each time is slow."""

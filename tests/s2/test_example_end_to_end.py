@@ -326,7 +326,7 @@ async def test_the_site_gets_a_sensor_for_every_declaration_and_prices_from_toda
     made = {call.kwargs["name"]: call.kwargs for call in fm.add_sensor.await_args_list}
     assert "price" not in made
     assert made["power"]["attributes"] == {"consumption_is_positive": True}
-    assert made["fill rate"]["unit"] == "kWh/s"
+    assert made["fill rate"]["unit"] == "W"
     assert made["soc minima"]["unit"] == "kWh"
     prices = fm.post_sensor_data.await_args.kwargs
     assert prices["sensor_id"] == 50
@@ -539,7 +539,7 @@ def test_the_site_sensors_are_what_the_cem_records_in():
         server.SITE_SENSORS["state of charge"].resolution,
     ) == ("kWh", "PT0M")
     assert server.SITE_SENSORS["storage efficiency"].unit == "%"
-    assert server.SITE_SENSORS["usage forecast"].unit == "kWh/s"
+    assert server.SITE_SENSORS["usage forecast"].unit == "W"
 
 
 @pytest.mark.asyncio

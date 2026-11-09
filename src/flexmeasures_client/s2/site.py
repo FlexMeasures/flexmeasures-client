@@ -38,7 +38,7 @@ class SiteSensor:
 
 
 #: The sensors an FRBC site needs, by name.
-#: Their units are the units the CEM records in: fill levels in kWh, and fill rates per second, as in S2.
+#: Their units suit a residential site, and match the handler's defaults: energy and fill levels in kWh, prices per kWh, and powers and rates of fill level in W.
 #: The names are a contract with any reader of the site, such as a co-simulation.
 #: A co-simulation looks up "price", "production price", "power", "state of charge" and "measured-power" by name.
 FRBC_SITE_SENSORS: dict[str, SiteSensor] = {
@@ -48,15 +48,15 @@ FRBC_SITE_SENSORS: dict[str, SiteSensor] = {
     # This sensor holds both an actuator's power and the schedule planned for it.
     # Without this attribute, FlexMeasures treats production as positive on a power sensor.
     # It would then flip the sign of an incoming schedule, so the power and the schedule would point in opposite directions.
-    "power": SiteSensor("kW", "PT15M", {"consumption_is_positive": True}),
+    "power": SiteSensor("W", "PT15M", {"consumption_is_positive": True}),
     # The power the resource manager measures its site drawing, kept separate from the schedule on "power".
-    "measured-power": SiteSensor("kW", "PT15M", {"consumption_is_positive": True}),
+    "measured-power": SiteSensor("W", "PT15M", {"consumption_is_positive": True}),
     "state of charge": SiteSensor("kWh", "PT0M"),
     "RM discharge": SiteSensor("dimensionless", "PT15M"),
-    "fill rate": SiteSensor("kWh/s", "PT15M"),
+    "fill rate": SiteSensor("W", "PT15M"),
     "soc minima": SiteSensor("kWh", "PT15M"),
     "soc maxima": SiteSensor("kWh", "PT15M"),
-    "usage forecast": SiteSensor("kWh/s", "PT15M"),
+    "usage forecast": SiteSensor("W", "PT15M"),
     "storage efficiency": SiteSensor("%", "PT15M"),
     "charging efficiency": SiteSensor("dimensionless", "PT15M"),
 }
