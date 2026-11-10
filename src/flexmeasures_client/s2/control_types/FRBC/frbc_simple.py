@@ -899,8 +899,10 @@ class FRBCSimple(FRBC):
         # After a reconnection, an actuator status can arrive before any description.
         # This method needs a description to tell what power the status stands for.
         if not self._system_description_history:
-            self._logger.warning(
-                "Not recording the power of an FRBC.ActuatorStatus: no FRBC.SystemDescription has arrived yet to tell what its operation mode draws."
+            # Kept instead, and recorded once a description arrives (see handle_system_description).
+            self._statuses_awaiting_a_description[str(status.actuator_id)] = status
+            self._logger.info(
+                "Not recording the power of an FRBC.ActuatorStatus yet: no FRBC.SystemDescription has arrived to tell what its operation mode draws, so it is recorded once one does."
             )
             return
         sd: FRBCSystemDescription = list(self._system_description_history.values())[-1]
