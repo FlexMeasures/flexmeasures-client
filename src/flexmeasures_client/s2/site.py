@@ -57,8 +57,16 @@ FRBC_SITE_SENSORS: dict[str, SiteSensor] = {
     "soc minima": SiteSensor("kWh", "PT15M"),
     "soc maxima": SiteSensor("kWh", "PT15M"),
     "usage forecast": SiteSensor("W", "PT15M"),
-    "storage efficiency": SiteSensor("%", "PT15M"),
+    # The leakage rate the resource manager declares, as it is planned with, in the same unit as the usage forecast.
+    "leakage": SiteSensor("W", "PT15M"),
     "charging efficiency": SiteSensor("dimensionless", "PT15M"),
+}
+
+#: The sensor a site needs for the handler to correct a usage forecast that no plan can absorb (see FRBCSimple's usage_correction_sensor_id).
+#: It holds the rate of fill level the correction adds to the stock: positive where it gives back usage, negative where it takes away a gain.
+#: Kept apart from FRBC_SITE_SENSORS, since a site only gets it where the deployment asks for a correction.
+USAGE_CORRECTION_SENSORS: dict[str, SiteSensor] = {
+    "usage correction": SiteSensor("W", "PT15M", {"consumption_is_positive": True}),
 }
 
 
@@ -193,6 +201,7 @@ class FRBCSiteConfigurator:
         power_sensor_attributes: dict[str, Any] | None = None,
         handler_options: dict[str, Any] | None = None,
         send_revocations: bool = True,
+        correct_usage: bool = False,
         logger: Logger | None = None,
     ) -> None:
         """
@@ -205,6 +214,9 @@ class FRBCSiteConfigurator:
         :param handler_options:         Keyword arguments for each FRBCSimple, other than its sensors.
                                         By default, it plans from now over 24 hours, because a co-simulation steps through days.
         :param send_revocations:        Whether a newer plan revokes the remainder of the previous plan.
+        :param correct_usage:           Whether each site gets a sensor to correct a usage forecast that no plan can absorb.
+                                        With a correction, the handler also sets the breach prices of the fill-level band and the site's capacity,
+                                        relative to the market, rather than leaving them to FlexMeasures (see FRBCSimple's usage_correction_sensor_id).
         """
         self._fm_client = fm_client
         self._timezone = timezone
@@ -213,6 +225,8 @@ class FRBCSiteConfigurator:
             **(asset_specs or {}),
         }
         sensors = dict(sensors if sensors is not None else FRBC_SITE_SENSORS)
+        if correct_usage:
+            sensors.update(USAGE_CORRECTION_SENSORS)
         if power_sensor_attributes:
             power = sensors["power"]
             sensors["power"] = SiteSensor(
@@ -261,8 +275,9 @@ class FRBCSiteConfigurator:
             soc_minima_sensor_id=sensor_id("soc minima"),
             soc_maxima_sensor_id=sensor_id("soc maxima"),
             usage_forecast_sensor_id=sensor_id("usage forecast"),
-            leakage_behaviour_sensor_id=sensor_id("storage efficiency"),
+            leakage_behaviour_sensor_id=sensor_id("leakage"),
             charging_efficiency_sensor_id=sensor_id("charging efficiency"),
+            usage_correction_sensor_id=sensor_id("usage correction"),
             timezone=self._timezone,
             **self._handler_options,
         )

@@ -22,6 +22,7 @@ from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 from flexmeasures_client.s2.measurements import MeasurementRecorder
 from flexmeasures_client.s2.site import (
     FRBC_SITE_SENSORS,
+    USAGE_CORRECTION_SENSORS,
     FRBCSiteConfigurator,
     ensure_site,
 )
@@ -47,8 +48,15 @@ ACCEPT_SIMULATION_METADATA = os.getenv("S2_ACCEPT_SIMULATION_METADATA", "").lowe
     "yes",
 )
 
+#: Whether a usage forecast that no plan can absorb is corrected towards zero, instead of being planned without its negative values.
+#: This also sets the breach prices of the fill-level band and the site's capacity relative to the market.
+CORRECT_USAGE = os.getenv("S2_CORRECT_USAGE", "").lower() in ("1", "true", "yes")
+
 #: The sensors the site needs, taken from the library's table of sensors for an FRBC site.
-SITE_SENSORS = FRBC_SITE_SENSORS
+SITE_SENSORS = {
+    **FRBC_SITE_SENSORS,
+    **(USAGE_CORRECTION_SENSORS if CORRECT_USAGE else {}),
+}
 
 #: The specs to create every site asset with: a building with a three-phase connection of 25 A per phase at 230 V.
 SITE_ASSET_SPECS: dict[str, Any] = dict(
@@ -203,8 +211,10 @@ def fixed_site_handler(sensors: dict[str, dict]) -> FRBCSimple:
         soc_minima_sensor_id=sensors["soc minima"]["id"],
         soc_maxima_sensor_id=sensors["soc maxima"]["id"],
         usage_forecast_sensor_id=sensors["usage forecast"]["id"],
-        leakage_behaviour_sensor_id=sensors["storage efficiency"]["id"],
+        leakage_behaviour_sensor_id=sensors["leakage"]["id"],
         charging_efficiency_sensor_id=sensors["charging efficiency"]["id"],
+        # Only where S2_CORRECT_USAGE asked for a correction (see SITE_SENSORS).
+        usage_correction_sensor_id=sensors.get("usage correction", {}).get("id"),
         timezone=SITE_TIMEZONE,
         # Plan from now, not from a day after the description, so that a demo shows its instructions being followed.
         valid_from_shift=timedelta(0),
@@ -337,6 +347,7 @@ async def configure_site_once(app: web.Application) -> None:
             power_sensor_attributes={"is_strictly_non_positive": True},
             # Each member's site capacity is a target set by the community that steers it, so it may be breached at a price, as #188 asked for.
             handler_options={"relax_site_capacity": True},
+            correct_usage=CORRECT_USAGE,
             logger=LOGGER,
         )
         LOGGER.info("Each resource manager gets a site of its own; ready for them.")

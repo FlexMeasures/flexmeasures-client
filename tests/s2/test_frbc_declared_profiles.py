@@ -40,7 +40,6 @@ from s2python.frbc import (
 )
 
 from flexmeasures_client.client import FlexMeasuresClient
-from flexmeasures_client.exceptions import JobTimeoutError
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 from flexmeasures_client.s2.control_types.FRBC.utils import (
     clip_fill_level_target_profile,
@@ -264,7 +263,7 @@ async def test_usage_forecast_is_recorded_from_a_resolution_boundary(
 
 
 @pytest.mark.asyncio
-async def test_leakage_behaviour_is_recorded_as_a_storage_efficiency(
+async def test_leakage_behaviour_is_recorded_as_a_rate(
     system_description,
 ):
     """Recorded when a schedule is asked for, over the window it covers, rather than on arrival."""
@@ -291,11 +290,15 @@ async def test_leakage_behaviour_is_recorded_as_a_storage_efficiency(
     ]  # nothing on arrival
 
     start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
-    assert await frbc._record_storage_efficiency(start, (RANGE_BOTTOM + RANGE_TOP) / 2)
+    planned = await frbc._planned_leakage(start, (RANGE_BOTTOM + RANGE_TOP) / 2)
 
+    # Planned as a usage over the window, at the rate S2 states, rather than as a share of the stock.
+    assert planned.index[0] == start
+    assert len(planned) == frbc._schedule_duration / frbc._resolution
+    assert set(planned) == {36000.0}  # 0.01 kWh/s, in W
     posted = _posted(frbc, LEAKAGE_SENSOR_ID)
-    assert posted["unit"] == "%"
-    assert len(posted["values"]) == 1
+    assert posted["unit"] == frbc.fill_rate_unit()
+    assert posted["values"] == [36000.0]
     assert posted["start"] == start
     assert posted["duration"] == frbc._schedule_duration
 
@@ -635,7 +638,7 @@ async def test_an_actuator_s_fill_rate_is_posted_in_the_fill_rate_unit(
 
 
 @pytest.mark.asyncio
-async def test_a_storage_efficiency_already_recorded_for_the_window_is_not_recorded_again(
+async def test_a_leakage_already_recorded_for_the_window_is_not_recorded_again(
     system_description,
 ):
     frbc = _frbc(system_description, with_sensors=True)
@@ -653,8 +656,8 @@ async def test_a_storage_efficiency_already_recorded_for_the_window_is_not_recor
     )
     frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
     start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
-    assert await frbc._record_storage_efficiency(start, 50.0)
-    assert await frbc._record_storage_efficiency(start, 50.0)
+    assert await frbc._planned_leakage(start, 50.0) is not None
+    assert await frbc._planned_leakage(start, 50.0) is not None
     posts = [
         c
         for c in frbc._fm_client.post_sensor_data.await_args_list
@@ -664,10 +667,10 @@ async def test_a_storage_efficiency_already_recorded_for_the_window_is_not_recor
 
 
 @pytest.mark.asyncio
-async def test_a_storage_efficiency_that_could_not_be_recorded_is_not_planned_against(
+async def test_a_leakage_that_could_not_be_recorded_is_planned_all_the_same(
     system_description, caplog
 ):
-    """And it is tried again next time, rather than remembered as recorded."""
+    """It goes with the request, so the plan does not need it recorded; it is tried again next time, rather than remembered as recorded."""
     frbc = _frbc(system_description, with_sensors=True)
     leakage = FRBCLeakageBehaviour(
         message_id=get_unique_id(),
@@ -684,15 +687,15 @@ async def test_a_storage_efficiency_that_could_not_be_recorded_is_not_planned_ag
     frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
     frbc._fm_client.post_sensor_data.side_effect = ConnectionError("unreachable")
     start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
-    assert await frbc._record_storage_efficiency(start, 50.0) is False
-    assert frbc._storage_efficiency_recorded is None
-    assert "could not record" in caplog.text
+    assert set(await frbc._planned_leakage(start, 50.0)) == {36000.0}
+    assert frbc._leakage_recorded is None
+    assert "could not record" in caplog.text.lower()
 
 
 @pytest.mark.asyncio
-async def test_a_storage_efficiency_whose_ingestion_is_unconfirmed_is_not_remembered(
-    system_description,
-):
+async def test_an_older_server_is_planned_without_leakage(system_description, caplog):
+    """Before FlexMeasures v0.23.0, a usage only comes from a sensor, so the leakage cannot go with the request."""
+    caplog.set_level(logging.INFO)
     frbc = _frbc(system_description, with_sensors=True)
     leakage = FRBCLeakageBehaviour(
         message_id=get_unique_id(),
@@ -707,13 +710,11 @@ async def test_a_storage_efficiency_whose_ingestion_is_unconfirmed_is_not_rememb
         ],
     )
     frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
-    frbc._fm_client.post_sensor_data.side_effect = JobTimeoutError("still pending")
+    frbc._fm_client.server_version_at_least = AsyncMock(return_value=False)
     start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
-    assert await frbc._record_storage_efficiency(start, 50.0) is False
-    assert frbc._storage_efficiency_recorded is None
-    assert (
-        frbc._fm_client.post_sensor_data.await_args.kwargs["confirm_ingestion"] is True
-    )
+    assert await frbc._planned_leakage(start, 50.0) is None
+    assert _posted_sensor_ids(frbc) == []
+    assert "Planning without leakage" in caplog.text
 
 
 @pytest.mark.asyncio

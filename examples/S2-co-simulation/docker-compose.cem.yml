@@ -37,6 +37,8 @@ x-cem: &cem
     S2_ACCEPT_SIMULATION_METADATA: "1"
     # And each home is a site of its own, rather than all of them sharing one.
     S2_SITE_PER_RESOURCE_MANAGER: "1"
+    # Uncomment to correct a usage forecast that no plan can absorb, instead of leaving the home without a plan (see README.md).
+    # S2_CORRECT_USAGE: "1"
   volumes:
     - ../flexmeasures-client:/app/flexmeasures-client:rw
   entrypoint: ["/bin/sh", "-c"]
