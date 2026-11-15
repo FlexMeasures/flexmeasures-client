@@ -19,6 +19,7 @@ Unreleased
 Added
 -----
 
+* The HEMS tutorial supports ``SOLVE_AS_COMMUNITY`` (default: ``True``) to schedule all buildings in one optimization with building and community capacity constraints. Set it to ``False`` to schedule buildings independently and report measured community-capacity breaches afterward. The example also includes reproducible solar data and annotations for solar conditions and EV state-of-charge targets.
 * ``server_version_at_least``, which answers whether the server is of a given version or newer, looking its version up where that is not known yet, for a caller that sends a field or calls an endpoint only where the server has it. Release generations are compared, so a development build such as ``0.33.0.dev26`` counts as ``0.33.0`` [`#248 <https://github.com/FlexMeasures/flexmeasures-client/pull/248>`__]
 * ``ingestion_polling_interval``, ``ingestion_polling_max_interval`` and ``ingestion_polling_timeout``, which govern how the ingestion of posted sensor data is waited for, on a tighter profile than the ``job_polling_*`` settings give other background jobs [`#242 <https://github.com/FlexMeasures/flexmeasures-client/pull/242>`__]
 * ``post_sensor_data`` takes ``confirm_ingestion``. With ``True``, it raises an error if it cannot confirm that FlexMeasures ingested the posted data, instead of logging this and carrying on. Use it if your code remembers what it has recorded, and would otherwise never record the data again [`#273 <https://github.com/FlexMeasures/flexmeasures-client/pull/273>`__]
