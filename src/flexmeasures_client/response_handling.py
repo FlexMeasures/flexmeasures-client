@@ -59,6 +59,7 @@ async def check_response(
     method: str = "GET",
     pass_through_statuses: frozenset[int] = frozenset(),
     rate_limit_callback: Callable[[str], None] | None = None,
+    auth_token_used: str | None = None,
 ) -> tuple[int, bool, URL]:
     """
     <300: passes
@@ -116,7 +117,7 @@ async def check_response(
         payload: {payload}.
         Re-authenticating!"""
         self.logger.debug(message)
-        await self.get_access_token()
+        await self._authenticate(auth_token_used)
         reauth_once = False
     elif status == 429 or (status == 503 and "Retry-After" in headers):
         sleep_interval = parse_retry_after(headers.get("Retry-After"))

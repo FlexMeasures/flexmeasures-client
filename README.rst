@@ -67,15 +67,39 @@ To get started with the FlexMeasures Client, first an account needs to be regist
 To create a local instance of FlexMeasures, follow the `FlexMeasures documentation <https://flexmeasures.readthedocs.io/en/latest/index.html>`_.
 Registering to a hosted FlexMeasures instance instead can be done through `Seita BV <https://seita.nl/>`_.
 
-In these examples we show how to set up the client to connect to either ``http://localhost:5000`` or ``https://ems.seita.energy``. To connect to a different host, adapt the host in the initialization of the client.
+For an interactive session, create a client without credentials. On the first
+request that needs authentication, it prompts for an email address and a
+password (without echoing the password):
 
-   .. code-block:: python
+.. code-block:: python
 
     from flexmeasures_client import FlexMeasuresClient
 
-    async def main():
-        client = FlexMeasuresClient(host="localhost:5000", ssl=False, email="email@email.com", password="pw")
-        client = FlexMeasuresClient(host="ems.seita.energy", ssl=True, email="email@email.com", password="pw")
+    client = FlexMeasuresClient(host="ems.seita.energy", ssl=True)
+    # Use the client, then close its HTTP session:
+    # await client.get_assets()
+    # await client.close()
+
+You can instead pass ``email`` and ``password`` to the constructor, including
+for unattended programs:
+
+.. code-block:: python
+
+    client = FlexMeasuresClient(
+        host="ems.seita.energy", ssl=True, email=email, password=password,
+    )
+
+``host="localhost:5000", ssl=False`` connects to a local development server.
+
+With an existing refresh token, you can authenticate without a password:
+
+.. code-block:: python
+
+    client = FlexMeasuresClient(
+        host="ems.seita.energy", ssl=True, refresh_token=saved_token,
+    )
+
+See `Refresh tokens and secret storage`_ for how to save and reuse tokens.
 
 
 Retrieving available info
@@ -268,6 +292,64 @@ On FlexMeasures v0.33.0 and newer, the client polls the generic job endpoint
 until the forecasting job is complete, then retrieves its values. For more
 advanced options (training window, regressors, forecast frequency, etc.) see
 :doc:`forecasting`.
+
+
+.. _refresh-token-storage:
+
+Refresh tokens and secret storage
+=================================
+
+By default the client requests a refresh token at login. It exchanges that
+for a new access and refresh token when an API request receives a 401 or
+``get_access_token()`` is called. If the refresh token is rejected, it logs in
+again: supplied credentials are used if available, otherwise it prompts for
+missing credentials. A process without an interactive terminal must provide
+credentials or a valid refresh token. Older servers continue to use password
+login.
+
+To reuse a token across runs, an application can use `keyring
+<https://keyring.readthedocs.io/en/latest/>`_ and a configured system keyring.
+Install ``keyring`` separately. This example identifies the secret by server
+and account, so each account has its own entry:
+
+.. code-block:: python
+
+    from functools import partial
+    import keyring
+    from flexmeasures_client import FlexMeasuresClient
+
+    service = "flexmeasures:ems.seita.energy"
+    account = "email@example.com"  # keyring entry name, not a password
+    saved_token = keyring.get_password(service, account)
+    save_token = partial(keyring.set_password, service, account)
+
+    client = FlexMeasuresClient(
+        host="ems.seita.energy", ssl=True, email=account,
+        refresh_token=saved_token,
+        refresh_token_callback=save_token,
+    )
+    # Use the client, then await client.close().
+
+If the entry is missing or rejected, the client prompts for the account password
+and the callback saves the resulting refresh token. The email can also be
+omitted when using a token; both credentials are then requested if login is
+needed. The callback receives the new token;
+``partial`` binds the service and account names, and other storage backends can
+bind whatever additional context they need. The callback runs synchronously after
+every issuance or rotation, and must replace the previous token. If it raises,
+the error propagates and the new token remains on ``client.refresh_token`` for
+recovery. Select a secure keyring backend appropriate to your environment.
+
+Set ``use_refresh_tokens=False`` when constructing the client to disable refresh
+tokens and use password authentication. The client itself keeps credentials in
+memory and does not write them to disk. Protect refresh tokens, use TLS, and do
+not share a refresh token between client instances or processes: concurrent
+exchanges can invalidate the token family. The client coordinates concurrent
+requests within one instance only.
+
+A refresh request whose response is lost may already have rotated the token.
+The client does not automatically retry a timed-out refresh; the application may
+need to log in again.
 
 
 Development

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import getpass
 import json
 import logging
 import os
 import re
 import socket
+import sys
 import time
 import warnings
 from dataclasses import InitVar, dataclass, field
@@ -161,14 +163,22 @@ def _describe_failed_job(job_id: str, job: dict) -> str:
 class FlexMeasuresClient:
     """Main class for connecting to the FlexMeasures API."""
 
-    password: str
-    email: str
+    password: str | None = field(default=None, repr=False)
+    email: str | None = None
     host: str = "localhost:5000"
     port: int | None = None
     ssl: bool = False
     api_version: str = API_VERSION
     path: str = f"/api/{api_version}/"
-    access_token: str | None = None
+    access_token: str | None = field(default=None, repr=False)
+    use_refresh_tokens: bool = field(default=True, kw_only=True)
+    refresh_token: str | None = field(default=None, repr=False, kw_only=True)
+    refresh_token_callback: Callable[[str], None] | None = field(
+        default=None, repr=False, kw_only=True
+    )
+    _auth_lock: asyncio.Lock = field(
+        default_factory=asyncio.Lock, init=False, repr=False
+    )
 
     # These govern the HTTP request/retry loop used throughout the client: auth,
     # version discovery, assets and sensors, data I/O, trigger requests, result
@@ -242,7 +252,7 @@ class FlexMeasuresClient:
         if self.session is None:
             self.session = ClientSession()
 
-        if not re.match(r".+\@.+\..+", self.email):
+        if self.email is not None and not re.match(r".+\@.+\..+", self.email):
             raise EmailValidationError(
                 f"{self.email} is not an email address format string"
             )
@@ -270,7 +280,7 @@ class FlexMeasuresClient:
                 f"https: // should not be included in {self.host}."
                 f"To use https: // set ssl=True and host={host_without_scheme}"
             )
-        if len(self.password) < 1:
+        if self.password == "":
             raise EmptyPasswordError("password cannot be empty")
         self.determine_port()
 
@@ -342,6 +352,7 @@ class FlexMeasuresClient:
         minimum_server_version: str | None = None,
         minimum_server_version_msg: str | None = None,
         pass_through_statuses: frozenset[int] = frozenset(),
+        retry_on_timeout: bool = True,
     ) -> tuple[dict | list, int]:
         """Send a request to FlexMeasures.
 
@@ -408,6 +419,7 @@ class FlexMeasuresClient:
                             reauth_once=reauth_once,
                             pass_through_statuses=pass_through_statuses,
                             rate_limit_callback=report_rate_limit,
+                            auth_token_used=headers.get("Authorization"),
                         )
                         if (
                             response.status < 300
@@ -430,6 +442,10 @@ class FlexMeasuresClient:
                                     self.logger.info(message)
                             break
                     except asyncio.TimeoutError:
+                        if not retry_on_timeout:
+                            raise ConnectionError(
+                                "Request timed out; its outcome is unknown."
+                            )
                         sleep_interval = self.request_retry_interval * (2**polling_step)
                         message = f"Client request timeout occurred while connecting to the API. Polling step: {polling_step}. Retrying in {sleep_interval} seconds..."  # noqa: E501
                         self.logger.debug(message)
@@ -477,12 +493,13 @@ class FlexMeasuresClient:
         reauth_once: bool = True,
         pass_through_statuses: frozenset[int] = frozenset(),
         rate_limit_callback: Callable[[str], None] | None = None,
+        auth_token_used: str | None = None,
     ) -> tuple[ClientResponse, int, bool, URL]:
         url_msg = f"url: {url}"
-        json_msg = f"payload: {json_payload}"
+        json_msg = "payload: [redacted]"
         params_msg = f"params: {params}"
         method_msg = f"method: {method}"
-        headers_msg = f"headers: {headers}"
+        headers_msg = "headers: [redacted]"
         self.logger.debug("===== Request =====")
         self.logger.debug(url_msg)
         self.logger.debug(json_msg)
@@ -506,9 +523,9 @@ class FlexMeasuresClient:
                 ssl=self.ssl,
                 allow_redirects=False,
             )
-            payload = await response.json()
+            await response.json()
         status_msg = f"status: {response.status}"
-        response_payload_msg = f"payload: {payload}"
+        response_payload_msg = "payload: [redacted]"
         headers_msg = f"headers: {response.headers}"
 
         self.logger.debug("===== Response =====")
@@ -538,6 +555,7 @@ class FlexMeasuresClient:
             method=method,
             pass_through_statuses=pass_through_statuses,
             rate_limit_callback=rate_limit_callback,
+            auth_token_used=auth_token_used,
         )
         return response, polling_step, reauth_once, url
 
@@ -564,7 +582,7 @@ class FlexMeasuresClient:
         if include_auth:
             access_token = self.access_token
             if access_token is None:
-                access_token = await self.get_access_token()
+                access_token = await self._authenticate(None)
             headers |= {"Authorization": access_token}
         return headers
 
@@ -577,24 +595,100 @@ class FlexMeasuresClient:
         )
         return url
 
-    async def get_access_token(self) -> str:
-        """Get access token, store it on the FlexMeasuresClient, and return it."""
-        response, _status = await self.request(
-            uri="requestAuthToken",
-            path="/api/",
-            json_payload={
-                "email": self.email,
-                "password": self.password,
-            },
-            include_auth=False,
-        )
+    async def _authenticate(self, previous_token: str | None) -> str:
+        """Refresh or log in once, even when several requests receive a 401."""
+        async with self._auth_lock:
+            if self.access_token is not None and self.access_token != previous_token:
+                return self.access_token
+            if self.use_refresh_tokens and self.refresh_token:
+                response, status = await self.request(
+                    uri="refreshAuthToken",
+                    path="/api/",
+                    json_payload={"refresh-token": self.refresh_token},
+                    include_auth=False,
+                    pass_through_statuses=frozenset({401, 503}),
+                    retry_on_timeout=False,
+                )
+                if status == 401:
+                    self.refresh_token = None
+                elif status == 503:
+                    raise ConnectionError(
+                        "Refresh failed with HTTP 503; its outcome may be unknown."
+                    )
+                else:
+                    return self._store_token_response(response, require_refresh=True)
+            return await self._login()
+
+    def _store_token_response(
+        self, response: dict | list, *, require_refresh: bool = False
+    ) -> str:
         if not isinstance(response, dict):
             raise ValueError(
-                f"Expected a JSON object from requestAuthToken, but got a {type(response).__name__}."
+                "Expected a JSON object from requestAuthToken, but got a "
+                f"{type(response).__name__}."
             )
-        access_token: str = response["auth_token"]
+        access_token = response["auth_token"]
+        refresh_token = response.get("refresh-token")
+        if require_refresh and not isinstance(refresh_token, str):
+            raise ValueError("Refresh response did not contain a refresh token.")
         self.access_token = access_token
+        self.refresh_token = refresh_token
+        if refresh_token is not None and self.refresh_token_callback is not None:
+            self.refresh_token_callback(refresh_token)
         return access_token
+
+    async def get_access_token(self) -> str:
+        """Refresh or log in, then store and return the access token."""
+        return await self._authenticate(self.access_token)
+
+    async def _login(self) -> str:
+        """Log in with credentials and store and return the access token."""
+        if self.email is None or self.password is None:
+            if not sys.stdin.isatty():
+                raise RuntimeError(
+                    "Email and password are required for login; no interactive terminal is available."
+                )
+            if self.email is None:
+                email = await asyncio.to_thread(input, "FlexMeasures email: ")
+                if not re.match(r".+\@.+\..+", email):
+                    raise EmailValidationError(
+                        f"{email} is not an email address format string"
+                    )
+                self.email = email
+            if self.password is None:
+                password = await asyncio.to_thread(
+                    getpass.getpass, "FlexMeasures password: "
+                )
+                if not password:
+                    raise EmptyPasswordError("password cannot be empty")
+                self.password = password
+        payload: dict[str, Any] = {"email": self.email, "password": self.password}
+        if self.use_refresh_tokens:
+            payload["include-refresh-token"] = True
+        response, status = await self.request(
+            uri="requestAuthToken",
+            path="/api/",
+            json_payload=payload,
+            include_auth=False,
+            pass_through_statuses=(
+                frozenset({422}) if self.use_refresh_tokens else frozenset()
+            ),
+        )
+        # Older servers reject unknown fields. Only retry for that specific error.
+        if status == 422:
+            message = (
+                str(response.get("message", "")) if isinstance(response, dict) else ""
+            )
+            if "include-refresh-token" not in message or "Unknown field" not in message:
+                raise ValueError(f"Request failed with status code 422: {message}")
+            del payload["include-refresh-token"]
+            response, _ = await self.request(
+                uri="requestAuthToken",
+                path="/api/",
+                json_payload=payload,
+                include_auth=False,
+            )
+        return self._store_token_response(response)
 
     async def get_versions(self):
         """Get the FlexMeasures version and the supported API versions of the FlexMeasures server.
