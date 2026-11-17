@@ -27,7 +27,7 @@ def get_day_pattern(date_time: pd.Timestamp) -> tuple:
 def generate_ev_soc_target_annotations(
     start: pd.Timestamp, end: pd.Timestamp
 ) -> list[dict[str, str]]:
-    """Return EV SoC deadline markers known 24 hours in advance.
+    """Return 30-minute markers centered on EV SoC deadlines, known 24h ahead.
 
     These are the nominal weekly targets. A simulated random trip can increase
     the minimum sent to the scheduler, so the annotation does not claim to show
@@ -55,7 +55,7 @@ def generate_ev_soc_target_annotations(
                 {
                     "content": content,
                     "start": (deadline - pd.Timedelta(minutes=15)).isoformat(),
-                    "end": deadline.isoformat(),
+                    "end": (deadline + pd.Timedelta(minutes=15)).isoformat(),
                     "prior": (deadline - pd.Timedelta(hours=24)).isoformat(),
                 }
             )
