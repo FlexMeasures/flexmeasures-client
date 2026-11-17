@@ -381,6 +381,54 @@ async def test_delete_sensor_confirm_no():
 
 
 @pytest.mark.asyncio
+async def test_delete_sensor_annotations_preserves_sensor():
+    with aioresponses() as responses:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "1.1.1"
+        url = "http://localhost:5000/api/v3_0/sensors/7/annotations"
+        # Repeating a deletion after all labels are gone must remain successful.
+        responses.delete(url, status=200, payload={"deleted": 2})
+        responses.delete(url, status=200, payload={"deleted": 0})
+
+        await client.delete_sensor_annotations(7, confirm_first=False)
+        await client.delete_sensor_annotations(7, confirm_first=False)
+
+        assert len(responses.requests) == 1
+        calls = next(iter(responses.requests.values()))
+        assert len(calls) == 2
+        assert all(c.kwargs["json"] == {} for c in calls)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_annotations_confirmation_declined():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with (
+        patch("builtins.input", return_value="n") as prompt,
+        patch.object(client, "request", new_callable=AsyncMock) as request,
+    ):
+        await client.delete_sensor_annotations(7)
+    assert "all annotations from sensor 7" in prompt.call_args.args[0]
+    request.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_annotations_rejects_unsupported_server():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.access_token = "test-token"
+    client.server_version = "1.0.0"
+    with aioresponses() as responses:
+        responses.delete(
+            "http://localhost:5000/api/v3_0/sensors/7/annotations", status=404
+        )
+        with pytest.raises(InsufficientServerVersionError):
+            await client.delete_sensor_annotations(7, confirm_first=False)
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_delete_sensor_data_preserves_sensor():
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")

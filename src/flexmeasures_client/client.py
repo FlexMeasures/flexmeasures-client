@@ -1850,6 +1850,35 @@ class FlexMeasuresClient:
         )
         check_for_status(status, 204)
 
+    async def delete_sensor_annotations(
+        self,
+        sensor_id: int,
+        confirm_first: bool = True,
+    ) -> None:
+        """Remove all annotations from a sensor while preserving the sensor.
+
+        Shared annotations remain registered on other sensors, assets or accounts.
+        The server deletes an annotation itself once its last link is removed.
+        Requires FlexMeasures v1.1.0 or above.
+        """
+        if confirm_first:
+            answer = input(
+                f"Permanently remove all annotations from sensor {sensor_id}? [y/N] "
+            )
+            if answer.lower() not in ["y", "yes"]:
+                print("Aborting ...")
+                return
+        _, status = await self.request(
+            uri=f"sensors/{sensor_id}/annotations",
+            json_payload={},
+            method="DELETE",
+            minimum_server_version="1.1.0",
+            minimum_server_version_msg=(
+                "Deleting sensor annotations requires FlexMeasures server v1.1.0 or above."
+            ),
+        )
+        check_for_status(status, 200)
+
     async def trigger_schedule(
         self,
         start: str | datetime,
