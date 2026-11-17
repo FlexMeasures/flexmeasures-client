@@ -23,6 +23,7 @@ finally:
 
 def make_state(status="ready"):
     return {
+        "workflow-version": hems_setup.WORKFLOW_VERSION,
         "status": status,
         "completed-phases": ["asset-setup"],
         "sensor-ids": [1, 2, 3],
@@ -44,15 +45,17 @@ def test_prompt_for_existing_setup_choices(answer, expected):
 
 
 def test_untracked_setup_cannot_resume():
-    with patch("builtins.input", side_effect=["n", "w"]):
+    # Untracked setups go through structural recovery, not the normal resume
+    # prompt. Reject resume and wipe until the user explicitly chooses repair.
+    with patch("builtins.input", side_effect=["n", "w", "c"]) as prompt:
         assert (
-            hems_setup.prompt_for_existing_setup(
-                {"id": 2, "name": "Example"},
-                "Community",
-                make_state(status="untracked"),
+            hems_setup.prompt_for_untracked_setup(
+                existing_site_names=["Building A"],
+                configured_site_names=["Building A"],
             )
-            == "wipe"
+            == "repair"
         )
+    assert prompt.call_count == 3
 
 
 def test_data_wipe_requires_exact_confirmation():

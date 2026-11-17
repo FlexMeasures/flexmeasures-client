@@ -46,7 +46,11 @@ def test_get_workflow_state_accepts_json_attributes():
         )
     }
 
-    assert workflow.get_workflow_state(asset) == make_state()
+    state = workflow.get_workflow_state(asset)
+    # Reading a marker preserves its recorded version; only an explicit upgrade
+    # changes it and invalidates phases. Version 1 must remain readable.
+    assert state == make_state(**{"workflow-version": 1})
+    assert workflow.state_needs_upgrade(state)
 
 
 def test_get_workflow_state_rejects_unknown_version():
@@ -77,7 +81,7 @@ async def test_save_workflow_state_preserves_other_attributes():
                 workflow.WORKFLOW_ATTRIBUTE: state,
             }
         },
-        parse_json_fields=False,
+        parse_json_fields=True,
     )
 
 
@@ -121,17 +125,23 @@ async def test_initialize_workflow_state_records_exact_structure_ids():
         client,
         community_asset={"id": 10},
         account_id=2,
+        site_names=["Building A", "Building B"],
         status="untracked",
     )
 
     assert state["status"] == "untracked"
     assert state["top-level-asset-ids"] == [10, 20, 30]
     assert state["sensor-ids"] == [101, 102, 103, 104]
+    assert state["site-names"] == ["Building A", "Building B"]
 
 
 @pytest.mark.asyncio
 async def test_wipe_hems_sensor_data_marks_state_around_deletions():
-    client = SimpleNamespace(delete_sensor_data=AsyncMock())
+    client = SimpleNamespace(
+        ensure_minimum_server_version=AsyncMock(),
+        delete_sensor_data=AsyncMock(),
+        delete_sensor_annotations=AsyncMock(),
+    )
     state = make_state(
         **{
             "completed-phases": list(workflow.PHASE_LABELS),
@@ -154,6 +164,10 @@ async def test_wipe_hems_sensor_data_marks_state_around_deletions():
     assert saved_states[0]["completed-phases"] == [workflow.ASSET_SETUP_PHASE]
     assert saved_states[-1]["status"] == "ready"
     assert client.delete_sensor_data.await_args_list == [
+        call(101, confirm_first=False),
+        call(102, confirm_first=False),
+    ]
+    assert client.delete_sensor_annotations.await_args_list == [
         call(101, confirm_first=False),
         call(102, confirm_first=False),
     ]
