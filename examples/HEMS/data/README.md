@@ -20,3 +20,17 @@ python3 examples/HEMS/generate_solar_data.py
 ```
 
 The generator is deterministic and uses only the Python standard library.
+
+`../synthetic_weather.py` generates a separate, imperfect irradiation forecast
+at runtime. A new forecast is issued every simulation step (four hours by
+default), covering up to 48 hours. Cloud timing errors, smoothing and intensity
+bias shrink as the lead time decreases, without becoming perfect. Historical
+issuances are included. Forecasts are stored on
+`irradiation-forecast`, with their issuance
+time as their belief time. This sensor also receives verifying measurements,
+known only at each hourly event's end: FlexMeasures v1.1.1 trains future
+covariates on realized history and uses forecasts for upcoming events. Without
+those observations, its training input would be missing and filled instead.
+Measured irradiation remains on `irradiation` as well. PV forecasting uses
+`irradiation-forecast` as a future regressor and `irradiation` as a past regressor.
+These are synthetic weather scenarios, not predictions from a weather service.

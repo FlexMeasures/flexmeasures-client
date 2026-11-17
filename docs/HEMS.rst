@@ -168,6 +168,40 @@ warning when this mode starts and, after each simulated step, prints a
 timestamped annotation for every measured 15-minute interval that exceeded the
 community limit.
 
+Synthetic weather forecasts
+===========================
+
+PV forecasting currently uses two irradiation sensors on the weather station:
+
+- ``irradiation`` contains measurements and serves as a past regressor.
+- ``irradiation-forecast`` contains synthetic forecasts **and a copy of the
+  measurements** and serves as a future regressor. The model trains this input
+  on its measured history and uses its forecasts for upcoming events.
+
+Observations and forecasts therefore share the future-regressor sensor, while
+the past regressor remains a separate sensor. The tutorial publishes a
+synthetic 48-hour irradiation forecast every simulation step (four hours by
+default, controlled by ``SIMULATION_STEP_HOURS``), including historical forecasts.
+Measurements on both sensors are recorded as known only at each hourly event's
+end. FlexMeasures v1.1.1 needs these realized values for
+the historical part of its future covariates; forecast-only history is discarded
+and cannot teach the model the relationship between irradiation and PV output.
+Each issuance has its own belief time, so a
+rolling PV forecast can only use weather predictions already published then.
+Weather forecasts are uploaded once for the shared weather station and ingestion
+finishes before PV forecasting starts.
+
+The synthetic weather predictions use the same daily cloud scenarios as the
+measurements, with smoothed clouds, timing errors and intensity bias that varies
+with the target day. Successive issuances reduce those errors as the lead time
+shrinks, while retaining some error even for the nearest events. They provide
+useful upcoming weather information without perfect knowledge of future
+production. Nighttime irradiation remains
+zero. The PV-condition annotations remain display labels, not model inputs.
+
+Resuming an older tutorial setup adds the forecast sensor and reruns forecasting,
+scheduling and reporting while preserving asset IDs and uploaded measurements.
+
 Reading the results
 ===================
 
@@ -190,18 +224,36 @@ Rerunning or resuming the tutorial
 ==================================
 
 The setup script records completed phases in a namespaced attribute on the
-community asset. If a tracked community already exists, the script shows which
-phases are complete and offers four choices:
+community asset.
+
+The tutorial version is ``WORKFLOW_VERSION`` in
+``examples/HEMS/utils/workflow_utils.py`` (separate from the server version).
+It is derived from ``WORKFLOW_UPGRADES``, which records each version's changes
+and the phases it invalidates. Both the preview and the applied upgrade use
+only entries newer than the stored version.
+The script displays it at startup and compares it with
+``attributes.hems_tutorial.workflow-version`` on the community asset.
+Before offering the choices below, it previews any required upgrade and lists
+which completed phases will rerun. After applying an upgrade it displays the
+updated version and phase status.
+
+If a tracked community already exists, the script offers four choices:
 
 - ``y`` recreates the HEMS assets. This deletes their sensors, IDs, and data,
   including the HEMS energy market and weather station, before creating
   replacements with new IDs. You must confirm this by typing ``RECREATE``.
 - ``w`` preserves the asset and sensor structure and IDs, but permanently
-  deletes all HEMS time-series data before restarting at data upload. This
+  deletes all HEMS time-series data and sensor annotations before restarting at
+  data upload. This
   includes uploads, forecasts, schedules, simulated measurements, and report
-  outputs. You must confirm this by typing ``WIPE``.
-- ``n`` (the default) preserves everything and resumes at the first unfinished
-  phase. Completed phases are skipped.
+  outputs, plus annotations such as PV conditions and EV target labels.
+  Shared annotations are removed from each recorded HEMS sensor; annotations
+  linked outside those sensors remain there. This requires FlexMeasures v1.1.0
+  or above. You must confirm this by typing ``WIPE``.
+- ``n`` (the default) keeps the setup and its IDs and measurements, upgrades an
+  older tutorial version if needed, then runs the pending phases shown above.
+  Completed phases unaffected by the upgrade are skipped. An upgrade can rerun
+  forecasting, scheduling and reporting even for a previously completed tutorial.
 - ``q`` exits without changing the setup.
 
 If an earlier data wipe was interrupted, normal resume is disabled because

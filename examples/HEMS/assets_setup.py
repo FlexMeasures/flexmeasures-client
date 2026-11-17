@@ -144,6 +144,13 @@ async def get_or_create_weather_station(client: FlexMeasuresClient):
         unit="W/m²",
         generic_asset_id=weather_asset["id"],
     )
+    await get_or_create_sensor(
+        client,
+        name="irradiation-forecast",
+        event_resolution="PT1H",
+        unit="W/m²",
+        generic_asset_id=weather_asset["id"],
+    )
     cloud_coverage_sensor = await get_or_create_sensor(
         client,
         name="cloud-coverage",

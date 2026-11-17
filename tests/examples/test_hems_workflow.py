@@ -32,7 +32,9 @@ from utils.workflow_utils import (  # noqa: E402
     SCHEDULING_PHASE,
     WORKFLOW_VERSION,
     get_site_assets,
+    get_upgrade_rerun_phases,
     get_workflow_state,
+    get_workflow_upgrades,
     rename_site_assets,
     state_needs_upgrade,
     upgrade_workflow_state,
@@ -145,10 +147,13 @@ async def test_completed_tutorial_prints_community_asset_id(capsys):
             community_name="Community Site", site_names=["Building A"]
         )
 
+    output = capsys.readouterr().out
+    assert f"Tutorial workflow version: {WORKFLOW_VERSION}" in output
+    assert "separate from the FlexMeasures server version" in output
     assert (
         "HEMS Tutorial completed successfully! Community asset "
         "'Community Site' (ID: 42)."
-    ) in capsys.readouterr().out
+    ) in output
     client.close.assert_awaited_once()
 
 
@@ -471,7 +476,61 @@ async def test_wipe_can_be_repeated_and_finishes_ready():
         call(10, confirm_first=False),
         call(11, confirm_first=False),
     ]
+    assert client.delete_sensor_annotations.await_args_list == [
+        call(10, confirm_first=False),
+        call(11, confirm_first=False),
+    ]
     assert client.update_asset.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_annotation_wipe_remains_recoverable():
+    client = AsyncMock()
+    client.delete_sensor_annotations.side_effect = RuntimeError(
+        "Annotation deletion failed"
+    )
+    state = _state(**{"sensor-ids": [10, 11]})
+    saved_states = []
+
+    async def save(client, community_id, state):
+        saved_states.append(state.copy())
+        return state
+
+    with patch("utils.workflow_utils.save_workflow_state", side_effect=save):
+        with pytest.raises(RuntimeError, match="Annotation deletion failed"):
+            await wipe_hems_sensor_data(client, 1, state)
+        assert [s["status"] for s in saved_states] == ["wiping"]
+        assert saved_states[-1]["completed-phases"] == [ASSET_SETUP_PHASE]
+        client.delete_sensor_annotations.side_effect = None
+        result = await wipe_hems_sensor_data(client, 1, saved_states[-1])
+
+    assert result["status"] == "ready"
+    assert [s["status"] for s in saved_states] == ["wiping", "wiping", "ready"]
+    assert client.delete_sensor_annotations.await_args_list == [
+        call(10, confirm_first=False),
+        call(10, confirm_first=False),
+        call(11, confirm_first=False),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_wipe_checks_annotation_support_before_deleting_anything():
+    client = AsyncMock()
+    client.ensure_minimum_server_version.side_effect = ValueError("Unsupported server")
+    with patch("utils.workflow_utils.save_workflow_state") as save:
+        with pytest.raises(ValueError, match="Unsupported server"):
+            await wipe_hems_sensor_data(client, 1, _state())
+    save.assert_not_awaited()
+    client.delete_sensor_data.assert_not_awaited()
+    client.delete_sensor_annotations.assert_not_awaited()
+
+
+def test_wipe_confirmation_mentions_annotations():
+    with patch("builtins.input", return_value="WIPE") as prompt:
+        assert HEMS_setup.confirm_data_wipe(_state())
+    assert (
+        "All annotations on those sensors are also removed" in prompt.call_args.args[0]
+    )
 
 
 def _state(**overrides) -> dict:
@@ -485,6 +544,69 @@ def _state(**overrides) -> dict:
         "site-names": ["Building A", "Building B"],
         **overrides,
     }
+
+
+@pytest.mark.parametrize("stored_version", [WORKFLOW_VERSION - 1, WORKFLOW_VERSION])
+def test_keep_setup_previews_upgrade_and_effective_pending_phases(
+    stored_version, capsys
+):
+    state = _state(
+        **{
+            "workflow-version": stored_version,
+            "completed-phases": list(HEMS_setup.PHASE_LABELS),
+        }
+    )
+    original_phases = list(state["completed-phases"])
+    with patch("builtins.input", return_value="n") as prompt:
+        assert (
+            HEMS_setup.prompt_for_existing_setup(
+                {"id": 9, "name": "Example"}, "Community", state
+            )
+            == "resume"
+        )
+    output = capsys.readouterr().out
+    assert f"Stored tutorial version: {stored_version}" in output
+    assert f"script tutorial version: {WORKFLOW_VERSION}" in output
+    assert "[n] Keep setup" in prompt.call_args.args[0]
+    if stored_version < WORKFLOW_VERSION:
+        assert "even if every phase was completed previously" in output
+        assert "Phases to rerun for this upgrade:" in output
+        pending = output.split("Will run after upgrade:")[1]
+        for phase in get_upgrade_rerun_phases(stored_version):
+            assert HEMS_setup.PHASE_LABELS[phase] in pending
+        assert (
+            f"upgrade tutorial version {stored_version} to {WORKFLOW_VERSION}"
+            in prompt.call_args.args[0]
+        )
+        assert "already complete" not in output
+    else:
+        assert "no upgrade is needed" in output
+        assert "Nothing; the tutorial is already complete" in output
+        assert (
+            f"tutorial version {WORKFLOW_VERSION} is current"
+            in prompt.call_args.args[0]
+        )
+    assert "if needed" not in prompt.call_args.args[0]
+    assert state["completed-phases"] == original_phases
+
+
+@pytest.mark.parametrize("stored_version", [1, 2, 3, WORKFLOW_VERSION])
+def test_upgrade_preview_includes_only_changes_since_stored_version(
+    stored_version, capsys
+):
+    state = _state(**{"workflow-version": stored_version})
+    HEMS_setup.print_workflow_summary(state)
+    output = capsys.readouterr().out
+    upgrades = get_workflow_upgrades(stored_version)
+    assert list(upgrades) == list(range(stored_version + 1, WORKFLOW_VERSION + 1))
+    for version, upgrade in HEMS_setup.get_workflow_upgrades(1).items():
+        assert (upgrade["description"] in output) == (version > stored_version)
+    expected = (
+        (FORECASTING_PHASE, SCHEDULING_PHASE, REPORTING_PHASE)
+        if stored_version < WORKFLOW_VERSION
+        else ()
+    )
+    assert get_upgrade_rerun_phases(stored_version) == expected
 
 
 def test_older_workflow_state_stays_valid_so_it_can_be_upgraded():
