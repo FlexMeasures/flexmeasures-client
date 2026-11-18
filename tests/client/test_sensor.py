@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 from urllib.parse import unquote
 
@@ -265,6 +266,47 @@ async def test_add_sensor_with_optional_params():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("status", [200, 201])
+async def test_add_sensor_annotation(status: int) -> None:
+    """New and already-existing annotations are both successful responses."""
+    with aioresponses() as responses:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        url = "http://localhost:5000/api/v3_0/sensors/42/annotations"
+        responses.post(url, status=status, payload={"id": 17})
+
+        annotation = await client.add_sensor_annotation(
+            sensor_id=42,
+            content="Synthetic PV conditions: Clear sky",
+            start=datetime.fromisoformat("2030-01-15T00:00:00+01:00"),
+            end="2030-01-16T00:00:00+01:00",
+            prior=datetime.fromisoformat("2029-12-31T00:00:00+01:00"),
+        )
+
+        assert annotation == {"id": 17}
+        responses.assert_called_once_with(
+            url,
+            method="POST",
+            json={
+                "content": "Synthetic PV conditions: Clear sky",
+                "start": "2030-01-15T00:00:00+01:00",
+                "end": "2030-01-16T00:00:00+01:00",
+                "type": "label",
+                "prior": "2029-12-31T00:00:00+01:00",
+            },
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_update_sensor():
     with aioresponses() as m:
         m.patch(
@@ -335,6 +377,54 @@ async def test_delete_sensor_confirm_no():
     client.access_token = "test-token"
     with patch("builtins.input", return_value="n"):
         await client.delete_sensor(sensor_id=1)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_annotations_preserves_sensor():
+    with aioresponses() as responses:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "1.1.1"
+        url = "http://localhost:5000/api/v3_0/sensors/7/annotations"
+        # Repeating a deletion after all labels are gone must remain successful.
+        responses.delete(url, status=200, payload={"deleted": 2})
+        responses.delete(url, status=200, payload={"deleted": 0})
+
+        await client.delete_sensor_annotations(7, confirm_first=False)
+        await client.delete_sensor_annotations(7, confirm_first=False)
+
+        assert len(responses.requests) == 1
+        calls = next(iter(responses.requests.values()))
+        assert len(calls) == 2
+        assert all(c.kwargs["json"] == {} for c in calls)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_annotations_confirmation_declined():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with (
+        patch("builtins.input", return_value="n") as prompt,
+        patch.object(client, "request", new_callable=AsyncMock) as request,
+    ):
+        await client.delete_sensor_annotations(7)
+    assert "all annotations from sensor 7" in prompt.call_args.args[0]
+    request.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_annotations_rejects_unsupported_server():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.access_token = "test-token"
+    client.server_version = "1.0.0"
+    with aioresponses() as responses:
+        responses.delete(
+            "http://localhost:5000/api/v3_0/sensors/7/annotations", status=404
+        )
+        with pytest.raises(InsufficientServerVersionError):
+            await client.delete_sensor_annotations(7, confirm_first=False)
     await client.close()
 
 

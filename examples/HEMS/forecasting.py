@@ -8,7 +8,13 @@ from const import (
     pv_name,
     weather_station_name,
 )
-from utils.asset_utils import find_sensors_by_asset
+from synthetic_weather import generate_weather_forecasts
+from utils.asset_utils import (
+    find_sensors_by_asset,
+    post_sensor_data_and_track_ingestion,
+    upload_csv_file_to_sensor,
+    wait_for_ingestion_jobs,
+)
 
 from flexmeasures_client import FlexMeasuresClient
 
@@ -19,10 +25,11 @@ async def generate_sensor_forecasts(
     asset_name: str,
     community_name: str,
     regressors: list[tuple[str, str]] | None = None,
+    future_regressors: list[tuple[str, str]] | None = None,
 ) -> str | None:
     """
-    Generate forecasts for the second week and wait until the job finishes.
-    Returns sensor ID as str, or None if a failure happened.
+    Generate rolling forecasts for the simulation and wait until the job finishes.
+    Return the forecast job ID, or None if the target sensor is missing.
     """
     print(f"Generating {sensor_name} forecasts for {asset_name}...")
 
@@ -31,10 +38,10 @@ async def generate_sensor_forecasts(
         # (key, sensor name, asset name)
         (sensor_name, sensor_name, asset_name),
     ]
-    if regressors is not None:
-        sensor_mappings.extend(
-            [(regressor[0], regressor[0], regressor[1]) for regressor in regressors]
-        )
+    for regressor_name, regressor_asset in (regressors or []) + (
+        future_regressors or []
+    ):
+        sensor_mappings.append((regressor_name, regressor_name, regressor_asset))
     sensors = await find_sensors_by_asset(
         client=client,
         sensor_mappings=sensor_mappings,
@@ -65,6 +72,11 @@ async def generate_sensor_forecasts(
                 if regressor_sensors
                 else None
             ),
+            future_regressors=(
+                [sensors[name]["id"] for name, _ in future_regressors]
+                if future_regressors
+                else None
+            ),
         )
         print(f"Forecast triggered with ID: {forecast_id}")
         await client.get_forecast(
@@ -87,6 +99,32 @@ async def generate_forecasts(
 ):
     """Generate forecasts for sensors that need to be forecasted for tutorial."""
 
+    # The v1.1.1 pipeline trains future covariates on realized history and uses
+    # forecasts ahead. Forecast-only history would be discarded and filled,
+    # leaving the model unable to learn the irradiation-to-PV relationship.
+    weather = await find_sensors_by_asset(
+        client,
+        [("weather", "irradiation-forecast", weather_station_name)],
+        community_name,
+    )
+    pending_ingestion_jobs: list[str] = []
+    await upload_csv_file_to_sensor(
+        client=client,
+        sensor_id=weather["weather"]["id"],
+        file_path="data/irradiation_data.csv",
+        belief_time_measured_instantly=True,
+        pending_ingestion_jobs=pending_ingestion_jobs,
+    )
+    for forecast in generate_weather_forecasts():
+        await post_sensor_data_and_track_ingestion(
+            client=client,
+            pending_ingestion_jobs=pending_ingestion_jobs,
+            sensor_id=weather["weather"]["id"],
+            await_ingestion=False,
+            **forecast,
+        )
+    await wait_for_ingestion_jobs(client, pending_ingestion_jobs)
+
     forecast_configs = []
     for i, site_name in enumerate(site_names, start=1):
         forecast_configs.extend(
@@ -96,6 +134,9 @@ async def generate_forecasts(
                     "asset_name": f"{pv_name} {i}",
                     "sensor_name": "electricity-production",
                     "regressors": [("irradiation", weather_station_name)],
+                    "future_regressors": [
+                        ("irradiation-forecast", weather_station_name)
+                    ],
                 },
                 {
                     "community_name": community_name,
@@ -119,4 +160,5 @@ async def generate_forecasts(
             asset_name=config["asset_name"],
             community_name=config["community_name"],
             regressors=config.get("regressors", None),
+            future_regressors=config.get("future_regressors"),
         )
