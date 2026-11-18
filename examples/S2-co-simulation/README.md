@@ -18,6 +18,16 @@ with two switches on:
   resource manager retries. Its schedules start from the simulated now and cover
   24 hours. The site's prices are for whoever runs the simulation to post.
 
+A third switch is off by default:
+
+- `S2_CORRECT_USAGE`: a usage forecast that no plan can absorb within the storage's
+  hard bounds is corrected towards zero, instead of leaving the home without a plan.
+  Each site gets a `usage correction` sensor, which records where the plan corrected
+  the forecast. A negative expected usage is then planned as the gain it states,
+  rather than as none. The request also sets the breach prices of the fill-level band
+  and the site's capacity relative to the market, rather than leaving them to
+  FlexMeasures' defaults. It needs FlexMeasures v1.1.0 or newer.
+
 FlexMeasures reads three settings a co-simulation needs from its instance config
 (`flexmeasures-instance/flexmeasures.cfg` in the flexmeasures checkout), not from the environment:
 

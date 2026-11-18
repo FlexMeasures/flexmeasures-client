@@ -13,6 +13,7 @@ from const import (
     HEMS_REQUEST_RETRY_TIMEOUT_SECONDS,
     PV_MODE,
     SITE_NAMES,
+    SOLVE_AS_COMMUNITY,
     host,
     pwd,
     ssl,
@@ -30,7 +31,9 @@ from utils.workflow_utils import (
     SCHEDULING_PHASE,
     WORKFLOW_VERSION,
     get_site_assets,
+    get_upgrade_rerun_phases,
     get_workflow_state,
+    get_workflow_upgrades,
     initialize_workflow_state,
     mark_phase_complete,
     phase_is_complete,
@@ -53,14 +56,46 @@ def print_job_status_notice(message: str) -> None:
     print(f"[JOB] {message}", flush=True)
 
 
+def print_upgrade_changes(stored_version: int) -> None:
+    """Explain each version change that applies to this setup."""
+    print("Changes included in this upgrade:")
+    for version, upgrade in get_workflow_upgrades(stored_version).items():
+        print(f"- Version {version}: {upgrade['description']}")
+
+
 def print_workflow_summary(state: dict) -> None:
-    """Show which phases resume mode will skip and run."""
+    """Preview the phases that keeping this setup will actually skip and run."""
     completed = set(state["completed-phases"])
-    print("\nCompleted phases:")
+    stored_version = state.get("workflow-version", WORKFLOW_VERSION)
+    needs_upgrade = stored_version < WORKFLOW_VERSION
+    print(
+        f"Stored tutorial version: {stored_version}; "
+        f"script tutorial version: {WORKFLOW_VERSION}."
+    )
+    if needs_upgrade:
+        print(
+            f"Keeping this setup will upgrade tutorial version {stored_version} "
+            f"to {WORKFLOW_VERSION}, even if every phase was completed previously."
+        )
+        print_upgrade_changes(stored_version)
+        print(
+            "Asset and sensor IDs and uploaded measurements are preserved. "
+            "Missing structure is added."
+        )
+        print("Phases to rerun for this upgrade:")
+        rerun_phases = get_upgrade_rerun_phases(stored_version)
+        for phase in rerun_phases:
+            print(f"- {PHASE_LABELS[phase]}")
+        completed.difference_update(rerun_phases)
+    else:
+        print(
+            "Tutorial versions match; no upgrade is needed. Completed phases are kept."
+        )
+    print("\nPhases kept complete:" if needs_upgrade else "\nCompleted phases:")
     for phase, label in PHASE_LABELS.items():
         if phase in completed:
             print(f"- {label}")
-    print("Still to run:")
+    print("Will run after upgrade:" if needs_upgrade else "Still to run:")
     remaining = [
         label for phase, label in PHASE_LABELS.items() if phase not in completed
     ]
@@ -78,6 +113,17 @@ def prompt_for_existing_setup(account: dict, community_name: str, state: dict) -
         f"'{account['name']}' (ID: {account['id']})."
     )
     print_workflow_summary(state)
+    stored_version = state.get("workflow-version", WORKFLOW_VERSION)
+    if stored_version < WORKFLOW_VERSION:
+        keep_action = (
+            f"upgrade tutorial version {stored_version} to {WORKFLOW_VERSION}, "
+            "then run the phases listed above"
+        )
+    else:
+        keep_action = (
+            f"tutorial version {WORKFLOW_VERSION} is current; "
+            "run only the pending phases listed above"
+        )
     while True:
         answer = (
             input(
@@ -85,10 +131,11 @@ def prompt_for_existing_setup(account: dict, community_name: str, state: dict) -
                 "  [y] Recreate assets — delete assets, sensors, IDs, and data "
                 "(requires typing RECREATE).\n"
                 "  [w] Wipe data — preserve the asset and sensor structure and IDs, "
-                "delete all HEMS time-series data, then restart at data upload "
+                "delete all HEMS time-series data and sensor annotations, then "
+                "restart at data upload "
                 "(requires typing WIPE).\n"
-                "  [n] Resume — preserve everything and continue from the first "
-                "unfinished phase.\n"
+                f"  [n] Keep setup — {keep_action}. "
+                "Preserve IDs and uploaded measurements.\n"
                 "  [q] Exit without making changes.\n"
                 "Choice [y/w/N/q]: "
             )
@@ -209,12 +256,13 @@ def confirm_recreation(account: dict, community_name: str) -> bool:
 
 
 def confirm_data_wipe(state: dict) -> bool:
-    """Require explicit confirmation before deleting HEMS sensor data."""
+    """Require explicit confirmation before deleting HEMS data and annotations."""
     sensor_count = len(state["sensor-ids"])
     answer = input(
         f"This permanently deletes all time-series data from {sensor_count} "
         "HEMS sensors, including uploads, forecasts, schedules, simulated "
-        "measurements, and report outputs. Asset and sensor IDs are preserved.\n"
+        "measurements, and report outputs. All annotations on those sensors "
+        "are also removed. Asset and sensor IDs are preserved.\n"
         "Type WIPE to continue: "
     )
     return answer == "WIPE"
@@ -234,9 +282,7 @@ async def upgrade_existing_setup(
     version introduced (sensors, flex-context fields, dashboard panels) while
     every existing asset and sensor keeps its ID and its data.
 
-    Only report generation is re-run afterwards: the reports are what write the
-    sensors an upgrade is most likely to have added, while the uploaded data,
-    forecasts and schedules remain valid.
+    The version registry supplies the explanations and phases to regenerate.
     """
     print(
         f"Upgrading this setup from tutorial version {state['workflow-version']} "
@@ -244,8 +290,13 @@ async def upgrade_existing_setup(
     )
     print(
         "Existing assets, sensors and data are preserved; missing structure is "
-        "added and reports are regenerated."
+        "added."
     )
+    print_upgrade_changes(state["workflow-version"])
+    rerun_phases = get_upgrade_rerun_phases(state["workflow-version"])
+    print("Phases to rerun for this upgrade:")
+    for phase in rerun_phases:
+        print(f"- {PHASE_LABELS[phase]}")
     community_asset = await create_community_asset(
         client,
         account,
@@ -253,17 +304,23 @@ async def upgrade_existing_setup(
         site_names=site_names,
         community_asset=community_asset,
     )
-    return await upgrade_workflow_state(
+    upgraded_state = await upgrade_workflow_state(
         client=client,
         community_asset=community_asset,
         account_id=account["id"],
         state=state,
-        phases_to_rerun=(REPORTING_PHASE,),
+        phases_to_rerun=rerun_phases,
     )
+    print(f"Upgrade complete. Stored tutorial version is now {WORKFLOW_VERSION}.")
+    print_workflow_summary(upgraded_state)
+    return upgraded_state
 
 
 async def main(
-    community_name: str, site_names: list[str], callback: Callable = just_continue
+    community_name: str,
+    site_names: list[str],
+    callback: Callable = just_continue,
+    solve_as_community: bool = SOLVE_AS_COMMUNITY,
 ):
     """
     Complete HEMS setup using FlexMeasures client.
@@ -279,6 +336,11 @@ async def main(
     """
 
     print("Starting FlexMeasures HEMS")
+    print(f"Tutorial workflow version: {WORKFLOW_VERSION}")
+    print(
+        "This tutorial version controls setup upgrades and which completed "
+        "phases must rerun. It is separate from the FlexMeasures server version."
+    )
     print("=" * 50)
 
     if PV_MODE not in {"inflexible", "curtailable"}:
@@ -496,6 +558,7 @@ async def main(
                 community_name=community_name,
                 site_names=active_site_names,
                 callback=callback,
+                solve_as_community=solve_as_community,
             )
             if not scheduling_succeeded:
                 raise RuntimeError("Scheduling simulation did not complete.")
@@ -519,7 +582,10 @@ async def main(
                 client, asset["id"], state, REPORTING_PHASE
             )
         print("\n" + "=" * 50)
-        print("HEMS Tutorial completed successfully!")
+        print(
+            "HEMS Tutorial completed successfully! "
+            f"Community asset '{community_name}' (ID: {asset['id']})."
+        )
 
     except Exception as e:
         print(f" Error during setup: {e}")
@@ -532,4 +598,10 @@ if __name__ == "__main__":
     community_name = COMMUNITY_NAME
     site_names = SITE_NAMES
 
-    asyncio.run(main(community_name=community_name, site_names=site_names))
+    asyncio.run(
+        main(
+            community_name=community_name,
+            site_names=site_names,
+            solve_as_community=SOLVE_AS_COMMUNITY,
+        )
+    )

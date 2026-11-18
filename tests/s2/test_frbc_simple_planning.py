@@ -651,7 +651,7 @@ async def test_a_request_out_of_date_makes_no_further_attempt_while_the_newest_w
     frbc = frbc_simple()
     frbc._schedule_attempts = 5
     frbc._schedule_retry_interval = td(milliseconds=10)
-    frbc._is_worth_asking_again = lambda failure: True
+    frbc._is_worth_asking_again = AsyncMock(return_value=True)
     first_attempt = asyncio.Event()
     planned = frbc._fm_client.trigger_and_get_schedule.return_value
 

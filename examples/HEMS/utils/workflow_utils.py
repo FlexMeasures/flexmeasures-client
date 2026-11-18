@@ -7,11 +7,6 @@ from const import price_market_name, weather_station_name
 from flexmeasures_client import FlexMeasuresClient
 
 WORKFLOW_ATTRIBUTE = "hems_tutorial"
-#: Bump whenever the tutorial changes the asset/sensor structure, the site
-#: flex-context or the dashboard, so that setups created by an older version
-#: are upgraded in place instead of silently keeping the old structure.
-WORKFLOW_VERSION = 2
-
 ASSET_SETUP_PHASE = "asset-setup"
 DATA_UPLOAD_PHASE = "historical-data-upload"
 FORECASTING_PHASE = "forecasting"
@@ -25,6 +20,48 @@ PHASE_LABELS = {
     SCHEDULING_PHASE: "Scheduling simulation",
     REPORTING_PHASE: "Report generation",
 }
+
+# Add an entry whenever a tutorial change requires existing setups to upgrade.
+# Keep the explanation and invalidated phases together; the current version is
+# derived from this registry so a version cannot be bumped without an entry.
+WORKFLOW_UPGRADES = {
+    2: {
+        "description": "Update the tutorial asset/sensor setup and reporting configuration.",
+        "rerun-phases": (REPORTING_PHASE,),
+    },
+    3: {
+        "description": "Add imperfect synthetic irradiation forecasts as a future input to PV forecasting.",
+        "rerun-phases": (FORECASTING_PHASE, SCHEDULING_PHASE, REPORTING_PHASE),
+    },
+    4: {
+        "description": "Update irradiation forecasts every simulation step (four hours by default), with smaller errors at shorter lead times.",
+        "rerun-phases": (FORECASTING_PHASE, SCHEDULING_PHASE, REPORTING_PHASE),
+    },
+    5: {
+        "description": "Supply measured irradiation history on the future weather input so PV forecasting can learn its relationship to production. Measurements become known only at each event's end.",
+        "rerun-phases": (FORECASTING_PHASE, SCHEDULING_PHASE, REPORTING_PHASE),
+    },
+}
+WORKFLOW_VERSION = max(WORKFLOW_UPGRADES)
+
+
+def get_workflow_upgrades(stored_version: int) -> dict:
+    """Return only changes newer than the stored tutorial version, in order."""
+    return {
+        version: WORKFLOW_UPGRADES[version]
+        for version in sorted(WORKFLOW_UPGRADES)
+        if stored_version < version <= WORKFLOW_VERSION
+    }
+
+
+def get_upgrade_rerun_phases(stored_version: int) -> tuple[str, ...]:
+    """Combine the pending upgrades' invalidated phases in execution order."""
+    phases = {
+        phase
+        for upgrade in get_workflow_upgrades(stored_version).values()
+        for phase in upgrade["rerun-phases"]
+    }
+    return tuple(phase for phase in PHASE_LABELS if phase in phases)
 
 
 def get_workflow_state(community_asset: dict) -> dict | None:
@@ -267,7 +304,13 @@ async def wipe_hems_sensor_data(
     community_asset_id: int,
     state: dict,
 ) -> dict:
-    """Delete HEMS time-series data and reset all data phase markers."""
+    """Delete HEMS time-series data and annotations, then reset data phases."""
+    # Check before deleting anything: older servers can wipe measurements but
+    # cannot clear the annotations that would otherwise conflict on a rerun.
+    await client.ensure_minimum_server_version(
+        "1.1.0",
+        "Wiping HEMS data and annotations requires FlexMeasures v1.1.0 or above.",
+    )
     state = {
         **state,
         "status": "wiping",
@@ -276,9 +319,12 @@ async def wipe_hems_sensor_data(
     await save_workflow_state(client, community_asset_id, state)
 
     sensor_ids = state["sensor-ids"]
-    print(f"Deleting time-series data from {len(sensor_ids)} HEMS sensors...")
+    print(
+        f"Deleting time-series data and annotations from {len(sensor_ids)} HEMS sensors..."
+    )
     for sensor_id in sensor_ids:
         await client.delete_sensor_data(sensor_id, confirm_first=False)
+        await client.delete_sensor_annotations(sensor_id, confirm_first=False)
 
     state = {**state, "status": "ready"}
     return await save_workflow_state(client, community_asset_id, state)

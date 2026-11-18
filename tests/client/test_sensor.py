@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 from urllib.parse import unquote
 
@@ -16,6 +17,7 @@ from flexmeasures_client.constants import CLIENT_VERSION_HEADER
 from flexmeasures_client.exceptions import (
     InsufficientServerVersionError,
     JobFailedError,
+    JobTimeoutError,
 )
 
 
@@ -264,6 +266,47 @@ async def test_add_sensor_with_optional_params():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("status", [200, 201])
+async def test_add_sensor_annotation(status: int) -> None:
+    """New and already-existing annotations are both successful responses."""
+    with aioresponses() as responses:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        url = "http://localhost:5000/api/v3_0/sensors/42/annotations"
+        responses.post(url, status=status, payload={"id": 17})
+
+        annotation = await client.add_sensor_annotation(
+            sensor_id=42,
+            content="Synthetic PV conditions: Clear sky",
+            start=datetime.fromisoformat("2030-01-15T00:00:00+01:00"),
+            end="2030-01-16T00:00:00+01:00",
+            prior=datetime.fromisoformat("2029-12-31T00:00:00+01:00"),
+        )
+
+        assert annotation == {"id": 17}
+        responses.assert_called_once_with(
+            url,
+            method="POST",
+            json={
+                "content": "Synthetic PV conditions: Clear sky",
+                "start": "2030-01-15T00:00:00+01:00",
+                "end": "2030-01-16T00:00:00+01:00",
+                "type": "label",
+                "prior": "2029-12-31T00:00:00+01:00",
+            },
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_update_sensor():
     with aioresponses() as m:
         m.patch(
@@ -334,6 +377,54 @@ async def test_delete_sensor_confirm_no():
     client.access_token = "test-token"
     with patch("builtins.input", return_value="n"):
         await client.delete_sensor(sensor_id=1)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_annotations_preserves_sensor():
+    with aioresponses() as responses:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "1.1.1"
+        url = "http://localhost:5000/api/v3_0/sensors/7/annotations"
+        # Repeating a deletion after all labels are gone must remain successful.
+        responses.delete(url, status=200, payload={"deleted": 2})
+        responses.delete(url, status=200, payload={"deleted": 0})
+
+        await client.delete_sensor_annotations(7, confirm_first=False)
+        await client.delete_sensor_annotations(7, confirm_first=False)
+
+        assert len(responses.requests) == 1
+        calls = next(iter(responses.requests.values()))
+        assert len(calls) == 2
+        assert all(c.kwargs["json"] == {} for c in calls)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_annotations_confirmation_declined():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    with (
+        patch("builtins.input", return_value="n") as prompt,
+        patch.object(client, "request", new_callable=AsyncMock) as request,
+    ):
+        await client.delete_sensor_annotations(7)
+    assert "all annotations from sensor 7" in prompt.call_args.args[0]
+    request.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_sensor_annotations_rejects_unsupported_server():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.access_token = "test-token"
+    client.server_version = "1.0.0"
+    with aioresponses() as responses:
+        responses.delete(
+            "http://localhost:5000/api/v3_0/sensors/7/annotations", status=404
+        )
+        with pytest.raises(InsufficientServerVersionError):
+            await client.delete_sensor_annotations(7, confirm_first=False)
     await client.close()
 
 
@@ -1070,6 +1161,66 @@ async def test_post_sensor_data_await_ingestion_timeout(caplog):
 
 
 @pytest.mark.asyncio
+async def test_post_sensor_data_confirm_ingestion_raises_on_timeout(caplog):
+    """A caller that remembers having recorded the data is told it may not have been, instead of carrying on."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.ingestion_polling_timeout = 0.05
+        client.ingestion_polling_interval = 0.01
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-4"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-4",
+            status=200,
+            payload={"status": "QUEUED", "message": "waiting", "result": None},
+            repeat=True,
+        )
+
+        with pytest.raises(JobTimeoutError):
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+                confirm_ingestion=True,
+            )
+        assert any("unconfirmed" in record.message for record in caplog.records)
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_confirm_ingestion_raises_where_the_job_cannot_be_looked_up():
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.request_retry_interval = 0.01
+        sensor_id = 5
+        m.post(
+            f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-5"},
+        )
+        m.get("http://localhost:5000/api/v3_0/jobs/job-5", status=404, repeat=True)
+
+        with pytest.raises((ConnectionError, ValueError)):
+            await client.post_sensor_data(
+                sensor_id=sensor_id,
+                start="2023-01-01T00:00+00:00",
+                duration="PT1H",
+                values=[1.0],
+                unit="MW",
+                confirm_ingestion=True,
+            )
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_post_sensor_data_synchronous_response_is_not_polled():
     """A synchronous 200 OK answer names no job, so nothing is polled."""
     with aioresponses() as m:
@@ -1079,9 +1230,9 @@ async def test_post_sensor_data_synchronous_response_is_not_polled():
         m.post(
             f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/data",
             status=200,
-            payload={"status": "PROCESSED", "message": "ok"},
+            # Naming a job all the same, so that only the status keeps it from being polled.
+            payload={"status": "PROCESSED", "message": "ok", "job": "job-9"},
         )
-        # No job endpoint is registered, so a poll would fail the test by raising here.
 
         response, status = await client.post_sensor_data(
             sensor_id=sensor_id,
@@ -1092,6 +1243,7 @@ async def test_post_sensor_data_synchronous_response_is_not_polled():
         )
 
         assert status == 200
+        assert not any(method == "GET" for method, _ in m.requests), "nothing is polled"
         await client.close()
 
 
@@ -1112,7 +1264,8 @@ async def test_post_sensor_data_await_ingestion_false_is_not_polled():
                 "job": "job-4",
             },
         )
-        # No job endpoint is registered, so a poll would fail the test by raising here.
+        # An unregistered job endpoint would not fail the test by itself:
+        # the poll's ConnectionError is swallowed by the ingestion wait, so the requests are checked instead.
 
         response, status = await client.post_sensor_data(
             sensor_id=sensor_id,
@@ -1124,6 +1277,7 @@ async def test_post_sensor_data_await_ingestion_false_is_not_polled():
         )
 
         assert status == 202
+        assert not any(method == "GET" for method, _ in m.requests), "nothing is polled"
         await client.close()
 
 
@@ -1246,6 +1400,79 @@ async def test_post_measurements_awaits_ingestion_and_can_opt_out():
                 unit="MW",
                 await_ingestion=False,
             )
+        assert not any(
+            method == "GET" and url.path == "/api/v3_0/jobs/job-8"
+            for method, url in m.requests
+        ), "the opt-out is passed on"
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_sensor_data_awaits_a_job_named_the_way_0_33_named_it():
+    """FlexMeasures 0.33.0 named the job ``job_id``, before 1.0.0 settled on ``job``."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/5/data",
+            status=202,
+            payload={"status": "ACCEPTED", "job_id": "job-10"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-10",
+            status=200,
+            payload={"status": "FINISHED", "message": "ok", "result": None},
+        )
+
+        await client.post_sensor_data(
+            sensor_id=5,
+            start="2023-01-01T00:00+00:00",
+            duration="PT1H",
+            values=[1.0],
+            unit="MW",
+        )
+
+        assert any(
+            method == "GET" and url.path == "/api/v3_0/jobs/job-10"
+            for method, url in m.requests
+        )
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("await_ingestion", [True, False])
+async def test_a_file_upload_awaits_its_ingestion_unless_told_not_to(
+    await_ingestion, tmp_path
+):
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("datetime,value\n2023-01-01T00:00+00:00,1.0\n")
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        client.server_version = "1.1.0"
+        m.post(
+            "http://localhost:5000/api/v3_0/sensors/1/data/upload",
+            status=202,
+            payload={"status": "ACCEPTED", "job": "job-11"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/job-11",
+            status=200,
+            payload={"status": "FINISHED", "message": "ok", "result": None},
+        )
+
+        await client.post_sensor_data(
+            sensor_id=1,
+            file_path=str(csv_path),
+            unit="kW",
+            await_ingestion=await_ingestion,
+        )
+
+        polled = any(
+            method == "GET" and url.path == "/api/v3_0/jobs/job-11"
+            for method, url in m.requests
+        )
+        assert polled is await_ingestion
         await client.close()
 
 

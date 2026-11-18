@@ -475,11 +475,11 @@ class FlexMeasuresClient:
                 "Request retry timeout while connecting to the API."
             ) from exception
 
-        # request_once has already parsed this answer with aiohttp's json(),
-        # which refuses a content type that is not JSON, and the loop above reports that as a ConnectionError.
-        # A check that used to follow here refused the JSON variants aiohttp accepts too, such as application/problem+json,
-        # with an error that could not even be printed, so it is gone.
-        # A body that is not JSON under a JSON content type is refused by json() itself, as a JSONDecodeError.
+        # request_once has already parsed this response with aiohttp's json().
+        # json() refuses a content type that is not JSON, and the loop above reports that as a ConnectionError.
+        # A check used to follow here, but it also refused JSON variants that aiohttp accepts, such as application/problem+json.
+        # Its error could not even be printed, so the check was removed.
+        # A body that is not JSON under a JSON content type makes json() itself raise a JSONDecodeError.
         return await response.json(), response.status
 
     async def request_once(
@@ -758,6 +758,7 @@ class FlexMeasuresClient:
         file_path: str | None = None,
         belief_time_measured_instantly: bool = False,
         await_ingestion: bool = True,
+        confirm_ingestion: bool = False,
     ):
         """
         Post sensor data for the given time range.
@@ -770,19 +771,24 @@ class FlexMeasuresClient:
 
         The method automatically chooses the appropriate API endpoint based on the provided parameters.
 
-        Since FlexMeasures 0.33.0, a server with an ingestion worker available answers ``202 Accepted`` with the id of a background job,
-        rather than ``200 OK``, and ingests the data after the request has returned.
-        By default this method then waits for that job to finish,
-        so that a caller which reads the data back, or asks for a schedule over it, sees what it just posted.
+        Since FlexMeasures 0.33.0, a server with an available ingestion worker responds ``202 Accepted`` instead of ``200 OK``,
+        with the id of a background job.
+        The server then ingests the data after the request has returned.
+        By default, this method waits for that job to finish.
+        This way, a caller that reads the data back, or asks for a schedule over it, sees the data it just posted.
 
         :param await_ingestion: whether to wait for asynchronous ingestion to finish,
-            when the server answered ``202 Accepted`` with a job id.
-            Waiting is polled on the ``ingestion_polling_*`` profile, which is tighter than the one other jobs are polled on.
+            when the server responded ``202 Accepted`` with a job id.
+            The job is polled on the ``ingestion_polling_*`` profile, which is tighter than the profile for other jobs.
             A job that fails raises :class:`JobFailedError`.
-            A job still pending when ``self.ingestion_polling_timeout`` is reached is logged as an error and otherwise ignored,
-            since the data may well land moments later, and a caller that has waited that long is better served by carrying on than by failing.
+            A job that is still pending when ``self.ingestion_polling_timeout`` is reached is logged as an error and otherwise ignored.
+            The data may well land moments later, and a caller that has waited that long is better off carrying on than failing.
             Pass ``False`` to return as soon as the server has accepted the data.
-            A synchronous ``200 OK`` response is unaffected either way.
+            Either way, a synchronous ``200 OK`` response is unaffected.
+        :param confirm_ingestion: whether to raise when ingestion could not be confirmed while waiting for it, instead of logging and ignoring that.
+            If the job was still pending at the timeout, this raises :class:`JobTimeoutError`.
+            If looking the job up failed, this raises the error from the lookup.
+            Use this if the caller remembers having recorded the data, and would otherwise never record it again.
 
         This function raises a ValueError when an unhandled status code is returned.
         """
@@ -834,6 +840,7 @@ class FlexMeasuresClient:
                 unit=unit,
                 prior=prior,
                 await_ingestion=await_ingestion,
+                confirm_ingestion=confirm_ingestion,
             )
         else:
             # Type assertion to help the type checker understand that file_path is not None
@@ -846,6 +853,7 @@ class FlexMeasuresClient:
                 belief_time_measured_instantly=belief_time_measured_instantly,
                 unit=unit,
                 await_ingestion=await_ingestion,
+                confirm_ingestion=confirm_ingestion,
             )
 
     @staticmethod
@@ -861,20 +869,26 @@ class FlexMeasuresClient:
         job_id = response.get("job") or response.get("job_id")
         return job_id if isinstance(job_id, str) else None
 
-    async def _await_sensor_data_ingestion(self, job_id: str) -> None:
+    async def _await_sensor_data_ingestion(
+        self, job_id: str, confirm_ingestion: bool = False
+    ) -> None:
         """Wait for an ingestion job to finish, so that the data it carries can be read back.
 
-        Waiting is left to :func:`wait_for_job`, so ingestion is backed off like every other job this client waits for,
-        and reported through the same ``job_status_notifier``, on the ``ingestion_polling_*`` intervals rather than the ``job_polling_*`` ones.
+        Waiting is delegated to :func:`wait_for_job`.
+        So ingestion is backed off like every other job this client waits for,
+        and reported through the same ``job_status_notifier``.
+        The only difference is that it uses the ``ingestion_polling_*`` intervals, instead of the ``job_polling_*`` ones.
 
-        A failed job propagates as :class:`JobFailedError`, for the caller to handle like any other failed post.
-        Nothing else does.
-        A timeout is logged as an error and otherwise ignored, for the reason given in :func:`post_sensor_data`,
-        and so is a failure to look the job up at all, which says nothing about the data:
-        the server accepted that, and a job record can be gone, or answered for by something in front of the server, by the time it is asked about.
-        Raising there would report a post that succeeded as a post that failed.
-        A lookup that 404s is reported as a ``ConnectionError`` by :func:`request`, which wraps every client error that way,
-        so that is among the ones caught here, alongside the ``ValueError`` an unexpected status code raises.
+        A failed job raises :class:`JobFailedError`, which the caller handles like any other failed post.
+        By default, no other error is raised.
+        A timeout is logged as an error and otherwise ignored, for the reason given in :func:`post_sensor_data`.
+        The same goes for a failure to look the job up at all, which says nothing about the data.
+        After all, the server did accept the data.
+        By the time the job is looked up, its record may be gone, or something in front of the server may respond instead.
+        Raising in these cases would report a successful post as a failed post.
+        If the caller asked for ingestion to be confirmed, both cases are logged and then raised.
+        A lookup that returns 404 is reported as a ``ConnectionError`` by :func:`request`, which wraps every client error that way.
+        So ``ConnectionError`` is among the errors caught here, alongside the ``ValueError`` that an unexpected status code raises.
         """
         try:
             await self.wait_for_job(
@@ -887,6 +901,8 @@ class FlexMeasuresClient:
             self.logger.error(
                 f"Ingestion of the data posted as job {job_id} is unconfirmed, so a read of it may come back without it. {e}"
             )
+            if confirm_ingestion:
+                raise
         except (
             ConnectionError,
             TimeoutError,
@@ -897,6 +913,8 @@ class FlexMeasuresClient:
             self.logger.error(
                 f"Ingestion of the data posted as job {job_id} is unconfirmed, because looking that job up failed, so a read of it may come back without it. {e}"
             )
+            if confirm_ingestion:
+                raise
 
     async def _post_sensor_data_json(
         self,
@@ -907,6 +925,7 @@ class FlexMeasuresClient:
         unit: str,
         prior: str | datetime | None = None,
         await_ingestion: bool = True,
+        confirm_ingestion: bool = False,
     ):
         """
         Post sensor data using JSON payload.
@@ -943,7 +962,7 @@ class FlexMeasuresClient:
             self.logger.info("Sensor data sent successfully via JSON.")
 
         if await_ingestion and status == 202 and job_id:
-            await self._await_sensor_data_ingestion(job_id)
+            await self._await_sensor_data_ingestion(job_id, confirm_ingestion)
 
         return response, status
 
@@ -954,6 +973,7 @@ class FlexMeasuresClient:
         belief_time_measured_instantly: bool = False,
         unit: str | None = None,
         await_ingestion: bool = True,
+        confirm_ingestion: bool = False,
     ):
         """
         Post sensor data using file upload.
@@ -1075,7 +1095,7 @@ class FlexMeasuresClient:
         # Wait for ingestion outside the request timeout above, and outside the error handler that names this an upload failure:
         # a job takes as long as self.ingestion_polling_timeout allows, which is no concern of the request that queued it.
         if await_ingestion and status == 202 and upload_job_id:
-            await self._await_sensor_data_ingestion(upload_job_id)
+            await self._await_sensor_data_ingestion(upload_job_id, confirm_ingestion)
 
         return response_data, status
 
@@ -1089,6 +1109,7 @@ class FlexMeasuresClient:
         unit: str,
         prior: str | datetime | None = None,
         await_ingestion: bool = True,
+        confirm_ingestion: bool = False,
     ):
         """
         Post sensor data for the given time range.
@@ -1113,6 +1134,7 @@ class FlexMeasuresClient:
             unit=unit,
             prior=prior,
             await_ingestion=await_ingestion,
+            confirm_ingestion=confirm_ingestion,
         )
 
     async def get_schedule(
@@ -1601,6 +1623,43 @@ class FlexMeasuresClient:
             )
         return new_sensor
 
+    async def add_sensor_annotation(
+        self,
+        sensor_id: int,
+        content: str,
+        start: str | datetime,
+        end: str | datetime,
+        annotation_type: str = "label",
+        prior: str | datetime | None = None,
+    ) -> dict:
+        """Add a time-span annotation to a sensor.
+
+        FlexMeasures returns HTTP 200 instead of 201 when the same annotation
+        already exists, making repeated example-data uploads safe.
+        """
+        payload = {
+            "content": content,
+            "start": start.isoformat() if isinstance(start, datetime) else start,
+            "end": end.isoformat() if isinstance(end, datetime) else end,
+            "type": annotation_type,
+        }
+        if prior is not None:
+            payload["prior"] = (
+                prior.isoformat() if isinstance(prior, datetime) else prior
+            )
+
+        annotation, status = await self.request(
+            uri=f"sensors/{sensor_id}/annotations",
+            json_payload=payload,
+            method="POST",
+        )
+        check_for_status(status, 201)
+        if not isinstance(annotation, dict):
+            raise ContentTypeError(
+                f"Expected an annotation dictionary, but got {type(annotation)}"
+            )
+        return annotation
+
     async def add_asset(
         self,
         name: str,
@@ -1632,10 +1691,10 @@ class FlexMeasuresClient:
                 }
 
         This function raises a ValueError when an unhandled status code is returned,
-        when no generic_asset_type_id is given, and when only one of latitude and longitude is.
+        when no generic_asset_type_id is given, and when only one of latitude and longitude is given.
         """
         if generic_asset_type_id is None:
-            # Optional in the signature only so that latitude and longitude, before it, can be left out,
+            # The signature makes this optional only so that latitude and longitude, which come before it, can be left out,
             # while every argument keeps its position.
             raise ValueError("add_asset needs a generic_asset_type_id.")
         if (latitude is None) != (longitude is None):
@@ -1647,7 +1706,7 @@ class FlexMeasuresClient:
             account_id=account_id,
             generic_asset_type_id=generic_asset_type_id,
         )
-        # A location is optional to FlexMeasures, which many assets have no use for, such as one standing for a community.
+        # FlexMeasures does not require a location, and many assets have no use for one, such as an asset that represents a community.
         if latitude is not None:
             asset["latitude"] = latitude
         if longitude is not None:
@@ -1884,6 +1943,35 @@ class FlexMeasuresClient:
             ),
         )
         check_for_status(status, 204)
+
+    async def delete_sensor_annotations(
+        self,
+        sensor_id: int,
+        confirm_first: bool = True,
+    ) -> None:
+        """Remove all annotations from a sensor while preserving the sensor.
+
+        Shared annotations remain registered on other sensors, assets or accounts.
+        The server deletes an annotation itself once its last link is removed.
+        Requires FlexMeasures v1.1.0 or above.
+        """
+        if confirm_first:
+            answer = input(
+                f"Permanently remove all annotations from sensor {sensor_id}? [y/N] "
+            )
+            if answer.lower() not in ["y", "yes"]:
+                print("Aborting ...")
+                return
+        _, status = await self.request(
+            uri=f"sensors/{sensor_id}/annotations",
+            json_payload={},
+            method="DELETE",
+            minimum_server_version="1.1.0",
+            minimum_server_version_msg=(
+                "Deleting sensor annotations requires FlexMeasures server v1.1.0 or above."
+            ),
+        )
+        check_for_status(status, 200)
 
     async def trigger_schedule(
         self,

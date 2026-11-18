@@ -3,6 +3,7 @@ from const import (
     EV_CONFIG,
     HEATING_CONFIG,
     PV_MODE,
+    SITE_POWER_CAPACITY,
     battery_name,
     evse1_name,
     evse2_name,
@@ -139,6 +140,13 @@ async def get_or_create_weather_station(client: FlexMeasuresClient):
     irradiation_sensor = await get_or_create_sensor(
         client,
         name="irradiation",
+        event_resolution="PT1H",
+        unit="W/m²",
+        generic_asset_id=weather_asset["id"],
+    )
+    await get_or_create_sensor(
+        client,
+        name="irradiation-forecast",
         event_resolution="PT1H",
         unit="W/m²",
         generic_asset_id=weather_asset["id"],
@@ -717,7 +725,7 @@ async def configure_site_flex_context(
         "site-production-capacity": {
             "sensor": max_production_sensor["id"]
         },  # Relaxed constraint for residential
-        "site-power-capacity": "20 kVA",
+        "site-power-capacity": SITE_POWER_CAPACITY,
         # Enable soft constraints for SoC minima (this makes soc-minima soft constraints instead of hard)
         "relax-soc-constraints": True,
         "relax-site-capacity-constraints": True,

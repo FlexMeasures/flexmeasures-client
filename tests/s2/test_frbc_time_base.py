@@ -694,11 +694,14 @@ def test_a_handler_needs_a_positive_resolution_and_duration(resolution, duration
 
 
 def test_a_long_schedule_against_a_detailed_forecast_is_translated_quickly():
-    """48 hours, at quarter hours, against the largest forecast S2 allows: well under the 1.7 s that stepping each minute took."""
+    """48 hours, at quarter hours, against the largest forecast S2 allows: well under the 1.7 s that stepping each minute took.
+
+    Timed in CPU time, so that other processes on a busy machine do not count against it.
+    """
     import time
 
     detailed = _usage(*[(timedelta(minutes=10), 1e-4 * (i % 3)) for i in range(288)])
-    started = time.perf_counter()
+    started = time.process_time()
     fm_schedule_to_instructions(
         _schedule([500.0, 0.0] * 96),
         _system_description(LOW, HIGH),
@@ -706,7 +709,7 @@ def test_a_long_schedule_against_a_detailed_forecast_is_translated_quickly():
         usage_forecast=detailed,
         leakage_behaviour=_leakage((0, 50, 1e-4), (50, 100, 2e-4)),
     )
-    assert time.perf_counter() - started < 0.5
+    assert time.process_time() - started < 0.5
 
 
 def test_a_level_held_at_its_lower_bound_rises_from_there_once_filling_wins():

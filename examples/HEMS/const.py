@@ -18,6 +18,16 @@ HEMS_REQUEST_RETRY_TIMEOUT_SECONDS = 10 * 60
 # - "curtailable": FlexMeasures may schedule PV below its available production.
 PV_MODE = "inflexible"
 
+# Scheduling mode:
+# - True: jointly schedule all buildings against the community connection limit.
+# - False: schedule each building independently. Building limits are still applied,
+#   but the community limit cannot be guaranteed and breaches are printed afterwards.
+SOLVE_AS_COMMUNITY = True
+
+# Physical bidirectional connection limit of each building. The directional limits
+# are supplied by the max-consumption-capacity and max-production-capacity sensors.
+SITE_POWER_CAPACITY = "20 kVA"
+
 # Asset and sensor names
 COMMUNITY_NAME = "Community Site"
 SITE_NAMES = ["Building A", "Building B"]

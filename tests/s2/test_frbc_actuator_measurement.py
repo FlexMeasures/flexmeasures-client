@@ -11,6 +11,7 @@ so the later one was refused and, being posted from a task nobody awaits, lost w
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
@@ -348,3 +349,26 @@ async def test_a_unit_nothing_converts_between_is_reported(system_description, c
     # so that is the unit it is reported in: a pair that disagrees is worse than none.
     assert f"{ON_W} W" in caplog.text
     assert f"{ON_W} hp" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_an_actuator_status_before_any_description_waits_for_one(
+    system_description, caplog
+):
+    """After a reconnection one can arrive first; indexing the empty history raised an IndexError in a task nobody awaited."""
+    caplog.set_level(logging.INFO)
+    frbc = _frbc(system_description, consumption_as_positive=True)
+    frbc._system_description_history.clear()
+
+    await frbc.send_actuator_status(_status(system_description, 0))
+    await frbc.send_actuator_status(_status(system_description, 1))
+
+    assert _posts_to_the_power_sensor(frbc) == []
+    assert "no FRBC.SystemDescription has arrived" in caplog.text
+
+    await frbc.handle_system_description(system_description.to_dict())
+    await asyncio.gather(*frbc.background_tasks)
+
+    # Only the latest status describes the actuator's present state, so only that one is recorded.
+    assert [post["values"] for post in _posts_to_the_power_sensor(frbc)] == [[ON_W]]
+    assert frbc._statuses_awaiting_a_description == {}

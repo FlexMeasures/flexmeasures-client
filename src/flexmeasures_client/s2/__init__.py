@@ -127,7 +127,7 @@ class Handler:
         self.outgoing_messages_status = SizeLimitOrderedDict(max_size=max_size)
 
         self._timezone = ZoneInfo(timezone)
-        #: The time this handler goes by; a CEM gives each handler it registers its own clock.
+        #: The clock this handler reads the time from. A CEM sets this to its own clock for each handler it registers.
         self._clock: Clock = WallClock()
 
         self.discover()
@@ -253,5 +253,5 @@ class Handler:
         )
 
     def now(self) -> datetime:
-        """The current moment by this handler's clock, in its time zone."""
+        """Return the current moment by this handler's clock, in the handler's timezone."""
         return self._clock.now().astimezone(self._timezone)

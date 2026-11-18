@@ -169,11 +169,11 @@ class FillRateBasedControlTUNES(FRBC):
         self._datastore = datastore if datastore is not None else {}
 
     def _is_timer_due(self, name: str) -> bool:
-        # By this handler's clock, so that a co-simulation's timers run on simulated time.
+        # Use this handler's clock, so that a co-simulation's timers run on simulated time.
         now = self.now()
         due_time = self._timers.get(name, now - self._minimum_measurement_period)
         if due_time.tzinfo is None:
-            # A timer handed in without a zone was compared with the host's local time, so it is read as that, as before.
+            # A timer without a timezone used to be compared with the host's local time, so keep reading it as local time.
             due_time = due_time.astimezone(self._timezone)
         if due_time <= now:
             # Get total seconds of the period
@@ -191,8 +191,8 @@ class FillRateBasedControlTUNES(FRBC):
             next_due = now.replace(minute=0, second=0, microsecond=0) + timedelta(
                 seconds=next_tick_seconds
             )
-            # On a period boundary the ceiling is the moment itself,
-            # and a clock that stands still, as a simulated one does between messages, then found the timer due on every call.
+            # On a period boundary, the ceiling equals the current moment.
+            # A clock that stands still (as a simulated clock does between messages) would then find the timer due on every call.
             if next_due <= now:
                 next_due += self._minimum_measurement_period
             self._timers[name] = next_due
@@ -315,9 +315,9 @@ class FillRateBasedControlTUNES(FRBC):
             duration=timedelta(minutes=15),
         )
 
-    # It takes neither argument the base class declares: TUNES plans from its latest description,
-    # and does not take part in dropping superseded requests.
-    # Accepting them and ignoring them would turn a caller's mistake into a silent one, so the mismatch stays.
+    # This override takes neither of the arguments that the base class declares.
+    # TUNES plans from its latest description, and does not take part in dropping superseded requests.
+    # Accepting the arguments and ignoring them would hide a caller's mistake, so the signatures stay different.
     async def trigger_schedule(self):  # type: ignore[override]
         """
         Ask FlexMeasures for a new schedule and create FRBC.Instructions to send back to the ResourceManager
@@ -485,8 +485,9 @@ class FillRateBasedControlTUNES(FRBC):
         except Exception as exc:
             self._logger.error(str(exc))
 
-        # Posted per hour and scaled into FlexMeasures' units by send_usage_forecast, and read back as such,
-        # while the schedule translation takes a usage rate per second, in the resource manager's own units, as S2 states it.
+        # send_usage_forecast posts the usage forecast per hour, scaled to FlexMeasures' units, so that is how it is read back.
+        # The schedule translation needs a usage rate per second, in the resource manager's own units, as in S2.
+        # So convert it back here.
         usage_forecast = pd.Series(
             usage_forecast["values"], index=idx, name="usage_forecast"
         ) / ((pd.Timedelta(hours=1) / pd.Timedelta(seconds=1)) * self._fill_level_scale)
@@ -512,7 +513,7 @@ class FillRateBasedControlTUNES(FRBC):
             system_description,
             initial_fill_level=soc_at_start / self._fill_level_scale,
             logger=self._logger,
-            # What the storage loses by itself, so that the running fill level falls as well as rises.
+            # Pass what the storage loses by itself, so that the running fill level can fall as well as rise.
             leakage_behaviour=(
                 list(self._leakage_behaviour_history.values())[-1]
                 if self._leakage_behaviour_history
@@ -693,9 +694,9 @@ class FillRateBasedControlTUNES(FRBC):
             fill_level_scale=self._fill_level_scale,
         )
 
-        # From per second, as S2 states a usage rate, to per hour, which is what a value labelled MW means:
-        # FlexMeasures reads soc-usage as a power and multiplies it by the step's share of an hour.
-        # Posted per quarter hour instead, it was planned as a quarter of the real draw.
+        # Convert from per second (as S2 gives a usage rate) to per hour, which is what a value in MW means.
+        # FlexMeasures reads soc-usage as a power, and multiplies it by the step's fraction of an hour.
+        # When this was posted per quarter hour instead, the scheduler planned for a quarter of the real draw.
         scale = timedelta(hours=1) / timedelta(seconds=1)
         scaled_usage_forecast = usage_forecast_series * scale
 
@@ -703,7 +704,7 @@ class FillRateBasedControlTUNES(FRBC):
             sensor_id=self._usage_forecast_sensor_id,
             start=start_time,
             values=scaled_usage_forecast.tolist(),
-            unit=POWER_UNIT,  # a rate per hour, as MW is
+            unit=POWER_UNIT,  # a rate per hour, like MW
             duration=str(pd.Timedelta(RESOLUTION) * len(usage_forecast_series)),
         )
 

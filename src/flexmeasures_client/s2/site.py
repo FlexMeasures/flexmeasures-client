@@ -1,8 +1,9 @@
-"""A FlexMeasures site for an S2 resource manager: its asset, its sensors, its graphs, and the handler wired to them.
+"""Set up a FlexMeasures site for an S2 resource manager.
 
+A site consists of an asset, its sensors and its graphs, plus a handler wired to those sensors.
 The example server keeps one site for whichever resource manager connects (see ensure_site).
-A CEM serving many resource managers, as a co-simulation of a community does, gives each one a site of its own,
-named after it, with FRBCSiteConfigurator.
+A CEM can also serve many resource managers, as in a co-simulation of a community.
+Such a CEM uses FRBCSiteConfigurator to give each resource manager its own site, named after it.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ except ImportError:
     )
 
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.exceptions import ContentTypeError
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
 
 _LOGGER = getLogger(__name__)
@@ -28,7 +30,7 @@ _LOGGER = getLogger(__name__)
 
 @dataclass(frozen=True)
 class SiteSensor:
-    """What a site's sensor is made with: its unit, its resolution, and any attributes."""
+    """The settings for creating a site's sensor: its unit, its resolution, and any attributes."""
 
     unit: str
     resolution: str
@@ -36,38 +38,47 @@ class SiteSensor:
 
 
 #: The sensors an FRBC site needs, by name.
-#: Their units are the ones the CEM records in: fill levels in kWh, rates of fill level per second, as S2 states them.
-#: The names are a contract with whoever reads the site, a co-simulation among them,
-#: which looks up "price", "production price", "power", "state of charge" and "measured-power" by name.
+#: Their units suit a residential site, and match the handler's defaults: energy and fill levels in kWh, prices per kWh, and powers and rates of fill level in W.
+#: The names are a contract with any reader of the site, such as a co-simulation.
+#: A co-simulation looks up "price", "production price", "power", "state of charge" and "measured-power" by name.
 FRBC_SITE_SENSORS: dict[str, SiteSensor] = {
     "price": SiteSensor("EUR/kWh", "PT15M"),
     "production price": SiteSensor("EUR/kWh", "PT15M"),
-    # S2 states a power as positive when it is consumed,
-    # and this sensor holds both an actuator's power and the schedule planned for it.
-    # Left unsaid, FlexMeasures reads a power sensor the other way round,
-    # and flips a schedule's sign on the way in, which puts the two in opposite directions.
-    "power": SiteSensor("kW", "PT15M", {"consumption_is_positive": True}),
-    # What the resource manager measures its site drawing, kept apart from the schedule on "power".
-    "measured-power": SiteSensor("kW", "PT15M", {"consumption_is_positive": True}),
+    # In S2, consumed power is positive.
+    # This sensor holds both an actuator's power and the schedule planned for it.
+    # Without this attribute, FlexMeasures treats production as positive on a power sensor.
+    # It would then flip the sign of an incoming schedule, so the power and the schedule would point in opposite directions.
+    "power": SiteSensor("W", "PT15M", {"consumption_is_positive": True}),
+    # The power the resource manager measures its site drawing, kept separate from the schedule on "power".
+    "measured-power": SiteSensor("W", "PT15M", {"consumption_is_positive": True}),
     "state of charge": SiteSensor("kWh", "PT0M"),
     "RM discharge": SiteSensor("dimensionless", "PT15M"),
-    "fill rate": SiteSensor("kWh/s", "PT15M"),
+    "fill rate": SiteSensor("W", "PT15M"),
     "soc minima": SiteSensor("kWh", "PT15M"),
     "soc maxima": SiteSensor("kWh", "PT15M"),
-    "usage forecast": SiteSensor("kWh/s", "PT15M"),
-    "storage efficiency": SiteSensor("%", "PT15M"),
+    "usage forecast": SiteSensor("W", "PT15M"),
+    # The leakage rate the resource manager declares, as it is planned with, in the same unit as the usage forecast.
+    "leakage": SiteSensor("W", "PT15M"),
     "charging efficiency": SiteSensor("dimensionless", "PT15M"),
+}
+
+#: The sensor a site needs for the handler to correct a usage forecast that no plan can absorb (see FRBCSimple's usage_correction_sensor_id).
+#: It holds the rate of fill level the correction adds to the stock: positive where it gives back usage, negative where it takes away a gain.
+#: Kept apart from FRBC_SITE_SENSORS, since a site only gets it where the deployment asks for a correction.
+USAGE_CORRECTION_SENSORS: dict[str, SiteSensor] = {
+    "usage correction": SiteSensor("W", "PT15M", {"consumption_is_positive": True}),
 }
 
 
 def frbc_site_graphs(sensors: dict[str, dict]) -> list[dict]:
-    """A site's graphs, top to bottom, as FlexMeasures takes an asset's sensors_to_show.
+    """Return a site's graphs, top to bottom, in the format of an asset's sensors_to_show in FlexMeasures.
 
-    In the form with a title and a list of sensors per graph, which every FlexMeasures version reads,
-    rather than the newer one with plots, which needs v0.32 or later and draws the same graphs.
-    A graph whose sensors the site does not have is left out.
+    Each graph has a title and a list of sensors.
+    Every FlexMeasures version reads this format.
+    The newer format with plots draws the same graphs, but needs FlexMeasures v0.32 or later.
+    A graph is left out if the site has none of its sensors.
     """
-    # Titled as #188 titled them, since a co-simulation's controller adds to the graph titled "Power".
+    # Keep the titles from #188, because a co-simulation's controller adds to the graph titled "Power".
     graphs = [
         ("Prices", ["price", "production price"]),
         ("Power", ["power", "measured-power"]),
@@ -92,16 +103,17 @@ async def ensure_site(
     known_asset_id: int | None = None,
     reset_graphs: bool = False,
 ) -> tuple[dict, dict[str, dict]]:
-    """Find or make the site asset of this name, with its specs and every one of these sensors, and its graphs.
+    """Find or create the site asset with this name, with its specs, all of these sensors, and its graphs.
 
-    It is safe to run again: what exists is kept, and what is missing is made.
-    A flex model in the specs is merged into the one the asset has, since others write to it too,
-    such as a co-simulation's controller setting what its stock is worth at the end.
-    Graphs are set where the asset has none, since others add to them too, unless asked to reset them.
+    Running this again is safe: existing parts are kept, and missing parts are created.
+    A flex model in the specs is merged into the asset's existing flex model, because others write to it too.
+    For example, a co-simulation's controller sets the value of the asset's stock at the end.
+    Graphs are only set if the asset has none, because others add to them too.
+    Pass reset_graphs to set them anyway.
 
-    :param known_asset_id:  the asset's id where it was found before, which spares a listing of every asset.
-    :param reset_graphs:    whether to set the graphs even where the asset has some.
-    :returns:               the asset, and its sensors by name.
+    :param known_asset_id:  The asset's id from an earlier lookup, which avoids listing every asset.
+    :param reset_graphs:    Whether to set the graphs even if the asset already has some.
+    :returns:               The asset, and its sensors by name.
     """
     site_asset = None
     if known_asset_id is not None:
@@ -109,12 +121,12 @@ async def ensure_site(
             candidate = await fm_client.get_asset(
                 known_asset_id, parse_json_fields=True
             )
-        except (ValueError, ConnectionError):
+        except (ValueError, ConnectionError, ContentTypeError):
             candidate = None
         if candidate is not None and candidate.get("name") == name:
             site_asset = candidate
     if site_asset is None:
-        # The newest of any of that name, as a co-simulation picks it too.
+        # Pick the newest asset with that name, as a co-simulation does too.
         named = [
             asset
             for asset in await fm_client.get_assets(parse_json_fields=True)
@@ -162,20 +174,20 @@ async def ensure_site(
 
 @dataclass
 class ConfiguredSite:
-    """What a CEM needs to serve one resource manager: its handler, and where its measured power goes."""
+    """What a CEM needs to serve one resource manager: its handler, and the sensors to record its measured power on."""
 
     handler: FRBCSimple
-    #: The sensor each commodity quantity's measured power is recorded on, as the CEM's power_sensor_id takes it.
+    #: Per commodity quantity, the sensor to record measured power on, in the format of the CEM's power_sensor_id.
     power_sensor_ids: dict[str, int]
     asset_id: int
 
 
 class FRBCSiteConfigurator:
-    """Gives each resource manager a site of its own, named after it, and an FRBC handler wired to its sensors.
+    """Give each resource manager its own site, named after it, and an FRBC handler wired to the site's sensors.
 
-    Made once per server and handed to each CEM it makes (see CEM's site_configurator),
-    so that a resource manager that reconnects finds its site by the id remembered here,
-    rather than by a listing of every asset on the server.
+    The server creates one configurator and hands it to each CEM it creates (see the CEM's site_configurator).
+    The configurator remembers each site's asset id.
+    So when a resource manager reconnects, its site is found by that id, without listing every asset on the server.
     """
 
     def __init__(
@@ -189,18 +201,22 @@ class FRBCSiteConfigurator:
         power_sensor_attributes: dict[str, Any] | None = None,
         handler_options: dict[str, Any] | None = None,
         send_revocations: bool = True,
+        correct_usage: bool = False,
         logger: Logger | None = None,
     ) -> None:
         """
-        :param asset_type_id:           the FlexMeasures asset type each site is made with.
-        :param timezone:                the time zone of each site's sensors, and of its handler.
-        :param asset_specs:             anything else each site asset is made or updated with, such as a flex model.
-        :param sensors:                 the sensors each site gets; FRBC_SITE_SENSORS by default.
-        :param power_sensor_attributes: attributes added to the "power" sensor's, which a device's nature decides,
+        :param asset_type_id:           The FlexMeasures asset type to create each site with.
+        :param timezone:                The timezone of each site's sensors, and of its handler.
+        :param asset_specs:             Other specs to create or update each site asset with, such as a flex model.
+        :param sensors:                 The sensors each site gets; FRBC_SITE_SENSORS by default.
+        :param power_sensor_attributes: Extra attributes for the "power" sensor that depend on the device,
                                         such as that it cannot produce.
-        :param handler_options:         keyword arguments for each FRBCSimple beyond its sensors.
-                                        By default it plans from now, over 24 hours, as a co-simulation steps through days.
-        :param send_revocations:        whether a newer plan revokes what is left of the one before.
+        :param handler_options:         Keyword arguments for each FRBCSimple, other than its sensors.
+                                        By default, it plans from now over 24 hours, because a co-simulation steps through days.
+        :param send_revocations:        Whether a newer plan revokes the remainder of the previous plan.
+        :param correct_usage:           Whether each site gets a sensor to correct a usage forecast that no plan can absorb.
+                                        With a correction, the handler also sets the breach prices of the fill-level band and the site's capacity,
+                                        relative to the market, rather than leaving them to FlexMeasures (see FRBCSimple's usage_correction_sensor_id).
         """
         self._fm_client = fm_client
         self._timezone = timezone
@@ -209,6 +225,8 @@ class FRBCSiteConfigurator:
             **(asset_specs or {}),
         }
         sensors = dict(sensors if sensors is not None else FRBC_SITE_SENSORS)
+        if correct_usage:
+            sensors.update(USAGE_CORRECTION_SENSORS)
         if power_sensor_attributes:
             power = sensors["power"]
             sensors["power"] = SiteSensor(
@@ -257,8 +275,9 @@ class FRBCSiteConfigurator:
             soc_minima_sensor_id=sensor_id("soc minima"),
             soc_maxima_sensor_id=sensor_id("soc maxima"),
             usage_forecast_sensor_id=sensor_id("usage forecast"),
-            leakage_behaviour_sensor_id=sensor_id("storage efficiency"),
+            leakage_behaviour_sensor_id=sensor_id("leakage"),
             charging_efficiency_sensor_id=sensor_id("charging efficiency"),
+            usage_correction_sensor_id=sensor_id("usage correction"),
             timezone=self._timezone,
             **self._handler_options,
         )

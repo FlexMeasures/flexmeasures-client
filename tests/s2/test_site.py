@@ -10,9 +10,11 @@ import pytest
 from s2python.common import ControlType, ReceptionStatus, ReceptionStatusValues
 
 from flexmeasures_client.client import FlexMeasuresClient
+from flexmeasures_client.exceptions import ContentTypeError
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.site import (
     FRBC_SITE_SENSORS,
+    USAGE_CORRECTION_SENSORS,
     FRBCSiteConfigurator,
     SiteSensor,
     ensure_site,
@@ -83,6 +85,29 @@ async def test_an_existing_site_keeps_its_sensors_and_gets_the_missing_ones():
     assert specs_update.args == (7, {"generic_asset_type_id": 6})
 
 
+def test_a_site_s_sensors_suit_a_residential_site():
+    """Powers and rates of fill level in W, energy in kWh: in kWh/s, a heat buffer's leakage of some tens of watts would read about 0.00001."""
+    units = {
+        name: spec.unit
+        for name, spec in {**FRBC_SITE_SENSORS, **USAGE_CORRECTION_SENSORS}.items()
+    }
+    assert units == {
+        "price": "EUR/kWh",
+        "production price": "EUR/kWh",
+        "power": "W",
+        "measured-power": "W",
+        "state of charge": "kWh",
+        "RM discharge": "dimensionless",
+        "fill rate": "W",
+        "soc minima": "kWh",
+        "soc maxima": "kWh",
+        "usage forecast": "W",
+        "leakage": "W",
+        "charging efficiency": "dimensionless",
+        "usage correction": "W",
+    }
+
+
 @pytest.mark.asyncio
 async def test_a_known_site_is_fetched_by_id_rather_than_found_in_a_listing():
     """A resource manager reconnects every round of a co-simulation; a listing of every asset each time is slow."""
@@ -147,6 +172,8 @@ async def test_each_resource_manager_gets_a_site_named_after_it_and_a_handler_wi
     assert handler._price_sensor_id == made["price"]["id"]
     assert handler._production_price_sensor_id == made["production price"]["id"]
     assert handler._soc_sensor_id == made["state of charge"]["id"]
+    assert handler._usage_correction_sensor_id is None
+    assert "usage correction" not in made, "a correction is the deployment's to ask for"
     assert handler._valid_from_shift == timedelta(0)
     assert handler._schedule_duration == timedelta(hours=24)
     assert handler.send_revocations is True
@@ -331,10 +358,14 @@ async def test_closing_the_cem_stops_a_site_being_configured(
 
 
 @pytest.mark.asyncio
-async def test_a_known_site_that_cannot_be_fetched_is_looked_up_again():
+@pytest.mark.parametrize(
+    "failure",
+    [ValueError("404"), ContentTypeError("Expected an asset, but got a list")],
+)
+async def test_a_known_site_that_cannot_be_fetched_is_looked_up_again(failure):
     """Deleted since, say: the listing finds it by name, or it is made again."""
     fm = _flexmeasures([{"id": 9, "name": "home A", "sensors": []}])
-    fm.get_asset = AsyncMock(side_effect=ValueError("404"))
+    fm.get_asset = AsyncMock(side_effect=failure)
     asset, _ = await ensure_site(
         fm, "home A", asset_specs={}, sensors={}, timezone="UTC", known_asset_id=7
     )
@@ -400,3 +431,15 @@ async def test_of_several_sites_with_one_name_the_newest_is_taken():
         fm, "home A", asset_specs={}, sensors={}, timezone="UTC"
     )
     assert asset["id"] == 12
+
+
+@pytest.mark.asyncio
+async def test_a_site_gets_a_usage_correction_where_the_deployment_asks_for_one(
+    named_details,
+):
+    fm = _flexmeasures()
+    configurator = FRBCSiteConfigurator(fm, asset_type_id=6, correct_usage=True)
+    site = await configurator(named_details)
+    made = fm.made
+    assert site.handler._usage_correction_sensor_id == made["usage correction"]["id"]
+    assert made["usage correction"]["attributes"] == {"consumption_is_positive": True}

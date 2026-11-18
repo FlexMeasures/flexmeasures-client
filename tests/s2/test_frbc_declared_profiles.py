@@ -259,11 +259,11 @@ async def test_usage_forecast_is_recorded_from_a_resolution_boundary(
     assert posted["start"] == frbc.align_to_resolution(usage_forecast.start_time)
     assert posted["start"].minute % 15 == 0 and posted["start"].second == 0
     # A usage forecast is a rate of fill level, not a power.
-    assert posted["unit"] == frbc.fill_rate_unit() == "kWh/s"
+    assert posted["unit"] == frbc.fill_rate_unit() == "W"
 
 
 @pytest.mark.asyncio
-async def test_leakage_behaviour_is_recorded_as_a_storage_efficiency(
+async def test_leakage_behaviour_is_recorded_as_a_rate(
     system_description,
 ):
     """Recorded when a schedule is asked for, over the window it covers, rather than on arrival."""
@@ -290,11 +290,15 @@ async def test_leakage_behaviour_is_recorded_as_a_storage_efficiency(
     ]  # nothing on arrival
 
     start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
-    assert await frbc._record_storage_efficiency(start, (RANGE_BOTTOM + RANGE_TOP) / 2)
+    planned = await frbc._planned_leakage(start, (RANGE_BOTTOM + RANGE_TOP) / 2)
 
+    # Planned as a usage over the window, at the rate S2 states, rather than as a share of the stock.
+    assert planned.index[0] == start
+    assert len(planned) == frbc._schedule_duration / frbc._resolution
+    assert set(planned) == {36000.0}  # 0.01 kWh/s, in W
     posted = _posted(frbc, LEAKAGE_SENSOR_ID)
-    assert posted["unit"] == "%"
-    assert len(posted["values"]) == 1
+    assert posted["unit"] == frbc.fill_rate_unit()
+    assert posted["values"] == [36000.0]
     assert posted["start"] == start
     assert posted["duration"] == frbc._schedule_duration
 
@@ -545,31 +549,44 @@ async def test_the_instruction_translation_stays_in_the_resource_managers_units(
     assert translate.call_args.kwargs["initial_fill_level"] == 30.0
 
 
-def test_a_fill_rate_is_not_recorded_as_a_power():
-    """S2 states a fill rate as fill level per second, which is not the power unit.
+def _handler(**units) -> FRBCSimple:
+    return FRBCSimple(
+        power_sensor_id=1,
+        price_sensor_id=2,
+        soc_sensor_id=3,
+        rm_discharge_sensor_id=4,
+        **units,
+    )
 
-    For a heat buffer the quantity is not electricity at all, and even for a battery kWh/s
-    differs from kW by the number of seconds in an hour.
+
+@pytest.mark.parametrize(
+    "units, fill_rate_unit, recorded",
+    [
+        # 0.01 kWh/s is 36 kW.
+        ({}, "W", 36000.0),
+        ({"fill_rate_unit": "kW"}, "kW", 36.0),
+        ({"energy_unit": "MWh", "fill_rate_unit": "MW"}, "MW", 36.0),
+        # A joule per second is a watt.
+        ({"energy_unit": "kJ"}, "W", 10.0),
+        ({"energy_unit": "J", "fill_rate_unit": "kW"}, "kW", 0.00001),
+    ],
+)
+def test_a_fill_rate_is_recorded_in_the_fill_rate_unit_whatever_the_power_unit(
+    units, fill_rate_unit, recorded
+):
+    """S2 states a fill rate as fill level per second, which in kWh/s makes tiny numbers, so it is recorded in a power unit, by default W.
+
+    That is not the power unit, which says how an actuator's electric power is posted: for a heat buffer, a fill rate is not electricity at all.
     """
-    frbc = FRBCSimple(
-        power_sensor_id=1,
-        price_sensor_id=2,
-        soc_sensor_id=3,
-        rm_discharge_sensor_id=4,
-        energy_unit="kWh",
-        power_unit="W",
-    )
-    assert frbc.fill_rate_unit() == "kWh/s"
-    assert frbc.fill_rate_unit() != frbc.power_unit
+    frbc = _handler(power_unit="kW", **units)
+    assert frbc.fill_rate_unit() == fill_rate_unit
+    assert frbc._per_second_in_fill_rate_unit(0.01) == pytest.approx(recorded)
 
-    megawatt_hours = FRBCSimple(
-        power_sensor_id=1,
-        price_sensor_id=2,
-        soc_sensor_id=3,
-        rm_discharge_sensor_id=4,
-        energy_unit="MWh",
-    )
-    assert megawatt_hours.fill_rate_unit() == "MWh/s"
+
+@pytest.mark.parametrize("fill_rate_unit", ["kWh/s", "kWh", "GW"])
+def test_a_fill_rate_unit_that_is_no_power_unit_is_refused(fill_rate_unit):
+    with pytest.raises(ValueError, match="fill_rate_unit has to be one of W, kW, MW"):
+        _handler(fill_rate_unit=fill_rate_unit)
 
 
 @pytest.mark.asyncio
@@ -608,15 +625,20 @@ async def test_an_actuator_s_fill_rate_is_posted_in_the_fill_rate_unit(
         )
     )
 
-    assert (
-        _posted(frbc, fill_rate_sensor_id)["unit"] == frbc.fill_rate_unit() == "kWh/s"
+    assert _posted(frbc, fill_rate_sensor_id)["unit"] == frbc.fill_rate_unit() == "W"
+    # Halfway through the mode's fill rate, from kWh/s into W.
+    fill_rate = actuator.operation_modes[0].elements[0].fill_rate
+    halfway = (fill_rate.start_of_range + fill_rate.end_of_range) / 2
+    assert halfway > 0
+    assert _posted(frbc, fill_rate_sensor_id)["values"] == pytest.approx(
+        [halfway * 3.6e6]
     )
     # The power sensor really does carry a power, and is untouched by this.
     assert _posted(frbc, 1)["unit"] == frbc.power_unit
 
 
 @pytest.mark.asyncio
-async def test_a_storage_efficiency_already_recorded_for_the_window_is_not_recorded_again(
+async def test_a_leakage_already_recorded_for_the_window_is_not_recorded_again(
     system_description,
 ):
     frbc = _frbc(system_description, with_sensors=True)
@@ -634,8 +656,8 @@ async def test_a_storage_efficiency_already_recorded_for_the_window_is_not_recor
     )
     frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
     start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
-    assert await frbc._record_storage_efficiency(start, 50.0)
-    assert await frbc._record_storage_efficiency(start, 50.0)
+    assert await frbc._planned_leakage(start, 50.0) is not None
+    assert await frbc._planned_leakage(start, 50.0) is not None
     posts = [
         c
         for c in frbc._fm_client.post_sensor_data.await_args_list
@@ -645,10 +667,10 @@ async def test_a_storage_efficiency_already_recorded_for_the_window_is_not_recor
 
 
 @pytest.mark.asyncio
-async def test_a_storage_efficiency_that_could_not_be_recorded_is_not_planned_against(
+async def test_a_leakage_that_could_not_be_recorded_is_planned_all_the_same(
     system_description, caplog
 ):
-    """And it is tried again next time, rather than remembered as recorded."""
+    """It goes with the request, so the plan does not need it recorded; it is tried again next time, rather than remembered as recorded."""
     frbc = _frbc(system_description, with_sensors=True)
     leakage = FRBCLeakageBehaviour(
         message_id=get_unique_id(),
@@ -665,6 +687,86 @@ async def test_a_storage_efficiency_that_could_not_be_recorded_is_not_planned_ag
     frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
     frbc._fm_client.post_sensor_data.side_effect = ConnectionError("unreachable")
     start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
-    assert await frbc._record_storage_efficiency(start, 50.0) is False
-    assert frbc._storage_efficiency_recorded is None
-    assert "could not record" in caplog.text
+    assert set(await frbc._planned_leakage(start, 50.0)) == {36000.0}
+    assert frbc._leakage_recorded is None
+    assert "could not record" in caplog.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_an_older_server_is_planned_without_leakage(system_description, caplog):
+    """Before FlexMeasures v0.23.0, a usage only comes from a sensor, so the leakage cannot go with the request."""
+    caplog.set_level(logging.INFO)
+    frbc = _frbc(system_description, with_sensors=True)
+    leakage = FRBCLeakageBehaviour(
+        message_id=get_unique_id(),
+        valid_from="2024-01-01T12:00:00+00:00",
+        elements=[
+            FRBCLeakageBehaviourElement(
+                fill_level_range=NumberRange(
+                    start_of_range=RANGE_BOTTOM, end_of_range=RANGE_TOP
+                ),
+                leakage_rate=0.01,
+            )
+        ],
+    )
+    frbc._leakage_behaviour_history[str(leakage.message_id)] = leakage
+    frbc._fm_client.server_version_at_least = AsyncMock(return_value=False)
+    start = datetime(2024, 1, 1, 12, 15, tzinfo=timezone.utc)
+    assert await frbc._planned_leakage(start, 50.0) is None
+    assert _posted_sensor_ids(frbc) == []
+    assert "Planning without leakage" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_bound_that_could_not_be_recorded_leaves_the_other_recorded(
+    system_description, caplog
+):
+    """The band is planned against inline, so these are for display, and one failing post is no reason to lose the other."""
+    frbc = _frbc(system_description, with_sensors=True)
+    frbc._fm_client.post_sensor_data.side_effect = [ConnectionError("down"), ({}, 200)]
+
+    await frbc.send_fill_level_target_profile(_target_profile(40.0, 60.0))
+
+    assert frbc._fm_client.post_sensor_data.await_count == 2
+    second = frbc._fm_client.post_sensor_data.await_args_list[1].kwargs
+    assert second["sensor_id"] == frbc._soc_maxima_sensor_id
+    assert "Could not record a bound" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_fill_rate_that_could_not_be_recorded_is_logged(
+    system_description, caplog
+):
+    """The post runs in a task nobody awaits, so an exception there was asyncio's to report, if anyone's."""
+    frbc = FRBCSimple(
+        power_sensor_id=1,
+        price_sensor_id=2,
+        soc_sensor_id=3,
+        rm_discharge_sensor_id=4,
+        fill_rate_sensor_id=20,
+    )
+    frbc._fm_client = AsyncMock(FlexMeasuresClient)
+    frbc._fm_client.get_sensor = AsyncMock(
+        return_value=power_sensor_recording(consumption_as_positive=True)
+    )
+    # The power goes through; the fill rate does not.
+    frbc._fm_client.post_sensor_data = AsyncMock(
+        side_effect=[({}, 200), ConnectionError("down")]
+    )
+    frbc._logger = logging.getLogger(__name__)
+    frbc._system_description_history = {
+        system_description.message_id: system_description
+    }
+    actuator = system_description.actuators[0]
+
+    await frbc.send_actuator_status(
+        FRBCActuatorStatus(
+            message_id=get_unique_id(),
+            actuator_id=actuator.id,
+            active_operation_mode_id=actuator.operation_modes[0].id,
+            operation_mode_factor=0.5,
+        )
+    )
+
+    assert frbc._fm_client.post_sensor_data.await_count == 2
+    assert "Could not record the fill rate" in caplog.text
