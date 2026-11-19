@@ -155,11 +155,16 @@ on subsequent runs, install the optional `keyring package
 
     uv run --with keyring --no-sync --project ../.. python HEMS_setup.py
 
-Use the same ``--with keyring`` option for ``HEMS_cleanup.py``. The scripts ask
-for the email to select the keyring entry, which is specific to the server and
-account. When the server issues or rotates a refresh token, the new token is
-saved there; the password is not saved. An expired or revoked token requires a
-new login. This requires a usable system keyring backend; if none is available,
+Use the same ``--with keyring`` option for ``HEMS_cleanup.py``. After the first
+login, the scripts remember the account and look up its refresh token without
+prompting for an email. Set ``FLEXMEASURES_HEMS_EMAIL`` to select a different
+account; the choice is remembered for that server after a successful login or
+refresh. When upgrading from an earlier version, the keyring may supply an
+existing account automatically (its choice depends on the backend if several
+accounts exist); otherwise enter the email once to select the existing token.
+When the server issues or rotates a refresh token, the new token is saved; the
+password is not saved. An expired or revoked token requires a new login. This
+requires a usable system keyring backend; if none is available,
 the scripts continue with interactive login. Older servers that do not issue
 refresh tokens require a password each run. Do not run multiple clients with
 the same saved refresh token concurrently: rotation can invalidate the token.
