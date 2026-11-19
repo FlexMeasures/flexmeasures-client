@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import runpy
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, call, patch
@@ -9,6 +10,7 @@ import pytest
 HEMS_DIR = Path(__file__).parents[2] / "examples" / "HEMS"
 sys.path.insert(0, str(HEMS_DIR))
 
+import HEMS_cleanup  # noqa: E402
 import HEMS_setup  # noqa: E402
 from assets_setup import (  # noqa: E402
     create_community_asset,
@@ -105,6 +107,34 @@ class InMemoryClient:
         return dict(asset)
 
 
+def test_setup_command_reports_error_without_traceback(capsys):
+    def fail(coroutine):
+        coroutine.close()
+        raise ValueError("An internal error has occurred.")
+
+    with patch("asyncio.run", side_effect=fail), pytest.raises(SystemExit) as error:
+        runpy.run_path(str(HEMS_DIR / "HEMS_setup.py"), run_name="__main__")
+
+    assert str(error.value) == "Error during setup: An internal error has occurred."
+    assert error.value.__suppress_context__
+    assert "Traceback" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("script", "message"),
+    [("HEMS_setup.py", "Setup cancelled."), ("HEMS_cleanup.py", "Cleanup cancelled.")],
+)
+def test_command_reports_cancellation_without_traceback(script, message, capsys):
+    def cancel(coroutine):
+        coroutine.close()
+        raise KeyboardInterrupt
+
+    with patch("asyncio.run", side_effect=cancel), pytest.raises(SystemExit) as error:
+        runpy.run_path(str(HEMS_DIR / script), run_name="__main__")
+    assert error.value.code == 130
+    assert capsys.readouterr().err.strip() == message
+
+
 @pytest.mark.asyncio
 async def test_completed_tutorial_prints_community_asset_id(capsys):
     state = {
@@ -134,7 +164,12 @@ async def test_completed_tutorial_prints_community_asset_id(capsys):
     ]
 
     with (
-        patch.object(HEMS_setup, "FlexMeasuresClient", return_value=client),
+        patch.object(
+            HEMS_setup, "FlexMeasuresClient", return_value=client
+        ) as client_factory,
+        patch.object(
+            HEMS_setup, "configure_refresh_token_storage", new_callable=AsyncMock
+        ),
         patch.object(
             HEMS_setup,
             "get_site_assets",
@@ -154,6 +189,27 @@ async def test_completed_tutorial_prints_community_asset_id(capsys):
         "HEMS Tutorial completed successfully! Community asset "
         "'Community Site' (ID: 42)."
     ) in output
+    client.close.assert_awaited_once()
+    assert "email" not in client_factory.call_args.kwargs
+    assert "password" not in client_factory.call_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_cleanup_uses_interactive_client_authentication():
+    client = AsyncMock()
+    client.get_account.return_value = {"id": 9, "name": "Example account"}
+    with (
+        patch.object(
+            HEMS_cleanup, "FlexMeasuresClient", return_value=client
+        ) as client_factory,
+        patch.object(
+            HEMS_cleanup, "configure_refresh_token_storage", new_callable=AsyncMock
+        ),
+        patch.object(HEMS_cleanup, "delete_hems_assets", new_callable=AsyncMock),
+    ):
+        await HEMS_cleanup.main()
+
+    client_factory.assert_called_once_with(host=HEMS_cleanup.host, ssl=HEMS_cleanup.ssl)
     client.close.assert_awaited_once()
 
 

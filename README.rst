@@ -71,6 +71,10 @@ For an interactive session, create a client without credentials. On the first
 request that needs authentication, it prompts for an email address and a
 password (without echoing the password):
 
+The interactive prompt blocks the event loop while waiting for input. Supply
+credentials or a refresh token in applications that need other async work to
+continue during authentication.
+
 .. code-block:: python
 
     from flexmeasures_client import FlexMeasuresClient

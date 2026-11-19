@@ -9,10 +9,6 @@ from flexmeasures_client import FlexMeasuresClient
 BASE = "http://localhost:5000/api/"
 
 
-async def _run_prompt(func, *args):
-    return func(*args)
-
-
 @pytest.mark.asyncio
 async def test_login_and_refresh_rotate_and_notify(caplog):
     saved = []
@@ -225,7 +221,6 @@ async def test_token_only_authentication():
 
 @pytest.mark.asyncio
 async def test_interactive_login_and_rejected_token(monkeypatch):
-    monkeypatch.setattr(asyncio, "to_thread", _run_prompt)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda prompt: "user@example.com")
     monkeypatch.setattr("getpass.getpass", lambda prompt: "secret")
@@ -259,7 +254,6 @@ async def test_noninteractive_login_requires_credentials(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_interactive_prompts_only_for_missing_password(monkeypatch):
-    monkeypatch.setattr(asyncio, "to_thread", _run_prompt)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr(
         "builtins.input", lambda prompt: pytest.fail("Unexpected email prompt")

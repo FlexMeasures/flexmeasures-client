@@ -37,7 +37,11 @@ from flexmeasures_client.exceptions import (
     WrongHostError,
 )
 from flexmeasures_client.response_handling import check_for_status, check_response
-from flexmeasures_client.utils import apply_deprecated_parameter_aliases, merge_updates
+from flexmeasures_client.utils import (
+    apply_deprecated_parameter_aliases,
+    merge_updates,
+    prompt_for_input,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -649,16 +653,14 @@ class FlexMeasuresClient:
                     "Email and password are required for login; no interactive terminal is available."
                 )
             if self.email is None:
-                email = await asyncio.to_thread(input, "FlexMeasures email: ")
+                email = prompt_for_input("FlexMeasures email: ", input)
                 if not re.match(r".+\@.+\..+", email):
                     raise EmailValidationError(
                         f"{email} is not an email address format string"
                     )
                 self.email = email
             if self.password is None:
-                password = await asyncio.to_thread(
-                    getpass.getpass, "FlexMeasures password: "
-                )
+                password = prompt_for_input("FlexMeasures password: ", getpass.getpass)
                 if not password:
                     raise EmptyPasswordError("password cannot be empty")
                 self.password = password

@@ -51,14 +51,6 @@ Next steps:
 
     flexmeasures add toy-account
 
-This is what ``examples/HEMS/const.py`` expects out of the box, so you can run
-the tutorial without editing it:
-
-.. code-block:: python
-
-    usr = "toy-user@flexmeasures.io"
-    pwd = "toy-password"
-
 The toy account also adds a few unrelated demo assets (``toy-building`` and its
 children). The tutorial ignores them and never deletes them.
 
@@ -71,8 +63,7 @@ To use your own account instead, create it and give its user the
     flexmeasures add user --username hems-admin --email hems-admin@example.com \
         --account 2 --roles account-admin
 
-Replace ``2`` with the account ID printed by the first command, and update
-``usr`` and ``pwd`` in ``examples/HEMS/const.py`` to match.
+Replace ``2`` with the account ID printed by the first command.
 
 Either way, the tutorial creates all assets and sensors in that one account. It
 does not create public assets, so a site-wide ``admin`` role is not required.
@@ -151,6 +142,27 @@ this checkout's client instead of a possibly older user-site installation:
 .. code-block:: bash
 
     uv run --no-sync --project ../.. python HEMS_setup.py
+
+The script prompts for the account-admin user's email and password when it
+first authenticates. The password is not echoed or stored in ``const.py``.
+Run it in an interactive terminal; the cleanup script prompts in the same way.
+
+To save a refresh token in your system keyring and avoid entering the password
+on subsequent runs, install the optional `keyring package
+<https://keyring.readthedocs.io/en/latest/>`_ or run the script with it:
+
+.. code-block:: bash
+
+    uv run --with keyring --no-sync --project ../.. python HEMS_setup.py
+
+Use the same ``--with keyring`` option for ``HEMS_cleanup.py``. The scripts ask
+for the email to select the keyring entry, which is specific to the server and
+account. When the server issues or rotates a refresh token, the new token is
+saved there; the password is not saved. An expired or revoked token requires a
+new login. This requires a usable system keyring backend; if none is available,
+the scripts continue with interactive login. Older servers that do not issue
+refresh tokens require a password each run. Do not run multiple clients with
+the same saved refresh token concurrently: rotation can invalidate the token.
 
 Scheduling the community jointly or per building
 =================================================
