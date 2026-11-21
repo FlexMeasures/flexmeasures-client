@@ -11,9 +11,8 @@ The FLEXED home energy management system (HEMS) made use of the following energy
 - a district-level energy manager that distributes the capacity of a shared grid connection across those homes.
 
 This page records the open-source components used for the simulations in the project.
-Part of the code used in FLEXED still lives on feature branches, so not every component can be referenced by a released version yet.
-Each entry below therefore names either the released version used, or the branch that carries the code as it ran.
-We will replace those branch names with released versions once that work is consolidated into ``main``.
+Each entry below names the released version that carries the code,
+or, where that code is not released yet, the branch that carries it as it ran.
 
 
 Open-source components
@@ -25,11 +24,13 @@ Open-source components
    In FLEXED it carries both layers: the home layer and the district layer.
    The simulations ran a 1.1.0 development build of this branch, which is `pull request #2310 <https://github.com/FlexMeasures/flexmeasures/pull/2310>`_ and still open.
 
-`FlexMeasures Client <https://github.com/FlexMeasures/flexmeasures-client>`_, branch ``dev/fix-handshake-handler`` (Apache-2.0)
+`FlexMeasures Client <https://github.com/FlexMeasures/flexmeasures-client>`_ v0.10.0 (Apache-2.0)
    This package, in two roles.
    As an `S2 Customer Energy Manager <https://github.com/FlexMeasures/flexmeasures-client/blob/main/docs/CEM.rst>`_ it speaks S2 over a WebSocket with the resource manager in each home, and translates that home's heat pump and heat buffer into a FlexMeasures flex-model.
    As an API client it is how the simulation driver creates assets, posts measurements and triggers schedules, which is also what the `HEMS tutorial <https://github.com/FlexMeasures/flexmeasures-client/blob/main/docs/HEMS.rst>`_ does.
-   The simulations ran this branch, which is `pull request #188 <https://github.com/FlexMeasures/flexmeasures-client/pull/188>`_ and still open.
+   The simulations ran a development branch (`pull request #188 <https://github.com/FlexMeasures/flexmeasures-client/pull/188>`_).
+   That work was finished, reviewed and merged into ``main`` (`#278 <https://github.com/FlexMeasures/flexmeasures-client/pull/278>`_ and `#279 <https://github.com/FlexMeasures/flexmeasures-client/pull/279>`_), and first released in v0.10.0.
+   The `S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst>`_ lists what changed along the way.
 
 `s2-python <https://github.com/flexiblepower/s2-ws-json-python>`_ 0.8.1 (Apache-2.0)
    The message types of the `S2 standard <https://s2standard.org/>`_ for flexibility communication.
