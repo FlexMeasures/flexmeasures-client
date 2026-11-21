@@ -19,6 +19,9 @@ from flexmeasures_client.exceptions import (
 )
 from flexmeasures_client.s2.cem import CEM
 from flexmeasures_client.s2.control_types.FRBC.frbc_simple import FRBCSimple
+from flexmeasures_client.s2.control_types.FRBC.utils import (
+    WATTS_PER_ENERGY_UNIT_PER_SECOND,
+)
 from flexmeasures_client.s2.measurements import MeasurementRecorder
 from flexmeasures_client.s2.site import (
     FRBC_SITE_SENSORS,
@@ -51,6 +54,28 @@ ACCEPT_SIMULATION_METADATA = os.getenv("S2_ACCEPT_SIMULATION_METADATA", "").lowe
 #: Whether a usage forecast that no plan can absorb is corrected towards zero, instead of being planned without its negative values.
 #: This also sets the breach prices of the fill-level band and the site's capacity relative to the market.
 CORRECT_USAGE = os.getenv("S2_CORRECT_USAGE", "").lower() in ("1", "true", "yes")
+
+
+def fill_level_unit_from_env() -> str:
+    """Return the unit that the resource managers record their fill level in, from ``S2_FILL_LEVEL_UNIT``.
+
+    S2 states no unit for a fill level, so it cannot be read from the resource manager's messages.
+    A resource manager that reports its storage in joules, while the handler takes it as kWh,
+    has every storage quantity reach FlexMeasures 3.6 million times too large, and nothing says so.
+    An unknown unit is refused here, at startup, rather than when the first resource manager connects.
+
+    :raises ValueError: if the unit is not one a fill level can be recorded in.
+    """
+    unit = os.getenv("S2_FILL_LEVEL_UNIT", "kWh")
+    if unit not in WATTS_PER_ENERGY_UNIT_PER_SECOND:
+        raise ValueError(
+            f"S2_FILL_LEVEL_UNIT has to be one of {', '.join(WATTS_PER_ENERGY_UNIT_PER_SECOND)}, but {unit!r} was given."
+        )
+    return unit
+
+
+#: The unit that the resource managers record their fill level in (see fill_level_unit_from_env).
+FILL_LEVEL_UNIT = fill_level_unit_from_env()
 
 #: The sensors the site needs, taken from the library's table of sensors for an FRBC site.
 SITE_SENSORS = {
@@ -216,6 +241,7 @@ def fixed_site_handler(sensors: dict[str, dict]) -> FRBCSimple:
         # Only where S2_CORRECT_USAGE asked for a correction (see SITE_SENSORS).
         usage_correction_sensor_id=sensors.get("usage correction", {}).get("id"),
         timezone=SITE_TIMEZONE,
+        energy_unit=FILL_LEVEL_UNIT,
         # Plan from now, not from a day after the description, so that a demo shows its instructions being followed.
         valid_from_shift=timedelta(0),
     )
@@ -346,14 +372,24 @@ async def configure_site_once(app: web.Application) -> None:
             # With this attribute, FlexMeasures keeps their production at zero, even where constraints are relaxed.
             power_sensor_attributes={"is_strictly_non_positive": True},
             # Each member's site capacity is a target set by the community that steers it, so it may be breached at a price, as #188 asked for.
-            handler_options={"relax_site_capacity": True},
+            handler_options={
+                "relax_site_capacity": True,
+                "energy_unit": FILL_LEVEL_UNIT,
+            },
             correct_usage=CORRECT_USAGE,
             logger=LOGGER,
         )
-        LOGGER.info("Each resource manager gets a site of its own; ready for them.")
+        LOGGER.info(
+            "Each resource manager gets a site of its own; ready for them. Fill levels are taken to be in %s.",
+            FILL_LEVEL_UNIT,
+        )
         return
     app[SENSORS] = await configure_site(SITE_NAME, fm_client)
-    LOGGER.info("Site '%s' is configured; ready for resource managers.", SITE_NAME)
+    LOGGER.info(
+        "Site '%s' is configured; ready for resource managers. Fill levels are taken to be in %s.",
+        SITE_NAME,
+        FILL_LEVEL_UNIT,
+    )
 
 
 async def close_fm_client(app: web.Application) -> None:

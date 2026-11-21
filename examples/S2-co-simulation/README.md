@@ -18,6 +18,14 @@ with two switches on:
   resource manager retries. Its schedules start from the simulated now and cover
   24 hours. The site's prices are for whoever runs the simulation to post.
 
+One setting depends on the resource managers:
+
+- `S2_FILL_LEVEL_UNIT` (default `kWh`): the unit the resource managers record their
+  fill level in, one of `J`, `kJ`, `MJ`, `Wh`, `kWh` and `MWh`. S2 states no unit for
+  a fill level, so the CEM cannot read it from their messages. Resource managers that
+  report their storage in joules need `J`; taken as kWh, every storage quantity reaches
+  FlexMeasures 3.6 million times too large. The server logs the unit it uses at startup.
+
 A third switch is off by default:
 
 - `S2_CORRECT_USAGE`: a usage forecast that no plan can absorb within the storage's

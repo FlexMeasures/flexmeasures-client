@@ -137,3 +137,42 @@ async def test_a_connection_error_closes_the_cem(caplog):
 
     assert cem.closed
     assert "ws connection closed with exception broken pipe" in caplog.text
+
+
+def test_the_fill_level_unit_defaults_to_kwh(monkeypatch):
+    monkeypatch.delenv("S2_FILL_LEVEL_UNIT", raising=False)
+    assert server.fill_level_unit_from_env() == "kWh"
+
+
+def test_the_fill_level_unit_is_read_from_the_environment(monkeypatch):
+    monkeypatch.setenv("S2_FILL_LEVEL_UNIT", "J")
+    assert server.fill_level_unit_from_env() == "J"
+
+
+def test_an_unknown_fill_level_unit_is_refused(monkeypatch):
+    monkeypatch.setenv("S2_FILL_LEVEL_UNIT", "kelvin")
+    with pytest.raises(ValueError, match="S2_FILL_LEVEL_UNIT"):
+        server.fill_level_unit_from_env()
+
+
+def test_the_fixed_site_handler_records_fill_levels_in_the_configured_unit(monkeypatch):
+    monkeypatch.setattr(server, "FILL_LEVEL_UNIT", "J")
+    sensors = {
+        name: {"id": i}
+        for i, name in enumerate(
+            [
+                "power",
+                "price",
+                "state of charge",
+                "RM discharge",
+                "fill rate",
+                "soc minima",
+                "soc maxima",
+                "usage forecast",
+                "leakage",
+                "charging efficiency",
+            ],
+            start=1,
+        )
+    }
+    assert server.fixed_site_handler(sensors).energy_unit == "J"
