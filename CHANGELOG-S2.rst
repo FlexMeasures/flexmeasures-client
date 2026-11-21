@@ -8,10 +8,10 @@ It ships with the FlexMeasures Client, so its versions are those of the client;
 see the `changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG.rst>`_ for everything else in each release.
 Add your entry under **Unreleased** when you open a pull request that changes the S2 integration.
 
-Unreleased
-==========
+v0.10.0 | 2026-11-21
+====================
 
-Other changes: see `Unreleased in the changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG.rst#unreleased>`__.
+Other changes: see `v0.10.0 in the changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG.rst#v0100--2026-11-21>`__.
 
 Added
 -----

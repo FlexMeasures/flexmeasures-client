@@ -11,10 +11,12 @@ Changes to the S2 integration are listed in the `S2 CEM changelog <https://githu
 which each release that changed it links to.
 Add your entry under **Unreleased** when you open a pull request.
 
-Unreleased
-==========
+v0.10.0 | 2026-11-21
+====================
 
-`All changes since v0.9.6 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.9.6...main>`__.
+`All changes since v0.9.6 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.9.6...v0.10.0>`__.
+
+S2 changes: see `v0.10.0 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v0100--2026-11-21>`__.
 
 Added
 -----
@@ -24,7 +26,7 @@ Added
 * ``post_sensor_data`` takes ``confirm_ingestion``. With ``True``, it raises an error if it cannot confirm that FlexMeasures ingested the posted data, instead of logging this and carrying on. Use it if your code remembers what it has recorded, and would otherwise never record the data again [`#273 <https://github.com/FlexMeasures/flexmeasures-client/pull/273>`__]
 * Optional ``rate_limit_notifier`` and ``job_status_notifier`` callbacks, to report rate limits and the progress of jobs being waited for, instead of logging them [`#225 <https://github.com/FlexMeasures/flexmeasures-client/pull/225>`__]
 * ``get_automations``, ``get_automation``, ``add_automation``, ``update_automation``, ``delete_automation``, ``trigger_automation`` and ``trigger_and_await_automation``, to manage and run automations through the API on FlexMeasures v1.1.0 and up [`#230 <https://github.com/FlexMeasures/flexmeasures-client/pull/230>`__]
-* The HEMS tutorial supports ``SOLVE_AS_COMMUNITY`` (default: ``True``) to schedule all buildings in one optimization with building and community capacity constraints. Set it to ``False`` to schedule buildings independently and report measured community-capacity breaches afterward. The example also includes reproducible solar data and annotations for solar conditions and EV state-of-charge targets.
+* The HEMS tutorial supports ``SOLVE_AS_COMMUNITY`` (default: ``True``) to schedule all buildings in one optimization with building and community capacity constraints. Set it to ``False`` to schedule buildings independently and report measured community-capacity breaches afterward. The example also includes reproducible solar data and annotations for solar conditions and EV state-of-charge targets. [`#292 <https://github.com/FlexMeasures/flexmeasures-client/pull/292>`__]
 
 Changed
 -------
@@ -41,7 +43,7 @@ Fixed
 -----
 
 * Respect HTTP 429 (Too Many Requests) responses, waiting as long as the server's ``Retry-After`` header says, or backing off exponentially [`#225 <https://github.com/FlexMeasures/flexmeasures-client/pull/225>`__]
-* Upgrade dependencies for security [`#234 <https://github.com/FlexMeasures/flexmeasures-client/pull/234>`__, `#235 <https://github.com/FlexMeasures/flexmeasures-client/pull/235>`__]
+* Upgrade dependencies for security [`#234 <https://github.com/FlexMeasures/flexmeasures-client/pull/234>`__, `#235 <https://github.com/FlexMeasures/flexmeasures-client/pull/235>`__, `#294 <https://github.com/FlexMeasures/flexmeasures-client/pull/294>`__]
 
 v0.9.6 | 2026-09-16
 ===================
