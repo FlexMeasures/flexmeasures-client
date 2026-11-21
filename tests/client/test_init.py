@@ -86,6 +86,9 @@ async def test__init__(
         "password": password,
         "email": email,
         "access_token": None,
+        "use_refresh_tokens": True,
+        "refresh_token": None,
+        "refresh_token_callback": None,
         "host": asserted_host,
         "port": asserted_port,
         "scheme": asserted_scheme,
@@ -111,6 +114,7 @@ async def test__init__(
     init_dict.pop("session")
     init_dict.pop("logger")
     init_dict.pop("_sensor_asset_id_cache")
+    init_dict.pop("_auth_lock")
     assert init_dict == assert_dict
 
 
@@ -276,7 +280,11 @@ async def test_get_access_token() -> None:
         m.assert_called_once_with(
             "http://localhost:5000/api/requestAuthToken",
             method="POST",
-            json={"email": "test@test.test", "password": "test"},
+            json={
+                "email": "test@test.test",
+                "password": "test",
+                "include-refresh-token": True,
+            },
             headers={
                 "Content-Type": "application/json",
                 CLIENT_VERSION_HEADER: __version__,
