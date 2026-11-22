@@ -31,6 +31,8 @@ Open-source components
    The simulations ran a development branch (`pull request #188 <https://github.com/FlexMeasures/flexmeasures-client/pull/188>`_).
    That work was finished, reviewed and merged into ``main`` (`#278 <https://github.com/FlexMeasures/flexmeasures-client/pull/278>`_ and `#279 <https://github.com/FlexMeasures/flexmeasures-client/pull/279>`_), and first released in v0.10.0.
    The `S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst>`_ lists what changed along the way.
+   The FLEXED resource managers report the fill level of the heat buffer in joules, and S2 states no unit for a fill level.
+   So to run the example CEM server with them, set ``S2_FILL_LEVEL_UNIT=J`` (`#296 <https://github.com/FlexMeasures/flexmeasures-client/pull/296>`_); the default, ``kWh``, would make every storage quantity 3.6 million times too large.
 
 `s2-python <https://github.com/flexiblepower/s2-ws-json-python>`_ 0.8.1 (Apache-2.0)
    The message types of the `S2 standard <https://s2standard.org/>`_ for flexibility communication.
