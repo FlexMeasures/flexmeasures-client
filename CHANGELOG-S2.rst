@@ -65,6 +65,7 @@ Added
   - ``FRBCSiteConfigurator`` takes ``correct_usage`` to give each site the sensor, and the example server does so with ``S2_CORRECT_USAGE``. Both are off by default.
 
   [`#286 <https://github.com/FlexMeasures/flexmeasures-client/pull/286>`__]
+* The example server takes the unit that the resource managers record their fill level in from ``S2_FILL_LEVEL_UNIT`` (default ``kWh``) and passes it to each handler as ``energy_unit``. S2 states no unit for a fill level, so resource managers that report in joules need ``J``; taken as kWh, every storage quantity reaches FlexMeasures 3.6 million times too large. An unknown unit is refused at startup [`#296 <https://github.com/FlexMeasures/flexmeasures-client/pull/296>`__]
 
 Changed
 -------
