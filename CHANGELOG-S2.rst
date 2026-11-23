@@ -8,10 +8,10 @@ It ships with the FlexMeasures Client, so its versions are those of the client;
 see the `changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG.rst>`_ for everything else in each release.
 Add your entry under **Unreleased** when you open a pull request that changes the S2 integration.
 
-Unreleased
-==========
+v0.10.0 | 2026-11-23
+====================
 
-Other changes: see `Unreleased in the changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG.rst#unreleased>`__.
+Other changes: see `v0.10.0 in the changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG.rst#v0100--2026-11-23>`__.
 
 Added
 -----
@@ -65,6 +65,7 @@ Added
   - ``FRBCSiteConfigurator`` takes ``correct_usage`` to give each site the sensor, and the example server does so with ``S2_CORRECT_USAGE``. Both are off by default.
 
   [`#286 <https://github.com/FlexMeasures/flexmeasures-client/pull/286>`__]
+* The example server takes the unit that the resource managers record their fill level in from ``S2_FILL_LEVEL_UNIT`` (default ``kWh``) and passes it to each handler as ``energy_unit``. S2 states no unit for a fill level, so resource managers that report in joules need ``J``; taken as kWh, every storage quantity reaches FlexMeasures 3.6 million times too large. An unknown unit is refused at startup [`#296 <https://github.com/FlexMeasures/flexmeasures-client/pull/296>`__]
 
 Changed
 -------
