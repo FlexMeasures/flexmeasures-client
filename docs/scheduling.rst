@@ -215,6 +215,93 @@ conversion server-side.  For older servers, the client converts between
 ``NotImplementedError``.
 
 
+Responding to surprises with recourse rules
+-------------------------------------------
+
+A schedule is optimal given a forecast of everything else behind the meter, and that forecast is wrong within minutes.
+A FlexMeasures server that computes recourse rules serves, with every schedule, one rule per slot and device:
+how to respond to a surprise at the meter, and within which band that response keeps the rest of the plan feasible.
+The controller evaluates the rule locally, at meter speed, without a new scheduling request.
+
+Opt in through the flex-context, which names the sensor with the signed net power at the connection (import positive)
+and the order in which the devices respond, and give each responding device a ``response`` block in its flex-model:
+
+.. code-block:: python
+
+    schedule = await client.trigger_and_get_schedule(
+        sensor_id=8,
+        start="2026-11-30T00:00:00+01:00",
+        duration="P1D",
+        flex_context={
+            "consumption-price": {"sensor": 7},
+            "reference-sensor": {"sensor": 4711},
+            "response-order": [{"sensor": 8}],
+            "retrigger-on-band-exit": False,
+        },
+        flex_model={
+            "soc-unit": "kWh",
+            "soc-at-start": 20,
+            "soc-min": 10,
+            "soc-max": 60,
+            "power-capacity": "7.4 kW",
+            "response": {
+                "directions": ["consumption-up", "consumption-down"],
+                "response-time": "PT150S",
+            },
+        },
+        unit="kW",
+    )
+
+The client sends these fields as given, so a field the server adds later needs no client release.
+The schedule then carries a ``response`` list next to its ``values``, with one entry per value,
+in the same unit as the values:
+
+.. code-block:: python
+
+    {
+        "start": "2026-11-30T00:00:00+01:00",
+        "duration": "P1D",
+        "unit": "kW",
+        "values": [4.4, ...],
+        "response": [{"reference": -0.4, "gain": -1, "band": [[1.4, 7.4]]}, ...],
+    }
+
+Per slot, ``reference`` is the uncontrolled power the plan assumed,
+``gain`` is 0 (follow the plan) or -1 (absorb the surprise one to one),
+and ``band`` lists the ranges within which deviating keeps the device's own constraints satisfiable,
+with ``null`` for an unbounded side and more than one range for a device with operation modes.
+A schedule served without rules has no ``response`` key and reads exactly as before.
+When ``get_schedule`` converts the unit itself (for servers older than v0.32.0), it converts the rules along with the values.
+
+``flexmeasures_client.recourse`` parses the rules and evaluates them, with no state and no I/O:
+
+.. code-block:: python
+
+    from flexmeasures_client.recourse import ResponseSchedule, residuals
+
+    plan = ResponseSchedule.from_schedule(schedule)
+    if not plan.has_rules:
+        print("The server served no recourse rules.")
+
+    # At meter speed: the surprise on the uncontrolled part of the meter is
+    # the net power at the connection, minus the devices' realized powers, minus the reference.
+    now = ...
+    slot = plan.slot(now)
+    surprise = (meter_power - charger_power) - plan.rules[slot].reference
+    setpoint = plan.respond_at(now, residual=surprise)
+
+The setpoint is ``clip(p + gain * residual, band)``, with ``p`` the slot's schedule value.
+A continuous answer in a hole between two ranges becomes the nearest edge, and on a tie the edge on the side of ``p``.
+With several responding devices, :func:`residuals` walks the response order and returns the residual each device is given:
+the surprise, plus the deviations from plan of the devices outside the chain, plus those of the devices before it in the chain.
+The chain for a slot is the response order restricted to the devices with nonzero gain.
+Sign convention throughout: meter import positive, device consumption positive.
+
+Rounding with hysteresis, deadbands on commands and dwell times are left to the device drivers in the controller.
+``examples/recourse_rules.py`` triggers a schedule with these fields, walks a day of slots with a scripted surprise and prints the setpoints;
+it exits with status 2 when the server served no rules, so it doubles as a smoke test.
+
+
 Waiting, legacy polling, and errors
 -----------------------------------
 
