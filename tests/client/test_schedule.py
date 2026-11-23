@@ -1247,3 +1247,74 @@ async def test_trigger_schedule_202_is_not_logged_as_unexpected(caplog) -> None:
             "instead of expected" in record.message for record in caplog.records
         )
         await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_unit_client_side_conversion_moves_response_along():
+    """Client-side unit conversion scales the recourse rules by the same factor as the values."""
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid"
+    with aioresponses() as m:
+        m.get(
+            url=url,
+            status=200,
+            payload={
+                "values": [0.002, -0.003],
+                "start": "2026-11-30T00:00:00+01:00",
+                "duration": "PT30M",
+                "unit": "MW",
+                "response": [
+                    {"reference": 0.0004, "gain": -1, "band": [[0, 0.0074]]},
+                    {
+                        "reference": -0.001,
+                        "gain": 0,
+                        "band": [[-0.0074, -0.0014], [0, 0], [0.0014, None]],
+                    },
+                ],
+            },
+        )
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="skip-auth",
+        )
+        client.server_version = "0.31.0"
+        schedule = await client.get_schedule(
+            sensor_id=1, schedule_id="some-uuid", unit="kW"
+        )
+    await client.close()
+
+    assert schedule["unit"] == "kW"
+    assert schedule["values"] == [2.0, -3.0]
+    assert schedule["response"] == [
+        {"reference": 0.4, "gain": -1, "band": [[0, 7.4]]},
+        {"reference": -1.0, "gain": 0, "band": [[-7.4, -1.4], [0, 0], [1.4, None]]},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_without_response_is_unchanged():
+    """A schedule served without recourse rules gains no 'response' key, converted or not."""
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid"
+    served = {
+        "values": [0.002, -0.003],
+        "start": "2026-11-30T00:00:00+01:00",
+        "duration": "PT30M",
+        "unit": "MW",
+    }
+    with aioresponses() as m:
+        m.get(url=url, status=200, payload=served)
+        m.get(url=url, status=200, payload=served)
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="skip-auth",
+        )
+        client.server_version = "0.31.0"
+        as_served = await client.get_schedule(sensor_id=1, schedule_id="some-uuid")
+        converted = await client.get_schedule(
+            sensor_id=1, schedule_id="some-uuid", unit="kW"
+        )
+    await client.close()
+
+    assert as_served == served
+    assert converted == {**served, "values": [2.0, -3.0], "unit": "kW"}

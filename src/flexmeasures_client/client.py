@@ -34,6 +34,7 @@ from flexmeasures_client.exceptions import (
     WrongAPIVersionError,
     WrongHostError,
 )
+from flexmeasures_client.recourse import convert_response_units
 from flexmeasures_client.response_handling import check_for_status, check_response
 from flexmeasures_client.utils import apply_deprecated_parameter_aliases, merge_updates
 
@@ -1066,6 +1067,8 @@ class FlexMeasuresClient:
                       'duration': 'PT45M',
                       'unit': 'MW'
                   }
+                  A server that serves recourse rules adds a 'response' list with one entry per value,
+                  in the same unit as the values; parse it with ``flexmeasures_client.recourse.parse_response``.
         """
         params = {}
         if duration is not None:
@@ -1095,6 +1098,12 @@ class FlexMeasuresClient:
         if unit is not None and not server_handles_unit:
             from_unit = schedule["unit"]
             schedule["values"] = convert_units(schedule["values"], from_unit, unit)
+            if schedule.get("response") is not None:
+                # The recourse rules are in the schedule's unit too, so they move along with the values.
+                schedule["response"] = convert_response_units(
+                    schedule["response"],
+                    lambda numbers: convert_units(numbers, from_unit, unit),
+                )
             schedule["unit"] = unit
 
         return schedule
