@@ -1318,3 +1318,132 @@ async def test_get_schedule_without_response_is_unchanged():
 
     assert as_served == served
     assert converted == {**served, "values": [2.0, -3.0], "unit": "kW"}
+
+
+RESPONSE_FLEX_CONTEXT = {
+    "consumption-price": {"sensor": 7},
+    "reference-sensor": {"sensor": 4711},
+    "response-order": [{"sensor": 3}, {"sensor": 9}],
+    "retrigger-on-band-exit": True,
+    "reference-at-start": "0.4 kW",
+}
+RESPONSE_FLEX_MODEL = {
+    "soc-unit": "kWh",
+    "soc-at-start": 50,
+    "power-capacity": "7.4 kW",
+    "response": {
+        "directions": ["consumption-up", "consumption-down"],
+        "response-time": "PT150S",
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_passes_response_fields_through() -> None:
+    """The recourse opt-in fields of the flex-context and flex-model are sent as given."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/3",
+            status=200,
+            payload={"id": 3, "generic_asset_id": 5, "name": "test-sensor"},
+        )
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
+            status=202,
+            payload={"schedule": "test_schedule_id"},
+        )
+        schedule_id = await client.trigger_schedule(
+            sensor_id=3,
+            start="2026-11-30T00:00+01:00",
+            duration="P1D",
+            flex_model=RESPONSE_FLEX_MODEL,
+            flex_context=RESPONSE_FLEX_CONTEXT,
+        )
+        assert schedule_id == "test_schedule_id"
+        m.assert_called_with(
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
+            json={
+                "start": "2026-11-30T00:00:00+01:00",
+                "duration": "P1DT0H0M0S",
+                "flex-model": [{**RESPONSE_FLEX_MODEL, "sensor": 3}],
+                "flex-context": RESPONSE_FLEX_CONTEXT,
+            },
+            url="http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_and_get_schedule_passes_response_through() -> None:
+    """The flex fields reach the server untouched, and the served 'response' reaches the caller untouched."""
+    flex_model = [
+        {"sensor": 3, **RESPONSE_FLEX_MODEL},
+        {"sensor": 9, "response": {"directions": ["production-down"]}},
+    ]
+    served_response = [
+        {"reference": 0.4, "gain": -1, "band": [[1.4, 7.4]]},
+        {"reference": 0.4, "gain": 0, "band": [[None, None]]},
+    ]
+    with aioresponses() as m:
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+            request_timeout=2,
+            request_retry_interval=0.2,
+        )
+        client.server_version = "1.1.0"
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
+            status=202,
+            payload={"schedule": "test_schedule_id"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/test_schedule_id",
+            status=200,
+            payload={"status": "FINISHED"},
+        )
+        for sensor_id in (3, 9):
+            m.get(
+                f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/schedules/test_schedule_id?duration=P1DT0H0M0S&unit=kW",
+                status=200,
+                payload={
+                    "values": [4.4, 0.0],
+                    "start": "2026-11-30T00:00:00+01:00",
+                    "duration": "P1D",
+                    "unit": "kW",
+                    "response": served_response,
+                },
+            )
+        schedules = await client.trigger_and_get_schedule(
+            asset_id=5,
+            start="2026-11-30T00:00+01:00",
+            duration="P1D",
+            flex_model=flex_model,
+            flex_context=RESPONSE_FLEX_CONTEXT,
+            unit="kW",
+        )
+        trigger_calls = m.requests[
+            ("POST", URL("http://localhost:5000/api/v3_0/assets/5/schedules/trigger"))
+        ]
+        assert trigger_calls[0].kwargs["json"] == {
+            "start": "2026-11-30T00:00:00+01:00",
+            "duration": "P1DT0H0M0S",
+            "flex-model": flex_model,
+            "flex-context": RESPONSE_FLEX_CONTEXT,
+        }
+    await client.close()
+
+    assert [schedule["sensor"] for schedule in schedules] == [3, 9]
+    for schedule in schedules:
+        assert schedule["response"] == served_response
