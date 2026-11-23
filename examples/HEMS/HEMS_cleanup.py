@@ -1,16 +1,19 @@
 """Delete the assets and data created by the HEMS tutorial."""
 
 import asyncio
+import sys
 
-from const import COMMUNITY_NAME, host, pwd, ssl, usr
+from const import COMMUNITY_NAME, host, ssl
 from utils.asset_utils import delete_hems_assets
+from utils.auth_utils import configure_refresh_token_storage
 
 from flexmeasures_client import FlexMeasuresClient
 
 
 async def main() -> None:
-    client = FlexMeasuresClient(email=usr, password=pwd, host=host, ssl=ssl)
+    client = FlexMeasuresClient(host=host, ssl=ssl)
     try:
+        await configure_refresh_token_storage(client)
         account = await client.get_account()
         if not account:
             raise RuntimeError("No account found for the configured user.")
@@ -25,4 +28,8 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nCleanup cancelled.", file=sys.stderr)
+        raise SystemExit(130) from None

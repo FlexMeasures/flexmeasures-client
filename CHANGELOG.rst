@@ -11,6 +11,23 @@ Changes to the S2 integration are listed in the `S2 CEM changelog <https://githu
 which each release that changed it links to.
 Add your entry under **Unreleased** when you open a pull request.
 
+v0.11.0 | Unreleased
+====================
+
+`All changes since v0.10.0 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.10.0...main>`__.
+
+Added
+-----
+
+* Refresh tokens. By default (``use_refresh_tokens=True``), the client asks for a refresh token when it logs in. When an access token is rejected, or ``get_access_token()`` is called, it exchanges the refresh token for a new pair, instead of sending the password again; several requests rejected at once share one refresh. Pass ``refresh_token`` to authenticate without a password, and ``refresh_token_callback`` to store each new refresh token, for instance in a keyring. If the refresh token is rejected, the client logs in again. A FlexMeasures server without refresh tokens (see `FlexMeasures #2849 <https://github.com/FlexMeasures/flexmeasures/pull/2849>`__) is logged in to with the password, as before [`#291 <https://github.com/FlexMeasures/flexmeasures-client/pull/291>`__]
+* A client created without ``email`` or ``password`` asks for them in the terminal, on the first request that needs to log in, without echoing the password. Without an interactive terminal, it raises an error instead [`#291 <https://github.com/FlexMeasures/flexmeasures-client/pull/291>`__]
+
+Changed
+-------
+
+* ``email`` and ``password`` are optional. Debug logs no longer show the payloads of requests and responses, or the headers of requests, so that credentials and tokens stay out of them [`#291 <https://github.com/FlexMeasures/flexmeasures-client/pull/291>`__]
+* The HEMS tutorial keeps no credentials in its files. It asks for them, or reuses a refresh token stored in the system keyring [`#291 <https://github.com/FlexMeasures/flexmeasures-client/pull/291>`__]
+
 v0.10.0 | 2026-11-23
 ====================
 

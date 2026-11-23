@@ -5,6 +5,7 @@ and all required sensors with proper flex-context configuration.
 """
 
 import asyncio
+import sys
 from typing import Callable
 
 from assets_setup import create_community_asset
@@ -15,14 +16,13 @@ from const import (
     SITE_NAMES,
     SOLVE_AS_COMMUNITY,
     host,
-    pwd,
     ssl,
-    usr,
 )
 from forecasting import generate_forecasts
 from reporters import create_reports
 from scheduling import just_continue, run_scheduling_simulation
 from utils.asset_utils import delete_hems_assets, upload_data_for_first_two_weeks
+from utils.auth_utils import configure_refresh_token_storage
 from utils.workflow_utils import (
     DATA_UPLOAD_PHASE,
     FORECASTING_PHASE,
@@ -348,17 +348,7 @@ async def main(
             f"Unsupported PV_MODE {PV_MODE!r}; choose 'inflexible' or 'curtailable'."
         )
 
-    # NOTE: Create an account and an account-admin user via the FlexMeasures CLI
-    # first. The credentials in const.py default to FlexMeasures' toy account:
-    # flexmeasures add toy-account
-    # To use your own account instead, create it and update const.py to match:
-    # flexmeasures add account --name "MyCompany"
-    # flexmeasures add user --username hems-admin --email hems-admin@example.com \
-    #     --account 2 --roles account-admin
-
     client = FlexMeasuresClient(
-        email=usr,
-        password=pwd,
         host=host,
         ssl=ssl,
         request_retry_timeout=HEMS_REQUEST_RETRY_TIMEOUT_SECONDS,
@@ -380,7 +370,8 @@ async def main(
         )
 
         # Get user account information
-        print(f"Logging in as {usr} ...")
+        print("Logging in to FlexMeasures ...")
+        await configure_refresh_token_storage(client)
         account = await client.get_account()
         if not account:
             raise Exception("No account found. Please create an account first.")
@@ -587,9 +578,6 @@ async def main(
             f"Community asset '{community_name}' (ID: {asset['id']})."
         )
 
-    except Exception as e:
-        print(f" Error during setup: {e}")
-        raise
     finally:
         await client.close()
 
@@ -598,10 +586,16 @@ if __name__ == "__main__":
     community_name = COMMUNITY_NAME
     site_names = SITE_NAMES
 
-    asyncio.run(
-        main(
-            community_name=community_name,
-            site_names=site_names,
-            solve_as_community=SOLVE_AS_COMMUNITY,
+    try:
+        asyncio.run(
+            main(
+                community_name=community_name,
+                site_names=site_names,
+                solve_as_community=SOLVE_AS_COMMUNITY,
+            )
         )
-    )
+    except KeyboardInterrupt:
+        print("\nSetup cancelled.", file=sys.stderr)
+        raise SystemExit(130) from None
+    except Exception as e:
+        raise SystemExit(f"Error during setup: {e}") from None

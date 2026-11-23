@@ -4,8 +4,6 @@ import random
 Settings for the HEMS example script.
 """
 # Connection details - UPDATE THESE FOR YOUR SETUP
-usr = "toy-user@flexmeasures.io"  # Account-admin user email
-pwd = "toy-password"  # Account-admin user password
 host = "127.0.0.1:5000"  # FlexMeasures host, without http:// or https://
 ssl = False  # Local development server uses HTTP; set True for HTTPS deployments
 

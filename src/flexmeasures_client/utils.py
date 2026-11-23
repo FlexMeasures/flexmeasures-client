@@ -2,10 +2,38 @@
 
 from __future__ import annotations
 
+import functools
+import signal
+import threading
 import warnings
 from collections.abc import Iterable
+from typing import Callable
 
 DeprecatedParameterAlias = tuple[str, object | None, str, object]
+
+
+def prompt_for_input(prompt: str, reader: Callable[[str], str]) -> str:
+    """Read a terminal prompt, allowing Ctrl-C to interrupt it immediately.
+
+    Terminal input blocks the event loop while the user responds. This avoids
+    leaving a worker thread blocked on input when an async task is cancelled.
+    """
+    previous = None
+    if threading.current_thread() is threading.main_thread():
+        handler = signal.getsignal(signal.SIGINT)
+        # asyncio.run installs a handler that cancels the task, which cannot
+        # interrupt a blocking terminal read. Preserve any user-installed handler.
+        if (
+            isinstance(handler, functools.partial)
+            and getattr(handler.func, "__qualname__", "") == "Runner._on_sigint"
+        ):
+            previous = handler
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+    try:
+        return reader(prompt)
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
 
 
 def apply_deprecated_parameter_aliases(
