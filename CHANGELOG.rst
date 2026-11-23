@@ -11,12 +11,12 @@ Changes to the S2 integration are listed in the `S2 CEM changelog <https://githu
 which each release that changed it links to.
 Add your entry under **Unreleased** when you open a pull request.
 
-v0.10.0 | 2026-11-21
+v0.10.0 | 2026-11-23
 ====================
 
 `All changes since v0.9.6 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.9.6...v0.10.0>`__.
 
-S2 changes: see `v0.10.0 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v0100--2026-11-21>`__.
+S2 changes: see `v0.10.0 in the S2 CEM changelog <https://github.com/FlexMeasures/flexmeasures-client/blob/main/CHANGELOG-S2.rst#v0100--2026-11-23>`__.
 
 Added
 -----
