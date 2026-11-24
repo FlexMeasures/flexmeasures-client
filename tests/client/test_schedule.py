@@ -1320,27 +1320,24 @@ async def test_get_schedule_without_response_is_unchanged():
     assert converted == {**served, "values": [2.0, -3.0], "unit": "kW"}
 
 
+# Pass-through is generic: a field this client has never heard of is sent as given, too,
+# in the flex-context as well as in a flex-model item.
 RESPONSE_FLEX_CONTEXT = {
     "consumption-price": {"sensor": 7},
-    "response-order": [{"sensor": 3}, {"sensor": 9}],
-    "retrigger-on-band-exit": True,
-    # Pass-through is generic: a field this client has never heard of is sent as given, too.
     "some-future-field": {"nested": [1, "two", None]},
 }
 RESPONSE_FLEX_MODEL = {
     "soc-unit": "kWh",
     "soc-at-start": 50,
     "power-capacity": "7.4 kW",
-    "response": {
-        "directions": ["consumption-up", "consumption-down"],
-        "response-time": "PT150S",
-    },
+    "react": True,
+    "some-future-device-field": ["anything", 42],
 }
 
 
 @pytest.mark.asyncio
-async def test_trigger_schedule_passes_response_fields_through() -> None:
-    """The recourse opt-in fields of the flex-context and flex-model are sent as given, like any unknown field."""
+async def test_trigger_schedule_passes_react_opt_in_through() -> None:
+    """The react opt-in on the flex-model item is sent as given, like any field the client does not know."""
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
@@ -1388,7 +1385,7 @@ async def test_trigger_and_get_schedule_passes_response_through() -> None:
     """The flex fields reach the server untouched, and the served 'response' reaches the caller untouched."""
     flex_model = [
         {"sensor": 3, **RESPONSE_FLEX_MODEL},
-        {"sensor": 9, "response": {"directions": ["production-down"]}},
+        {"sensor": 9, "react": True},
     ]
     served_response = [
         {"reference": 0.4, "react": 1, "band": [[1.4, 7.4]]},

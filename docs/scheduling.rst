@@ -223,8 +223,7 @@ A FlexMeasures server that computes recourse rules serves, with every schedule, 
 how to respond to a surprise at the meter, and within which band that response keeps the rest of the plan feasible.
 The controller evaluates the rule locally, at meter speed, without a new scheduling request.
 
-Opt in with a ``response-order`` in the flex-context, which lists the devices in the order in which they respond,
-and give each responding device a ``response`` block in its flex-model:
+Opt in with ``react: true`` on the flex-model of each device that is to respond:
 
 .. code-block:: python
 
@@ -234,8 +233,6 @@ and give each responding device a ``response`` block in its flex-model:
         duration="P1D",
         flex_context={
             "consumption-price": {"sensor": 7},
-            "response-order": [{"sensor": 8}],
-            "retrigger-on-band-exit": False,
         },
         flex_model={
             "soc-unit": "kWh",
@@ -243,15 +240,12 @@ and give each responding device a ``response`` block in its flex-model:
             "soc-min": 10,
             "soc-max": 60,
             "power-capacity": "7.4 kW",
-            "response": {
-                "directions": ["consumption-up", "consumption-down"],
-                "response-time": "PT150S",
-            },
+            "react": True,
         },
         unit="kW",
     )
 
-The client sends these fields as given, so a field the server adds later needs no client release.
+The client sends the flex-model and flex-context as given, so a field the server adds later needs no client release.
 The schedule then carries a ``response`` list next to its ``values``, with one entry per value,
 in the same unit as the values:
 
@@ -291,9 +285,9 @@ When ``get_schedule`` converts the unit itself (for servers older than v0.32.0),
 
 The setpoint is ``clip(p - react * residual, band)``, with ``p`` the slot's schedule value.
 A continuous answer in a hole between two ranges becomes the nearest edge, and on a tie the edge on the side of ``p``.
-With several responding devices, :func:`residuals` walks the response order and returns the residual each device is given:
+With several responding devices, :func:`residuals` walks them in the order in which they respond and returns the residual each device is given:
 the surprise, plus the deviations from plan of the devices outside the chain, plus those of the devices before it in the chain.
-The chain for a slot is the response order restricted to the devices with a nonzero react share.
+The chain for a slot is the devices with a nonzero react share, in that order.
 Sign convention throughout: meter import positive, device consumption positive.
 
 Rounding with hysteresis, deadbands on commands and dwell times are left to the device drivers in the controller.

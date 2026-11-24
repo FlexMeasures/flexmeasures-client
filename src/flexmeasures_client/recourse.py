@@ -301,7 +301,7 @@ def residuals(
     plans: Mapping[Device, float],
     realized: Mapping[Device, float],
 ) -> dict[Device, float]:
-    """Walk a response order and return the residual each device in the chain is given.
+    """Walk the devices in the order in which they respond, and return the residual each device in the chain is given.
 
     Devices respond in series.
     The residual for device ``i`` is the surprise plus every deviation from plan the chain did not cause,
@@ -309,8 +309,8 @@ def residuals(
 
         r_i = Δ + Σ_{j outside the chain}(d_j − p_j) + Σ_{j before i}(d_j − p_j)
 
-    The chain is the response order restricted to the devices with a nonzero react share for the slot;
-    pass that restricted list, as a device with react 0 sits outside the chain for the slot.
+    The chain is the devices with a nonzero react share for the slot, in the order in which they respond;
+    pass only those, as a device with react 0 sits outside the chain for the slot.
 
     :param surprise: Δ, the surprise on the uncontrolled part of the meter: ``(m − Σ d) − reference``.
     :param chain:    The devices that respond, in order.

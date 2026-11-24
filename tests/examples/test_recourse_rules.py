@@ -73,20 +73,9 @@ async def test_example_opts_in_and_walks_the_rules(capsys):
     (call,) = client.calls
     assert call["sensor_id"] == 8
     assert call["unit"] == "kW"
-    assert call["flex_context"] == {
-        "response-order": [{"sensor": 8}],
-        "retrigger-on-band-exit": False,
-        "consumption-price": {"sensor": 7},
-    }
-    assert call["flex_model"]["response"] == {
-        "directions": [
-            "consumption-up",
-            "consumption-down",
-            "production-up",
-            "production-down",
-        ],
-        "response-time": "PT150S",
-    }
+    assert call["flex_context"] == {"consumption-price": {"sensor": 7}}
+    assert call["flex_model"]["react"] is True
+    assert call["flex_model"]["power-capacity"] == "7.4 kW"
     out = capsys.readouterr().out
     assert "8 slots" in out
     assert sum(line.startswith("2026-11-30T") for line in out.splitlines()) == 8

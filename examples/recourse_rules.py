@@ -1,7 +1,7 @@
 """Trigger a schedule with recourse rules, parse them and walk a day of slots with a scripted surprise.
 
-The script opts in to recourse rules through the flex-context (a ``response-order`` that lists the device)
-and the device's flex-model (``response``), fetches the schedule, parses its ``response`` array
+The script opts in to recourse rules with ``react: true`` on the device's flex-model,
+fetches the schedule, parses its ``response`` array
 and prints the setpoint the device would get in every slot, given a scripted surprise at the meter.
 See FlexMeasures/flexmeasures-client#297 for the contract.
 
@@ -81,27 +81,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def flex_fields(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Return the flex-model and flex-context that opt in to recourse rules for one device."""
+    """Return the flex-model that opts in to recourse rules for one device, and the flex-context."""
     flex_model = {
         "soc-unit": "kWh",
         "soc-at-start": args.soc_at_start,
         "soc-min": args.soc_min,
         "soc-max": args.soc_max,
         "power-capacity": args.power_capacity,
-        "response": {
-            "directions": [
-                "consumption-up",
-                "consumption-down",
-                "production-up",
-                "production-down",
-            ],
-            "response-time": "PT150S",
-        },
+        "react": True,
     }
-    flex_context: dict[str, Any] = {
-        "response-order": [{"sensor": args.sensor}],
-        "retrigger-on-band-exit": False,
-    }
+    flex_context: dict[str, Any] = {}
     if args.price_sensor is not None:
         flex_context["consumption-price"] = {"sensor": args.price_sensor}
     return flex_model, flex_context
@@ -133,7 +122,7 @@ def format_edge(edge: float | None, unbounded: str) -> str:
 def walk(schedule: ResponseSchedule, surprise: list[float]) -> list[str]:
     """Print the setpoint per slot, and return the invariants that were broken.
 
-    With one device in the response order, the residual handed to it is the surprise itself.
+    With one reacting device, the residual handed to it is the surprise itself.
     """
     assert schedule.rules is not None
     problems = []
