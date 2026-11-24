@@ -223,8 +223,8 @@ A FlexMeasures server that computes recourse rules serves, with every schedule, 
 how to respond to a surprise at the meter, and within which band that response keeps the rest of the plan feasible.
 The controller evaluates the rule locally, at meter speed, without a new scheduling request.
 
-Opt in through the flex-context, which names the sensor with the signed net power at the connection (import positive)
-and the order in which the devices respond, and give each responding device a ``response`` block in its flex-model:
+Opt in with a ``response-order`` in the flex-context, which lists the devices in the order in which they respond,
+and give each responding device a ``response`` block in its flex-model:
 
 .. code-block:: python
 
@@ -234,7 +234,6 @@ and the order in which the devices respond, and give each responding device a ``
         duration="P1D",
         flex_context={
             "consumption-price": {"sensor": 7},
-            "reference-sensor": {"sensor": 4711},
             "response-order": [{"sensor": 8}],
             "retrigger-on-band-exit": False,
         },

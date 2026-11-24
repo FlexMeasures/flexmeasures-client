@@ -21,8 +21,6 @@ ARGS = [
     "secret",
     "--sensor",
     "8",
-    "--reference-sensor",
-    "4711",
     "--price-sensor",
     "7",
     "--start",
@@ -76,7 +74,6 @@ async def test_example_opts_in_and_walks_the_rules(capsys):
     assert call["sensor_id"] == 8
     assert call["unit"] == "kW"
     assert call["flex_context"] == {
-        "reference-sensor": {"sensor": 4711},
         "response-order": [{"sensor": 8}],
         "retrigger-on-band-exit": False,
         "consumption-price": {"sensor": 7},

@@ -1,6 +1,6 @@
 """Trigger a schedule with recourse rules, parse them and walk a day of slots with a scripted surprise.
 
-The script opts in to recourse rules through the flex-context (``reference-sensor`` and ``response-order``)
+The script opts in to recourse rules through the flex-context (a ``response-order`` that lists the device)
 and the device's flex-model (``response``), fetches the schedule, parses its ``response`` array
 and prints the setpoint the device would get in every slot, given a scripted surprise at the meter.
 See FlexMeasures/flexmeasures-client#297 for the contract.
@@ -15,10 +15,10 @@ Usage::
 
     python examples/recourse_rules.py --host localhost:5000 --no-ssl \\
         --email user@example.com --password secret \\
-        --sensor 8 --reference-sensor 4711 --price-sensor 7
+        --sensor 8 --price-sensor 7
 
 Every option can be given through the environment instead, as ``FLEXMEASURES_HOST``, ``FLEXMEASURES_EMAIL``,
-``FLEXMEASURES_PASSWORD``, ``FLEXMEASURES_SENSOR``, ``FLEXMEASURES_REFERENCE_SENSOR`` and ``FLEXMEASURES_PRICE_SENSOR``.
+``FLEXMEASURES_PASSWORD``, ``FLEXMEASURES_SENSOR`` and ``FLEXMEASURES_PRICE_SENSOR``.
 """
 
 from __future__ import annotations
@@ -52,12 +52,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="the power sensor of the device to schedule",
     )
     parser.add_argument(
-        "--reference-sensor",
-        type=int,
-        default=env("FLEXMEASURES_REFERENCE_SENSOR"),
-        help="the sensor with the signed net power at the connection, import positive",
-    )
-    parser.add_argument(
         "--price-sensor",
         type=int,
         default=env("FLEXMEASURES_PRICE_SENSOR"),
@@ -77,7 +71,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--soc-min", type=float, default=10.0)
     parser.add_argument("--soc-max", type=float, default=60.0)
     args = parser.parse_args(argv)
-    for name in ("email", "password", "sensor", "reference_sensor"):
+    for name in ("email", "password", "sensor"):
         if getattr(args, name) is None:
             parser.error(f"--{name.replace('_', '-')} is required")
     if args.start is None:
@@ -105,7 +99,6 @@ def flex_fields(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any
         },
     }
     flex_context: dict[str, Any] = {
-        "reference-sensor": {"sensor": args.reference_sensor},
         "response-order": [{"sensor": args.sensor}],
         "retrigger-on-band-exit": False,
     }

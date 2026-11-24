@@ -1322,10 +1322,10 @@ async def test_get_schedule_without_response_is_unchanged():
 
 RESPONSE_FLEX_CONTEXT = {
     "consumption-price": {"sensor": 7},
-    "reference-sensor": {"sensor": 4711},
     "response-order": [{"sensor": 3}, {"sensor": 9}],
     "retrigger-on-band-exit": True,
-    "reference-at-start": "0.4 kW",
+    # Pass-through is generic: a field this client has never heard of is sent as given, too.
+    "some-future-field": {"nested": [1, "two", None]},
 }
 RESPONSE_FLEX_MODEL = {
     "soc-unit": "kWh",
@@ -1340,7 +1340,7 @@ RESPONSE_FLEX_MODEL = {
 
 @pytest.mark.asyncio
 async def test_trigger_schedule_passes_response_fields_through() -> None:
-    """The recourse opt-in fields of the flex-context and flex-model are sent as given."""
+    """The recourse opt-in fields of the flex-context and flex-model are sent as given, like any unknown field."""
     with aioresponses() as m:
         client = FlexMeasuresClient(email="test@test.test", password="test")
         client.access_token = "test-token"
