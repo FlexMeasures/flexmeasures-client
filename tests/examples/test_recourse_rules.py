@@ -55,14 +55,14 @@ def served_schedule(with_rules: bool) -> dict:
     }
     if with_rules:
         schedule["response"] = [
-            {"reference": 0.4, "gain": -1, "band": [[1.4, 7.4]]},
-            {"reference": 0.4, "gain": 0, "band": [[0, 0]]},
-            {"reference": 0.4, "gain": -1, "band": [[-7.4, -1.4], [0, 0], [1.4, 7.4]]},
-            {"reference": 0.4, "gain": -1, "band": [[-7.4, -1.4], [0, 0], [1.4, 7.4]]},
-            {"reference": 0.4, "gain": -1, "band": [[None, None]]},
-            {"reference": 0.4, "gain": -1, "band": [[None, 7.4]]},
-            {"reference": 0.4, "gain": 0, "band": []},
-            {"reference": 0.4, "gain": -1, "band": [[1.4, None]]},
+            {"reference": 0.4, "react": 1, "band": [[1.4, 7.4]]},
+            {"reference": 0.4, "react": 0, "band": [[0, 0]]},
+            {"reference": 0.4, "react": 1, "band": [[-7.4, -1.4], [0, 0], [1.4, 7.4]]},
+            {"reference": 0.4, "react": 1, "band": [[-7.4, -1.4], [0, 0], [1.4, 7.4]]},
+            {"reference": 0.4, "react": 1, "band": [[None, None]]},
+            {"reference": 0.4, "react": 1, "band": [[None, 7.4]]},
+            {"reference": 0.4, "react": 0, "band": []},
+            {"reference": 0.4, "react": 1, "band": [[1.4, None]]},
         ]
     return schedule
 

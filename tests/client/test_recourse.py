@@ -41,15 +41,19 @@ def test_parse_response_one_rule_per_value():
         make_schedule(
             [1.0, 2.0],
             [
-                {"reference": 0.4, "gain": -1, "band": [[None, 7.4]]},
-                {"reference": 0, "gain": 0, "band": [[-7.4, -1.4], [0, 0], [1.4, 7.4]]},
+                {"reference": 0.4, "react": 1, "band": [[None, 7.4]]},
+                {
+                    "reference": 0,
+                    "react": 0,
+                    "band": [[-7.4, -1.4], [0, 0], [1.4, 7.4]],
+                },
             ],
         )
     )
     assert rules == [
-        ResponseRule(reference=0.4, gain=-1.0, band=[(None, 7.4)]),
+        ResponseRule(reference=0.4, react=1.0, band=[(None, 7.4)]),
         ResponseRule(
-            reference=0.0, gain=0.0, band=[(-7.4, -1.4), (0.0, 0.0), (1.4, 7.4)]
+            reference=0.0, react=0.0, band=[(-7.4, -1.4), (0.0, 0.0), (1.4, 7.4)]
         ),
     ]
     assert all(isinstance(rule.reference, float) for rule in rules)
@@ -57,7 +61,7 @@ def test_parse_response_one_rule_per_value():
 
 def test_parse_response_length_mismatch_rejected():
     schedule = make_schedule(
-        [1.0, 2.0], [{"reference": 0, "gain": 0, "band": [[None, None]]}]
+        [1.0, 2.0], [{"reference": 0, "react": 0, "band": [[None, None]]}]
     )
     with pytest.raises(InvalidResponseError, match="1 entries for 2 values"):
         parse_response(schedule)
@@ -70,12 +74,12 @@ def test_parse_response_length_mismatch_rejected():
     [
         ("not a list", "to be a list"),
         ([42], "should be an object"),
-        ([{"reference": 0, "gain": 0}], "misses band"),
-        ([{"reference": "0", "gain": 0, "band": []}], "reference"),
-        ([{"reference": 0, "gain": True, "band": []}], "gain"),
-        ([{"reference": 0, "gain": 0, "band": [[1, 2, 3]]}], "pair"),
-        ([{"reference": 0, "gain": 0, "band": [[2, 1]]}], "low .* above its high"),
-        ([{"reference": 0, "gain": 0, "band": [["1", 2]]}], "low"),
+        ([{"reference": 0, "react": 0}], "misses band"),
+        ([{"reference": "0", "react": 0, "band": []}], "reference"),
+        ([{"reference": 0, "react": True, "band": []}], "react"),
+        ([{"reference": 0, "react": 0, "band": [[1, 2, 3]]}], "pair"),
+        ([{"reference": 0, "react": 0, "band": [[2, 1]]}], "low .* above its high"),
+        ([{"reference": 0, "react": 0, "band": [["1", 2]]}], "low"),
     ],
 )
 def test_parse_response_rejects_malformed_entries(response, match):
@@ -104,8 +108,8 @@ def test_response_schedule_with_rules():
         make_schedule(
             [1.0, 2.0],
             [
-                {"reference": 0.4, "gain": -1, "band": [[0, 3]]},
-                {"reference": 0.4, "gain": 0, "band": [[0, 3]]},
+                {"reference": 0.4, "react": 1, "band": [[0, 3]]},
+                {"reference": 0.4, "react": 0, "band": [[0, 3]]},
             ],
         )
     )
@@ -131,52 +135,73 @@ def test_response_schedule_empty_values():
     assert schedule.resolution == timedelta(hours=1)
 
 
-@pytest.mark.parametrize("gain", [0, -1])
+@pytest.mark.parametrize("react", [0, 1, 0.5])
 @pytest.mark.parametrize(
     "band", [[(None, None)], [(0.0, 7.4)], MODES_BAND, [(None, -1.4), (1.4, None)]]
 )
 @pytest.mark.parametrize("p", [-0.0074, -0.002, 0.0, 0.0014, 0.003, 0.0074])
-def test_zero_residual_returns_the_plan(gain, band, p):
-    rule = ResponseRule(reference=0.0, gain=gain, band=band)
+def test_zero_residual_returns_the_plan(react, band, p):
+    rule = ResponseRule(reference=0.0, react=react, band=band)
     if rule.contains(p):
         assert respond(rule, p, 0.0) == p
         assert rule.respond(p, 0.0) == p
 
 
-def test_gain_zero_returns_the_plan_whatever_the_residual():
-    rule = ResponseRule(reference=0.0, gain=0, band=[(1.0, 2.0)])
+def test_react_zero_returns_the_plan_whatever_the_residual():
+    rule = ResponseRule(reference=0.0, react=0, band=[(1.0, 2.0)])
     for residual in (-10.0, -1.0, 0.0, 1.0, 10.0):
         assert respond(rule, 1.5, residual) == 1.5
-    # Even a plan outside the band is returned as is, since gain 0 means "follow the plan".
+    # Even a plan outside the band is returned as is, since react 0 means "follow the plan".
     assert respond(rule, 5.0, 1.0) == 5.0
 
 
-def test_gain_minus_one_absorbs_the_residual():
-    rule = ResponseRule(reference=0.0, gain=-1, band=[(0.0, 7.4)])
+def test_react_one_absorbs_the_residual():
+    rule = ResponseRule(reference=0.0, react=1, band=[(0.0, 7.4)])
     assert respond(rule, 3.0, 0.5) == 2.5
     assert respond(rule, 3.0, -0.5) == 3.5
 
 
+def test_intermediate_react_absorbs_a_share():
+    rule = ResponseRule(reference=0.0, react=0.5, band=[(0.0, 7.4)])
+    assert respond(rule, 3.0, 1.0) == 2.5
+    assert respond(rule, 3.0, -1.0) == 3.5
+    assert respond(rule, 3.0, 100.0) == 0.0
+
+
+@pytest.mark.parametrize("react", [-1, -0.001, 1.001, 2])
+def test_parse_response_rejects_react_outside_the_unit_interval(react):
+    response = [{"reference": 0, "react": react, "band": [[None, None]]}]
+    with pytest.raises(InvalidResponseError, match=r"share in \[0, 1\]"):
+        parse_response(make_schedule([1.0], response))
+
+
+@pytest.mark.parametrize("react", [0, 0.5, 1])
+def test_parse_response_accepts_react_within_the_unit_interval(react):
+    response = [{"reference": 0, "react": react, "band": [[None, None]]}]
+    (rule,) = parse_response(make_schedule([1.0], response))
+    assert rule.react == react
+
+
 def test_clipping_to_band_edges():
-    rule = ResponseRule(reference=0.0, gain=-1, band=[(0.0, 7.4)])
+    rule = ResponseRule(reference=0.0, react=1, band=[(0.0, 7.4)])
     assert respond(rule, 3.0, 10.0) == 0.0
     assert respond(rule, 3.0, -10.0) == 7.4
     assert respond(rule, 3.0, -4.4) == 7.4
 
 
 def test_none_sides_are_unbounded():
-    assert respond(ResponseRule(0.0, -1, [(None, None)]), 3.0, -1000.0) == 1003.0
-    assert respond(ResponseRule(0.0, -1, [(None, None)]), 3.0, 1000.0) == -997.0
-    lower_only = ResponseRule(0.0, -1, [(1.4, None)])
+    assert respond(ResponseRule(0.0, 1, [(None, None)]), 3.0, -1000.0) == 1003.0
+    assert respond(ResponseRule(0.0, 1, [(None, None)]), 3.0, 1000.0) == -997.0
+    lower_only = ResponseRule(0.0, 1, [(1.4, None)])
     assert respond(lower_only, 3.0, -1000.0) == 1003.0
     assert respond(lower_only, 3.0, 1000.0) == 1.4
-    upper_only = ResponseRule(0.0, -1, [(None, 7.4)])
+    upper_only = ResponseRule(0.0, 1, [(None, 7.4)])
     assert respond(upper_only, 3.0, 1000.0) == -997.0
     assert respond(upper_only, 3.0, -1000.0) == 7.4
 
 
 def test_a_value_in_a_hole_is_never_returned():
-    rule = ResponseRule(reference=0.0, gain=-1, band=MODES_BAND)
+    rule = ResponseRule(reference=0.0, react=1, band=MODES_BAND)
     p = 0.003
     for step in range(-2000, 2001):
         residual = step / 100_000
@@ -188,7 +213,7 @@ def test_a_value_in_a_hole_is_never_returned():
 
 
 def test_hole_resolves_to_the_nearest_edge():
-    rule = ResponseRule(reference=0.0, gain=-1, band=MODES_BAND)
+    rule = ResponseRule(reference=0.0, react=1, band=MODES_BAND)
     # 0.003 - 0.0025 = 0.0005, nearer to 0 than to 0.0014.
     assert respond(rule, 0.003, 0.0025) == 0.0
     # 0.003 - 0.0021 = 0.0009, nearer to 0.0014 than to 0.
@@ -218,14 +243,14 @@ def test_clip_to_band_ignores_range_order():
 
 def test_empty_band_leaves_the_value():
     assert clip_to_band(5.0, []) == 5.0
-    assert respond(ResponseRule(0.0, -1, []), 3.0, 1.0) == 2.0
+    assert respond(ResponseRule(0.0, 1, []), 3.0, 1.0) == 2.0
 
 
 def test_residuals_walk_the_chain():
     plans = {"battery": -2.0, "charger": 7.4, "pv": -3.0, "heat pump": 1.0}
     realized = {"battery": -1.5, "charger": 7.4, "pv": -2.0, "heat pump": 0.0}
     surprise = 0.8
-    # The heat pump has gain 0 this slot, so it sits outside the chain and its deviation is handed to everyone.
+    # The heat pump has react 0 this slot, so it sits outside the chain and its deviation is handed to everyone.
     chain = ["battery", "charger", "pv"]
     result = residuals(surprise, chain, plans, realized)
     assert list(result) == chain
@@ -248,13 +273,13 @@ def test_residuals_missing_realized_power_is_an_error():
 
 def test_convert_response_units_moves_reference_and_band_edges():
     response = [
-        {"reference": 0.4, "gain": -1, "band": [[None, 7.4], [8, None]]},
-        {"reference": -0.1, "gain": 0, "band": []},
+        {"reference": 0.4, "react": 1, "band": [[None, 7.4], [8, None]]},
+        {"reference": -0.1, "react": 0, "band": []},
     ]
     converted = convert_response_units(response, lambda xs: [x * 1000 for x in xs])
     assert converted == [
-        {"reference": 400.0, "gain": -1, "band": [[None, 7400.0], [8000, None]]},
-        {"reference": -100.0, "gain": 0, "band": []},
+        {"reference": 400.0, "react": 1, "band": [[None, 7400.0], [8000, None]]},
+        {"reference": -100.0, "react": 0, "band": []},
     ]
     # The served entries are left alone.
     assert response[0]["reference"] == 0.4

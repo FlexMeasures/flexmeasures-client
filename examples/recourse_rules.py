@@ -145,7 +145,7 @@ def walk(schedule: ResponseSchedule, surprise: list[float]) -> list[str]:
     assert schedule.rules is not None
     problems = []
     print(
-        f"{'slot start':<25} {'plan':>8} {'reference':>10} {'gain':>5} {'surprise':>9} {'setpoint':>9}  band [{schedule.unit}]"
+        f"{'slot start':<25} {'plan':>8} {'reference':>10} {'react':>5} {'surprise':>9} {'setpoint':>9}  band [{schedule.unit}]"
     )
     for index, (slot_start, p, rule) in enumerate(schedule):
         assert rule is not None
@@ -156,13 +156,13 @@ def walk(schedule: ResponseSchedule, surprise: list[float]) -> list[str]:
             for low, high in rule.band
         )
         print(
-            f"{slot_start.isoformat():<25} {p:>8.3f} {rule.reference:>10.3f} {rule.gain:>5.0f} {delta:>9.3f} {setpoint:>9.3f}  {band}"
+            f"{slot_start.isoformat():<25} {p:>8.3f} {rule.reference:>10.3f} {rule.react:>5.2g} {delta:>9.3f} {setpoint:>9.3f}  {band}"
         )
         if respond(rule, p, 0.0) != p:
             problems.append(f"slot {index}: a zero surprise does not return the plan")
         if rule.band and not rule.contains(setpoint):
             problems.append(f"slot {index}: setpoint {setpoint} is outside the band")
-        if rule.gain != 0 and rule.band and not rule.contains(p):
+        if rule.react != 0 and rule.band and not rule.contains(p):
             problems.append(f"slot {index}: the plan {p} is outside its own band")
     return problems
 
@@ -204,9 +204,9 @@ async def run(client: FlexMeasuresClient, args: argparse.Namespace) -> int:
     if problems:
         print("\n".join(problems), file=sys.stderr)
         return 1
-    gains = sum(1 for rule in schedule.rules if rule.gain != 0)
+    reacting = sum(1 for rule in schedule.rules if rule.react != 0)
     print(
-        f"All setpoints respect the rules; {gains} of {len(schedule)} slots absorb the surprise."
+        f"All setpoints respect the rules; {reacting} of {len(schedule)} slots absorb the surprise."
     )
     return 0
 

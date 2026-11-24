@@ -263,11 +263,11 @@ in the same unit as the values:
         "duration": "P1D",
         "unit": "kW",
         "values": [4.4, ...],
-        "response": [{"reference": -0.4, "gain": -1, "band": [[1.4, 7.4]]}, ...],
+        "response": [{"reference": -0.4, "react": 1, "band": [[1.4, 7.4]]}, ...],
     }
 
 Per slot, ``reference`` is the uncontrolled power the plan assumed,
-``gain`` is 0 (follow the plan) or -1 (absorb the surprise one to one),
+``react`` is the share of the surprise the device absorbs, 0 (follow the plan) or 1 (absorb it one to one) in this version,
 and ``band`` lists the ranges within which deviating keeps the device's own constraints satisfiable,
 with ``null`` for an unbounded side and more than one range for a device with operation modes.
 A schedule served without rules has no ``response`` key and reads exactly as before.
@@ -290,11 +290,11 @@ When ``get_schedule`` converts the unit itself (for servers older than v0.32.0),
     surprise = (meter_power - charger_power) - plan.rules[slot].reference
     setpoint = plan.respond_at(now, residual=surprise)
 
-The setpoint is ``clip(p + gain * residual, band)``, with ``p`` the slot's schedule value.
+The setpoint is ``clip(p - react * residual, band)``, with ``p`` the slot's schedule value.
 A continuous answer in a hole between two ranges becomes the nearest edge, and on a tie the edge on the side of ``p``.
 With several responding devices, :func:`residuals` walks the response order and returns the residual each device is given:
 the surprise, plus the deviations from plan of the devices outside the chain, plus those of the devices before it in the chain.
-The chain for a slot is the response order restricted to the devices with nonzero gain.
+The chain for a slot is the response order restricted to the devices with a nonzero react share.
 Sign convention throughout: meter import positive, device consumption positive.
 
 Rounding with hysteresis, deadbands on commands and dwell times are left to the device drivers in the controller.

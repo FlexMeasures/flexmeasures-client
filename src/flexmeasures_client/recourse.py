@@ -1,11 +1,11 @@
 """Recourse rules served with a schedule, and the pure function that evaluates them.
 
 FlexMeasures can serve, next to a schedule's ``values``, a ``response`` array with one rule per slot:
-a ``reference`` (the uncontrolled power the plan assumed), a ``gain`` (0 or -1) and a ``band`` (a list of ranges),
+a ``reference`` (the uncontrolled power the plan assumed), a ``react`` share in [0, 1] and a ``band`` (a list of ranges),
 all in the schedule's unit (see FlexMeasures/flexmeasures#2894 and FlexMeasures/flexmeasures-client#297).
 A home controller evaluates the rule locally at meter speed:
 
-    setpoint = clip(p + gain * residual, band)
+    setpoint = clip(p - react * residual, band)
 
 where ``p`` is the slot's schedule value and ``residual`` is the surprise handed to this device.
 Sign convention: meter import positive, device consumption positive.
@@ -50,14 +50,15 @@ class ResponseRule:
     """The recourse rule for one device and one schedule slot.
 
     :param reference: The uncontrolled power the plan assumed for the slot, in the schedule's unit.
-    :param gain:      How much of the residual the device absorbs: 0 follows the plan, -1 absorbs it one to one.
+    :param react:     The share of the residual the device absorbs, in [0, 1]: 0 follows the plan, 1 absorbs it one to one.
+                      The server serves 0 or 1 for now; intermediate shares are reserved for a later version.
     :param band:      The ranges within which deviating keeps the device's own constraints satisfiable,
                       as ``(low, high)`` tuples with ``None`` for an unbounded side.
                       A band with more than one range has holes, for devices with operation modes.
     """
 
     reference: float
-    gain: float
+    react: float
     band: list[Range]
 
     def respond(self, p: float, residual: float) -> float:
@@ -185,13 +186,17 @@ def _parse_rule(entry: object, index: int) -> ResponseRule:
         raise InvalidResponseError(
             f"Response entry {index} should be an object, but got {type(entry).__name__}."
         )
-    missing = [key for key in ("reference", "gain", "band") if key not in entry]
+    missing = [key for key in ("reference", "react", "band") if key not in entry]
     if missing:
         raise InvalidResponseError(
             f"Response entry {index} misses {', '.join(missing)}."
         )
     reference = _number(entry["reference"], f"response entry {index}: reference")
-    gain = _number(entry["gain"], f"response entry {index}: gain")
+    react = _number(entry["react"], f"response entry {index}: react")
+    if not 0 <= react <= 1:
+        raise InvalidResponseError(
+            f"Response entry {index}: react should be a share in [0, 1], but got {react}."
+        )
     band = entry["band"]
     if not isinstance(band, (list, tuple)):
         raise InvalidResponseError(
@@ -209,7 +214,7 @@ def _parse_rule(entry: object, index: int) -> ResponseRule:
                 f"{where} has its low ({low}) above its high ({high})."
             )
         ranges.append((low, high))
-    return ResponseRule(reference=reference, gain=gain, band=ranges)
+    return ResponseRule(reference=reference, react=react, band=ranges)
 
 
 def _number(value: object, where: str) -> float:
@@ -274,10 +279,10 @@ def clip_to_band(
 
 
 def respond(rule: ResponseRule, p: float, residual: float) -> float:
-    """Return the setpoint for one device and slot: ``clip(p + gain * residual, band)``.
+    """Return the setpoint for one device and slot: ``clip(p - react * residual, band)``.
 
     Pure and stateless.
-    With gain 0 the plan value is returned as is.
+    With react 0 the plan value is returned as is.
     Sign convention: meter import positive, device consumption positive.
 
     :param rule:     The slot's recourse rule.
@@ -285,9 +290,9 @@ def respond(rule: ResponseRule, p: float, residual: float) -> float:
     :param residual: The surprise handed to this device, in the rule's unit; see :func:`residuals`.
     :returns:        The setpoint, in the rule's unit.
     """
-    if rule.gain == 0:
+    if rule.react == 0:
         return p
-    return clip_to_band(p + rule.gain * residual, rule.band, towards=p)
+    return clip_to_band(p - rule.react * residual, rule.band, towards=p)
 
 
 def residuals(
@@ -304,8 +309,8 @@ def residuals(
 
         r_i = Δ + Σ_{j outside the chain}(d_j − p_j) + Σ_{j before i}(d_j − p_j)
 
-    The chain is the response order restricted to the devices with nonzero gain for the slot;
-    pass that restricted list, as a device with gain 0 sits outside the chain for the slot.
+    The chain is the response order restricted to the devices with a nonzero react share for the slot;
+    pass that restricted list, as a device with react 0 sits outside the chain for the slot.
 
     :param surprise: Δ, the surprise on the uncontrolled part of the meter: ``(m − Σ d) − reference``.
     :param chain:    The devices that respond, in order.
@@ -336,7 +341,7 @@ def convert_response_units(
 
     :param response: The ``response`` array as served, one entry per slot.
     :param convert:  Converts a list of numbers from the served unit to the requested one.
-    :returns:        New entries, with ``gain`` and any other fields kept as they are.
+    :returns:        New entries, with ``react`` and any other fields kept as they are.
     """
     converted = []
     for entry in response:
