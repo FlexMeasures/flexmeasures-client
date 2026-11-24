@@ -1267,7 +1267,7 @@ async def test_get_schedule_unit_client_side_conversion_moves_reaction_along():
                     {
                         "reference": -0.001,
                         "react": 0,
-                        "band": [[-0.0074, -0.0014], [0, 0], [0.0014, None]],
+                        "band": [[-0.0074, -0.0014], [0, 0], [0.0014, 0.0074]],
                     },
                 ],
             },
@@ -1287,7 +1287,7 @@ async def test_get_schedule_unit_client_side_conversion_moves_reaction_along():
     assert schedule["values"] == [2.0, -3.0]
     assert schedule["reaction"] == [
         {"reference": 0.4, "react": 1, "band": [[0, 7.4]]},
-        {"reference": -1.0, "react": 0, "band": [[-7.4, -1.4], [0, 0], [1.4, None]]},
+        {"reference": -1.0, "react": 0, "band": [[-7.4, -1.4], [0, 0], [1.4, 7.4]]},
     ]
 
 
@@ -1389,7 +1389,7 @@ async def test_trigger_and_get_schedule_passes_reaction_through() -> None:
     ]
     served_reaction = [
         {"reference": 0.4, "react": 1, "band": [[1.4, 7.4]]},
-        {"reference": 0.4, "react": 0, "band": [[None, None]]},
+        {"reference": 0.4, "react": 0, "band": [[-7.4, 7.4]]},
     ]
     with aioresponses() as m:
         client = FlexMeasuresClient(

@@ -266,8 +266,7 @@ Per slot, ``reference`` is the uncontrolled power the plan assumed: the forecast
 with the shares in between reserved for a later version.
 ``band`` lists the power ranges within which deviating keeps the device's own constraints satisfiable:
 its power capacity, its operation modes (see below) and the state of charge it must still reach.
-The server leaves a side of a range ``null`` only when the device has no power capacity on that side,
-which a configured device does not have; the parser accepts it all the same.
+Every side of a range is a number, because the planner always knows the device's power capacity.
 A schedule served without rules has no ``reaction`` key and reads exactly as before.
 When ``get_schedule`` converts the unit itself (for servers older than v0.32.0), it converts the rules along with the values.
 
@@ -331,7 +330,7 @@ are left to the device drivers in the controller.
 Several reacting devices
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-The devices with a nonzero react share in a slot form the chain for that slot, in the order in which the flex-model lists them.
+The devices that react in a slot (``react`` 1) form the chain for that slot, in the order in which the flex-model lists them.
 They react in series: instead of the whole surprise, each device is given a residual,
 which is the surprise, plus the deviations from plan of the devices outside the chain,
 plus the deviations of the devices before it in the chain.

@@ -9,7 +9,7 @@ A home controller evaluates the rule locally at meter speed:
 
 where ``p`` is the slot's schedule value and ``residual`` is the surprise handed to this device,
 the surprise being what the meter shows beyond the plan: ``(meter − Σ device power) − reference``.
-Sign convention: meter import positive, device consumption positive.
+Signs are those of the schedule values: consumption positive, so import at the connection is positive.
 
 Everything here is pure: no timers, no state, no I/O.
 Rounding with hysteresis, deadbands on commands and dwell times belong to the device drivers in the controller.
@@ -36,8 +36,8 @@ __all__ = [
     "convert_reaction_units",
 ]
 
-Range = tuple[float | None, float | None]
-"""One allowed range of a band, as ``(low, high)``, with ``None`` for an unbounded side."""
+Range = tuple[float, float]
+"""One allowed range of a band, as ``(low, high)``; both sides are finite numbers."""
 
 Device = TypeVar("Device", bound=Hashable)
 
@@ -54,7 +54,7 @@ class ReactionRule:
     :param react:     The share of the residual the device absorbs, in [0, 1]: 0 follows the plan, 1 absorbs it one to one.
                       The server serves 0 or 1 for now; intermediate shares are reserved for a later version.
     :param band:      The ranges within which deviating keeps the device's own constraints satisfiable,
-                      as ``(low, high)`` tuples with ``None`` for an unbounded side.
+                      as ``(low, high)`` tuples of finite numbers (a device's power capacity always bounds it).
                       A band with more than one range has holes, for devices with operation modes.
     """
 
@@ -208,9 +208,9 @@ def _parse_rule(entry: object, index: int) -> ReactionRule:
         where = f"reaction entry {index}: band range {position}"
         if not isinstance(item, (list, tuple)) or len(item) != 2:
             raise InvalidReactionError(f"{where} should be a [low, high] pair.")
-        low = None if item[0] is None else _number(item[0], f"{where}: low")
-        high = None if item[1] is None else _number(item[1], f"{where}: high")
-        if low is not None and high is not None and low > high:
+        low = _number(item[0], f"{where}: low")
+        high = _number(item[1], f"{where}: high")
+        if low > high:
             raise InvalidReactionError(
                 f"{where} has its low ({low}) above its high ({high})."
             )
@@ -228,7 +228,7 @@ def _number(value: object, where: str) -> float:
 def _contains(band: Sequence[Range], value: float) -> bool:
     """Return whether the value lies within one of the band's ranges."""
     for low, high in band:
-        if (low is None or low <= value) and (high is None or value <= high):
+        if low <= value <= high:
             return True
     return False
 
@@ -242,7 +242,6 @@ def clip_to_band(
     A value in a hole between ranges, or beyond the outermost edge, becomes the nearest edge.
     When two edges are equally near, the edge on the side of ``towards`` wins, which callers set to the plan value;
     without ``towards``, or with it equally far from both, the lower edge wins.
-    ``None`` sides are unbounded.
     An empty band leaves no room at all, so the value is returned as is.
 
     :param value:   The value to clip.
@@ -255,14 +254,12 @@ def clip_to_band(
     nearest: list[float] = []
     nearest_distance: float | None = None
     for low, high in band:
-        edge: float | None
-        if low is not None and value < low:
+        if value < low:
             edge = low
-        elif high is not None and value > high:
+        elif value > high:
             edge = high
         else:
-            # The value is inside this range, or the range is unbounded on the side where the value lies.
-            continue
+            continue  # the value is inside this range
         distance = abs(edge - value)
         if nearest_distance is None or distance < nearest_distance:
             nearest, nearest_distance = [edge], distance
@@ -284,7 +281,7 @@ def react(rule: ReactionRule, p: float, residual: float) -> float:
 
     Pure and stateless.
     With react 0 the plan value is returned as is.
-    Sign convention: meter import positive, device consumption positive.
+    Signs are those of the schedule values: consumption positive, so import at the connection is positive.
 
     :param rule:     The slot's reaction rule.
     :param p:        The slot's schedule value, in the rule's unit.
@@ -351,8 +348,8 @@ def convert_reaction_units(
         new_entry["reference"] = convert([entry["reference"]])[0]
         new_entry["band"] = [
             [
-                None if low is None else convert([low])[0],
-                None if high is None else convert([high])[0],
+                convert([low])[0],
+                convert([high])[0],
             ]
             for low, high in entry["band"]
         ]

@@ -114,11 +114,6 @@ def scripted_surprise(slots: int, amplitude: float = 1.0) -> list[float]:
     return surprise
 
 
-def format_edge(edge: float | None, unbounded: str) -> str:
-    """Return a band edge for printing, naming an unbounded side."""
-    return unbounded if edge is None else f"{edge:g}"
-
-
 def walk(schedule: ReactionSchedule, surprise: list[float]) -> list[str]:
     """Print the setpoint per slot, and return the invariants that were broken.
 
@@ -133,10 +128,7 @@ def walk(schedule: ReactionSchedule, surprise: list[float]) -> list[str]:
         assert rule is not None
         delta = surprise[index]
         setpoint = react(rule, p, delta)
-        band = ", ".join(
-            f"[{format_edge(low, '-inf')}, {format_edge(high, 'inf')}]"
-            for low, high in rule.band
-        )
+        band = ", ".join(f"[{low:g}, {high:g}]" for low, high in rule.band)
         print(
             f"{slot_start.isoformat():<25} {p:>8.3f} {rule.reference:>10.3f} {rule.react:>5.2g} {delta:>9.3f} {setpoint:>9.3f}  {band}"
         )

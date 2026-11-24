@@ -41,7 +41,7 @@ def test_parse_reaction_one_rule_per_value():
         make_schedule(
             [1.0, 2.0],
             [
-                {"reference": 0.4, "react": 1, "band": [[None, 7.4]]},
+                {"reference": 0.4, "react": 1, "band": [[-7.4, 7.4]]},
                 {
                     "reference": 0,
                     "react": 0,
@@ -51,7 +51,7 @@ def test_parse_reaction_one_rule_per_value():
         )
     )
     assert rules == [
-        ReactionRule(reference=0.4, react=1.0, band=[(None, 7.4)]),
+        ReactionRule(reference=0.4, react=1.0, band=[(-7.4, 7.4)]),
         ReactionRule(
             reference=0.0, react=0.0, band=[(-7.4, -1.4), (0.0, 0.0), (1.4, 7.4)]
         ),
@@ -61,7 +61,7 @@ def test_parse_reaction_one_rule_per_value():
 
 def test_parse_reaction_length_mismatch_rejected():
     schedule = make_schedule(
-        [1.0, 2.0], [{"reference": 0, "react": 0, "band": [[None, None]]}]
+        [1.0, 2.0], [{"reference": 0, "react": 0, "band": [[-7.4, 7.4]]}]
     )
     with pytest.raises(InvalidReactionError, match="1 entries for 2 values"):
         parse_reaction(schedule)
@@ -136,9 +136,7 @@ def test_reaction_schedule_empty_values():
 
 
 @pytest.mark.parametrize("share", [0, 1, 0.5])
-@pytest.mark.parametrize(
-    "band", [[(None, None)], [(0.0, 7.4)], MODES_BAND, [(None, -1.4), (1.4, None)]]
-)
+@pytest.mark.parametrize("band", [[(0.0, 7.4)], MODES_BAND, [(-7.4, -1.4), (1.4, 7.4)]])
 @pytest.mark.parametrize("p", [-0.0074, -0.002, 0.0, 0.0014, 0.003, 0.0074])
 def test_zero_residual_returns_the_plan(share, band, p):
     rule = ReactionRule(reference=0.0, react=share, band=band)
@@ -170,14 +168,14 @@ def test_intermediate_react_absorbs_a_share():
 
 @pytest.mark.parametrize("share", [-1, -0.001, 1.001, 2])
 def test_parse_reaction_rejects_react_outside_the_unit_interval(share):
-    reaction = [{"reference": 0, "react": share, "band": [[None, None]]}]
+    reaction = [{"reference": 0, "react": share, "band": [[-7.4, 7.4]]}]
     with pytest.raises(InvalidReactionError, match=r"share in \[0, 1\]"):
         parse_reaction(make_schedule([1.0], reaction))
 
 
 @pytest.mark.parametrize("share", [0, 0.5, 1])
 def test_parse_reaction_accepts_react_within_the_unit_interval(share):
-    reaction = [{"reference": 0, "react": share, "band": [[None, None]]}]
+    reaction = [{"reference": 0, "react": share, "band": [[-7.4, 7.4]]}]
     (rule,) = parse_reaction(make_schedule([1.0], reaction))
     assert rule.react == share
 
@@ -189,15 +187,14 @@ def test_clipping_to_band_edges():
     assert react(rule, 3.0, -4.4) == 7.4
 
 
-def test_none_sides_are_unbounded():
-    assert react(ReactionRule(0.0, 1, [(None, None)]), 3.0, -1000.0) == 1003.0
-    assert react(ReactionRule(0.0, 1, [(None, None)]), 3.0, 1000.0) == -997.0
-    lower_only = ReactionRule(0.0, 1, [(1.4, None)])
-    assert react(lower_only, 3.0, -1000.0) == 1003.0
-    assert react(lower_only, 3.0, 1000.0) == 1.4
-    upper_only = ReactionRule(0.0, 1, [(None, 7.4)])
-    assert react(upper_only, 3.0, 1000.0) == -997.0
-    assert react(upper_only, 3.0, -1000.0) == 7.4
+def test_null_band_sides_are_rejected():
+    """A device's power capacity always bounds its band, so a null side is a contract violation, not an open end."""
+    schedule = {
+        "values": [1.0],
+        "reaction": [{"reference": 0.0, "react": 1, "band": [[None, 7.4]]}],
+    }
+    with pytest.raises(InvalidReactionError, match="Expected a number"):
+        parse_reaction(schedule)
 
 
 def test_a_value_in_a_hole_is_never_returned():
@@ -230,8 +227,8 @@ def test_hole_tie_breaks_towards_the_plan():
     assert clip_to_band(0.0007, band, towards=0.0) == 0.0
     assert clip_to_band(0.0007, band) == 0.0
     assert clip_to_band(0.0007, band, towards=0.0007) == 0.0
-    assert clip_to_band(0.0, [(None, -1.0), (1.0, None)], towards=2.0) == 1.0
-    assert clip_to_band(0.0, [(None, -1.0), (1.0, None)], towards=-2.0) == -1.0
+    assert clip_to_band(0.0, [(-5.0, -1.0), (1.0, 5.0)], towards=2.0) == 1.0
+    assert clip_to_band(0.0, [(-5.0, -1.0), (1.0, 5.0)], towards=-2.0) == -1.0
 
 
 def test_clip_to_band_ignores_range_order():
@@ -273,14 +270,14 @@ def test_residuals_missing_realized_power_is_an_error():
 
 def test_convert_reaction_units_moves_reference_and_band_edges():
     reaction = [
-        {"reference": 0.4, "react": 1, "band": [[None, 7.4], [8, None]]},
+        {"reference": 0.4, "react": 1, "band": [[-7.4, 7.4], [8, 10]]},
         {"reference": -0.1, "react": 0, "band": []},
     ]
     converted = convert_reaction_units(reaction, lambda xs: [x * 1000 for x in xs])
     assert converted == [
-        {"reference": 400.0, "react": 1, "band": [[None, 7400.0], [8000, None]]},
+        {"reference": 400.0, "react": 1, "band": [[-7400.0, 7400.0], [8000, 10000]]},
         {"reference": -100.0, "react": 0, "band": []},
     ]
     # The served entries are left alone.
     assert reaction[0]["reference"] == 0.4
-    assert reaction[0]["band"] == [[None, 7.4], [8, None]]
+    assert reaction[0]["band"] == [[-7.4, 7.4], [8, 10]]
