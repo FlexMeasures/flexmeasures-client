@@ -11,6 +11,16 @@ Changes to the S2 integration are listed in the `S2 CEM changelog <https://githu
 which each release that changed it links to.
 Add your entry under **Unreleased** when you open a pull request.
 
+Unreleased
+==========
+
+`All changes since v0.10.0 <https://github.com/FlexMeasures/flexmeasures-client/compare/v0.10.0...main>`__.
+
+Fixed
+-----
+
+* ``create_storage_flex_context`` sends prices as ``consumption-price`` and ``production-price``, instead of the deprecated ``consumption-price-sensor`` and ``production-price-sensor`` fields. With those, FlexMeasures kept SoC minima as hard constraints, so a schedule failed as infeasible whenever they could not be met. The new fields need FlexMeasures v0.23.0 or up [`#298 <https://github.com/FlexMeasures/flexmeasures-client/pull/298>`__]
+
 v0.10.0 | 2026-11-23
 ====================
 
