@@ -222,6 +222,8 @@ A schedule is optimal given a forecast of everything else behind the meter, and 
 A FlexMeasures server that computes reaction rules serves, with every schedule, one rule per slot and device:
 how to react to a surprise at the meter, and within which band that reaction keeps the rest of the plan feasible.
 The controller evaluates the rule locally, at meter speed, without a new scheduling request.
+All quantities below carry the sign convention of the schedule values: consumption is positive,
+so at the connection import is positive and export is negative.
 
 Opt in with ``react: true`` on the flex-model of each device that is to react:
 
@@ -259,40 +261,95 @@ in the same unit as the values:
         "reaction": [{"reference": -0.4, "react": 1, "band": [[1.4, 7.4]]}, ...],
     }
 
-Per slot, ``reference`` is the uncontrolled power the plan assumed,
+Per slot, ``reference`` is the uncontrolled power the plan assumed: the forecast of everything behind the meter that is not a reacting device.
 ``react`` is the share of the surprise the device absorbs: 0 (follow the plan) or 1 (absorb it one to one) in this version,
-with the shares in between reserved for a later version,
-and ``band`` lists the ranges within which deviating keeps the device's own constraints satisfiable,
-with ``null`` for an unbounded side and more than one range for a device with operation modes.
+with the shares in between reserved for a later version.
+``band`` lists the power ranges within which deviating keeps the device's own constraints satisfiable:
+its power capacity, its operation modes (see below) and the state of charge it must still reach.
+The server leaves a side of a range ``null`` only when the device has no power capacity on that side,
+which a configured device does not have; the parser accepts it all the same.
 A schedule served without rules has no ``reaction`` key and reads exactly as before.
 When ``get_schedule`` converts the unit itself (for servers older than v0.32.0), it converts the rules along with the values.
 
+A single reacting device
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+With one reacting device, the surprise is what the meter shows beyond the plan:
+the net power at the connection, minus the device's realized power, minus the reference.
 ``flexmeasures_client.reaction`` parses the rules and evaluates them, with no state and no I/O:
 
 .. code-block:: python
 
-    from flexmeasures_client.reaction import ReactionSchedule, residuals
+    from flexmeasures_client.reaction import ReactionSchedule
 
     plan = ReactionSchedule.from_schedule(schedule)
     if not plan.has_rules:
         print("The server served no reaction rules.")
 
-    # At meter speed: the surprise is what the meter shows beyond the plan,
-    # the net power at the connection, minus the devices' realized powers, minus the reference.
+    # At meter speed:
     now = ...
     slot = plan.slot(now)
     surprise = (meter_power - charger_power) - plan.rules[slot].reference
     setpoint = plan.react_at(now, residual=surprise)
 
-The setpoint is ``clip(p - react * surprise, band)``, with ``p`` the slot's schedule value and ``surprise = (meter - Σ device power) - reference``.
-A continuous answer in a hole between two ranges becomes the nearest edge, and on a tie the edge on the side of ``p``.
-With several reacting devices, :func:`residuals` walks them in the order in which they react and returns the residual each device is given,
-which takes the place of the surprise in the rule:
-the surprise, plus the deviations from plan of the devices outside the chain, plus those of the devices before it in the chain.
-The chain for a slot is the devices with a nonzero react share, in that order.
-Sign convention throughout: meter import positive, device consumption positive.
+The setpoint is ``clip(p - react * surprise, band)``, with ``p`` the slot's schedule value.
+When the house behaves as forecast, the surprise is zero and the setpoint is the plan.
 
-Rounding with hysteresis, deadbands on commands and dwell times are left to the device drivers in the controller.
+Devices with operation modes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A charger that delivers nothing between zero and 1.4 kW in either direction declares that in its flex-model,
+so that neither the plan nor a band lands in that dead zone:
+
+.. code-block:: python
+
+    flex_model = {
+        "power-capacity": "7.4 kW",
+        "react": True,
+        "operation-modes": [
+            {"production-range": ["1.4 kW", "7.4 kW"]},
+            {"consumption-range": ["0 kW", "0 kW"]},
+            {"consumption-range": ["1.4 kW", "7.4 kW"]},
+        ],
+    }
+
+Its band then has one range per operation mode, ``[[-7.4, -1.4], [0, 0], [1.4, 7.4]]`` in kW.
+A continuous answer that falls in a hole between two ranges becomes the nearest edge, and on a tie the edge on the side of ``p``:
+
+.. code-block:: python
+
+    from flexmeasures_client.reaction import ReactionRule
+
+    rule = ReactionRule(reference=-0.4, react=1, band=[(-7.4, -1.4), (0.0, 0.0), (1.4, 7.4)])
+    rule.react_to(p=2.0, residual=1.2)  # 0.8 kW lies in the dead zone, nearer to 1.4: returns 1.4
+    rule.react_to(p=2.0, residual=1.4)  # 0.6 kW, nearer to 0: returns 0.0
+    rule.react_to(p=2.0, residual=1.3)  # 0.7 kW, a tie: the edge on the side of p, 1.4
+
+Rounding with hysteresis, holding minimum power through a short surprise, deadbands on commands and dwell times
+are left to the device drivers in the controller.
+
+Several reacting devices
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The devices with a nonzero react share in a slot form the chain for that slot, in the order in which the flex-model lists them.
+They react in series: instead of the whole surprise, each device is given a residual,
+which is the surprise, plus the deviations from plan of the devices outside the chain,
+plus the deviations of the devices before it in the chain.
+:func:`residuals` computes these from the plans and the realized powers:
+
+.. code-block:: python
+
+    from flexmeasures_client.reaction import residuals
+
+    given = residuals(
+        surprise=-3.0,  # 3 kW more export than forecast
+        chain=["battery", "charger"],  # the devices with react = 1, in order
+        plans={"battery": 0.0, "charger": 4.4, "pv": -5.0},
+        realized={"battery": 3.0, "charger": 4.4, "pv": -5.0},
+    )
+    # given == {"battery": -3.0, "charger": 0.0}: the battery took the whole surprise
+
+Each device then evaluates its own rule with the residual it is given, in place of the surprise.
 ``examples/reaction_rules.py`` triggers a schedule with these fields, walks a day of slots with a scripted surprise and prints the setpoints;
 it exits with status 2 when the server served no rules, so it doubles as a smoke test.
 
