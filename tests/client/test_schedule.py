@@ -79,7 +79,7 @@ async def test_trigger_schedule() -> None:
                         ],
                     }
                 ],
-                "flex-context": {"consumption-price-sensor": 3},
+                "flex-context": {"consumption-price": {"sensor": 3}},
             },
             url="http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
             params=None,

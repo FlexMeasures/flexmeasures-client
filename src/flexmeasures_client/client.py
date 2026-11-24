@@ -2820,12 +2820,18 @@ class FlexMeasuresClient:
         production_price_sensor: int | None = None,
         inflexible_device_sensors: int | list[int] | None = None,
     ) -> dict:
+        """Create a flex-context for a storage schedule.
+
+        Prices go out as ``consumption-price`` and ``production-price``, referring to a sensor (FlexMeasures v0.23.0 and up).
+        FlexMeasures keeps SoC constraints hard while the deprecated ``consumption-price-sensor`` and ``production-price-sensor`` fields are used,
+        and it rejects relaxation settings next to them.
+        """
         flex_context: dict = {}
         # Set optional flex context
         if consumption_price_sensor is not None:
-            flex_context["consumption-price-sensor"] = consumption_price_sensor
+            flex_context["consumption-price"] = {"sensor": consumption_price_sensor}
         if production_price_sensor is not None:
-            flex_context["production-price-sensor"] = production_price_sensor
+            flex_context["production-price"] = {"sensor": production_price_sensor}
         if inflexible_device_sensors:
             flex_context["inflexible-device-sensors"] = inflexible_device_sensors
 

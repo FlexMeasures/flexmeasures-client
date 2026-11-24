@@ -70,6 +70,6 @@ def test_create_storage_flex_context_optional_params():
         production_price_sensor=2,
         inflexible_device_sensors=[3, 4],
     )
-    assert result["consumption-price-sensor"] == 1
-    assert result["production-price-sensor"] == 2
+    assert result["consumption-price"] == {"sensor": 1}
+    assert result["production-price"] == {"sensor": 2}
     assert result["inflexible-device-sensors"] == [3, 4]
