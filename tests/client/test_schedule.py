@@ -1250,8 +1250,8 @@ async def test_trigger_schedule_202_is_not_logged_as_unexpected(caplog) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_schedule_unit_client_side_conversion_moves_response_along():
-    """Client-side unit conversion scales the recourse rules by the same factor as the values."""
+async def test_get_schedule_unit_client_side_conversion_moves_reaction_along():
+    """Client-side unit conversion scales the reaction rules by the same factor as the values."""
     url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid"
     with aioresponses() as m:
         m.get(
@@ -1262,7 +1262,7 @@ async def test_get_schedule_unit_client_side_conversion_moves_response_along():
                 "start": "2026-11-30T00:00:00+01:00",
                 "duration": "PT30M",
                 "unit": "MW",
-                "response": [
+                "reaction": [
                     {"reference": 0.0004, "react": 1, "band": [[0, 0.0074]]},
                     {
                         "reference": -0.001,
@@ -1285,15 +1285,15 @@ async def test_get_schedule_unit_client_side_conversion_moves_response_along():
 
     assert schedule["unit"] == "kW"
     assert schedule["values"] == [2.0, -3.0]
-    assert schedule["response"] == [
+    assert schedule["reaction"] == [
         {"reference": 0.4, "react": 1, "band": [[0, 7.4]]},
         {"reference": -1.0, "react": 0, "band": [[-7.4, -1.4], [0, 0], [1.4, None]]},
     ]
 
 
 @pytest.mark.asyncio
-async def test_get_schedule_without_response_is_unchanged():
-    """A schedule served without recourse rules gains no 'response' key, converted or not."""
+async def test_get_schedule_without_reaction_is_unchanged():
+    """A schedule served without reaction rules gains no 'reaction' key, converted or not."""
     url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid"
     served = {
         "values": [0.002, -0.003],
@@ -1322,11 +1322,11 @@ async def test_get_schedule_without_response_is_unchanged():
 
 # Pass-through is generic: a field this client has never heard of is sent as given, too,
 # in the flex-context as well as in a flex-model item.
-RESPONSE_FLEX_CONTEXT = {
+REACTION_FLEX_CONTEXT = {
     "consumption-price": {"sensor": 7},
     "some-future-field": {"nested": [1, "two", None]},
 }
-RESPONSE_FLEX_MODEL = {
+REACTION_FLEX_MODEL = {
     "soc-unit": "kWh",
     "soc-at-start": 50,
     "power-capacity": "7.4 kW",
@@ -1355,8 +1355,8 @@ async def test_trigger_schedule_passes_react_opt_in_through() -> None:
             sensor_id=3,
             start="2026-11-30T00:00+01:00",
             duration="P1D",
-            flex_model=RESPONSE_FLEX_MODEL,
-            flex_context=RESPONSE_FLEX_CONTEXT,
+            flex_model=REACTION_FLEX_MODEL,
+            flex_context=REACTION_FLEX_CONTEXT,
         )
         assert schedule_id == "test_schedule_id"
         m.assert_called_with(
@@ -1369,8 +1369,8 @@ async def test_trigger_schedule_passes_react_opt_in_through() -> None:
             json={
                 "start": "2026-11-30T00:00:00+01:00",
                 "duration": "P1DT0H0M0S",
-                "flex-model": [{**RESPONSE_FLEX_MODEL, "sensor": 3}],
-                "flex-context": RESPONSE_FLEX_CONTEXT,
+                "flex-model": [{**REACTION_FLEX_MODEL, "sensor": 3}],
+                "flex-context": REACTION_FLEX_CONTEXT,
             },
             url="http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
             params=None,
@@ -1381,13 +1381,13 @@ async def test_trigger_schedule_passes_react_opt_in_through() -> None:
 
 
 @pytest.mark.asyncio
-async def test_trigger_and_get_schedule_passes_response_through() -> None:
-    """The flex fields reach the server untouched, and the served 'response' reaches the caller untouched."""
+async def test_trigger_and_get_schedule_passes_reaction_through() -> None:
+    """The flex fields reach the server untouched, and the served 'reaction' reaches the caller untouched."""
     flex_model = [
-        {"sensor": 3, **RESPONSE_FLEX_MODEL},
+        {"sensor": 3, **REACTION_FLEX_MODEL},
         {"sensor": 9, "react": True},
     ]
-    served_response = [
+    served_reaction = [
         {"reference": 0.4, "react": 1, "band": [[1.4, 7.4]]},
         {"reference": 0.4, "react": 0, "band": [[None, None]]},
     ]
@@ -1419,7 +1419,7 @@ async def test_trigger_and_get_schedule_passes_response_through() -> None:
                     "start": "2026-11-30T00:00:00+01:00",
                     "duration": "P1D",
                     "unit": "kW",
-                    "response": served_response,
+                    "reaction": served_reaction,
                 },
             )
         schedules = await client.trigger_and_get_schedule(
@@ -1427,7 +1427,7 @@ async def test_trigger_and_get_schedule_passes_response_through() -> None:
             start="2026-11-30T00:00+01:00",
             duration="P1D",
             flex_model=flex_model,
-            flex_context=RESPONSE_FLEX_CONTEXT,
+            flex_context=REACTION_FLEX_CONTEXT,
             unit="kW",
         )
         trigger_calls = m.requests[
@@ -1437,10 +1437,10 @@ async def test_trigger_and_get_schedule_passes_response_through() -> None:
             "start": "2026-11-30T00:00:00+01:00",
             "duration": "P1DT0H0M0S",
             "flex-model": flex_model,
-            "flex-context": RESPONSE_FLEX_CONTEXT,
+            "flex-context": REACTION_FLEX_CONTEXT,
         }
     await client.close()
 
     assert [schedule["sensor"] for schedule in schedules] == [3, 9]
     for schedule in schedules:
-        assert schedule["response"] == served_response
+        assert schedule["reaction"] == served_reaction

@@ -215,15 +215,15 @@ conversion server-side.  For older servers, the client converts between
 ``NotImplementedError``.
 
 
-Responding to surprises with recourse rules
--------------------------------------------
+Reacting to surprises with reaction rules
+-----------------------------------------
 
 A schedule is optimal given a forecast of everything else behind the meter, and that forecast is wrong within minutes.
-A FlexMeasures server that computes recourse rules serves, with every schedule, one rule per slot and device:
-how to respond to a surprise at the meter, and within which band that response keeps the rest of the plan feasible.
+A FlexMeasures server that computes reaction rules serves, with every schedule, one rule per slot and device:
+how to react to a surprise at the meter, and within which band that reaction keeps the rest of the plan feasible.
 The controller evaluates the rule locally, at meter speed, without a new scheduling request.
 
-Opt in with ``react: true`` on the flex-model of each device that is to respond:
+Opt in with ``react: true`` on the flex-model of each device that is to react:
 
 .. code-block:: python
 
@@ -246,7 +246,7 @@ Opt in with ``react: true`` on the flex-model of each device that is to respond:
     )
 
 The client sends the flex-model and flex-context as given, so a field the server adds later needs no client release.
-The schedule then carries a ``response`` list next to its ``values``, with one entry per value,
+The schedule then carries a ``reaction`` list next to its ``values``, with one entry per value,
 in the same unit as the values:
 
 .. code-block:: python
@@ -256,42 +256,44 @@ in the same unit as the values:
         "duration": "P1D",
         "unit": "kW",
         "values": [4.4, ...],
-        "response": [{"reference": -0.4, "react": 1, "band": [[1.4, 7.4]]}, ...],
+        "reaction": [{"reference": -0.4, "react": 1, "band": [[1.4, 7.4]]}, ...],
     }
 
 Per slot, ``reference`` is the uncontrolled power the plan assumed,
-``react`` is the share of the surprise the device absorbs, 0 (follow the plan) or 1 (absorb it one to one) in this version,
+``react`` is the share of the surprise the device absorbs: 0 (follow the plan) or 1 (absorb it one to one) in this version,
+with the shares in between reserved for a later version,
 and ``band`` lists the ranges within which deviating keeps the device's own constraints satisfiable,
 with ``null`` for an unbounded side and more than one range for a device with operation modes.
-A schedule served without rules has no ``response`` key and reads exactly as before.
+A schedule served without rules has no ``reaction`` key and reads exactly as before.
 When ``get_schedule`` converts the unit itself (for servers older than v0.32.0), it converts the rules along with the values.
 
-``flexmeasures_client.recourse`` parses the rules and evaluates them, with no state and no I/O:
+``flexmeasures_client.reaction`` parses the rules and evaluates them, with no state and no I/O:
 
 .. code-block:: python
 
-    from flexmeasures_client.recourse import ResponseSchedule, residuals
+    from flexmeasures_client.reaction import ReactionSchedule, residuals
 
-    plan = ResponseSchedule.from_schedule(schedule)
+    plan = ReactionSchedule.from_schedule(schedule)
     if not plan.has_rules:
-        print("The server served no recourse rules.")
+        print("The server served no reaction rules.")
 
-    # At meter speed: the surprise on the uncontrolled part of the meter is
+    # At meter speed: the surprise is what the meter shows beyond the plan,
     # the net power at the connection, minus the devices' realized powers, minus the reference.
     now = ...
     slot = plan.slot(now)
     surprise = (meter_power - charger_power) - plan.rules[slot].reference
-    setpoint = plan.respond_at(now, residual=surprise)
+    setpoint = plan.react_at(now, residual=surprise)
 
-The setpoint is ``clip(p - react * residual, band)``, with ``p`` the slot's schedule value.
+The setpoint is ``clip(p - react * surprise, band)``, with ``p`` the slot's schedule value and ``surprise = (meter - Σ device power) - reference``.
 A continuous answer in a hole between two ranges becomes the nearest edge, and on a tie the edge on the side of ``p``.
-With several responding devices, :func:`residuals` walks them in the order in which they respond and returns the residual each device is given:
+With several reacting devices, :func:`residuals` walks them in the order in which they react and returns the residual each device is given,
+which takes the place of the surprise in the rule:
 the surprise, plus the deviations from plan of the devices outside the chain, plus those of the devices before it in the chain.
 The chain for a slot is the devices with a nonzero react share, in that order.
 Sign convention throughout: meter import positive, device consumption positive.
 
 Rounding with hysteresis, deadbands on commands and dwell times are left to the device drivers in the controller.
-``examples/recourse_rules.py`` triggers a schedule with these fields, walks a day of slots with a scripted surprise and prints the setpoints;
+``examples/reaction_rules.py`` triggers a schedule with these fields, walks a day of slots with a scripted surprise and prints the setpoints;
 it exits with status 2 when the server served no rules, so it doubles as a smoke test.
 
 

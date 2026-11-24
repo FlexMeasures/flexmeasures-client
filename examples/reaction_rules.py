@@ -1,7 +1,7 @@
-"""Trigger a schedule with recourse rules, parse them and walk a day of slots with a scripted surprise.
+"""Trigger a schedule with reaction rules, parse them and walk a day of slots with a scripted surprise.
 
-The script opts in to recourse rules with ``react: true`` on the device's flex-model,
-fetches the schedule, parses its ``response`` array
+The script opts in to reaction rules with ``react: true`` on the device's flex-model,
+fetches the schedule, parses its ``reaction`` array
 and prints the setpoint the device would get in every slot, given a scripted surprise at the meter.
 See FlexMeasures/flexmeasures-client#297 for the contract.
 
@@ -13,7 +13,7 @@ It doubles as a smoke test against a FlexMeasures server that serves rules, thro
 
 Usage::
 
-    python examples/recourse_rules.py --host localhost:5000 --no-ssl \\
+    python examples/reaction_rules.py --host localhost:5000 --no-ssl \\
         --email user@example.com --password secret \\
         --sensor 8 --price-sensor 7
 
@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from flexmeasures_client import FlexMeasuresClient
-from flexmeasures_client.recourse import InvalidResponseError, ResponseSchedule, respond
+from flexmeasures_client.reaction import InvalidReactionError, ReactionSchedule, react
 
 NO_RULES = 2
 
@@ -81,7 +81,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def flex_fields(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Return the flex-model that opts in to recourse rules for one device, and the flex-context."""
+    """Return the flex-model that opts in to reaction rules for one device, and the flex-context."""
     flex_model = {
         "soc-unit": "kWh",
         "soc-at-start": args.soc_at_start,
@@ -119,7 +119,7 @@ def format_edge(edge: float | None, unbounded: str) -> str:
     return unbounded if edge is None else f"{edge:g}"
 
 
-def walk(schedule: ResponseSchedule, surprise: list[float]) -> list[str]:
+def walk(schedule: ReactionSchedule, surprise: list[float]) -> list[str]:
     """Print the setpoint per slot, and return the invariants that were broken.
 
     With one reacting device, the residual handed to it is the surprise itself.
@@ -132,7 +132,7 @@ def walk(schedule: ResponseSchedule, surprise: list[float]) -> list[str]:
     for index, (slot_start, p, rule) in enumerate(schedule):
         assert rule is not None
         delta = surprise[index]
-        setpoint = respond(rule, p, delta)
+        setpoint = react(rule, p, delta)
         band = ", ".join(
             f"[{format_edge(low, '-inf')}, {format_edge(high, 'inf')}]"
             for low, high in rule.band
@@ -140,7 +140,7 @@ def walk(schedule: ResponseSchedule, surprise: list[float]) -> list[str]:
         print(
             f"{slot_start.isoformat():<25} {p:>8.3f} {rule.reference:>10.3f} {rule.react:>5.2g} {delta:>9.3f} {setpoint:>9.3f}  {band}"
         )
-        if respond(rule, p, 0.0) != p:
+        if react(rule, p, 0.0) != p:
             problems.append(f"slot {index}: a zero surprise does not return the plan")
         if rule.band and not rule.contains(setpoint):
             problems.append(f"slot {index}: setpoint {setpoint} is outside the band")
@@ -168,16 +168,16 @@ async def run(client: FlexMeasuresClient, args: argparse.Namespace) -> int:
         print(f"Expected one schedule, but got {type(raw).__name__}", file=sys.stderr)
         return 1
     try:
-        schedule = ResponseSchedule.from_schedule(raw)
-    except InvalidResponseError as error:
-        print(f"The schedule's response is invalid: {error}", file=sys.stderr)
+        schedule = ReactionSchedule.from_schedule(raw)
+    except InvalidReactionError as error:
+        print(f"The schedule's reaction is invalid: {error}", file=sys.stderr)
         return 1
     print(
         f"Schedule of {len(schedule)} slots of {schedule.resolution} from {schedule.start.isoformat()} in {schedule.unit}."
     )
     if not schedule.has_rules:
         print(
-            "The server returned NO recourse rules with this schedule (no 'response' array)."
+            "The server returned NO reaction rules with this schedule (no 'reaction' array)."
             " The server may not serve rules yet, or the trigger did not opt in.",
             file=sys.stderr,
         )

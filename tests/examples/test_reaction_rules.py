@@ -1,4 +1,4 @@
-"""Run the recourse rules example against a stand-in client."""
+"""Run the reaction rules example against a stand-in client."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-MODULE_PATH = Path(__file__).parents[2] / "examples" / "recourse_rules.py"
-module_spec = importlib.util.spec_from_file_location("recourse_rules", MODULE_PATH)
+MODULE_PATH = Path(__file__).parents[2] / "examples" / "reaction_rules.py"
+module_spec = importlib.util.spec_from_file_location("reaction_rules", MODULE_PATH)
 assert module_spec is not None
 assert module_spec.loader is not None
 example = importlib.util.module_from_spec(module_spec)
@@ -52,7 +52,7 @@ def served_schedule(with_rules: bool) -> dict:
         "unit": "kW",
     }
     if with_rules:
-        schedule["response"] = [
+        schedule["reaction"] = [
             {"reference": 0.4, "react": 1, "band": [[1.4, 7.4]]},
             {"reference": 0.4, "react": 0, "band": [[0, 0]]},
             {"reference": 0.4, "react": 1, "band": [[-7.4, -1.4], [0, 0], [1.4, 7.4]]},
@@ -86,13 +86,13 @@ async def test_example_opts_in_and_walks_the_rules(capsys):
 async def test_example_says_when_the_server_served_no_rules(capsys):
     client = StandInClient(served_schedule(with_rules=False))
     assert await example.run(client, example.parse_args(ARGS)) == example.NO_RULES
-    assert "NO recourse rules" in capsys.readouterr().err
+    assert "NO reaction rules" in capsys.readouterr().err
 
 
 @pytest.mark.asyncio
-async def test_example_fails_on_an_invalid_response(capsys):
+async def test_example_fails_on_an_invalid_reaction(capsys):
     schedule = served_schedule(with_rules=True)
-    schedule["response"] = schedule["response"][:3]
+    schedule["reaction"] = schedule["reaction"][:3]
     assert await example.run(StandInClient(schedule), example.parse_args(ARGS)) == 1
     assert "invalid" in capsys.readouterr().err
 
