@@ -349,8 +349,15 @@ plus the deviations of the devices before it in the chain.
     # given == {"battery": -3.0, "charger": 0.0}: the battery took the whole surprise
 
 Each device then evaluates its own rule with the residual it is given, in place of the surprise.
-``examples/reaction_rules.py`` triggers a schedule with these fields, walks a day of slots with a scripted surprise and prints the setpoints;
+``examples/reaction_rules.py`` triggers a schedule with these fields and walks the day sample by sample through the local loop,
+with the real pieces: the surprise goes through the smoother, the rule gives the setpoint, what the device could not absorb is the residual,
+and the exit gate says when a retrigger is due, which the probe only marks (after ``--turnaround`` seconds the gate is told the plan arrived and the same rules continue).
+It prints the setpoint per slot, every band exit with the energy past the band, and a summary with the counts;
 it exits with status 2 when the server served no rules, so it doubles as a smoke test.
+The loop's knobs are options with the classes' defaults (``--window``, ``--median``, ``--dwell``, ``--min-energy``, ``--tolerance``),
+and a recorded surprise replaces the scripted one with ``--surprise-csv``, a CSV with a header and the columns ``time`` (ISO 8601 with an offset)
+and ``surprise`` (in ``--surprise-unit``, kW by default), walked in time order against the slot each sample falls in; samples outside the schedule are skipped and counted.
+So a day's recording can be replayed against a real schedule with different knobs, to see how many exits and retriggers each setting gives.
 
 A day after saldering
 ~~~~~~~~~~~~~~~~~~~~~

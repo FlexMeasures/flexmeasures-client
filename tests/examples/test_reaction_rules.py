@@ -1,19 +1,25 @@
-"""Run the reaction rules example against a stand-in client."""
+"""Run the reaction rules probe against a stand-in client."""
 
 from __future__ import annotations
 
 import importlib.util
+import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+
+from flexmeasures_client.reaction import ReactionSchedule, react
 
 MODULE_PATH = Path(__file__).parents[2] / "examples" / "reaction_rules.py"
 module_spec = importlib.util.spec_from_file_location("reaction_rules", MODULE_PATH)
 assert module_spec is not None
 assert module_spec.loader is not None
 example = importlib.util.module_from_spec(module_spec)
+sys.modules[module_spec.name] = example
 module_spec.loader.exec_module(example)
 
+START = datetime(2026, 11, 30, 0, 0, tzinfo=timezone(timedelta(hours=1)))
 ARGS = [
     "--email",
     "user@example.com",
@@ -65,6 +71,38 @@ def served_schedule(with_rules: bool) -> dict:
     return schedule
 
 
+def write_csv(path: Path, rows: list[tuple[datetime, float]]) -> Path:
+    path.write_text(
+        "time,surprise\n"
+        + "".join(f"{when.isoformat()},{value}\n" for when, value in rows)
+    )
+    return path
+
+
+def every(seconds: float, start: float, end: float, value: float):
+    """Samples of one value every so many seconds from start to end (seconds after the schedule start)."""
+    return [
+        (START + timedelta(seconds=s), value)
+        for s in range(int(start), int(end), int(seconds))
+    ]
+
+
+def recorded_series() -> list[tuple[datetime, float]]:
+    """Every 10 s: 5 kW too much for five minutes (one exit, one retrigger), then for one minute (an exit, no retrigger).
+
+    In the first slot the plan is 4.4 kW with a band down to 1.4 kW, so 3 kW of a surprise are absorbed and 2 kW are left over:
+    100 Wh past the band take 180 s, while one minute of it is 33 Wh.
+    """
+    quiet = 0.0
+    return (
+        every(10, 0, 60, quiet)
+        + every(10, 60, 360, 5.0)
+        + every(10, 360, 1200, quiet)
+        + every(10, 1200, 1260, 5.0)
+        + every(10, 1260, 1800, quiet)
+    )
+
+
 @pytest.mark.asyncio
 async def test_example_opts_in_and_walks_the_rules(capsys):
     client = StandInClient(served_schedule(with_rules=True))
@@ -78,8 +116,156 @@ async def test_example_opts_in_and_walks_the_rules(capsys):
     assert call["flex_model"]["power-capacity"] == "7.4 kW"
     out = capsys.readouterr().out
     assert "8 slots" in out
-    assert sum(line.startswith("2026-11-30T") for line in out.splitlines()) == 8
+    slot_table = out.split("\n\n")[0]
+    assert sum(line.startswith("2026-11-30T") for line in slot_table.splitlines()) == 8
     assert "absorb the surprise" in out
+    assert "Samples: 7200 walked, 0 outside the schedule skipped." in out
+
+
+def test_defaults_give_the_same_walk_as_the_per_slot_evaluation():
+    """With the scripted surprise, constant within a slot, every slot ends where react() puts it."""
+    schedule = ReactionSchedule.from_schedule(served_schedule(with_rules=True))
+    assert schedule.rules is not None
+    knobs = example.Knobs()
+    assert (knobs.window, knobs.median, knobs.min_energy, knobs.tolerance) == (
+        5.0,
+        3,
+        0.1,
+        0.05,
+    )
+    result = example.walk(
+        schedule, example.scripted_samples(schedule, example.DEFAULT_SAMPLE_S), knobs
+    )
+    expected = [
+        react(rule, p, surprise)
+        for p, rule, surprise in zip(
+            schedule.values, schedule.rules, example.scripted_surprise(len(schedule))
+        )
+    ]
+    assert result.slot_setpoint == pytest.approx(expected)
+    assert result.slot_surprise == pytest.approx(
+        example.scripted_surprise(len(schedule))
+    )
+    assert result.problems == []
+    assert result.samples == 7200 and result.skipped == 0
+
+
+def test_the_knobs_default_to_the_classes_defaults():
+    args = example.parse_args(ARGS)
+    assert args.window == example.Smoother().window.total_seconds()
+    assert args.median == example.Smoother().median_samples
+    assert args.min_energy == example.ExitGate(dwell=timedelta(0)).min_energy
+    assert args.tolerance == example.ExitGate(dwell=timedelta(0)).tolerance
+    assert (args.dwell, args.turnaround, args.sample) == (21.0, 30.0, 1.0)
+
+
+@pytest.mark.asyncio
+async def test_a_recorded_series_gives_the_expected_exits_and_retriggers(
+    tmp_path, capsys
+):
+    path = write_csv(tmp_path / "surprise.csv", recorded_series())
+    client = StandInClient(served_schedule(with_rules=True))
+    args = example.parse_args(ARGS + ["--surprise-csv", str(path)])
+    assert await example.run(client, args) == 0
+    out = capsys.readouterr().out
+    assert "Replaying 180 recorded samples" in out
+    assert "Band exits: 2, retriggers: 1," in out
+    assert "Samples: 180 walked, 0 outside the schedule skipped." in out
+
+
+def test_a_recorded_series_in_watts_walks_the_same(tmp_path):
+    schedule = ReactionSchedule.from_schedule(served_schedule(with_rules=True))
+    in_kw = example.samples_from_csv(
+        write_csv(tmp_path / "kw.csv", recorded_series()), "kW", "kW"
+    )
+    in_w = example.samples_from_csv(
+        write_csv(
+            tmp_path / "w.csv",
+            [(when, value * 1000) for when, value in recorded_series()],
+        ),
+        "W",
+        "kW",
+    )
+    assert in_w == in_kw
+    knobs = example.Knobs()
+    result = example.walk(schedule, in_w, knobs)
+    assert len(result.exits) == 2 and len(result.retriggers) == 1
+    # The retrigger comes 100 Wh after the exit, at 2 kW left over: three minutes,
+    # or one sample more when the 10 s steps sum to a hair under the threshold.
+    first = result.exits[0]
+    assert first.retrigger_at is not None
+    assert (
+        timedelta(seconds=180)
+        <= first.retrigger_at - first.start
+        <= timedelta(seconds=190)
+    )
+    assert first.end == START + timedelta(seconds=370)
+    assert result.exits[1].retrigger_at is None
+    assert first.energy == pytest.approx(2.0 * 290 / 3600, rel=1e-6)
+
+
+def test_a_higher_min_energy_suppresses_the_retrigger(tmp_path):
+    schedule = ReactionSchedule.from_schedule(served_schedule(with_rules=True))
+    samples = example.samples_from_csv(
+        write_csv(tmp_path / "surprise.csv", recorded_series()), "kW", "kW"
+    )
+    at_default = example.walk(schedule, samples, example.Knobs())
+    assert len(at_default.retriggers) == 1
+    raised = example.walk(schedule, samples, example.Knobs(min_energy=1.0))
+    assert len(raised.retriggers) == 0
+    assert len(raised.exits) == len(at_default.exits) == 2
+
+
+def test_the_window_smooths_a_one_sample_spike_away(tmp_path):
+    """A 4 kW spike for one second pushes the setpoint past the band unsmoothed; a long window spreads it thin enough to absorb."""
+    schedule = ReactionSchedule.from_schedule(served_schedule(with_rules=True))
+    spike = (
+        every(1, 0, 30, 0.0)
+        + [(START + timedelta(seconds=30), 4.0)]
+        + every(1, 31, 90, 0.0)
+    )
+    samples = example.samples_from_csv(
+        write_csv(tmp_path / "spike.csv", spike), "kW", "kW"
+    )
+    unsmoothed = example.walk(schedule, samples, example.Knobs(median=1, window=1))
+    assert len(unsmoothed.exits) == 1
+    smoothed = example.walk(schedule, samples, example.Knobs(median=1, window=60))
+    assert smoothed.exits == []
+
+
+@pytest.mark.asyncio
+async def test_samples_outside_the_schedule_are_skipped_and_counted(tmp_path, capsys):
+    rows = (
+        [(START - timedelta(hours=1), 0.0)]
+        + every(60, 0, 7200, 0.0)
+        + [(START + timedelta(hours=2), 0.0), (START + timedelta(hours=3), 0.0)]
+    )
+    path = write_csv(tmp_path / "surprise.csv", rows)
+    client = StandInClient(served_schedule(with_rules=True))
+    assert (
+        await example.run(
+            client, example.parse_args(ARGS + ["--surprise-csv", str(path)])
+        )
+        == 0
+    )
+    assert (
+        "Samples: 120 walked, 3 outside the schedule skipped."
+        in capsys.readouterr().out
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_recording_without_offsets_is_refused(tmp_path, capsys):
+    path = tmp_path / "naive.csv"
+    path.write_text("time,surprise\n2026-11-30T00:00:00,1.0\n")
+    client = StandInClient(served_schedule(with_rules=True))
+    assert (
+        await example.run(
+            client, example.parse_args(ARGS + ["--surprise-csv", str(path)])
+        )
+        == 1
+    )
+    assert "needs an offset" in capsys.readouterr().err
 
 
 @pytest.mark.asyncio
