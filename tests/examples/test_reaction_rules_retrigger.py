@@ -1,4 +1,4 @@
-"""The band-exit example: the rule acts, the dwell waits, one retrigger fires, the new plan closes the residual."""
+"""The band-exit example: the rule acts, the gate lets the kettle pass, the oven fires once, the new plan closes the residual."""
 
 from __future__ import annotations
 
@@ -23,21 +23,30 @@ module_spec.loader.exec_module(example)
 
 def test_the_rule_acts_at_once_and_the_band_stops_it():
     trace = example.simulate()
-    at_surprise = trace.second.index(example.SURPRISE_AT_S)
-    assert trace.commanded[at_surprise - 1] == example.OLD_PLAN_KW
-    assert (
-        trace.commanded[at_surprise] == example.OLD_RULE.band[0][0]
-    )  # the discharge edge
-    assert trace.residual[at_surprise] == pytest.approx(
-        example.SURPRISE_KW - (example.OLD_PLAN_KW - example.OLD_RULE.band[0][0])
+    at_oven = trace.second.index(example.OVEN_AT_S)
+    assert trace.commanded[at_oven - 1] == example.OLD_PLAN_KW
+    assert trace.commanded[at_oven] == example.OLD_RULE.band[0][0]  # the discharge edge
+    assert trace.residual[at_oven] == pytest.approx(
+        example.OVEN_KW - (example.OLD_PLAN_KW - example.OLD_RULE.band[0][0])
     )
 
 
-def test_exactly_one_retrigger_after_the_dwell():
+def test_the_kettle_exits_the_band_but_fires_nothing():
+    trace = example.simulate()
+    assert trace.exits_at == [example.KETTLE_AT_S, example.OVEN_AT_S]
+    kettle_end = trace.second.index(example.KETTLE_AT_S + example.KETTLE_FOR_S)
+    assert max(trace.energy_outside[:kettle_end]) == pytest.approx(
+        50, abs=1
+    )  # Wh, under the gate
+    assert trace.retrigger_at > example.OVEN_AT_S
+
+
+def test_the_oven_fires_exactly_once_when_the_energy_is_reached():
     trace = example.simulate()
     assert trace.retriggers == 1
-    assert trace.band_exit_at == example.SURPRISE_AT_S
-    assert trace.retrigger_at == example.SURPRISE_AT_S + example.DWELL_S
+    hours_to_threshold = example.MIN_ENERGY_KWH / 3.0  # 3 kW left over
+    assert trace.retrigger_at == example.OVEN_AT_S + round(hours_to_threshold * 3600)
+    assert trace.retrigger_at - example.OVEN_AT_S >= example.DWELL_S
 
 
 def test_the_cycling_oven_during_the_flight_fires_nothing():
@@ -52,6 +61,7 @@ def test_the_new_plan_closes_the_residual():
     after = trace.second.index(trace.new_plan_at)
     assert all(abs(r) <= example.TOLERANCE_KW for r in trace.residual[after:])
     assert all(c == example.NEW_PLAN_KW for c in trace.commanded[after:])
+    assert all(e == 0 for e in trace.energy_outside[after:])
 
 
 def test_the_events_print_without_a_plotting_library(capsys):

@@ -34,6 +34,7 @@ __all__ = [
     "react",
     "residuals",
     "convert_reaction_units",
+    "ExitGate",
 ]
 
 Range = tuple[float, float]
@@ -355,3 +356,80 @@ def convert_reaction_units(
         ]
         converted.append(new_entry)
     return converted
+
+
+@dataclass
+class ExitGate:
+    """Decides when a residual left outside every band is worth a new plan.
+
+    The reaction rule acts on every meter sample; this gate sits behind it and turns a residual
+    that no device absorbed into at most one scheduling request per exit. It is the one piece of
+    the loop that keeps state, so it lives here next to the pure functions, with its thresholds
+    as plain parameters rather than as settings of the client: the controller that runs the loop
+    constructs one gate per device chain and feeds it every sample.
+
+    A retrigger is due when the residual has been outside the band, beyond ``tolerance``,
+    for at least ``dwell`` (the slowest commanded device's settle time plus one sample,
+    so a residual only counts once every device has had the chance to land) and the energy
+    that went past the band meanwhile reaches ``min_energy``. The energy gate is what lets a
+    kettle pass: a short peak costs a few cents, less than a scheduling run is worth,
+    while an oven or a car that left still fires within minutes. Set ``min_energy`` to 0
+    to fire on the dwell alone.
+
+    After :meth:`request_sent` nothing fires until :meth:`plan_arrived` resets the gate,
+    so at most one request is in flight, even when the residual wobbles. A residual back
+    inside the band resets the exit; the next excursion starts counting from zero.
+
+    :param dwell:      The settle time of the slowest commanded device plus one sample.
+    :param min_energy: Energy past the band before a retrigger, in the residual's unit times hours
+                       (kWh for a residual in kW).
+    :param tolerance:  Residuals within this magnitude count as inside the band.
+    """
+
+    dwell: timedelta
+    min_energy: float = 0.1
+    tolerance: float = 0.05
+    exited_at: datetime | None = None
+    energy_outside: float = 0.0
+    in_flight: bool = False
+    _last_seen: datetime | None = None
+
+    def observe(self, when: datetime, residual: float) -> bool:
+        """Feed one meter sample; return True when a retrigger is due now.
+
+        :param when:     The sample's time; samples must be fed in order.
+        :param residual: What the chain left over, in the schedule's unit.
+        """
+        if self._last_seen is not None and when < self._last_seen:
+            raise ValueError("samples must be observed in order")
+        hours = (
+            (when - self._last_seen).total_seconds() / 3600
+            if self._last_seen is not None
+            else 0.0
+        )
+        self._last_seen = when
+        if abs(residual) <= self.tolerance:
+            self.exited_at = None
+            self.energy_outside = 0.0
+            return False
+        if self.exited_at is None:
+            self.exited_at = when
+            self.energy_outside = 0.0
+        else:
+            self.energy_outside += abs(residual) * hours
+        if self.in_flight:
+            return False
+        return (
+            when - self.exited_at >= self.dwell
+            and self.energy_outside >= self.min_energy
+        )
+
+    def request_sent(self) -> None:
+        """A scheduling request went out: nothing fires until the plan arrives."""
+        self.in_flight = True
+
+    def plan_arrived(self) -> None:
+        """A new plan and its rules are installed: start afresh."""
+        self.in_flight = False
+        self.exited_at = None
+        self.energy_outside = 0.0

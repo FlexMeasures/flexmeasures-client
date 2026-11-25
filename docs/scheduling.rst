@@ -386,20 +386,26 @@ which is also what the same day used to cost under saldering.
 A band exit, second by second
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A rule can only absorb what its band allows. When more is left over, the controller asks for a new plan,
-and ``examples/reaction_rules_retrigger.py`` shows how, at the meter's sampling rate:
-the oven adds 4.5 kW while the car, which must keep energy for the morning, can discharge only 1.5 kW more.
-The rule pins the charger to its band edge at once, the residual of 3 kW waits out the dwell (the charger's settle time plus one sample),
-one retrigger fires with fresh meter data, nothing else fires while the request is in flight, even when the oven's element cycles off for a moment,
+A rule can only absorb what its band allows. When more is left over for long enough, the controller asks for a new plan,
+and ``examples/reaction_rules_retrigger.py`` shows how, at the meter's sampling rate.
+The car must keep energy for the morning, so it can discharge only 1.5 kW more than planned.
+First the kettle adds 3 kW for two minutes: the rule pins the charger to its band edge at once and 1.5 kW are left over,
+but two minutes of that is 50 Wh, a few cents, and not worth a scheduling run, so nothing fires.
+Then the oven adds 4.5 kW and stays: 3 kW are left over, and after the gate's dwell and 100 Wh past the band one retrigger fires with fresh meter data.
+Nothing else fires while the request is in flight, even when the oven's element cycles off for a moment,
 and the new plan arrives half a minute later with a wider band and a plan that closes the residual.
 
 .. image:: https://raw.githubusercontent.com/FlexMeasures/screenshots/main/flexmeasures-client/reaction-rules-retrigger.png
-    :alt: Three panels over eight minutes: the surprise, the charger pinned to its band edge until a new plan widens the band, and the residual with the band exit, the dwell, the retrigger and the arrival of the new plan.
+    :alt: Four panels over seven minutes: the surprise with a kettle and an oven, the charger pinned to its band edge until a new plan widens the band, the residual, and the energy past the band with the threshold at which the retrigger fires.
     :width: 100%
 
-The timings are placeholders: the controller measures its devices' settle times and sets the dwell from them,
-and a scheduling round trip takes 20 to 30 seconds in practice, which is what the picture uses.
-
+The gate is :class:`flexmeasures_client.reaction.ExitGate`, the one stateful piece next to the pure functions:
+it is fed every sample's residual and says when a retrigger is due, needing both a dwell (the slowest commanded device's settle time plus one sample,
+so a residual only counts once every device has had the chance to land) and a minimum energy past the band;
+after ``request_sent()`` nothing fires until ``plan_arrived()``.
+Its thresholds are parameters of the gate, not settings of the client, because the controller that runs the loop owns them
+and measures the settle times they rest on. The timings in the picture are placeholders, except the scheduling round trip,
+which takes 20 to 30 seconds in practice.
 
 Waiting, legacy polling, and errors
 -----------------------------------
