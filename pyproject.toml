@@ -69,6 +69,9 @@ dev = [
 docs = [
     "sphinx>=3.2.1",
 ]
+examples = [
+    "matplotlib>=3.8",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/flexmeasures_client"]

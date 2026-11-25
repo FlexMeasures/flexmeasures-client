@@ -352,6 +352,37 @@ Each device then evaluates its own rule with the residual it is given, in place 
 ``examples/reaction_rules.py`` triggers a schedule with these fields, walks a day of slots with a scripted surprise and prints the setpoints;
 it exits with status 2 when the server served no rules, so it doubles as a smoke test.
 
+A day after saldering
+~~~~~~~~~~~~~~~~~~~~~
+
+Until the end of 2026, Dutch households net exported energy against imported energy (*saldering*),
+so a kilowatt-hour is worth the same whichever way it crosses the meter and a schedule that is a little off costs nothing.
+From 2027 an exported kilowatt-hour earns the feed-in price, far below the import price and negative in some hours.
+A schedule is then only as good as the forecast it was built on, and a household's forecast is wrong within minutes.
+
+``examples/reaction_rules_saldering.py`` simulates one such day for a bidirectional charger, offline:
+a forecast of everything behind the meter, the actual with a cloud, a sunny spell and the oven,
+the plan a scheduler would make under the forecast, and the reaction rules that would come with it.
+The rules are evaluated with ``flexmeasures_client.reaction.react``.
+It needs matplotlib for the pictures (``uv sync --group examples``); the numbers print without it.
+
+.. image:: https://raw.githubusercontent.com/FlexMeasures/screenshots/main/flexmeasures-client/reaction-rules-day.png
+    :alt: Three panels over one day: the house against its forecast, the net power at the connection with a plain schedule and with reaction rules, and the charger's plan and setpoint.
+    :width: 100%
+
+Following the plan blindly, the charger keeps charging at the planned rate through the cloud, so the house imports,
+and keeps the planned rate through the sunny spell, so the surplus is exported at a negative price;
+in the evening it discharges as planned while the oven pushes the house into the peak price.
+With reaction rules the charger charges less during the cloud, more during the sunny spell and discharges harder during the oven,
+within its band, and the connection stays where the plan put it.
+
+.. image:: https://raw.githubusercontent.com/FlexMeasures/screenshots/main/flexmeasures-client/reaction-rules-cost.png
+    :alt: Four bars with the cost of the same day: under saldering, the plan as expected, a plain schedule after saldering, and reaction rules after saldering.
+    :width: 100%
+
+The plain schedule costs about a euro more on this day than the planner expected; reaction rules bring the day back to within a few cents of the plan,
+which is also what the same day used to cost under saldering.
+
 
 Waiting, legacy polling, and errors
 -----------------------------------
