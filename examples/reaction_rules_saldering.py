@@ -132,13 +132,14 @@ def plan(hour: float, reference: float) -> float:
 def rule_for(hour: float, reference: float, p: float) -> ReactionRule:
     """The reaction rule FlexMeasures would serve for the slot, from the slot's cost structure.
 
-    React where a surprise changes what is optimal: where the plan holds the connection near zero and
+    React where a surprise changes what is optimal: where the plan holds the connection at zero while
     export earns less than import, and wherever export costs money. Follow the plan elsewhere.
     """
-    planned_meter = reference + p
-    near_zero = abs(planned_meter) < 0.05
+    holding = (
+        p != 0.0 and abs(reference + p) < 0.05
+    )  # the plan holds the connection at zero
     asymmetric = feed_in_price(hour) < import_price(hour)
-    share = 1.0 if (near_zero and asymmetric) or feed_in_price(hour) < 0 else 0.0
+    share = 1.0 if (holding and asymmetric) or feed_in_price(hour) < 0 else 0.0
     return ReactionRule(reference=reference, react=share, band=BAND)
 
 
@@ -319,25 +320,26 @@ def plot_day(day: Day, path: Path) -> None:
     ax_house.set_ylim(-8.2, 7.2)
     ax_house.legend(loc="upper left", frameon=False, fontsize=9)
 
-    # Panel 2: the connection.
+    # Panel 2: the connection. Wider lines underneath, so each series stays visible where they coincide.
     _style(ax_meter, "Net power at the connection", "kW, import positive")
     _shade_negative_price(ax_meter, day.hour)
     ax_meter.plot(
         day.hour,
         day.planned_meter,
         color=NEUTRAL,
-        linewidth=1.6,
-        linestyle=(0, (4, 3)),
+        linewidth=4.6,
+        linestyle=(0, (3, 2)),
         label="as planned",
+        alpha=0.55,
     )
     ax_meter.plot(
-        day.hour, day.plain_meter, color=PLAIN, linewidth=1.8, label="plain schedule"
+        day.hour, day.plain_meter, color=PLAIN, linewidth=3.2, label="plain schedule"
     )
     ax_meter.plot(
         day.hour,
         day.reaction_meter,
         color=REACTION,
-        linewidth=1.8,
+        linewidth=1.6,
         label="with reaction rules",
     )
     ax_meter.text(
@@ -387,15 +389,16 @@ def plot_day(day: Day, path: Path) -> None:
         day.hour,
         day.plan,
         color=NEUTRAL,
-        linewidth=1.6,
-        linestyle=(0, (4, 3)),
+        linewidth=3.4,
+        linestyle=(0, (3, 2)),
         label="plan p",
+        alpha=0.55,
     )
     ax_charger.plot(
         day.hour,
         day.reaction_charger,
         color=REACTION,
-        linewidth=1.8,
+        linewidth=1.6,
         label="setpoint with reaction rules",
     )
     reacting = [h for h, rule in zip(day.hour, day.rules) if rule.react > 0]
