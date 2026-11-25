@@ -1,6 +1,6 @@
 """A band exit, second by second: the rule acts, the dwell waits, one retrigger fires.
 
-The companion of ``reaction_rules_saldering.py`` at the other timescale: eight minutes at the meter's
+The companion of ``reaction_rules_saldering.py`` at the other timescale: four minutes at the meter's
 sampling rate, around a surprise the charger cannot absorb within its band. A car that must keep energy
 for the morning has a narrow discharge band, so when the oven adds 4.5 kW the charger discharges to its
 band edge and 3 kW are left over. That residual is what asks for a new plan:
@@ -9,8 +9,8 @@ band edge and 3 kW are left over. That residual is what asks for a new plan:
 - the dwell is the charger's settle time plus one sample, so a residual only counts as a band exit
   once the device has had the chance to land;
 - then one retrigger fires, with fresh meter data posted, and nothing else fires while the request
-  is in flight, even when the surprise flaps;
-- the new plan and its rules arrive a couple of minutes later and replace the installed ones;
+  is in flight, even when the surprise wobbles because the oven's element cycles;
+- the new plan and its rules arrive half a minute later and replace the installed ones;
   the band moves with the plan and the residual closes.
 
 The setpoints come from the real client code (``flexmeasures_client.reaction.react``); the surprise,
@@ -30,19 +30,23 @@ from pathlib import Path
 
 from flexmeasures_client.reaction import ReactionRule, react
 
-SECONDS = 8 * 60
+SECONDS = 4 * 60
 SAMPLE_S = 1  # a DSMR 5 meter reports every second
 SETTLE_S = (
     20  # the charger's settle time for an adjustment while running (a placeholder)
 )
 DWELL_S = SETTLE_S + SAMPLE_S
-TURNAROUND_S = 150  # from the retrigger to the new plan's arrival (a placeholder)
+TURNAROUND_S = 30  # from the retrigger to the new plan's arrival: a scheduling round trip takes 20 to 30 s in practice
 TOLERANCE_KW = 0.05
 
 MIN_POWER_KW = 1.4
 SURPRISE_AT_S = 120
 SURPRISE_KW = 4.5
-FLAP_AT_S, FLAP_FOR_S, FLAP_KW = 200, 15, -1.0
+CYCLE_AT_S, CYCLE_FOR_S, CYCLE_KW = (
+    150,
+    8,
+    -1.0,
+)  # the oven's heating element cycles off for a moment
 
 # The installed plan: the car covers the house in the expensive evening, but must keep energy for the morning,
 # so its discharge band is narrow. The new plan trades that energy for cheap night charging and discharges harder.
@@ -67,18 +71,18 @@ SURFACE = "#fcfcfb"
 
 
 def surprise_at(second: int) -> float:
-    """The house beyond its forecast: the oven, with a short flap while the request is in flight."""
+    """The house beyond its forecast: the oven, whose element cycles off for a moment while the request is in flight."""
     if second < SURPRISE_AT_S:
         return 0.0
     delta = SURPRISE_KW
-    if FLAP_AT_S <= second < FLAP_AT_S + FLAP_FOR_S:
-        delta += FLAP_KW
+    if CYCLE_AT_S <= second < CYCLE_AT_S + CYCLE_FOR_S:
+        delta += CYCLE_KW
     return delta
 
 
 @dataclass
 class Trace:
-    """Every per-sample series of the eight minutes, in kW, plus the events in seconds."""
+    """Every per-sample series of the four minutes, in kW, plus the events in seconds."""
 
     second: list[int] = field(default_factory=list)
     surprise: list[float] = field(default_factory=list)
@@ -94,7 +98,7 @@ class Trace:
 
 
 def simulate() -> Trace:
-    """Walk the eight minutes sample by sample, the way the controller's loop does."""
+    """Walk the four minutes sample by sample, the way the controller's loop does."""
     trace = Trace()
     rule, plan = OLD_RULE, OLD_PLAN_KW
     realized = plan
@@ -159,8 +163,8 @@ def _style(ax, title: str, ylabel: str) -> None:
     ax.tick_params(colors=NEUTRAL, labelsize=8.5)
     ax.axhline(0, color="#d6d6d2", linewidth=1, zorder=0)
     ax.set_xlim(0, SECONDS)
-    ax.set_xticks(range(0, SECONDS + 1, 60))
-    ax.set_xticklabels([f"{m}" for m in range(0, SECONDS // 60 + 1)])
+    ax.set_xticks(range(0, SECONDS + 1, 30))
+    ax.set_xticklabels([f"{t // 60}:{t % 60:02d}" for t in range(0, SECONDS + 1, 30)])
 
 
 def _event_line(ax, second: int | None, color: str) -> None:
@@ -197,16 +201,16 @@ def plot(trace: Trace, path: Path) -> None:
     )
     ax_house.plot(trace.second, trace.surprise, color=NEUTRAL, linewidth=1.8)
     ax_house.text(
-        SURPRISE_AT_S + 8,
+        SURPRISE_AT_S + 4,
         SURPRISE_KW + 0.35,
         "the oven: +4.5 kW",
         color=NEUTRAL,
         fontsize=9,
     )
     ax_house.text(
-        FLAP_AT_S + FLAP_FOR_S + 6,
-        SURPRISE_KW + FLAP_KW - 0.1,
-        "a flap",
+        CYCLE_AT_S + CYCLE_FOR_S + 3,
+        SURPRISE_KW + CYCLE_KW - 0.1,
+        "the oven's element cycles off",
         color=NEUTRAL,
         fontsize=9,
         va="top",
@@ -255,7 +259,7 @@ def plot(trace: Trace, path: Path) -> None:
         label="realized (settles in 20 s)",
     )
     ax_charger.text(
-        8,
+        4,
         OLD_PLAN_KW - 0.35,
         "discharge band of the installed plan:\nthe car keeps energy for the morning",
         color="#8a5d00",
@@ -264,7 +268,7 @@ def plot(trace: Trace, path: Path) -> None:
     )
     if new_plan_at is not None:
         ax_charger.text(
-            new_plan_at + 10,
+            new_plan_at + 5,
             NEW_RULE.band[0][0] + 0.25,
             "new plan, wider band",
             color="#8a5d00",
@@ -288,7 +292,7 @@ def plot(trace: Trace, path: Path) -> None:
     if exit_at is not None and retrigger_at is not None:
         ax_residual.axvspan(exit_at, retrigger_at, color=NEUTRAL, alpha=0.12, lw=0)
         ax_residual.text(
-            exit_at - 5,
+            exit_at - 3,
             3.35,
             "dwell: settle time\n+ one sample",
             ha="right",
@@ -299,7 +303,7 @@ def plot(trace: Trace, path: Path) -> None:
         ax_residual.annotate(
             "band exit",
             xy=(exit_at, 0.1),
-            xytext=(exit_at - 8, 0.9),
+            xytext=(exit_at - 8, 0.7),
             ha="right",
             fontsize=9,
             color=NEUTRAL,
@@ -310,7 +314,7 @@ def plot(trace: Trace, path: Path) -> None:
         ax_residual.text(
             (retrigger_at + new_plan_at) / 2,
             4.95,
-            "request in flight: no second retrigger, even when the surprise flaps",
+            "request in flight: no second retrigger",
             ha="center",
             fontsize=8.5,
             color=REACTION,
@@ -318,7 +322,7 @@ def plot(trace: Trace, path: Path) -> None:
         ax_residual.annotate(
             "retrigger: one request,\nfresh meter data posted",
             xy=(retrigger_at, 3.05),
-            xytext=(retrigger_at + 8, 3.5),
+            xytext=(retrigger_at + 4, 3.5),
             ha="left",
             va="bottom",
             fontsize=9,
@@ -328,23 +332,23 @@ def plot(trace: Trace, path: Path) -> None:
         ax_residual.annotate(
             "new plan and rules arrive:\nthe residual closes",
             xy=(new_plan_at, 0.05),
-            xytext=(new_plan_at + 12, 1.6),
+            xytext=(new_plan_at + 6, 1.6),
             ha="left",
             fontsize=9,
             color="#0b0b0b",
             arrowprops={"arrowstyle": "->", "color": "#0b0b0b", "lw": 0.9},
         )
         ax_residual.text(
-            retrigger_at + 8,
-            0.3,
-            "the rule keeps acting meanwhile, clipped to the band",
-            ha="left",
+            exit_at - 40,
+            2.0,
+            "the rule keeps acting meanwhile,\nclipped to the band",
+            ha="right",
             color=NEUTRAL,
             fontsize=8.5,
             va="bottom",
         )
     ax_residual.set_ylim(-0.6, 5.5)
-    ax_residual.set_xlabel("minutes", color=NEUTRAL, fontsize=9)
+    ax_residual.set_xlabel("minutes:seconds", color=NEUTRAL, fontsize=9)
     for second in (exit_at, retrigger_at, new_plan_at):
         _event_line(ax_residual, second, NEUTRAL)
 

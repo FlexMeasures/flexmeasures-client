@@ -40,9 +40,9 @@ def test_exactly_one_retrigger_after_the_dwell():
     assert trace.retrigger_at == example.SURPRISE_AT_S + example.DWELL_S
 
 
-def test_the_flap_during_the_flight_fires_nothing():
+def test_the_cycling_oven_during_the_flight_fires_nothing():
     trace = example.simulate()
-    assert trace.retrigger_at < example.FLAP_AT_S < trace.new_plan_at
+    assert trace.retrigger_at < example.CYCLE_AT_S < trace.new_plan_at
     assert trace.retriggers == 1
 
 
