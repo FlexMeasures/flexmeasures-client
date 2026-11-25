@@ -383,6 +383,22 @@ within its band, and the connection stays where the plan put it.
 The plain schedule costs about a euro more on this day than the planner expected; reaction rules bring the day back to within a few cents of the plan,
 which is also what the same day used to cost under saldering.
 
+A band exit, second by second
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A rule can only absorb what its band allows. When more is left over, the controller asks for a new plan,
+and ``examples/reaction_rules_retrigger.py`` shows how, at the meter's sampling rate:
+the oven adds 4.5 kW while the car, which must keep energy for the morning, can discharge only 1.5 kW more.
+The rule pins the charger to its band edge at once, the residual of 3 kW waits out the dwell (the charger's settle time plus one sample),
+one retrigger fires with fresh meter data, nothing else fires while the request is in flight, even when the surprise flaps,
+and the new plan arrives a couple of minutes later with a wider band and a plan that closes the residual.
+
+.. image:: https://raw.githubusercontent.com/FlexMeasures/screenshots/main/flexmeasures-client/reaction-rules-retrigger.png
+    :alt: Three panels over eight minutes: the surprise, the charger pinned to its band edge until a new plan widens the band, and the residual with the band exit, the dwell, the retrigger and the arrival of the new plan.
+    :width: 100%
+
+The timings are placeholders; the controller measures its devices' settle times and sets the dwell from them.
+
 
 Waiting, legacy polling, and errors
 -----------------------------------
