@@ -18,7 +18,7 @@ Rounding with hysteresis, deadbands on commands and dwell times belong to the de
 from __future__ import annotations
 
 from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TypeVar
 
@@ -35,6 +35,7 @@ __all__ = [
     "residuals",
     "convert_reaction_units",
     "ExitGate",
+    "Smoother",
 ]
 
 Range = tuple[float, float]
@@ -433,3 +434,58 @@ class ExitGate:
         self.in_flight = False
         self.exited_at = None
         self.energy_outside = 0.0
+
+
+@dataclass
+class Smoother:
+    """Smooths a per-sample series, such as the surprise, over a short rolling window.
+
+    A meter samples once a second and a charger is polled every few seconds, so the instantaneous
+    surprise carries their misalignment during a ramp, and a one-second spike (a kettle's inrush,
+    a switching transient) would move the setpoint for one sample and back. Two stages remove both:
+    a median over the last ``median_samples`` kills spikes, and a mean over ``window`` seconds of
+    those medians takes out the jitter. The price is lag of about half the window.
+
+    Smooth the surprise, computed per sample against the slot's reference, and feed the smoothed
+    residual to the :class:`ExitGate`. Do not smooth what is about timing rather than noise:
+    a fuse guard must act within one sample, and the hand-over between commanded and realized
+    device power must not be delayed.
+
+    :param window:         The length of the mean, as a duration; samples older than this are dropped.
+    :param median_samples: How many of the latest samples the median spans; 1 disables it.
+    """
+
+    window: timedelta = timedelta(seconds=5)
+    median_samples: int = 3
+    _raw: list[tuple[datetime, float]] = field(default_factory=list)
+    _medians: list[tuple[datetime, float]] = field(default_factory=list)
+
+    def update(self, when: datetime, value: float) -> float:
+        """Feed one sample in order; return the smoothed value as of ``when``."""
+        if self._raw and when < self._raw[-1][0]:
+            raise ValueError("samples must be fed in order")
+        if self.median_samples < 1:
+            raise ValueError("median_samples must be at least 1")
+        self._raw.append((when, value))
+        del self._raw[: -self.median_samples]
+        median = (
+            sorted(v for _, v in self._raw)[len(self._raw) // 2]
+            if len(self._raw) % 2
+            else (
+                sum(
+                    sorted(v for _, v in self._raw)[
+                        len(self._raw) // 2 - 1 : len(self._raw) // 2 + 1
+                    ]
+                )
+                / 2
+            )
+        )
+        self._medians.append((when, median))
+        cutoff = when - self.window
+        self._medians = [(t, v) for t, v in self._medians if t > cutoff]
+        return sum(v for _, v in self._medians) / len(self._medians)
+
+    def reset(self) -> None:
+        """Forget every sample, for example when a new plan changes the reference."""
+        self._raw.clear()
+        self._medians.clear()

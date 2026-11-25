@@ -404,7 +404,10 @@ it is fed every sample's residual and says when a retrigger is due, needing both
 so a residual only counts once every device has had the chance to land) and a minimum energy past the band;
 after ``request_sent()`` nothing fires until ``plan_arrived()``.
 Its thresholds are parameters of the gate, not settings of the client, because the controller that runs the loop owns them
-and measures the settle times they rest on. The timings in the picture are placeholders, except the scheduling round trip,
+and measures the settle times they rest on.
+Next to the gate, :class:`flexmeasures_client.reaction.Smoother` takes the noise out of the per-sample surprise before it reaches the rule:
+a median over a few samples kills one-second spikes and a mean over a window of a few seconds takes out the jitter of a meter and a charger polled at different moments,
+at the price of about half a window of lag. Smooth the surprise and feed the smoothed residual to the gate; never smooth a fuse guard. The timings in the picture are placeholders, except the scheduling round trip,
 which takes 20 to 30 seconds in practice.
 
 Waiting, legacy polling, and errors
