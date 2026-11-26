@@ -346,10 +346,10 @@ def test_the_default_mode_policy_holds_the_plan_mode_and_leaves_a_residual(tmp_p
     assert held.mode_switches == 0
     assert held.slot_setpoint[3] == -1.4
     (exit_,) = held.exits
-    # Idle (0 kW) is as far as the policy goes: 1.4 kW of the 3.3 are absorbed, 1.9 kW are left for the whole excursion.
+    # The policy holds the discharging mode's edge, -1.4 kW: nothing of the 3.3 kW is absorbed for the whole excursion.
     assert exit_.end is not None and exit_.end - exit_.start >= timedelta(seconds=110)
     assert exit_.energy == pytest.approx(
-        1.9 * (exit_.end - exit_.start).total_seconds() / 3600, rel=0.05
+        3.3 * (exit_.end - exit_.start).total_seconds() / 3600, rel=0.05
     )
 
 
@@ -364,10 +364,10 @@ def test_a_mode_dwell_lets_the_device_switch_and_closes_the_residual(tmp_path):
     assert switched.slot_setpoint[3] == -1.4
     first = switched.exits[0]
     assert first.end is not None and first.end - first.start <= timedelta(seconds=40)
-    # With a margin wider than the excursion reaches into the mode, the switch never comes.
-    assert (
-        example.walk(
-            schedule, samples, example.Knobs(mode_dwell=30.0, mode_margin=1.0)
-        ).mode_switches
-        == 0
+    # With a margin wider than the excursion reaches into charging, the car goes idle instead,
+    # and stays there: the way back into discharging is behind the same margin.
+    idled = example.walk(
+        schedule, samples, example.Knobs(mode_dwell=30.0, mode_margin=1.0)
     )
+    assert idled.mode_switches == 1
+    assert idled.slot_setpoint[3] == 0.0

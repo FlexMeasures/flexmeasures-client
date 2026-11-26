@@ -523,19 +523,23 @@ class Smoother:
 
 @dataclass
 class ModePolicy:
-    """Keeps the range (operation mode) a device is in, and rounds setpoints relative to it.
+    """Keeps the range (operation mode) a device is in, and holds setpoints to it.
 
-    A device with operation modes has a band with holes, and a setpoint in a hole is rounded to the edge
-    on the side of the mode the device is in (see :func:`clip_to_band`). Which mode that is, is state,
+    A device with operation modes has a band with holes. Which mode the device is in is state,
     so it lives here next to :class:`ExitGate` and :class:`Smoother`: call :meth:`start_slot` when a slot begins,
     which puts the device in the mode that contains the plan value, and :meth:`observe` for every sample.
 
-    Switching modes is the slow, wearing transition on a real charger (a contactor reversing the direction of the current),
-    so by default the policy never switches within a slot: it holds the plan's mode, and a value that lies in another
-    mode is rounded back to the nearest edge on this side of it. With a ``dwell``, the policy switches once the raw value
-    has lain inside another mode, at least ``margin`` past the hole, for at least that long; switching back obeys the same
-    dwell and margin. A single-value mode (idle, ``[0, 0]``) is an edge of the holes on both of its sides and is reached
-    without a switch, so it is never a mode to switch into.
+    Switching modes is the slow, wearing transition on a real charger (a contactor reversing the direction of the current,
+    or stopping and starting it), so by default the policy never switches within a slot: it holds the plan's mode,
+    and every raw value outside that mode, in a hole, inside another mode or beyond the band, is clipped to the mode's nearer edge
+    (1.4 kW for a charging car asked to idle or to discharge). Crossing to idle is a mode change like any other,
+    and happens only through a switch.
+
+    With a ``dwell``, the policy switches once the raw value has lain inside another mode, at least ``margin`` past the hole,
+    for at least that long; switching back obeys the same dwell and margin.
+    A raw value counts as inside a single-value mode such as idle (``[0, 0]``) when it lies on that value or beyond it,
+    seen from the current mode, and the margin does not apply to it, since there is nothing to be past;
+    a raw value that also lies inside a wider mode past the margin counts for that wider mode.
 
     A lasting surprise the policy will not follow leaves a residual that the device does not absorb;
     that is what the :class:`ExitGate` is for, which is unchanged by this policy.
@@ -571,61 +575,44 @@ class ModePolicy:
             return raw
         if self.current is None:
             return clip_to_band(raw, self._band)
-        other = _range_containing(self._band, raw)
-        if (
-            self.dwell is not None
-            and other is not None
-            and other != self.current
-            and other[0] < other[1]
-            and self._past_the_hole(raw, other)
-        ):
-            if self._candidate != other:
-                self._candidate, self._candidate_since = other, when
-            elif when - self._candidate_since >= self.dwell:  # type: ignore[operator]
-                self.current = other
-                self.switches += 1
-                self._candidate = None
-                self._candidate_since = None
-        else:
+        target = self._mode_asked_for(raw) if self.dwell is not None else None
+        if target is None:
             self._candidate = None
             self._candidate_since = None
-        return self._hold(raw)
+        elif self._candidate != target:
+            self._candidate, self._candidate_since = target, when
+        elif when - self._candidate_since >= self.dwell:  # type: ignore[operator]
+            self.current = target
+            self.switches += 1
+            self._candidate = None
+            self._candidate_since = None
+        low, high = self.current
+        return min(max(raw, low), high)
 
-    def _past_the_hole(self, raw: float, other: Range) -> bool:
-        """Return whether the raw value lies at least the margin into the other mode, counted from the hole towards the current mode."""
-        assert self.current is not None
-        low, high = other
-        margin = min(self.margin, high - low)
-        if high < self.current[0]:
-            return raw <= high - margin
-        return raw >= low + margin
+    def _mode_asked_for(self, raw: float) -> Range | None:
+        """Return the mode other than the current one that the raw value counts as inside, if any.
 
-    def _hold(self, raw: float) -> float:
-        """Round the raw value relative to the current mode, without entering another mode.
-
-        A raw value in a hole becomes the edge of the hole on this side, as :func:`clip_to_band` does.
-        A raw value inside another mode, or beyond the band on that mode's side, is treated as standing at that mode's far border,
-        so it becomes the next edge towards the current mode; a single-value mode counts as such an edge.
+        A wider mode counts when the raw value lies inside it, at least the margin past the hole towards the current mode.
+        A single-value mode counts when the raw value lies on it or beyond it, seen from the current mode;
+        of several, the one nearest to the raw value.
         """
         assert self.current is not None
         low_c, high_c = self.current
         if low_c <= raw <= high_c:
-            return raw
-        other = _range_containing(self._band, raw)
-        if raw < low_c:
-            if other is None and raw < self._band[0][0]:
-                other = self._band[0]
-            if other == self.current:
-                return low_c
-            if other is not None and other[0] == other[1]:
-                return raw  # a single-value mode is an edge of the hole
-            anchor = raw if other is None else other[1]
-            return min(low for low, _ in self._band if low > anchor)
-        if other is None and raw > self._band[-1][1]:
-            other = self._band[-1]
-        if other == self.current:
-            return high_c
-        if other is not None and other[0] == other[1]:
-            return raw
-        anchor = raw if other is None else other[0]
-        return max(high for _, high in self._band if high < anchor)
+            return None
+        below = raw < low_c
+        for low, high in self._band:
+            if (low, high) == self.current or low == high or not low <= raw <= high:
+                continue
+            margin = min(self.margin, high - low)
+            if (below and raw <= high - margin) or (not below and raw >= low + margin):
+                return (low, high)
+        points = [
+            (low, high)
+            for low, high in self._band
+            if low == high
+            and ((below and raw <= low < low_c) or (not below and raw >= low > high_c))
+        ]
+        if not points:
+            return None
+        return min(points, key=lambda point: abs(point[0] - raw))

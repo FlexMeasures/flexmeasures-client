@@ -356,25 +356,36 @@ def test_the_default_policy_holds_the_plan_mode_for_the_slot():
     policy = ModePolicy()
     policy.start_slot(2.0, THREE_MODES)
     assert policy.current == (1.4, 7.4)
-    # In the holes and beyond: the edge on the charging side, as the pure function gives.
+    # Every raw value outside the charging mode, in a hole, on idle or beyond the band, clips to the mode's nearer edge.
     assert _feed(policy, [0.8, 0.6, -0.5, 0.0, 3.0, 9.0]) == [
         1.4,
         1.4,
-        0.0,
-        0.0,
+        1.4,
+        1.4,
         3.0,
         7.4,
     ]
-    # Inside the discharging mode, however long: back to the edge on this side of it, idle.
-    assert _feed(policy, [-2.0] * 600 + [-10.0], start=6) == [0.0] * 601
+    # Inside the discharging mode, however long: still the charging mode's edge.
+    assert _feed(policy, [-2.0] * 600 + [-10.0], start=6) == [1.4] * 601
     assert policy.current == (1.4, 7.4) and policy.switches == 0
+
+
+def test_while_holding_a_raw_value_inside_another_range_clips_to_the_current_edge():
+    policy = ModePolicy(dwell=timedelta(hours=1))
+    policy.start_slot(2.0, THREE_MODES)
+    assert _feed(policy, [-2.0, -10.0, 0.0, 0.5]) == [1.4, 1.4, 1.4, 1.4]
+    policy.start_slot(-3.0, THREE_MODES)
+    assert _feed(policy, [2.0, 10.0, 0.0, -0.5], start=4) == [-1.4, -1.4, -1.4, -1.4]
+    policy.start_slot(0.0, THREE_MODES)
+    assert _feed(policy, [2.0, -2.0, 0.7], start=8) == [0.0, 0.0, 0.0]
+    assert policy.switches == 0
 
 
 def test_a_short_excursion_into_another_mode_does_not_switch():
     policy = ModePolicy(dwell=timedelta(seconds=5))
     policy.start_slot(2.0, THREE_MODES)
-    assert _feed(policy, [-2.0, 2.0, 2.0]) == [0.0, 2.0, 2.0]
-    assert _feed(policy, [-2.0] * 4 + [2.0], start=3) == [0.0] * 4 + [2.0]
+    assert _feed(policy, [-2.0, 2.0, 2.0]) == [1.4, 2.0, 2.0]
+    assert _feed(policy, [-2.0] * 4 + [2.0], start=3) == [1.4] * 4 + [2.0]
     assert policy.current == (1.4, 7.4) and policy.switches == 0
 
 
@@ -382,10 +393,10 @@ def test_a_lasting_excursion_switches_after_the_dwell_and_back_the_same_way():
     policy = ModePolicy(dwell=timedelta(seconds=5))
     policy.start_slot(2.0, THREE_MODES)
     # Five seconds after the first sample inside the discharging mode, the policy switches.
-    assert _feed(policy, [-2.0] * 7) == [0.0] * 5 + [-2.0, -2.0]
+    assert _feed(policy, [-2.0] * 7) == [1.4] * 5 + [-2.0, -2.0]
     assert policy.current == (-7.4, -1.4) and policy.switches == 1
-    # The plan's mode is now the other mode: a raw value in it is held at idle until the dwell has passed again.
-    assert _feed(policy, [2.0] * 7, start=7) == [0.0] * 5 + [2.0, 2.0]
+    # The plan's mode is now the other mode: a raw value in it is held at this mode's edge until the dwell has passed again.
+    assert _feed(policy, [2.0] * 7, start=7) == [-1.4] * 5 + [2.0, 2.0]
     assert policy.current == (1.4, 7.4) and policy.switches == 2
     # A new slot starts in the plan's mode again, candidate forgotten.
     policy.start_slot(-3.0, THREE_MODES)
@@ -393,22 +404,56 @@ def test_a_lasting_excursion_switches_after_the_dwell_and_back_the_same_way():
 
 
 def test_the_margin_keeps_a_value_just_inside_another_mode_from_counting():
+    two_modes = [(-7.4, -1.4), (1.4, 7.4)]
     policy = ModePolicy(dwell=timedelta(seconds=2), margin=0.2)
-    policy.start_slot(2.0, THREE_MODES)
+    policy.start_slot(2.0, two_modes)
     # -1.5 is 0.1 past the hole into the discharging mode: not enough.
-    assert _feed(policy, [-1.5] * 5) == [0.0] * 5
+    assert _feed(policy, [-1.5] * 5) == [1.4] * 5
     assert policy.switches == 0
     # -1.7 is 0.3 past the hole: enough, and the dwell runs from the first qualifying sample.
-    assert _feed(policy, [-1.7] * 4, start=5) == [0.0, 0.0, -1.7, -1.7]
+    assert _feed(policy, [-1.7] * 4, start=5) == [1.4, 1.4, -1.7, -1.7]
     assert policy.switches == 1
+    # With idle in between, the same -1.5 counts for idle, which has no margin to be past.
+    policy = ModePolicy(dwell=timedelta(seconds=2), margin=0.2)
+    policy.start_slot(2.0, THREE_MODES)
+    assert _feed(policy, [-1.5] * 5) == [1.4, 1.4, 0.0, 0.0, 0.0]
+    assert policy.current == (0.0, 0.0) and policy.switches == 1
 
 
-def test_idle_is_reached_without_a_switch_and_never_switched_into():
+def test_idle_is_reached_only_through_a_switch_and_never_with_the_default_policy():
+    policy = ModePolicy()
+    policy.start_slot(2.0, THREE_MODES)
+    assert _feed(policy, [0.0] * 10 + [-0.5]) == [1.4] * 11
+    assert policy.switches == 0
     policy = ModePolicy(dwell=timedelta(seconds=1))
     policy.start_slot(2.0, THREE_MODES)
-    assert _feed(policy, [0.0] * 10) == [0.0] * 10
-    assert policy.current == (1.4, 7.4) and policy.switches == 0
-    assert _feed(policy, [3.0], start=10) == [3.0]
+    assert _feed(policy, [0.0] * 3) == [1.4, 0.0, 0.0]
+    assert policy.current == (0.0, 0.0) and policy.switches == 1
+    # Back out of idle takes the dwell too.
+    assert _feed(policy, [3.0] * 3, start=3) == [0.0, 3.0, 3.0]
+    assert policy.current == (1.4, 7.4) and policy.switches == 2
+
+
+def test_a_raw_value_inside_the_current_mode_asks_for_nothing():
+    policy = ModePolicy(dwell=timedelta(seconds=1))
+    policy.start_slot(-3.0, THREE_MODES)
+    assert _feed(policy, [1.9] * 3) == [-1.4, 1.9, 1.9]
+    assert policy.current == (1.4, 7.4) and policy.switches == 1
+    # Charging now, with idle on the far side of the hole below: a raw value inside charging never counts for idle.
+    assert _feed(policy, [1.9] * 100, start=3) == [1.9] * 100
+    assert policy.current == (1.4, 7.4) and policy.switches == 1
+
+
+def test_a_raw_value_beyond_idle_counts_for_idle_unless_a_wider_mode_takes_it():
+    policy = ModePolicy(dwell=timedelta(seconds=1))
+    policy.start_slot(2.0, THREE_MODES)
+    # In the hole beyond idle: idle it is.
+    assert _feed(policy, [-0.5] * 3) == [1.4, 0.0, 0.0]
+    assert policy.current == (0.0, 0.0)
+    policy.start_slot(2.0, THREE_MODES)
+    # Inside the discharging mode: that mode, not idle.
+    assert _feed(policy, [-2.0] * 3, start=3) == [1.4, -2.0, -2.0]
+    assert policy.current == (-7.4, -1.4)
 
 
 def test_the_policy_without_a_band_or_a_plan_in_the_band_falls_back():

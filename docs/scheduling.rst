@@ -336,10 +336,13 @@ Which mode the device is in is state, and switching modes is the slow, wearing t
 so :class:`flexmeasures_client.reaction.ModePolicy` keeps that state next to the pure function.
 ``start_slot(p, band)`` puts the device in the mode that contains the plan; ``observe(when, raw)`` takes the rule's continuous answer
 (``p - react * residual``) and returns the setpoint, rounded relative to the current mode.
-By default the policy never switches within a slot: it holds the plan's mode, and a raw value inside another mode is rounded back
-to the nearest edge on this side of it (idle, for a charger asked to discharge while its plan charges).
+By default the policy never switches within a slot: it holds the plan's mode, and every raw value outside that mode,
+in a hole, inside another mode or beyond the band, is clipped to the mode's nearer edge (1.4 kW for a charging car asked to idle or to discharge).
+Crossing to idle is a mode change like any other, and happens only through a switch.
 With a ``dwell``, the policy switches once the raw value has lain inside another mode, at least ``margin`` past the hole, for that long;
-switching back obeys the same dwell and margin. Idle is an edge of the holes on both of its sides, reached without a switch.
+switching back obeys the same dwell and margin.
+A raw value counts as inside idle when it lies on idle or beyond it, seen from the current mode, and the margin does not apply to idle,
+since there is nothing to be past; so when a cloud lasts, a charging car goes idle after the dwell.
 A lasting surprise the policy will not follow leaves a residual the device does not absorb;
 that is what the exit gate below is for, which the policy leaves unchanged.
 Deadbands on commands and the device's own settle time are left to the device drivers in the controller.
