@@ -1,14 +1,15 @@
 """Reaction rules served with a schedule, the pure functions that evaluate them, and the controller-side helpers.
 
 FlexMeasures can serve, next to a schedule's ``values``, a ``reaction`` array with one rule per slot:
-a ``reference`` (the uncontrolled power the plan assumed), a ``react`` share in [0, 1] and a ``band`` (a list of ranges),
+a ``reference`` (the uncontrolled power the plan is balanced against), a ``react`` share in [0, 1] and a ``band`` (a list of ranges),
 all in the schedule's unit (see FlexMeasures/flexmeasures#2894 and FlexMeasures/flexmeasures-client#297).
 A home controller evaluates the rule locally at meter speed:
 
     setpoint = clip(p - react * residual, band)
 
-where ``p`` is the slot's schedule value and ``residual`` is the surprise handed to this device,
-the surprise being what the meter shows beyond the plan: ``(meter − Σ device power) − reference``.
+where ``p`` is the slot's schedule value and ``residual`` is the deviation handed to this device:
+what the uncontrolled part of the meter shows against the reference, ``(meter − Σ device power) − reference``,
+the deviation from the balance point the plan rests on.
 Signs are those of the schedule values: consumption positive, so import at the connection is positive.
 
 The rule functions (:func:`parse_reaction`, :func:`react`, :func:`clip_to_band`, :func:`residuals`) are pure: no timers, no state, no I/O.
@@ -56,7 +57,8 @@ class InvalidReactionError(ValueError):
 class ReactionRule:
     """The reaction rule for one device and one schedule slot.
 
-    :param reference: The uncontrolled power the plan assumed for the slot, in the schedule's unit.
+    :param reference: The uncontrolled power the plan is balanced against, in the schedule's unit:
+                      usually the forecast, and where the operation modes make the plan miss the kink, the balance point.
     :param react:     The share of the residual the device absorbs, in [0, 1]: 0 follows the plan, 1 absorbs it one to one.
                       The server serves 0 or 1 for now; intermediate shares are reserved for a later version.
     :param band:      The ranges within which deviating keeps the device's own constraints satisfiable,
@@ -343,8 +345,8 @@ def react(
 
     :param rule:     The slot's reaction rule.
     :param p:        The slot's schedule value, in the rule's unit.
-    :param residual: The surprise handed to this device, in the rule's unit; see :func:`residuals`.
-                     With one reacting device, it is the surprise itself: ``(meter − Σ device power) − reference``.
+    :param residual: The deviation handed to this device, in the rule's unit; see :func:`residuals`.
+                     With one reacting device, it is the deviation from the balance point itself: ``(meter − Σ device power) − reference``.
     :param current:  The range the device is in now, by default the one containing ``p``.
     :returns:        The setpoint, in the rule's unit.
     """
@@ -356,7 +358,7 @@ def react(
 
 
 def residuals(
-    surprise: float,
+    deviation: float,
     chain: Sequence[Device],
     plans: Mapping[Device, float],
     realized: Mapping[Device, float],
@@ -364,30 +366,30 @@ def residuals(
     """Walk the devices in the order in which they react, and return the residual each device in the chain is given.
 
     Devices react in series.
-    The residual for device ``i`` is the surprise plus every deviation from plan the chain did not cause,
-    plus the deviations of the devices before ``i`` in the chain:
+    The residual for device ``i`` is the deviation at the meter plus every departure from plan the chain did not cause,
+    plus the departures of the devices before ``i`` in the chain:
 
         r_i = Δ + Σ_{j outside the chain}(d_j − p_j) + Σ_{j before i}(d_j − p_j)
 
     The chain is the devices with a nonzero react share for the slot, in the order in which they react;
     pass only those, as a device with react 0 sits outside the chain for the slot.
 
-    :param surprise: Δ, the surprise on the uncontrolled part of the meter: ``(m − Σ d) − reference``.
+    :param deviation: Δ, the deviation of the uncontrolled part of the meter from the reference: ``(m − Σ d) − reference``.
     :param chain:    The devices that react, in order.
     :param plans:    The plan value per controlled device, chain or not.
     :param realized: The realized power per controlled device, chain or not.
     :returns:        The residual per device in the chain, in the chain's order.
     :raises KeyError: When a device in the chain or in ``plans`` lacks a plan or a realized power.
     """
-    deviations = {device: realized[device] - plan for device, plan in plans.items()}
+    departures = {device: realized[device] - plan for device, plan in plans.items()}
     outside = sum(
-        deviation for device, deviation in deviations.items() if device not in chain
+        departure for device, departure in departures.items() if device not in chain
     )
     result: dict[Device, float] = {}
     before = 0.0
     for device in chain:
-        result[device] = surprise + outside + before
-        before += deviations[device]
+        result[device] = deviation + outside + before
+        before += departures[device]
     return result
 
 
@@ -497,15 +499,15 @@ class ExitGate:
 
 @dataclass
 class Smoother:
-    """Smooths a per-sample series, such as the surprise, over a short rolling window.
+    """Smooths a per-sample series, such as the deviation at the meter, over a short rolling window.
 
     A meter samples once a second and a charger is polled every few seconds, so the instantaneous
-    surprise carries their misalignment during a ramp, and a one-second spike (a kettle's inrush,
+    deviation carries their misalignment during a ramp, and a one-second spike (a kettle's inrush,
     a switching transient) would move the setpoint for one sample and back. Two stages remove both:
     a median over the last ``median_samples`` kills spikes, and a mean over ``window`` seconds of
     those medians takes out the jitter. The price is lag of about half the window.
 
-    Smooth the surprise, computed per sample against the slot's reference, and feed the smoothed
+    Smooth the deviation, computed per sample against the slot's reference, and feed the smoothed
     residual to the :class:`ExitGate`. Do not smooth what is about timing rather than noise:
     a fuse guard must act within one sample, and the hand-over between commanded and realized
     device power must not be delayed.
@@ -570,7 +572,7 @@ class ModePolicy:
     seen from the current mode, and the margin does not apply to it, since there is nothing to be past;
     a raw value that also lies inside a wider mode past the margin counts for that wider mode.
 
-    A lasting surprise the policy will not follow leaves a residual that the device does not absorb;
+    A lasting deviation the policy will not follow leaves a residual that the device does not absorb;
     that is what the :class:`ExitGate` is for, which is unchanged by this policy.
 
     :param dwell:  How long the raw value must lie in another mode before the policy switches to it; ``None`` never switches.

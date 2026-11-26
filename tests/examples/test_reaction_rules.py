@@ -73,7 +73,7 @@ def served_schedule(with_rules: bool) -> dict:
 
 def write_csv(path: Path, rows: list[tuple[datetime, float]]) -> Path:
     path.write_text(
-        "time,surprise\n"
+        "time,deviation\n"
         + "".join(f"{when.isoformat()},{value}\n" for when, value in rows)
     )
     return path
@@ -118,7 +118,7 @@ async def test_example_opts_in_and_walks_the_rules(capsys):
     assert "8 slots" in out
     slot_table = out.split("\n\n")[0]
     assert sum(line.startswith("2026-11-30T") for line in slot_table.splitlines()) == 8
-    assert "absorb the surprise" in out
+    assert "absorb the deviation" in out
     assert "Samples: 7200 walked, 0 outside the schedule skipped." in out
     assert "mode switches: 0," in out
 
@@ -140,12 +140,12 @@ def test_defaults_give_the_same_walk_as_the_per_slot_evaluation():
     expected = [
         react(rule, p, surprise)
         for p, rule, surprise in zip(
-            schedule.values, schedule.rules, example.scripted_surprise(len(schedule))
+            schedule.values, schedule.rules, example.scripted_deviation(len(schedule))
         )
     ]
     assert result.slot_setpoint == pytest.approx(expected)
-    assert result.slot_surprise == pytest.approx(
-        example.scripted_surprise(len(schedule))
+    assert result.slot_deviation == pytest.approx(
+        example.scripted_deviation(len(schedule))
     )
     assert result.problems == []
     assert result.samples == 7200 and result.skipped == 0
@@ -165,9 +165,16 @@ def test_the_knobs_default_to_the_classes_defaults():
 async def test_a_recorded_series_gives_the_expected_exits_and_retriggers(
     tmp_path, capsys
 ):
-    path = write_csv(tmp_path / "surprise.csv", recorded_series())
+    # The older names still work: a surprise column, read through --surprise-csv.
+    path = tmp_path / "surprise.csv"
+    path.write_text(
+        "time,surprise\n"
+        + "".join(f"{when.isoformat()},{value}\n" for when, value in recorded_series())
+    )
     client = StandInClient(served_schedule(with_rules=True))
-    args = example.parse_args(ARGS + ["--surprise-csv", str(path)])
+    args = example.parse_args(
+        ARGS + ["--surprise-csv", str(path), "--surprise-unit", "kW"]
+    )
     assert await example.run(client, args) == 0
     out = capsys.readouterr().out
     assert "Replaying 180 recorded samples" in out
@@ -246,7 +253,7 @@ async def test_samples_outside_the_schedule_are_skipped_and_counted(tmp_path, ca
     client = StandInClient(served_schedule(with_rules=True))
     assert (
         await example.run(
-            client, example.parse_args(ARGS + ["--surprise-csv", str(path)])
+            client, example.parse_args(ARGS + ["--deviation-csv", str(path)])
         )
         == 0
     )
@@ -259,11 +266,11 @@ async def test_samples_outside_the_schedule_are_skipped_and_counted(tmp_path, ca
 @pytest.mark.asyncio
 async def test_a_recording_without_offsets_is_refused(tmp_path, capsys):
     path = tmp_path / "naive.csv"
-    path.write_text("time,surprise\n2026-11-30T00:00:00,1.0\n")
+    path.write_text("time,deviation\n2026-11-30T00:00:00,1.0\n")
     client = StandInClient(served_schedule(with_rules=True))
     assert (
         await example.run(
-            client, example.parse_args(ARGS + ["--surprise-csv", str(path)])
+            client, example.parse_args(ARGS + ["--deviation-csv", str(path)])
         )
         == 1
     )
@@ -315,12 +322,12 @@ async def test_example_main_closes_the_client(monkeypatch):
     }
 
 
-def test_scripted_surprise_has_a_cooking_step_and_a_sunny_spell():
-    surprise = example.scripted_surprise(100)
-    assert len(surprise) == 100
-    assert surprise[35] > 1.0
-    assert surprise[55] < -1.0
-    assert abs(surprise[0]) < 0.2
+def test_scripted_deviation_has_a_cooking_step_and_a_sunny_spell():
+    deviation = example.scripted_deviation(100)
+    assert len(deviation) == 100
+    assert deviation[35] > 1.0
+    assert deviation[55] < -1.0
+    assert abs(deviation[0]) < 0.2
 
 
 def excursion_into_charging() -> list[tuple[datetime, float]]:

@@ -3,16 +3,17 @@
 The script opts in to reaction rules with ``react: true`` on the device's flex-model,
 fetches the schedule, parses its ``reaction`` array and walks the day sample by sample,
 the way a home controller's loop does, with the real pieces of ``flexmeasures_client.reaction``:
-the surprise at the meter goes through the :class:`Smoother`, the rule gives the setpoint,
+the deviation at the meter (what its uncontrolled part shows against the reference) goes through the :class:`Smoother`, the rule gives the setpoint,
 rounded to the device's operation modes by the :class:`ModePolicy` (which holds the plan's mode unless ``--mode-dwell`` lets it switch),
 what the device could not absorb is the residual, and the :class:`ExitGate` says when a retrigger is due.
 A retrigger in this probe only marks the moment: no new schedule is requested,
 and after ``--turnaround`` seconds the gate is told that the plan arrived and the same rules continue.
 See FlexMeasures/flexmeasures-client#297 for the contract.
 
-The surprise is scripted by default (a cooking step, a sunny spell and a wobble, one sample per ``--sample`` seconds),
-or replayed from a recording with ``--surprise-csv``: a CSV with a header and two columns,
-``time`` (ISO 8601 with an offset) and ``surprise`` (in ``--surprise-unit``), walked in time order.
+The deviation is scripted by default (a cooking step, a sunny spell and a wobble, one sample per ``--sample`` seconds),
+or replayed from a recording with ``--deviation-csv``: a CSV with a header and two columns,
+``time`` (ISO 8601 with an offset) and ``deviation`` (in ``--deviation-unit``), walked in time order.
+``--surprise-csv``, ``--surprise-unit`` and a ``surprise`` column are accepted as the older names.
 The loop's knobs are options, with the defaults of the classes.
 
 It prints the setpoint per slot, every band exit with the energy past the band, and a summary,
@@ -27,7 +28,7 @@ Usage::
     python examples/reaction_rules.py --host localhost:5000 --no-ssl \\
         --email user@example.com --password secret \\
         --sensor 8 --price-sensor 7 \\
-        --surprise-csv surprise.csv --window 5 --median 3 --dwell 21 --min-energy 0.1
+        --deviation-csv deviation.csv --window 5 --median 3 --dwell 21 --min-energy 0.1
 
 Every connection option can be given through the environment instead, as ``FLEXMEASURES_HOST``, ``FLEXMEASURES_EMAIL``,
 ``FLEXMEASURES_PASSWORD``, ``FLEXMEASURES_SENSOR`` and ``FLEXMEASURES_PRICE_SENSOR``.
@@ -73,7 +74,7 @@ DEFAULT_SAMPLE_S = 1.0
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Read the connection, the sensors, the scheduling window, the surprise and the loop's knobs."""
+    """Read the connection, the sensors, the scheduling window, the deviation and the loop's knobs."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     env = os.environ.get
     parser.add_argument("--host", default=env("FLEXMEASURES_HOST", "localhost:5000"))
@@ -106,23 +107,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--soc-min", type=float, default=10.0)
     parser.add_argument("--soc-max", type=float, default=60.0)
 
-    surprise = parser.add_argument_group("the surprise")
-    surprise.add_argument(
+    deviation = parser.add_argument_group("the deviation at the meter")
+    deviation.add_argument(
+        "--deviation-csv",
         "--surprise-csv",
+        dest="deviation_csv",
         type=Path,
         default=None,
-        help="replay a recorded surprise: a CSV with a header and the columns time (ISO 8601 with offset) and surprise",
+        help="replay a recorded deviation: a CSV with a header and the columns time (ISO 8601 with offset) and deviation (or surprise)",
     )
-    surprise.add_argument(
+    deviation.add_argument(
+        "--deviation-unit",
         "--surprise-unit",
+        dest="deviation_unit",
         default="kW",
-        help="the unit of the recorded surprise, converted to the schedule's unit (default: kW)",
+        help="the unit of the recorded deviation, converted to the schedule's unit (default: kW)",
     )
-    surprise.add_argument(
+    deviation.add_argument(
         "--sample",
         type=float,
         default=DEFAULT_SAMPLE_S,
-        help=f"seconds between the samples of the scripted surprise (default: {DEFAULT_SAMPLE_S:g})",
+        help=f"seconds between the samples of the scripted deviation (default: {DEFAULT_SAMPLE_S:g})",
     )
 
     knobs = parser.add_argument_group("the loop's knobs")
@@ -210,13 +215,13 @@ def flex_fields(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any
     return flex_model, flex_context
 
 
-def scripted_surprise(slots: int, amplitude: float = 1.0) -> list[float]:
-    """Return a surprise on the uncontrolled part of the meter per slot, in the schedule's unit.
+def scripted_deviation(slots: int, amplitude: float = 1.0) -> list[float]:
+    """Return a deviation of the uncontrolled part of the meter from the reference per slot, in the schedule's unit.
 
     The household behaves as forecast at first, then someone cooks (more import than forecast),
     then the sun comes out (less import than forecast), with a small wobble throughout.
     """
-    surprise = []
+    deviation = []
     for index in range(slots):
         fraction = index / max(slots, 1)
         value = 0.1 * amplitude * math.sin(2 * math.pi * 4 * fraction)
@@ -224,15 +229,15 @@ def scripted_surprise(slots: int, amplitude: float = 1.0) -> list[float]:
             value += 1.5 * amplitude
         if 0.5 <= fraction < 0.65:
             value -= 2.0 * amplitude
-        surprise.append(value)
-    return surprise
+        deviation.append(value)
+    return deviation
 
 
 def scripted_samples(
     schedule: ReactionSchedule, sample_seconds: float
 ) -> Iterator[tuple[datetime, float]]:
-    """Yield the scripted surprise once per sample over the schedule, constant within a slot."""
-    per_slot = scripted_surprise(len(schedule))
+    """Yield the scripted deviation once per sample over the schedule, constant within a slot."""
+    per_slot = scripted_deviation(len(schedule))
     step = timedelta(seconds=sample_seconds)
     when = schedule.start
     while when < schedule.end:
@@ -241,35 +246,37 @@ def scripted_samples(
 
 
 def samples_from_csv(
-    path: Path, surprise_unit: str, schedule_unit: str
+    path: Path, deviation_unit: str, schedule_unit: str
 ) -> list[tuple[datetime, float]]:
-    """Read a recorded surprise series and return it in the schedule's unit, in time order.
+    """Read a recorded deviation series and return it in the schedule's unit, in time order.
+
+    The value column is ``deviation``, or ``surprise`` as the older name.
 
     :raises ValueError: When the file lacks the columns, a time has no offset, or a value is not a number.
     """
     samples = []
     with path.open(newline="") as file:
         reader = csv.DictReader(file)
-        if reader.fieldnames is None or not {"time", "surprise"} <= set(
-            reader.fieldnames
-        ):
+        columns = set(reader.fieldnames or ())
+        column = "deviation" if "deviation" in columns else "surprise"
+        if "time" not in columns or column not in columns:
             raise ValueError(
-                f"{path} needs a header with the columns time and surprise, got {reader.fieldnames}."
+                f"{path} needs a header with the columns time and deviation, got {reader.fieldnames}."
             )
         for number, row in enumerate(reader, start=2):
             when = pd.Timestamp(row["time"]).to_pydatetime()
             if when.tzinfo is None:
                 raise ValueError(f"{path} line {number}: the time needs an offset.")
             try:
-                value = float(row["surprise"])
+                value = float(row[column])
             except ValueError as error:
                 raise ValueError(
-                    f"{path} line {number}: surprise {row['surprise']!r} is not a number."
+                    f"{path} line {number}: {column} {row[column]!r} is not a number."
                 ) from error
             samples.append((when, value))
     samples.sort(key=lambda sample: sample[0])
     values = convert_units(
-        [value for _, value in samples], surprise_unit, schedule_unit
+        [value for _, value in samples], deviation_unit, schedule_unit
     )
     return [(when, value) for (when, _), value in zip(samples, values)]
 
@@ -315,7 +322,7 @@ class Exit:
 class Walk:
     """What the walk through the samples found."""
 
-    slot_surprise: list[float | None]
+    slot_deviation: list[float | None]
     slot_setpoint: list[float | None]
     exits: list[Exit] = field(default_factory=list)
     retriggers: list[datetime] = field(default_factory=list)
@@ -332,19 +339,19 @@ def walk(
 ) -> Walk:
     """Walk the samples through the smoother, the rule and the gate; keep the per-slot and per-exit results.
 
-    With one reacting device, the residual is the surprise plus what the setpoint moved away from the plan.
+    With one reacting device, the residual is the deviation plus what the setpoint moved away from the plan.
     The mode policy starts every slot in the mode that contains the plan and rounds the rule's answer relative to it.
     A retrigger only marks the moment and tells the gate a request went out;
     after the turnaround the gate is told the plan arrived, and the same rules continue.
     """
     assert schedule.rules is not None
     result = Walk(
-        slot_surprise=[None] * len(schedule), slot_setpoint=[None] * len(schedule)
+        slot_deviation=[None] * len(schedule), slot_setpoint=[None] * len(schedule)
     )
     for index, (p, rule) in enumerate(zip(schedule.values, schedule.rules)):
         if react(rule, p, 0.0) != p:
             result.problems.append(
-                f"slot {index}: a zero surprise does not return the plan"
+                f"slot {index}: a zero deviation does not return the plan"
             )
         if rule.react != 0 and rule.band and not rule.contains(p):
             result.problems.append(
@@ -383,16 +390,16 @@ def walk(
         if index != slot_index:
             policy.start_slot(p, rule.band)
             slot_index = index
-        surprise = smoother.update(when, raw)
+        deviation = smoother.update(when, raw)
         setpoint = (
-            p if rule.react == 0 else policy.observe(when, p - rule.react * surprise)
+            p if rule.react == 0 else policy.observe(when, p - rule.react * deviation)
         )
         if rule.band and not rule.contains(setpoint) and index not in outside_reported:
             outside_reported.add(index)
             result.problems.append(
                 f"slot {index}: setpoint {setpoint} is outside the band"
             )
-        residual = surprise + (setpoint - p)
+        residual = deviation + (setpoint - p)
         outside = abs(residual) > knobs.tolerance
         if outside:
             if current is None:
@@ -411,7 +418,7 @@ def walk(
             if current is not None:
                 current.retrigger_at = when
             plan_due = when + timedelta(seconds=knobs.turnaround)
-        result.slot_surprise[index] = surprise
+        result.slot_deviation[index] = deviation
         result.slot_setpoint[index] = setpoint
         last_seen = when
     result.mode_switches = policy.switches
@@ -423,17 +430,17 @@ def _number(value: float | None, width: int, digits: int = 3) -> str:
 
 
 def print_slots(schedule: ReactionSchedule, result: Walk) -> None:
-    """Print the plan, the rule and the last sample's surprise and setpoint per slot."""
+    """Print the plan, the rule and the last sample's deviation and setpoint per slot."""
     assert schedule.rules is not None
     print(
-        f"{'slot start':<25} {'plan':>8} {'reference':>10} {'react':>5} {'surprise':>9} {'setpoint':>9}  band [{schedule.unit}]"
+        f"{'slot start':<25} {'plan':>8} {'reference':>10} {'react':>5} {'deviation':>9} {'setpoint':>9}  band [{schedule.unit}]"
     )
     for index, (slot_start, p, rule) in enumerate(schedule):
         assert rule is not None
         band = ", ".join(f"[{low:g}, {high:g}]" for low, high in rule.band)
         print(
             f"{slot_start.isoformat():<25} {p:>8.3f} {rule.reference:>10.3f} {rule.react:>5.2g}"
-            f" {_number(result.slot_surprise[index], 9)} {_number(result.slot_setpoint[index], 9)}  {band}"
+            f" {_number(result.slot_deviation[index], 9)} {_number(result.slot_setpoint[index], 9)}  {band}"
         )
 
 
@@ -500,15 +507,15 @@ async def run(client: FlexMeasuresClient, args: argparse.Namespace) -> int:
         )
         return NO_RULES
     samples: Iterable[tuple[datetime, float]]
-    if args.surprise_csv is not None:
+    if args.deviation_csv is not None:
         try:
             samples = samples_from_csv(
-                args.surprise_csv, args.surprise_unit, schedule.unit
+                args.deviation_csv, args.deviation_unit, schedule.unit
             )
         except (OSError, ValueError, NotImplementedError) as error:
-            print(f"The recorded surprise could not be read: {error}", file=sys.stderr)
+            print(f"The recorded deviation could not be read: {error}", file=sys.stderr)
             return 1
-        print(f"Replaying {len(samples)} recorded samples from {args.surprise_csv}.")
+        print(f"Replaying {len(samples)} recorded samples from {args.deviation_csv}.")
     else:
         samples = scripted_samples(schedule, args.sample)
     knobs = Knobs.from_args(args)
@@ -520,7 +527,7 @@ async def run(client: FlexMeasuresClient, args: argparse.Namespace) -> int:
         return 1
     reacting = sum(1 for rule in schedule.rules if rule.react != 0)
     print(
-        f"All setpoints respect the rules; {reacting} of {len(schedule)} slots absorb the surprise."
+        f"All setpoints respect the rules; {reacting} of {len(schedule)} slots absorb the deviation."
     )
     return 0
 

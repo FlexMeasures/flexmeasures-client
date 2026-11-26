@@ -339,7 +339,7 @@ def test_residuals_walk_the_chain():
     assert result["pv"] == pytest.approx(surprise + outside + 0.5 + 0.0)
 
 
-def test_residuals_without_deviations_equal_the_surprise():
+def test_residuals_without_departures_equal_the_deviation():
     plans = {"a": 1.0, "b": 2.0}
     assert residuals(0.3, ["a", "b"], plans, dict(plans)) == {"a": 0.3, "b": 0.3}
     assert residuals(0.3, [], plans, dict(plans)) == {}
