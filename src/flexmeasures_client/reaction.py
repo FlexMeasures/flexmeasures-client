@@ -1,4 +1,4 @@
-"""Reaction rules served with a schedule, and the pure function that evaluates them.
+"""Reaction rules served with a schedule, the pure functions that evaluate them, and the controller-side helpers.
 
 FlexMeasures can serve, next to a schedule's ``values``, a ``reaction`` array with one rule per slot:
 a ``reference`` (the uncontrolled power the plan assumed), a ``react`` share in [0, 1] and a ``band`` (a list of ranges),
@@ -11,8 +11,11 @@ where ``p`` is the slot's schedule value and ``residual`` is the surprise handed
 the surprise being what the meter shows beyond the plan: ``(meter − Σ device power) − reference``.
 Signs are those of the schedule values: consumption positive, so import at the connection is positive.
 
-Everything here is pure: no timers, no state, no I/O.
-Rounding with hysteresis, deadbands on commands and dwell times belong to the device drivers in the controller.
+The rule functions (:func:`parse_reaction`, :func:`react`, :func:`clip_to_band`, :func:`residuals`) are pure: no timers, no state, no I/O.
+Three helpers hold the little state a live controller needs between samples, and nothing more:
+:class:`ExitGate` the current excursion outside the band, :class:`Smoother` the window of recent samples,
+and :class:`ModePolicy` the operation mode the device is in. None of them does I/O.
+Deadbands on commands and the devices' own settle times belong to the device drivers in the controller.
 """
 
 from __future__ import annotations

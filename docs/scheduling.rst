@@ -275,7 +275,10 @@ A single reacting device
 
 With one reacting device, the surprise is what the meter shows beyond the plan:
 the net power at the connection, minus the device's realized power, minus the reference.
-``flexmeasures_client.reaction`` parses the rules and evaluates them, with no state and no I/O:
+``flexmeasures_client.reaction`` parses the rules and evaluates them with pure functions, with no state and no I/O.
+Next to them it offers three controller-side helpers that hold the little state a live loop needs between samples,
+``ExitGate`` (the current excursion outside the band), ``Smoother`` (the window of recent samples) and ``ModePolicy`` (the operation mode the device is in),
+which the sections below introduce in turn:
 
 .. code-block:: python
 
