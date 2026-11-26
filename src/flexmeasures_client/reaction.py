@@ -168,9 +168,14 @@ class ReactionSchedule:
 def parse_reaction(schedule: Mapping) -> list[ReactionRule] | None:
     """Parse the ``reaction`` array of a schedule dictionary into one rule per slot.
 
+    Every plan value must lie in its own band, within half a watt (a planner rounds its output),
+    since the rule rests on the plan being feasible; an array where one does not is refused as a whole.
+    A slot with an empty band has no band to lie in and is not checked.
+
     :param schedule: The dictionary that ``get_schedule`` returns, with ``values`` and possibly ``reaction``.
     :returns:        One rule per value, or ``None`` when the schedule carries no ``reaction``.
-    :raises InvalidReactionError: When ``reaction`` is not a list with exactly one valid entry per value.
+    :raises InvalidReactionError: When ``reaction`` is not a list with exactly one valid entry per value,
+                                  or when a plan value lies outside its band.
     """
     reaction = schedule.get("reaction")
     if reaction is None:
@@ -186,7 +191,28 @@ def parse_reaction(schedule: Mapping) -> list[ReactionRule] | None:
         raise InvalidReactionError(
             f"The schedule's reaction has {len(reaction)} entries for {len(values)} values; expected one per value."
         )
-    return [_parse_rule(entry, index) for index, entry in enumerate(reaction)]
+    rules = [_parse_rule(entry, index) for index, entry in enumerate(reaction)]
+    tolerance = _plan_tolerance(schedule.get("unit"))
+    for index, (value, rule) in enumerate(zip(values, rules)):
+        if rule.band and not any(
+            low - tolerance <= value <= high + tolerance for low, high in rule.band
+        ):
+            raise InvalidReactionError(
+                f"Reaction entry {index}: the plan value {value} lies outside its band {rule.band}."
+            )
+    return rules
+
+
+PLAN_TOLERANCE_W = 0.5
+"""How far a plan value may lie outside its band and still count as inside, in watts: the planner's rounding."""
+
+
+def _plan_tolerance(unit: object) -> float:
+    """Return the plan tolerance in the schedule's unit, half a watt, or 0.0005 schedule units for a unit that is not a power unit."""
+    per_watt = {"W": 1.0, "kW": 1e-3, "MW": 1e-6}
+    if isinstance(unit, str) and unit in per_watt:
+        return PLAN_TOLERANCE_W * per_watt[unit]
+    return 0.0005
 
 
 def _parse_rule(entry: object, index: int) -> ReactionRule:

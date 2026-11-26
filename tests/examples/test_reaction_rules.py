@@ -290,7 +290,7 @@ async def test_example_fails_when_a_plan_breaks_its_own_band(capsys):
     schedule = served_schedule(with_rules=True)
     schedule["values"][0] = 100.0
     assert await example.run(StandInClient(schedule), example.parse_args(ARGS)) == 1
-    assert "outside its own band" in capsys.readouterr().err
+    assert "lies outside its band" in capsys.readouterr().err
 
 
 @pytest.mark.asyncio

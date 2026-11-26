@@ -88,6 +88,51 @@ def test_parse_reaction_rejects_malformed_entries(reaction, match):
         parse_reaction(make_schedule([1.0], reaction))
 
 
+def test_parse_reaction_refuses_a_plan_outside_its_band():
+    rules = [
+        {"reference": 0.4, "react": 1, "band": [[1.4, 7.4]]},
+        {"reference": 0.4, "react": 1, "band": [[-7.4, -1.4], [0, 0], [1.4, 7.4]]},
+    ]
+    with pytest.raises(
+        InvalidReactionError, match="entry 0: the plan value 0.8 lies outside its band"
+    ):
+        parse_reaction(make_schedule([0.8, 2.0], rules, unit="kW"))
+    with pytest.raises(
+        InvalidReactionError, match="entry 1: the plan value 0.7 lies outside"
+    ):
+        parse_reaction(make_schedule([2.0, 0.7], rules, unit="kW"))
+    # A plan with react 0 must lie in its band too, as the rule rests on the plan being feasible.
+    rules[0]["react"] = 0
+    with pytest.raises(InvalidReactionError, match="entry 0"):
+        parse_reaction(make_schedule([0.8, 2.0], rules, unit="kW"))
+
+
+@pytest.mark.parametrize(
+    ("unit", "just_outside", "too_far"),
+    [
+        ("kW", 0.0004, 0.0006),
+        ("W", 0.4, 0.6),
+        ("MW", 4e-7, 6e-7),
+        ("%", 0.0004, 0.0006),
+    ],
+)
+def test_parse_reaction_allows_half_a_watt_of_rounding(unit, just_outside, too_far):
+    rules = [{"reference": 0.0, "react": 1, "band": [[1.0, 2.0]]}]
+    (rule,) = parse_reaction(make_schedule([1.0 - just_outside], rules, unit=unit))
+    assert rule.band == [(1.0, 2.0)]
+    (rule,) = parse_reaction(make_schedule([2.0 + just_outside], rules, unit=unit))
+    with pytest.raises(InvalidReactionError, match="lies outside its band"):
+        parse_reaction(make_schedule([1.0 - too_far], rules, unit=unit))
+    with pytest.raises(InvalidReactionError, match="lies outside its band"):
+        parse_reaction(make_schedule([2.0 + too_far], rules, unit=unit))
+
+
+def test_parse_reaction_does_not_check_a_plan_against_an_empty_band():
+    rules = [{"reference": 0.4, "react": 0, "band": []}]
+    (rule,) = parse_reaction(make_schedule([123.0], rules))
+    assert rule.band == []
+
+
 def test_reaction_schedule_without_reaction_follows_the_plan():
     schedule = ReactionSchedule.from_schedule(
         make_schedule([1.0, 2.0, 3.0, 4.0], duration="PT1H", sensor=8)
