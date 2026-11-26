@@ -8,6 +8,7 @@ import pytest
 
 from flexmeasures_client.reaction import (
     InvalidReactionError,
+    ModePolicy,
     ReactionRule,
     ReactionSchedule,
     clip_to_band,
@@ -209,19 +210,52 @@ def test_a_value_in_a_hole_is_never_returned():
             assert setpoint == continuous
 
 
-def test_hole_resolves_to_the_nearest_edge():
+def test_hole_resolves_to_the_edge_on_the_side_of_the_current_mode():
     rule = ReactionRule(reference=0.0, react=1, band=MODES_BAND)
-    # 0.003 - 0.0025 = 0.0005, nearer to 0 than to 0.0014.
-    assert react(rule, 0.003, 0.0025) == 0.0
-    # 0.003 - 0.0021 = 0.0009, nearer to 0.0014 than to 0.
-    assert react(rule, 0.003, 0.0021) == 0.0014
+    # p = 0.003 lies in (0.0014, 0.0074): a raw value in the hole below rounds up to 0.0014, nearer to 0 or not.
+    assert react(rule, 0.003, 0.0025) == 0.0014  # raw 0.0005, nearer to 0
+    assert react(rule, 0.003, 0.0021) == 0.0014  # raw 0.0009, nearer to 0.0014
+    # A raw value in the next hole down rounds to that hole's upper edge, idle.
+    assert react(rule, 0.003, 0.0035) == 0.0  # raw -0.0005
     # Past the outermost edges, the outermost edge.
     assert react(rule, 0.003, 0.1) == -0.0074
     assert react(rule, 0.003, -0.1) == 0.0074
+    # From the discharging side the same holes round the other way.
+    assert react(rule, -0.003, -0.0025) == -0.0014  # raw -0.0005
+    assert react(rule, -0.003, -0.0035) == 0.0  # raw 0.0005
 
 
-def test_hole_tie_breaks_towards_the_plan():
+def test_the_documented_operation_modes_examples():
+    band = [(-7.4, -1.4), (0.0, 0.0), (1.4, 7.4)]
+    rule = ReactionRule(reference=-0.4, react=1, band=band)
+    assert rule.react_to(p=2.0, residual=1.2) == 1.4  # raw 0.8
+    assert rule.react_to(p=2.0, residual=1.4) == 1.4  # raw 0.6, no longer 0.0
+    assert (
+        rule.react_to(p=2.0, residual=2.5) == 0.0
+    )  # raw -0.5: the edge of that hole on the charging side
+    assert clip_to_band(0.8, band, current=(0.0, 0.0)) == 0.0
+    assert clip_to_band(-0.5, band, current=(-7.4, -1.4)) == -1.4
+    assert rule.react_to(p=2.0, residual=1.2, current=(0.0, 0.0)) == 0.0
+    # The worked example: idle or 1.4 to 7.4 kW, a forecast surplus of 0.5 kW, a plan of 1.4 kW and a reference of -1.4 kW.
+    rule = ReactionRule(reference=-1.4, react=1, band=[(0.0, 0.0), (1.4, 7.4)])
+    as_forecast = -0.5 - rule.reference
+    assert (
+        rule.react_to(p=1.4, residual=as_forecast) == 1.4
+    )  # raw 0.5, in the hole: stays charging
+    extra_sun = -1.5 - rule.reference
+    assert rule.react_to(p=1.4, residual=extra_sun) == 1.5
+
+
+def test_a_value_inside_another_range_passes_the_pure_function():
+    band = [(-7.4, -1.4), (0.0, 0.0), (1.4, 7.4)]
+    assert clip_to_band(-2.0, band, current=(1.4, 7.4)) == -2.0
+    assert react(ReactionRule(0.0, 1, band), 2.0, 4.0) == -2.0
+
+
+def test_without_a_current_range_the_nearest_edge_wins_and_ties_go_towards_the_plan():
     band = [(0.0, 0.0), (0.0014, 0.0074)]
+    assert clip_to_band(0.0005, band) == 0.0
+    assert clip_to_band(0.0009, band) == 0.0014
     # 0.0007 is equally far from 0 and from 0.0014.
     assert clip_to_band(0.0007, band, towards=0.003) == 0.0014
     assert clip_to_band(0.0007, band, towards=0.0) == 0.0
@@ -229,11 +263,14 @@ def test_hole_tie_breaks_towards_the_plan():
     assert clip_to_band(0.0007, band, towards=0.0007) == 0.0
     assert clip_to_band(0.0, [(-5.0, -1.0), (1.0, 5.0)], towards=2.0) == 1.0
     assert clip_to_band(0.0, [(-5.0, -1.0), (1.0, 5.0)], towards=-2.0) == -1.0
+    # A plan outside every range leaves react() without a current range: the nearest edge, ties towards the plan.
+    assert react(ReactionRule(0.0, 1, band), 0.0009, 0.0) == 0.0014
 
 
 def test_clip_to_band_ignores_range_order():
     band = [(1.4, 7.4), (0.0, 0.0), (-7.4, -1.4)]
     assert clip_to_band(0.0005, band, towards=3.0) == 0.0
+    assert clip_to_band(0.0005, band, current=(1.4, 7.4)) == 1.4
     assert clip_to_band(100.0, band) == 7.4
     assert clip_to_band(3.0, band) == 3.0
 
@@ -281,3 +318,112 @@ def test_convert_reaction_units_moves_reference_and_band_edges():
     # The served entries are left alone.
     assert reaction[0]["reference"] == 0.4
     assert reaction[0]["band"] == [[-7.4, 7.4], [8, 10]]
+
+
+T0 = datetime(2026, 11, 30, 18, 0, tzinfo=timezone.utc)
+THREE_MODES = [(-7.4, -1.4), (0.0, 0.0), (1.4, 7.4)]
+FIXTURE_BANDS = [
+    MODES_BAND,
+    THREE_MODES,
+    [(0.0, 0.0), (1.4, 7.4)],
+    [(1.4, 7.4)],
+    [(0.0, 0.0)],
+    [(-7.4, 7.4)],
+    [(-3.5, -1.4), (0.0, 0.0), (1.4, 7.4)],
+]
+
+
+def _feed(policy: ModePolicy, values: list[float], start: int = 0) -> list[float]:
+    return [
+        policy.observe(T0 + timedelta(seconds=start + i), v)
+        for i, v in enumerate(values)
+    ]
+
+
+@pytest.mark.parametrize("band", FIXTURE_BANDS)
+def test_the_plan_is_the_setpoint_at_zero_residual_in_every_mode(band):
+    rule = ReactionRule(reference=0.4, react=1, band=band)
+    policy = ModePolicy()
+    for low, high in band:
+        for p in (low, (low + high) / 2, high):
+            assert react(rule, p, 0.0) == p
+            assert rule.react_to(p, 0.0) == p
+            policy.start_slot(p, band)
+            assert policy.observe(T0, p) == p
+
+
+def test_the_default_policy_holds_the_plan_mode_for_the_slot():
+    policy = ModePolicy()
+    policy.start_slot(2.0, THREE_MODES)
+    assert policy.current == (1.4, 7.4)
+    # In the holes and beyond: the edge on the charging side, as the pure function gives.
+    assert _feed(policy, [0.8, 0.6, -0.5, 0.0, 3.0, 9.0]) == [
+        1.4,
+        1.4,
+        0.0,
+        0.0,
+        3.0,
+        7.4,
+    ]
+    # Inside the discharging mode, however long: back to the edge on this side of it, idle.
+    assert _feed(policy, [-2.0] * 600 + [-10.0], start=6) == [0.0] * 601
+    assert policy.current == (1.4, 7.4) and policy.switches == 0
+
+
+def test_a_short_excursion_into_another_mode_does_not_switch():
+    policy = ModePolicy(dwell=timedelta(seconds=5))
+    policy.start_slot(2.0, THREE_MODES)
+    assert _feed(policy, [-2.0, 2.0, 2.0]) == [0.0, 2.0, 2.0]
+    assert _feed(policy, [-2.0] * 4 + [2.0], start=3) == [0.0] * 4 + [2.0]
+    assert policy.current == (1.4, 7.4) and policy.switches == 0
+
+
+def test_a_lasting_excursion_switches_after_the_dwell_and_back_the_same_way():
+    policy = ModePolicy(dwell=timedelta(seconds=5))
+    policy.start_slot(2.0, THREE_MODES)
+    # Five seconds after the first sample inside the discharging mode, the policy switches.
+    assert _feed(policy, [-2.0] * 7) == [0.0] * 5 + [-2.0, -2.0]
+    assert policy.current == (-7.4, -1.4) and policy.switches == 1
+    # The plan's mode is now the other mode: a raw value in it is held at idle until the dwell has passed again.
+    assert _feed(policy, [2.0] * 7, start=7) == [0.0] * 5 + [2.0, 2.0]
+    assert policy.current == (1.4, 7.4) and policy.switches == 2
+    # A new slot starts in the plan's mode again, candidate forgotten.
+    policy.start_slot(-3.0, THREE_MODES)
+    assert policy.current == (-7.4, -1.4)
+
+
+def test_the_margin_keeps_a_value_just_inside_another_mode_from_counting():
+    policy = ModePolicy(dwell=timedelta(seconds=2), margin=0.2)
+    policy.start_slot(2.0, THREE_MODES)
+    # -1.5 is 0.1 past the hole into the discharging mode: not enough.
+    assert _feed(policy, [-1.5] * 5) == [0.0] * 5
+    assert policy.switches == 0
+    # -1.7 is 0.3 past the hole: enough, and the dwell runs from the first qualifying sample.
+    assert _feed(policy, [-1.7] * 4, start=5) == [0.0, 0.0, -1.7, -1.7]
+    assert policy.switches == 1
+
+
+def test_idle_is_reached_without_a_switch_and_never_switched_into():
+    policy = ModePolicy(dwell=timedelta(seconds=1))
+    policy.start_slot(2.0, THREE_MODES)
+    assert _feed(policy, [0.0] * 10) == [0.0] * 10
+    assert policy.current == (1.4, 7.4) and policy.switches == 0
+    assert _feed(policy, [3.0], start=10) == [3.0]
+
+
+def test_the_policy_without_a_band_or_a_plan_in_the_band_falls_back():
+    policy = ModePolicy()
+    policy.start_slot(5.0, [])
+    assert policy.observe(T0, 123.0) == 123.0
+    policy.start_slot(0.7, THREE_MODES)  # a plan in a hole: no current mode
+    assert policy.current is None
+    assert policy.observe(T0, 0.6) == 0.0  # the nearest edge
+    assert policy.observe(T0, 0.9) == 1.4
+
+
+def test_policy_samples_out_of_order_are_refused():
+    policy = ModePolicy(dwell=timedelta(seconds=5))
+    policy.start_slot(2.0, THREE_MODES)
+    policy.observe(T0 + timedelta(seconds=1), -2.0)
+    with pytest.raises(ValueError):
+        policy.observe(T0, -2.0)

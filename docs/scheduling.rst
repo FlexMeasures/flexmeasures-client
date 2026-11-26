@@ -313,19 +313,36 @@ so that neither the plan nor a band lands in that dead zone:
     }
 
 Its band then has one range per operation mode, ``[[-7.4, -1.4], [0, 0], [1.4, 7.4]]`` in kW.
-A continuous answer that falls in a hole between two ranges becomes the nearest edge, and on a tie the edge on the side of ``p``:
+A continuous answer that falls in a hole between two ranges becomes the edge of that hole on the side of the mode the device is in,
+which at the start of a slot is the mode that contains ``p``; a value beyond the outermost edge becomes that edge:
 
 .. code-block:: python
 
     from flexmeasures_client.reaction import ReactionRule
 
     rule = ReactionRule(reference=-0.4, react=1, band=[(-7.4, -1.4), (0.0, 0.0), (1.4, 7.4)])
-    rule.react_to(p=2.0, residual=1.2)  # 0.8 kW lies in the dead zone, nearer to 1.4: returns 1.4
-    rule.react_to(p=2.0, residual=1.4)  # 0.6 kW, nearer to 0: returns 0.0
-    rule.react_to(p=2.0, residual=1.3)  # 0.7 kW, a tie: the edge on the side of p, 1.4
+    rule.react_to(p=2.0, residual=1.2)  # 0.8 kW lies in the dead zone below the charging mode: returns 1.4
+    rule.react_to(p=2.0, residual=1.4)  # 0.6 kW, nearer to 0, but still this side of the dead zone: 1.4
+    rule.react_to(p=2.0, residual=2.5)  # -0.5 kW lies in the next hole down; its edge on the charging side is idle: 0.0
+    rule.react_to(p=2.0, residual=1.2, current=(0.0, 0.0))  # the same 0.8 kW from idle: 0.0
 
-Rounding with hysteresis, holding minimum power through a short surprise, deadbands on commands and dwell times
-are left to the device drivers in the controller.
+Rounding to the mode's side rather than to the nearest edge keeps a device from idling on a surprise it was meant to absorb.
+Take a charger with the modes idle and 1.4 to 7.4 kW, a forecast surplus of 0.5 kW behind the meter, a plan of 1.4 kW,
+and a reference of -1.4 kW, the balance point the server serves.
+When the house behaves as forecast the rule's continuous answer is 0.5 kW, in the hole,
+and the charger keeps charging at 1.4 kW where the nearest edge would have idled it; 1.0 kW of extra sun makes it charge at 1.5 kW.
+
+Which mode the device is in is state, and switching modes is the slow, wearing transition on a real charger,
+so :class:`flexmeasures_client.reaction.ModePolicy` keeps that state next to the pure function.
+``start_slot(p, band)`` puts the device in the mode that contains the plan; ``observe(when, raw)`` takes the rule's continuous answer
+(``p - react * residual``) and returns the setpoint, rounded relative to the current mode.
+By default the policy never switches within a slot: it holds the plan's mode, and a raw value inside another mode is rounded back
+to the nearest edge on this side of it (idle, for a charger asked to discharge while its plan charges).
+With a ``dwell``, the policy switches once the raw value has lain inside another mode, at least ``margin`` past the hole, for that long;
+switching back obeys the same dwell and margin. Idle is an edge of the holes on both of its sides, reached without a switch.
+A lasting surprise the policy will not follow leaves a residual the device does not absorb;
+that is what the exit gate below is for, which the policy leaves unchanged.
+Deadbands on commands and the device's own settle time are left to the device drivers in the controller.
 
 Several reacting devices
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -412,6 +429,7 @@ so a residual only counts once every device has had the chance to land) and a mi
 after ``request_sent()`` nothing fires until ``plan_arrived()``.
 Its thresholds are parameters of the gate, not settings of the client, because the controller that runs the loop owns them
 and measures the settle times they rest on.
+The gate sees what the rule and the mode policy left over: a surprise the device will not follow into another mode shows up here as a residual.
 Next to the gate, :class:`flexmeasures_client.reaction.Smoother` takes the noise out of the per-sample surprise before it reaches the rule:
 a median over a few samples kills one-second spikes and a mean over a window of a few seconds takes out the jitter of a meter and a charger polled at different moments,
 at the price of about half a window of lag. Smooth the surprise and feed the smoothed residual to the gate; never smooth a fuse guard. The timings in the picture are placeholders, except the scheduling round trip,

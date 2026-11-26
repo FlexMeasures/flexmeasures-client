@@ -120,6 +120,7 @@ async def test_example_opts_in_and_walks_the_rules(capsys):
     assert sum(line.startswith("2026-11-30T") for line in slot_table.splitlines()) == 8
     assert "absorb the surprise" in out
     assert "Samples: 7200 walked, 0 outside the schedule skipped." in out
+    assert "mode switches: 0," in out
 
 
 def test_defaults_give_the_same_walk_as_the_per_slot_evaluation():
@@ -157,6 +158,7 @@ def test_the_knobs_default_to_the_classes_defaults():
     assert args.min_energy == example.ExitGate(dwell=timedelta(0)).min_energy
     assert args.tolerance == example.ExitGate(dwell=timedelta(0)).tolerance
     assert (args.dwell, args.turnaround, args.sample) == (21.0, 30.0, 1.0)
+    assert args.mode_dwell is None and args.mode_margin == 0.0
 
 
 @pytest.mark.asyncio
@@ -319,3 +321,53 @@ def test_scripted_surprise_has_a_cooking_step_and_a_sunny_spell():
     assert surprise[35] > 1.0
     assert surprise[55] < -1.0
     assert abs(surprise[0]) < 0.2
+
+
+def excursion_into_charging() -> list[tuple[datetime, float]]:
+    """In the fourth slot (plan -1.4 kW, three modes), 3.3 kW less import than forecast for two minutes, every second.
+
+    The raw setpoint is 1.9 kW, inside the charging mode, while the plan discharges.
+    (3.3 rather than a multiple of 0.7, so that the smoother's ramp does not pass exactly through idle.)
+    """
+    slot = 45 * 60
+    return (
+        every(1, slot, slot + 30, 0.0)
+        + every(1, slot + 30, slot + 150, -3.3)
+        + every(1, slot + 150, slot + 240, 0.0)
+    )
+
+
+def test_the_default_mode_policy_holds_the_plan_mode_and_leaves_a_residual(tmp_path):
+    schedule = ReactionSchedule.from_schedule(served_schedule(with_rules=True))
+    samples = example.samples_from_csv(
+        write_csv(tmp_path / "charging.csv", excursion_into_charging()), "kW", "kW"
+    )
+    held = example.walk(schedule, samples, example.Knobs())
+    assert held.mode_switches == 0
+    assert held.slot_setpoint[3] == -1.4
+    (exit_,) = held.exits
+    # Idle (0 kW) is as far as the policy goes: 1.4 kW of the 3.3 are absorbed, 1.9 kW are left for the whole excursion.
+    assert exit_.end is not None and exit_.end - exit_.start >= timedelta(seconds=110)
+    assert exit_.energy == pytest.approx(
+        1.9 * (exit_.end - exit_.start).total_seconds() / 3600, rel=0.05
+    )
+
+
+def test_a_mode_dwell_lets_the_device_switch_and_closes_the_residual(tmp_path):
+    schedule = ReactionSchedule.from_schedule(served_schedule(with_rules=True))
+    samples = example.samples_from_csv(
+        write_csv(tmp_path / "charging.csv", excursion_into_charging()), "kW", "kW"
+    )
+    switched = example.walk(schedule, samples, example.Knobs(mode_dwell=30.0))
+    # Into charging after 30 s, and back into discharging 30 s after the excursion ends.
+    assert switched.mode_switches == 2
+    assert switched.slot_setpoint[3] == -1.4
+    first = switched.exits[0]
+    assert first.end is not None and first.end - first.start <= timedelta(seconds=40)
+    # With a margin wider than the excursion reaches into the mode, the switch never comes.
+    assert (
+        example.walk(
+            schedule, samples, example.Knobs(mode_dwell=30.0, mode_margin=1.0)
+        ).mode_switches
+        == 0
+    )

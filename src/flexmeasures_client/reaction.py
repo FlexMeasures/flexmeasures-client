@@ -36,6 +36,7 @@ __all__ = [
     "convert_reaction_units",
     "ExitGate",
     "Smoother",
+    "ModePolicy",
 ]
 
 Range = tuple[float, float]
@@ -64,12 +65,14 @@ class ReactionRule:
     react: float
     band: list[Range]
 
-    def react_to(self, p: float, residual: float) -> float:
+    def react_to(
+        self, p: float, residual: float, current: Range | None = None
+    ) -> float:
         """Return the setpoint for this slot, given the plan value and the residual handed to the device.
 
         See :func:`react`.
         """
-        return react(self, p, residual)
+        return react(self, p, residual, current)
 
     def contains(self, value: float) -> bool:
         """Return whether the value lies within one of the band's ranges."""
@@ -147,16 +150,19 @@ class ReactionSchedule:
             raise IndexError(f"{when.isoformat()} falls outside the schedule.")
         return int((when - self.start) // self.resolution)
 
-    def react_at(self, when: datetime, residual: float) -> float:
+    def react_at(
+        self, when: datetime, residual: float, current: Range | None = None
+    ) -> float:
         """Return the setpoint at the given moment, following the plan where the schedule has no rules.
 
+        :param current: The range the device is in now; see :func:`react`.
         :raises IndexError: When the moment falls outside the schedule.
         """
         index = self.slot(when)
         p = self.values[index]
         if self.rules is None:
             return p
-        return react(self.rules[index], p, residual)
+        return react(self.rules[index], p, residual, current)
 
 
 def parse_reaction(schedule: Mapping) -> list[ReactionRule] | None:
@@ -229,30 +235,46 @@ def _number(value: object, where: str) -> float:
 
 def _contains(band: Sequence[Range], value: float) -> bool:
     """Return whether the value lies within one of the band's ranges."""
+    return _range_containing(band, value) is not None
+
+
+def _range_containing(band: Sequence[Range], value: float) -> Range | None:
+    """Return the range of the band that contains the value, or None."""
     for low, high in band:
         if low <= value <= high:
-            return True
-    return False
+            return (low, high)
+    return None
 
 
 def clip_to_band(
-    value: float, band: Sequence[Range], towards: float | None = None
+    value: float,
+    band: Sequence[Range],
+    current: Range | None = None,
+    towards: float | None = None,
 ) -> float:
     """Clip a value to a band, which is a list of allowed ranges.
 
     A value inside one of the ranges is returned as is.
-    A value in a hole between ranges, or beyond the outermost edge, becomes the nearest edge.
-    When two edges are equally near, the edge on the side of ``towards`` wins, which callers set to the plan value;
-    without ``towards``, or with it equally far from both, the lower edge wins.
+    A value in a hole between ranges becomes the edge of that hole on the side of the range the device is in now, ``current``:
+    the device stays on its side of the dead zone rather than crossing it for a value that happens to lie nearer to the far edge.
+    A value beyond the outermost edge becomes that edge.
+    Without ``current`` the nearest edge wins, and when two edges are equally near the one on the side of ``towards``,
+    which callers set to the plan value; without ``towards``, or with it equally far from both, the lower edge wins.
     An empty band leaves no room at all, so the value is returned as is.
 
     :param value:   The value to clip.
     :param band:    The allowed ranges.
-    :param towards: Which side to prefer on a tie.
-    :returns:       The nearest allowed value.
+    :param current: The range the device is in now, as ``(low, high)``; see :class:`ModePolicy` for keeping track of it.
+    :param towards: Which side to prefer on a tie, when no current range is given.
+    :returns:       The allowed value the value is rounded to.
     """
     if not band or _contains(band, value):
         return value
+    if current is not None:
+        low_c, high_c = current
+        if value < low_c:
+            return min(low for low, _ in band if low > value)
+        return max(high for _, high in band if high < value)
     nearest: list[float] = []
     nearest_distance: float | None = None
     for low, high in band:
@@ -278,22 +300,30 @@ def clip_to_band(
     return min(nearest)
 
 
-def react(rule: ReactionRule, p: float, residual: float) -> float:
+def react(
+    rule: ReactionRule, p: float, residual: float, current: Range | None = None
+) -> float:
     """Return the setpoint for one device and slot: ``clip(p - react * residual, band)``.
 
     Pure and stateless.
     With react 0 the plan value is returned as is.
+    A continuous answer in a hole of the band becomes the edge of that hole on the side of ``current``,
+    the range the device is in now, which at the start of a slot is the range that contains ``p``;
+    that is the default, so a stateless caller keeps the plan's side of every dead zone.
     Signs are those of the schedule values: consumption positive, so import at the connection is positive.
 
     :param rule:     The slot's reaction rule.
     :param p:        The slot's schedule value, in the rule's unit.
     :param residual: The surprise handed to this device, in the rule's unit; see :func:`residuals`.
                      With one reacting device, it is the surprise itself: ``(meter − Σ device power) − reference``.
+    :param current:  The range the device is in now, by default the one containing ``p``.
     :returns:        The setpoint, in the rule's unit.
     """
     if rule.react == 0:
         return p
-    return clip_to_band(p - rule.react * residual, rule.band, towards=p)
+    if current is None:
+        current = _range_containing(rule.band, p)
+    return clip_to_band(p - rule.react * residual, rule.band, current, towards=p)
 
 
 def residuals(
@@ -489,3 +519,113 @@ class Smoother:
         """Forget every sample, for example when a new plan changes the reference."""
         self._raw.clear()
         self._medians.clear()
+
+
+@dataclass
+class ModePolicy:
+    """Keeps the range (operation mode) a device is in, and rounds setpoints relative to it.
+
+    A device with operation modes has a band with holes, and a setpoint in a hole is rounded to the edge
+    on the side of the mode the device is in (see :func:`clip_to_band`). Which mode that is, is state,
+    so it lives here next to :class:`ExitGate` and :class:`Smoother`: call :meth:`start_slot` when a slot begins,
+    which puts the device in the mode that contains the plan value, and :meth:`observe` for every sample.
+
+    Switching modes is the slow, wearing transition on a real charger (a contactor reversing the direction of the current),
+    so by default the policy never switches within a slot: it holds the plan's mode, and a value that lies in another
+    mode is rounded back to the nearest edge on this side of it. With a ``dwell``, the policy switches once the raw value
+    has lain inside another mode, at least ``margin`` past the hole, for at least that long; switching back obeys the same
+    dwell and margin. A single-value mode (idle, ``[0, 0]``) is an edge of the holes on both of its sides and is reached
+    without a switch, so it is never a mode to switch into.
+
+    A lasting surprise the policy will not follow leaves a residual that the device does not absorb;
+    that is what the :class:`ExitGate` is for, which is unchanged by this policy.
+
+    :param dwell:  How long the raw value must lie in another mode before the policy switches to it; ``None`` never switches.
+    :param margin: How far past the hole the raw value must lie to count, in the band's unit, clamped to the mode's width.
+    """
+
+    dwell: timedelta | None = None
+    margin: float = 0.0
+    current: Range | None = None
+    switches: int = 0
+    _band: list[Range] = field(default_factory=list)
+    _candidate: Range | None = None
+    _candidate_since: datetime | None = None
+
+    def start_slot(self, p: float, band: Sequence[Range]) -> None:
+        """Begin a slot: the device is in the mode that contains the plan value ``p``."""
+        self._band = sorted(band)
+        self.current = _range_containing(self._band, p)
+        self._candidate = None
+        self._candidate_since = None
+
+    def observe(self, when: datetime, raw: float) -> float:
+        """Feed the raw setpoint of one sample, ``p - react * residual``, and return the setpoint to command.
+
+        :param when: The sample's time; samples must be fed in order.
+        :param raw:  The continuous answer of the rule, before rounding to the band.
+        """
+        if self._candidate_since is not None and when < self._candidate_since:
+            raise ValueError("samples must be observed in order")
+        if not self._band:
+            return raw
+        if self.current is None:
+            return clip_to_band(raw, self._band)
+        other = _range_containing(self._band, raw)
+        if (
+            self.dwell is not None
+            and other is not None
+            and other != self.current
+            and other[0] < other[1]
+            and self._past_the_hole(raw, other)
+        ):
+            if self._candidate != other:
+                self._candidate, self._candidate_since = other, when
+            elif when - self._candidate_since >= self.dwell:  # type: ignore[operator]
+                self.current = other
+                self.switches += 1
+                self._candidate = None
+                self._candidate_since = None
+        else:
+            self._candidate = None
+            self._candidate_since = None
+        return self._hold(raw)
+
+    def _past_the_hole(self, raw: float, other: Range) -> bool:
+        """Return whether the raw value lies at least the margin into the other mode, counted from the hole towards the current mode."""
+        assert self.current is not None
+        low, high = other
+        margin = min(self.margin, high - low)
+        if high < self.current[0]:
+            return raw <= high - margin
+        return raw >= low + margin
+
+    def _hold(self, raw: float) -> float:
+        """Round the raw value relative to the current mode, without entering another mode.
+
+        A raw value in a hole becomes the edge of the hole on this side, as :func:`clip_to_band` does.
+        A raw value inside another mode, or beyond the band on that mode's side, is treated as standing at that mode's far border,
+        so it becomes the next edge towards the current mode; a single-value mode counts as such an edge.
+        """
+        assert self.current is not None
+        low_c, high_c = self.current
+        if low_c <= raw <= high_c:
+            return raw
+        other = _range_containing(self._band, raw)
+        if raw < low_c:
+            if other is None and raw < self._band[0][0]:
+                other = self._band[0]
+            if other == self.current:
+                return low_c
+            if other is not None and other[0] == other[1]:
+                return raw  # a single-value mode is an edge of the hole
+            anchor = raw if other is None else other[1]
+            return min(low for low, _ in self._band if low > anchor)
+        if other is None and raw > self._band[-1][1]:
+            other = self._band[-1]
+        if other == self.current:
+            return high_c
+        if other is not None and other[0] == other[1]:
+            return raw
+        anchor = raw if other is None else other[0]
+        return max(high for _, high in self._band if high < anchor)

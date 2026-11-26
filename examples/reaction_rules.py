@@ -4,6 +4,7 @@ The script opts in to reaction rules with ``react: true`` on the device's flex-m
 fetches the schedule, parses its ``reaction`` array and walks the day sample by sample,
 the way a home controller's loop does, with the real pieces of ``flexmeasures_client.reaction``:
 the surprise at the meter goes through the :class:`Smoother`, the rule gives the setpoint,
+rounded to the device's operation modes by the :class:`ModePolicy` (which holds the plan's mode unless ``--mode-dwell`` lets it switch),
 what the device could not absorb is the residual, and the :class:`ExitGate` says when a retrigger is due.
 A retrigger in this probe only marks the moment: no new schedule is requested,
 and after ``--turnaround`` seconds the gate is told that the plan arrived and the same rules continue.
@@ -52,6 +53,7 @@ from flexmeasures_client.client import convert_units
 from flexmeasures_client.reaction import (
     ExitGate,
     InvalidReactionError,
+    ModePolicy,
     ReactionSchedule,
     Smoother,
     react,
@@ -155,6 +157,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"residuals within this magnitude count as inside the band, in the schedule's unit (default: {DEFAULT_TOLERANCE:g})",
     )
     knobs.add_argument(
+        "--mode-dwell",
+        type=float,
+        default=None,
+        help="seconds a raw setpoint must lie in another operation mode before the device switches to it (default: never within a slot)",
+    )
+    knobs.add_argument(
+        "--mode-margin",
+        type=float,
+        default=0.0,
+        help="how far past the hole a raw setpoint must lie in another mode to count, in the schedule's unit (default: 0)",
+    )
+    knobs.add_argument(
         "--turnaround",
         type=float,
         default=DEFAULT_TURNAROUND_S,
@@ -168,6 +182,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     for name in ("sample", "window", "dwell", "turnaround"):
         if getattr(args, name) <= 0:
             parser.error(f"--{name} must be positive")
+    if args.mode_dwell is not None and args.mode_dwell <= 0:
+        parser.error("--mode-dwell must be positive")
+    if args.mode_margin < 0:
+        parser.error("--mode-margin must not be negative")
     if args.median < 1:
         parser.error("--median must be at least 1")
     if args.start is None:
@@ -266,6 +284,8 @@ class Knobs:
     min_energy: float = DEFAULT_MIN_ENERGY
     tolerance: float = DEFAULT_TOLERANCE
     turnaround: float = DEFAULT_TURNAROUND_S
+    mode_dwell: float | None = None
+    mode_margin: float = 0.0
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> Knobs:
@@ -276,6 +296,8 @@ class Knobs:
             min_energy=args.min_energy,
             tolerance=args.tolerance,
             turnaround=args.turnaround,
+            mode_dwell=args.mode_dwell,
+            mode_margin=args.mode_margin,
         )
 
 
@@ -299,6 +321,7 @@ class Walk:
     retriggers: list[datetime] = field(default_factory=list)
     samples: int = 0
     skipped: int = 0
+    mode_switches: int = 0
     problems: list[str] = field(default_factory=list)
 
 
@@ -310,6 +333,7 @@ def walk(
     """Walk the samples through the smoother, the rule and the gate; keep the per-slot and per-exit results.
 
     With one reacting device, the residual is the surprise plus what the setpoint moved away from the plan.
+    The mode policy starts every slot in the mode that contains the plan and rounds the rule's answer relative to it.
     A retrigger only marks the moment and tells the gate a request went out;
     after the turnaround the gate is told the plan arrived, and the same rules continue.
     """
@@ -334,6 +358,13 @@ def walk(
         min_energy=knobs.min_energy,
         tolerance=knobs.tolerance,
     )
+    policy = ModePolicy(
+        dwell=(
+            None if knobs.mode_dwell is None else timedelta(seconds=knobs.mode_dwell)
+        ),
+        margin=knobs.mode_margin,
+    )
+    slot_index: int | None = None
     plan_due: datetime | None = None
     current: Exit | None = None
     last_seen: datetime | None = None
@@ -349,8 +380,13 @@ def walk(
             gate.plan_arrived()
             plan_due = None
         p, rule = schedule.values[index], schedule.rules[index]
+        if index != slot_index:
+            policy.start_slot(p, rule.band)
+            slot_index = index
         surprise = smoother.update(when, raw)
-        setpoint = react(rule, p, surprise)
+        setpoint = (
+            p if rule.react == 0 else policy.observe(when, p - rule.react * surprise)
+        )
         if rule.band and not rule.contains(setpoint) and index not in outside_reported:
             outside_reported.add(index)
             result.problems.append(
@@ -378,6 +414,7 @@ def walk(
         result.slot_surprise[index] = surprise
         result.slot_setpoint[index] = setpoint
         last_seen = when
+    result.mode_switches = policy.switches
     return result
 
 
@@ -419,11 +456,13 @@ def print_summary(result: Walk, unit: str, knobs: Knobs) -> None:
     print(
         f"Samples: {result.samples} walked, {result.skipped} outside the schedule skipped."
         f" Band exits: {len(result.exits)}, retriggers: {len(result.retriggers)},"
+        f" mode switches: {result.mode_switches},"
         f" energy past the band: {energy:.3f} {unit}h."
     )
     print(
         f"Knobs: window {knobs.window:g} s, median {knobs.median}, dwell {knobs.dwell:g} s,"
-        f" min-energy {knobs.min_energy:g} {unit}h, tolerance {knobs.tolerance:g} {unit}, turnaround {knobs.turnaround:g} s."
+        f" min-energy {knobs.min_energy:g} {unit}h, tolerance {knobs.tolerance:g} {unit}, turnaround {knobs.turnaround:g} s,"
+        f" mode-dwell {'hold' if knobs.mode_dwell is None else f'{knobs.mode_dwell:g} s'}, mode-margin {knobs.mode_margin:g} {unit}."
     )
 
 
