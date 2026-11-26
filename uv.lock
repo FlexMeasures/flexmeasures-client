@@ -14,6 +14,9 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 
+[manifest]
+constraints = [{ name = "pillow", marker = "python_full_version >= '3.11'", specifier = ">=13.0.0" }]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
