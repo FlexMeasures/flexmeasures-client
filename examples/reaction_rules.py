@@ -6,8 +6,11 @@ the way a home controller's loop does, with the real pieces of ``flexmeasures_cl
 the deviation at the meter (what its uncontrolled part shows against the reference) goes through the :class:`Smoother`, the rule gives the setpoint,
 rounded to the device's operation modes by the :class:`ModePolicy` (which holds the plan's mode unless ``--mode-dwell`` lets it switch),
 what the device could not absorb is the residual, and the :class:`ExitGate` says when a retrigger is due.
+The :class:`DriftGate` watches what the device absorbed inside its band, the commanded setpoint against the plan,
+and says when that has moved it far enough from its plan (``--drift``), or, with ``--drift-lead``, when a target given with ``--target-at`` is near.
+One request is in flight at a time, from whichever gate fires first.
 A retrigger in this probe only marks the moment: no new schedule is requested,
-and after ``--turnaround`` seconds the gate is told that the plan arrived and the same rules continue.
+and after ``--turnaround`` seconds both gates are told that the plan arrived and the same rules continue.
 See FlexMeasures/flexmeasures-client#297 for the contract.
 
 The deviation is scripted by default (a cooking step, a sunny spell and a wobble, one sample per ``--sample`` seconds),
@@ -16,7 +19,7 @@ or replayed from a recording with ``--deviation-csv``: a CSV with a header and t
 ``--surprise-csv``, ``--surprise-unit`` and a ``surprise`` column are accepted as the older names.
 The loop's knobs are options, with the defaults of the classes.
 
-It prints the setpoint per slot, every band exit with the energy past the band, and a summary,
+It prints the setpoint per slot, every band exit with the energy past the band, every drift retrigger, and a summary,
 and doubles as a smoke test against a FlexMeasures server that serves rules, through its exit code:
 
 - 0: the server served rules and every setpoint respected them;
@@ -28,7 +31,8 @@ Usage::
     python examples/reaction_rules.py --host localhost:5000 --no-ssl \\
         --email user@example.com --password secret \\
         --sensor 8 --price-sensor 7 \\
-        --deviation-csv deviation.csv --window 5 --median 3 --dwell 21 --min-energy 0.1
+        --deviation-csv deviation.csv --window 5 --median 3 --dwell 21 --min-energy 0.1 \\
+        --drift 0.5 --drift-lead 30 --target-at 2026-12-01T07:00:00+01:00
 
 Every connection option can be given through the environment instead, as ``FLEXMEASURES_HOST``, ``FLEXMEASURES_EMAIL``,
 ``FLEXMEASURES_PASSWORD``, ``FLEXMEASURES_SENSOR`` and ``FLEXMEASURES_PRICE_SENSOR``.
@@ -52,6 +56,7 @@ import pandas as pd
 from flexmeasures_client import FlexMeasuresClient
 from flexmeasures_client.client import convert_units
 from flexmeasures_client.reaction import (
+    DriftGate,
     ExitGate,
     InvalidReactionError,
     ModePolicy,
@@ -69,6 +74,7 @@ DEFAULT_MEDIAN = Smoother().median_samples
 DEFAULT_DWELL_S = 21.0
 DEFAULT_MIN_ENERGY = _GATE_DEFAULTS["min_energy"]
 DEFAULT_TOLERANCE = _GATE_DEFAULTS["tolerance"]
+DEFAULT_DRIFT_KWH = DriftGate().threshold
 DEFAULT_TURNAROUND_S = 30.0
 DEFAULT_SAMPLE_S = 1.0
 
@@ -174,6 +180,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="how far past the hole a raw setpoint must lie in another mode to count, in the schedule's unit (default: 0)",
     )
     knobs.add_argument(
+        "--drift",
+        type=float,
+        default=DEFAULT_DRIFT_KWH,
+        help=f"energy absorbed inside the band, away from the plan, before a retrigger, in kWh (default: {DEFAULT_DRIFT_KWH:g})",
+    )
+    knobs.add_argument(
+        "--drift-lead",
+        type=float,
+        default=None,
+        help="minutes before a target at which some drift already retriggers (default: none, the drift threshold alone)",
+    )
+    knobs.add_argument(
+        "--target-at",
+        dest="targets",
+        action="append",
+        default=[],
+        help="the moment of a target, in ISO 8601 with an offset; repeat for more targets",
+    )
+    knobs.add_argument(
         "--turnaround",
         type=float,
         default=DEFAULT_TURNAROUND_S,
@@ -187,6 +212,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     for name in ("sample", "window", "dwell", "turnaround"):
         if getattr(args, name) <= 0:
             parser.error(f"--{name} must be positive")
+    if args.drift <= 0:
+        parser.error("--drift must be positive")
+    if args.drift_lead is not None and args.drift_lead <= 0:
+        parser.error("--drift-lead must be positive")
+    targets = []
+    for target in args.targets:
+        try:
+            when = pd.Timestamp(target).to_pydatetime()
+        except ValueError:
+            parser.error(f"--target-at {target!r} is not an ISO 8601 moment")
+        if when.tzinfo is None:
+            parser.error(f"--target-at {target!r} needs an offset")
+        targets.append(when)
+    args.targets = sorted(targets)
     if args.mode_dwell is not None and args.mode_dwell <= 0:
         parser.error("--mode-dwell must be positive")
     if args.mode_margin < 0:
@@ -293,6 +332,9 @@ class Knobs:
     turnaround: float = DEFAULT_TURNAROUND_S
     mode_dwell: float | None = None
     mode_margin: float = 0.0
+    drift: float = DEFAULT_DRIFT_KWH
+    drift_lead: float | None = None
+    targets: list[datetime] = field(default_factory=list)
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> Knobs:
@@ -305,6 +347,9 @@ class Knobs:
             turnaround=args.turnaround,
             mode_dwell=args.mode_dwell,
             mode_margin=args.mode_margin,
+            drift=args.drift,
+            drift_lead=args.drift_lead,
+            targets=list(args.targets),
         )
 
 
@@ -319,6 +364,14 @@ class Exit:
 
 
 @dataclass
+class DriftRetrigger:
+    """One retrigger of the drift gate, with the drift away from the plan at that moment."""
+
+    at: datetime
+    drift: float
+
+
+@dataclass
 class Walk:
     """What the walk through the samples found."""
 
@@ -326,6 +379,7 @@ class Walk:
     slot_setpoint: list[float | None]
     exits: list[Exit] = field(default_factory=list)
     retriggers: list[datetime] = field(default_factory=list)
+    drift_retriggers: list[DriftRetrigger] = field(default_factory=list)
     samples: int = 0
     skipped: int = 0
     mode_switches: int = 0
@@ -341,8 +395,9 @@ def walk(
 
     With one reacting device, the residual is the deviation plus what the setpoint moved away from the plan.
     The mode policy starts every slot in the mode that contains the plan and rounds the rule's answer relative to it.
-    A retrigger only marks the moment and tells the gate a request went out;
-    after the turnaround the gate is told the plan arrived, and the same rules continue.
+    The drift gate sees the commanded setpoint as the realised power and the plan value as the planned power, both in kW.
+    A retrigger, from whichever gate fires first, only marks the moment and tells both gates a request went out;
+    after the turnaround both gates are told the plan arrived, and the same rules continue.
     """
     assert schedule.rules is not None
     result = Walk(
@@ -365,6 +420,12 @@ def walk(
         min_energy=knobs.min_energy,
         tolerance=knobs.tolerance,
     )
+    drift_gate = DriftGate(
+        threshold=knobs.drift,
+        lead=None if knobs.drift_lead is None else timedelta(minutes=knobs.drift_lead),
+        targets=list(knobs.targets),
+    )
+    to_kw = convert_units([1.0], schedule.unit, "kW")[0]
     policy = ModePolicy(
         dwell=(
             None if knobs.mode_dwell is None else timedelta(seconds=knobs.mode_dwell)
@@ -385,6 +446,7 @@ def walk(
         result.samples += 1
         if plan_due is not None and when >= plan_due:
             gate.plan_arrived()
+            drift_gate.plan_arrived()
             plan_due = None
         p, rule = schedule.values[index], schedule.rules[index]
         if index != slot_index:
@@ -412,11 +474,17 @@ def walk(
         elif current is not None:
             current.end = when
             current = None
-        if gate.observe(when, residual):
-            gate.request_sent()
+        exit_due = gate.observe(when, residual)
+        drift_due = drift_gate.observe(when, setpoint * to_kw, p * to_kw)
+        if exit_due:
             result.retriggers.append(when)
             if current is not None:
                 current.retrigger_at = when
+        elif drift_due:
+            result.drift_retriggers.append(DriftRetrigger(when, drift_gate.drift))
+        if exit_due or drift_due:
+            gate.request_sent()
+            drift_gate.request_sent()
             plan_due = when + timedelta(seconds=knobs.turnaround)
         result.slot_deviation[index] = deviation
         result.slot_setpoint[index] = setpoint
@@ -458,18 +526,26 @@ def print_summary(result: Walk, unit: str, knobs: Knobs) -> None:
             print(
                 f"{exit_.start.isoformat():<25} {end:<25} {duration:>10} {exit_.energy:>10.3f} {retrigger:<25}"
             )
+    if result.drift_retriggers:
+        print()
+        print(f"{'drift retrigger':<25} {'drift [kWh]':>11}")
+        for retrigger in result.drift_retriggers:
+            print(f"{retrigger.at.isoformat():<25} {retrigger.drift:>11.3f}")
     energy = sum(exit_.energy for exit_ in result.exits)
     print()
     print(
         f"Samples: {result.samples} walked, {result.skipped} outside the schedule skipped."
         f" Band exits: {len(result.exits)}, retriggers: {len(result.retriggers)},"
+        f" drift retriggers: {len(result.drift_retriggers)},"
         f" mode switches: {result.mode_switches},"
         f" energy past the band: {energy:.3f} {unit}h."
     )
     print(
         f"Knobs: window {knobs.window:g} s, median {knobs.median}, dwell {knobs.dwell:g} s,"
         f" min-energy {knobs.min_energy:g} {unit}h, tolerance {knobs.tolerance:g} {unit}, turnaround {knobs.turnaround:g} s,"
-        f" mode-dwell {'hold' if knobs.mode_dwell is None else f'{knobs.mode_dwell:g} s'}, mode-margin {knobs.mode_margin:g} {unit}."
+        f" mode-dwell {'hold' if knobs.mode_dwell is None else f'{knobs.mode_dwell:g} s'}, mode-margin {knobs.mode_margin:g} {unit},"
+        f" drift {knobs.drift:g} kWh, drift-lead {'none' if knobs.drift_lead is None else f'{knobs.drift_lead:g} min'},"
+        f" targets {len(knobs.targets)}."
     )
 
 

@@ -159,6 +159,54 @@ def test_the_knobs_default_to_the_classes_defaults():
     assert args.tolerance == example.ExitGate(dwell=timedelta(0)).tolerance
     assert (args.dwell, args.turnaround, args.sample) == (21.0, 30.0, 1.0)
     assert args.mode_dwell is None and args.mode_margin == 0.0
+    assert args.drift == example.DriftGate().threshold == 0.5
+    assert args.drift_lead is None and args.targets == []
+    knobs = example.Knobs.from_args(args)
+    assert (knobs.drift, knobs.drift_lead, knobs.targets) == (0.5, None, [])
+
+
+def test_targets_need_an_offset():
+    args = example.parse_args(
+        ARGS + ["--drift-lead", "15", "--target-at", "2026-11-30T01:00:00+01:00"]
+    )
+    assert args.drift_lead == 15.0
+    assert args.targets == [START + timedelta(hours=1)]
+    with pytest.raises(SystemExit):
+        example.parse_args(ARGS + ["--target-at", "2026-11-30T01:00:00"])
+
+
+@pytest.mark.asyncio
+async def test_a_sunny_spell_absorbed_long_enough_retriggers_on_drift(capsys):
+    """The scripted sunny spell is absorbed in slots 4 and 5 (01:00 to 01:30), 2 kW above the plan, inside the band.
+
+    No band exit fires, but the drift reaches 0.5 kWh during the spell; with a threshold of 2 kWh, it never does.
+    """
+    schedule = ReactionSchedule.from_schedule(served_schedule(with_rules=True))
+    samples = list(example.scripted_samples(schedule, example.DEFAULT_SAMPLE_S))
+    result = example.walk(schedule, samples, example.Knobs())
+    assert result.retriggers == []
+    (retrigger,) = result.drift_retriggers
+    assert START + timedelta(hours=1) <= retrigger.at < START + timedelta(minutes=90)
+    assert retrigger.drift == pytest.approx(0.5, abs=0.01)
+    assert (
+        example.walk(schedule, samples, example.Knobs(drift=2.0)).drift_retriggers == []
+    )
+    client = StandInClient(served_schedule(with_rules=True))
+    assert await example.run(client, example.parse_args(ARGS)) == 0
+    out = capsys.readouterr().out
+    assert "retriggers: 0, drift retriggers: 1," in out
+    assert f"{retrigger.at.isoformat():<25} {retrigger.drift:>11.3f}" in out
+
+
+def test_a_target_within_the_lead_retriggers_on_small_drift():
+    """The cooking step is absorbed in slot 3 (00:45 to 01:00), 1.5 kW below the plan; a target at 01:00 with a 15-minute lead fires on the first 50 Wh of it."""
+    schedule = ReactionSchedule.from_schedule(served_schedule(with_rules=True))
+    samples = list(example.scripted_samples(schedule, example.DEFAULT_SAMPLE_S))
+    target = START + timedelta(hours=1)
+    knobs = example.Knobs(drift=2.0, drift_lead=15.0, targets=[target])
+    (retrigger,) = example.walk(schedule, samples, knobs).drift_retriggers
+    assert START + timedelta(minutes=45) <= retrigger.at < target
+    assert retrigger.drift == pytest.approx(-0.05, abs=0.001)
 
 
 @pytest.mark.asyncio
