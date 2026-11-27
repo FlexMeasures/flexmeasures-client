@@ -69,6 +69,13 @@ dev = [
 docs = [
     "sphinx>=3.2.1",
 ]
+examples = [
+    "matplotlib>=3.8",
+]
+
+[tool.uv]
+# Pillow 12.3.0 carries GHSA-332p-7hrc-92wf; the patched 13.0.0 needs Python 3.11, which this marker respects.
+constraint-dependencies = ["pillow>=13.0.0; python_full_version >= '3.11'"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/flexmeasures_client"]

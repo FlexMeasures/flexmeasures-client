@@ -223,6 +223,9 @@ Alternatively, use a single-device flex-model (no list) and move the device's po
         },
     )
 
+A FlexMeasures server that computes reaction rules serves them with the schedule, as a ``reaction`` array with one rule per slot.
+``flexmeasures_client.reaction`` parses the rules and evaluates them with a pure ``react`` function, see `the scheduling guide <https://flexmeasures-client.readthedocs.io/en/latest/scheduling.html>`_ and `this example script <examples/reaction_rules.py>`_.
+
 The trigger and get schedule function can also be separated to trigger the schedule first and later retrieve the schedule using the ``schedule_uuid``.
 
 Trigger a schedule:

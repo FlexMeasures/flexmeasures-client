@@ -34,6 +34,7 @@ from flexmeasures_client.exceptions import (
     WrongAPIVersionError,
     WrongHostError,
 )
+from flexmeasures_client.reaction import convert_reaction_units
 from flexmeasures_client.response_handling import check_for_status, check_response
 from flexmeasures_client.utils import apply_deprecated_parameter_aliases, merge_updates
 
@@ -71,6 +72,10 @@ REPORT_TRIGGER_MIN_SERVER_VERSION = "1.1.0"
 
 # The asset automation endpoints landed in FlexMeasures v1.1.0
 AUTOMATIONS_MIN_SERVER_VERSION = "1.1.0"
+
+# The flex-model field ``react`` and the ``reaction`` array in the schedule landed in FlexMeasures v1.2.0;
+# an older server refuses ``react`` as an unknown field.
+REACTION_MIN_SERVER_VERSION = "1.2.0"
 
 
 def _parse_json_field(data: dict, field_name: str) -> None:
@@ -318,9 +323,13 @@ class FlexMeasuresClient:
         minimum_server_version: str,
         minimum_server_version_msg: str | None = None,
     ):
-        """Ensure that the server version meets a minimum requirement."""
+        """Ensure that the server version meets a minimum requirement.
+
+        Release generations are compared, as in :meth:`server_version_at_least`,
+        so a release candidate such as ``1.2.0rc1`` or a development build such as ``1.2.0.dev3`` meets a minimum of ``1.2.0``.
+        """
         await self._resolve_server_version()
-        if Version(cast(str, self.server_version)) < Version(minimum_server_version):
+        if not _server_version_at_least(self.server_version, minimum_server_version):
             msg = (
                 "This functionality requires FlexMeasures server of "
                 f"{minimum_server_version} or above. Current server has version "
@@ -1066,6 +1075,8 @@ class FlexMeasuresClient:
                       'duration': 'PT45M',
                       'unit': 'MW'
                   }
+                  A server that serves reaction rules adds a 'reaction' list with one entry per value,
+                  in the same unit as the values; parse it with ``flexmeasures_client.reaction.parse_reaction``.
         """
         params = {}
         if duration is not None:
@@ -1095,6 +1106,12 @@ class FlexMeasuresClient:
         if unit is not None and not server_handles_unit:
             from_unit = schedule["unit"]
             schedule["values"] = convert_units(schedule["values"], from_unit, unit)
+            if schedule.get("reaction") is not None:
+                # The reaction rules are in the schedule's unit too, so they move along with the values.
+                schedule["reaction"] = convert_reaction_units(
+                    schedule["reaction"],
+                    lambda numbers: convert_units(numbers, from_unit, unit),
+                )
             schedule["unit"] = unit
 
         return schedule

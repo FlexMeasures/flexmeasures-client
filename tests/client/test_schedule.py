@@ -1247,3 +1247,200 @@ async def test_trigger_schedule_202_is_not_logged_as_unexpected(caplog) -> None:
             "instead of expected" in record.message for record in caplog.records
         )
         await flexmeasures_client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_unit_client_side_conversion_moves_reaction_along():
+    """Client-side unit conversion scales the reaction rules by the same factor as the values."""
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid"
+    with aioresponses() as m:
+        m.get(
+            url=url,
+            status=200,
+            payload={
+                "values": [0.002, -0.003],
+                "start": "2026-11-30T00:00:00+01:00",
+                "duration": "PT30M",
+                "unit": "MW",
+                "reaction": [
+                    {"reference": 0.0004, "react": 1, "band": [[0, 0.0074]]},
+                    {
+                        "reference": -0.001,
+                        "react": 0,
+                        "band": [[-0.0074, -0.0014], [0, 0], [0.0014, 0.0074]],
+                    },
+                ],
+            },
+        )
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="skip-auth",
+        )
+        client.server_version = "0.31.0"
+        schedule = await client.get_schedule(
+            sensor_id=1, schedule_id="some-uuid", unit="kW"
+        )
+    await client.close()
+
+    assert schedule["unit"] == "kW"
+    assert schedule["values"] == [2.0, -3.0]
+    assert schedule["reaction"] == [
+        {"reference": 0.4, "react": 1, "band": [[0, 7.4]]},
+        {"reference": -1.0, "react": 0, "band": [[-7.4, -1.4], [0, 0], [1.4, 7.4]]},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_schedule_without_reaction_is_unchanged():
+    """A schedule served without reaction rules gains no 'reaction' key, converted or not."""
+    url = "http://localhost:5000/api/v3_0/sensors/1/schedules/some-uuid"
+    served = {
+        "values": [0.002, -0.003],
+        "start": "2026-11-30T00:00:00+01:00",
+        "duration": "PT30M",
+        "unit": "MW",
+    }
+    with aioresponses() as m:
+        m.get(url=url, status=200, payload=served)
+        m.get(url=url, status=200, payload=served)
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="skip-auth",
+        )
+        client.server_version = "0.31.0"
+        as_served = await client.get_schedule(sensor_id=1, schedule_id="some-uuid")
+        converted = await client.get_schedule(
+            sensor_id=1, schedule_id="some-uuid", unit="kW"
+        )
+    await client.close()
+
+    assert as_served == served
+    assert converted == {**served, "values": [2.0, -3.0], "unit": "kW"}
+
+
+# Pass-through is generic: a field this client has never heard of is sent as given, too,
+# in the flex-context as well as in a flex-model item.
+REACTION_FLEX_CONTEXT = {
+    "consumption-price": {"sensor": 7},
+    "some-future-field": {"nested": [1, "two", None]},
+}
+REACTION_FLEX_MODEL = {
+    "soc-unit": "kWh",
+    "soc-at-start": 50,
+    "power-capacity": "7.4 kW",
+    "react": True,
+    "some-future-device-field": ["anything", 42],
+}
+
+
+@pytest.mark.asyncio
+async def test_trigger_schedule_passes_react_opt_in_through() -> None:
+    """The react opt-in on the flex-model item is sent as given, like any field the client does not know."""
+    with aioresponses() as m:
+        client = FlexMeasuresClient(email="test@test.test", password="test")
+        client.access_token = "test-token"
+        m.get(
+            "http://localhost:5000/api/v3_0/sensors/3",
+            status=200,
+            payload={"id": 3, "generic_asset_id": 5, "name": "test-sensor"},
+        )
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
+            status=202,
+            payload={"schedule": "test_schedule_id"},
+        )
+        schedule_id = await client.trigger_schedule(
+            sensor_id=3,
+            start="2026-11-30T00:00+01:00",
+            duration="P1D",
+            flex_model=REACTION_FLEX_MODEL,
+            flex_context=REACTION_FLEX_CONTEXT,
+        )
+        assert schedule_id == "test_schedule_id"
+        m.assert_called_with(
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                CLIENT_VERSION_HEADER: __version__,
+                "Authorization": "test-token",
+            },
+            json={
+                "start": "2026-11-30T00:00:00+01:00",
+                "duration": "P1DT0H0M0S",
+                "flex-model": [{**REACTION_FLEX_MODEL, "sensor": 3}],
+                "flex-context": REACTION_FLEX_CONTEXT,
+            },
+            url="http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
+            params=None,
+            ssl=False,
+            allow_redirects=False,
+        )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_and_get_schedule_passes_reaction_through() -> None:
+    """The flex fields reach the server untouched, and the served 'reaction' reaches the caller untouched."""
+    flex_model = [
+        {"sensor": 3, **REACTION_FLEX_MODEL},
+        {"sensor": 9, "react": True},
+    ]
+    served_reaction = [
+        {"reference": 0.4, "react": 1, "band": [[1.4, 7.4]]},
+        {"reference": 0.4, "react": 0, "band": [[-7.4, 7.4]]},
+    ]
+    with aioresponses() as m:
+        client = FlexMeasuresClient(
+            email="test@test.test",
+            password="test",
+            access_token="test-token",
+            request_timeout=2,
+            request_retry_interval=0.2,
+        )
+        client.server_version = "1.1.0"
+        m.post(
+            "http://localhost:5000/api/v3_0/assets/5/schedules/trigger",
+            status=202,
+            payload={"schedule": "test_schedule_id"},
+        )
+        m.get(
+            "http://localhost:5000/api/v3_0/jobs/test_schedule_id",
+            status=200,
+            payload={"status": "FINISHED"},
+        )
+        for sensor_id in (3, 9):
+            m.get(
+                f"http://localhost:5000/api/v3_0/sensors/{sensor_id}/schedules/test_schedule_id?duration=P1DT0H0M0S&unit=kW",
+                status=200,
+                payload={
+                    "values": [4.4, 0.0],
+                    "start": "2026-11-30T00:00:00+01:00",
+                    "duration": "P1D",
+                    "unit": "kW",
+                    "reaction": served_reaction,
+                },
+            )
+        schedules = await client.trigger_and_get_schedule(
+            asset_id=5,
+            start="2026-11-30T00:00+01:00",
+            duration="P1D",
+            flex_model=flex_model,
+            flex_context=REACTION_FLEX_CONTEXT,
+            unit="kW",
+        )
+        trigger_calls = m.requests[
+            ("POST", URL("http://localhost:5000/api/v3_0/assets/5/schedules/trigger"))
+        ]
+        assert trigger_calls[0].kwargs["json"] == {
+            "start": "2026-11-30T00:00:00+01:00",
+            "duration": "P1DT0H0M0S",
+            "flex-model": flex_model,
+            "flex-context": REACTION_FLEX_CONTEXT,
+        }
+    await client.close()
+
+    assert [schedule["sensor"] for schedule in schedules] == [3, 9]
+    for schedule in schedules:
+        assert schedule["reaction"] == served_reaction

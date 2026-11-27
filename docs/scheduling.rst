@@ -215,6 +215,298 @@ conversion server-side.  For older servers, the client converts between
 ``NotImplementedError``.
 
 
+Reacting to surprises with reaction rules
+-----------------------------------------
+
+A schedule is optimal given a forecast of everything else behind the meter, and that forecast is wrong within minutes.
+A FlexMeasures server that computes reaction rules serves, with every schedule, one rule per slot and device:
+how to react to a surprise at the meter, and within which band that reaction keeps the rest of the plan feasible.
+The controller evaluates the rule locally, at meter speed, without a new scheduling request.
+All quantities below carry the sign convention of the schedule values: consumption is positive,
+so at the connection import is positive and export is negative.
+
+Opt in with ``react: true`` on the flex-model of each device that is to react:
+
+.. code-block:: python
+
+    schedule = await client.trigger_and_get_schedule(
+        sensor_id=8,
+        start="2026-11-30T00:00:00+01:00",
+        duration="P1D",
+        flex_context={
+            "consumption-price": {"sensor": 7},
+        },
+        flex_model={
+            "soc-unit": "kWh",
+            "soc-at-start": 20,
+            "soc-min": 10,
+            "soc-max": 60,
+            "power-capacity": "7.4 kW",
+            "react": True,
+        },
+        unit="kW",
+    )
+
+The client sends the flex-model and flex-context as given, so a field the server adds later needs no client release.
+The schedule then carries a ``reaction`` list next to its ``values``, with one entry per value,
+in the same unit as the values:
+
+.. code-block:: python
+
+    {
+        "start": "2026-11-30T00:00:00+01:00",
+        "duration": "P1D",
+        "unit": "kW",
+        "values": [4.4, ...],
+        "reaction": [{"reference": -0.4, "react": 1, "band": [[1.4, 7.4]]}, ...],
+    }
+
+Per slot, ``reference`` is the uncontrolled power the plan is balanced against: usually the forecast of everything behind the meter that is not a reacting device,
+and where the operation modes make the plan miss the kink, the balance point itself (see the worked example below).
+``react`` is the share of the deviation from that balance point the device absorbs: 0 (follow the plan) or 1 (absorb it one to one) in this version,
+with the shares in between reserved for a later version.
+``band`` lists the power ranges within which deviating keeps the device's own constraints satisfiable:
+its power capacity, its operation modes (see below) and the state of charge it must still reach.
+Every side of a range is a number, because the planner always knows the device's power capacity.
+A schedule served without rules has no ``reaction`` key and reads exactly as before.
+When ``get_schedule`` converts the unit itself (for servers older than v0.32.0), it converts the rules along with the values.
+
+A single reacting device
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+With one reacting device, the residual it is given is the deviation from the balance point:
+the net power at the connection, minus the device's realized power, minus the reference.
+``flexmeasures_client.reaction`` parses the rules and evaluates them with pure functions, with no state and no I/O.
+Next to them it offers four controller-side helpers that hold the little state a live loop needs between samples,
+``ExitGate`` (the current excursion outside the band), ``DriftGate`` (the energy absorbed since the last plan),
+``Smoother`` (the window of recent samples) and ``ModePolicy`` (the operation mode the device is in),
+which the sections below introduce in turn:
+
+.. code-block:: python
+
+    from flexmeasures_client.reaction import ReactionSchedule
+
+    plan = ReactionSchedule.from_schedule(schedule)
+    if not plan.has_rules:
+        print("The server served no reaction rules.")
+
+    # At meter speed:
+    now = ...
+    slot = plan.slot(now)
+    deviation = (meter_power - charger_power) - plan.rules[slot].reference
+    setpoint = plan.react_at(now, residual=deviation)
+
+The setpoint is ``clip(p - react * deviation, band)``, with ``p`` the slot's schedule value.
+When the house behaves as forecast and the plan sits on its balance point, the deviation is zero and the setpoint is the plan.
+
+Devices with operation modes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A charger that delivers nothing between zero and 1.4 kW in either direction declares that in its flex-model,
+so that neither the plan nor a band lands in that dead zone:
+
+.. code-block:: python
+
+    flex_model = {
+        "power-capacity": "7.4 kW",
+        "react": True,
+        "operation-modes": [
+            {"production-range": ["1.4 kW", "7.4 kW"]},
+            {"consumption-range": ["0 kW", "0 kW"]},
+            {"consumption-range": ["1.4 kW", "7.4 kW"]},
+        ],
+    }
+
+Its band then has one range per operation mode, ``[[-7.4, -1.4], [0, 0], [1.4, 7.4]]`` in kW.
+A continuous answer that falls in a hole between two ranges becomes the edge of that hole on the side of the mode the device is in,
+which at the start of a slot is the mode that contains ``p``; a value beyond the outermost edge becomes that edge:
+
+.. code-block:: python
+
+    from flexmeasures_client.reaction import ReactionRule
+
+    rule = ReactionRule(reference=-0.4, react=1, band=[(-7.4, -1.4), (0.0, 0.0), (1.4, 7.4)])
+    rule.react_to(p=2.0, residual=1.2)  # 0.8 kW lies in the dead zone below the charging mode: returns 1.4
+    rule.react_to(p=2.0, residual=1.4)  # 0.6 kW, nearer to 0, but still this side of the dead zone: 1.4
+    rule.react_to(p=2.0, residual=2.5)  # -0.5 kW lies in the next hole down; its edge on the charging side is idle: 0.0
+    rule.react_to(p=2.0, residual=1.2, current=(0.0, 0.0))  # the same 0.8 kW from idle: 0.0
+
+Rounding to the mode's side rather than to the nearest edge keeps a device from idling on a deviation it was meant to absorb.
+Take a charger with the modes idle and 1.4 to 7.4 kW, a forecast surplus of 0.5 kW behind the meter, a plan of 1.4 kW,
+and a reference of -1.4 kW: the modes make the plan miss the kink, so the server serves the balance point rather than the forecast.
+When the house behaves as forecast, the deviation from that balance point is 0.9 kW, expected and non-zero;
+the rule's continuous answer is 0.5 kW, in the hole, and the rounding brings the charger back to its plan of 1.4 kW where the nearest edge would have idled it.
+1.0 kW of extra sun makes it charge at 1.5 kW.
+
+Which mode the device is in is state, and switching modes is the slow, wearing transition on a real charger,
+so :class:`flexmeasures_client.reaction.ModePolicy` keeps that state next to the pure function.
+``start_slot(p, band)`` puts the device in the mode that contains the plan; ``observe(when, raw)`` takes the rule's continuous answer
+(``p - react * residual``) and returns the setpoint, rounded relative to the current mode.
+By default the policy never switches within a slot: it holds the plan's mode, and every raw value outside that mode,
+in a hole, inside another mode or beyond the band, is clipped to the mode's nearer edge (1.4 kW for a charging car asked to idle or to discharge).
+Crossing to idle is a mode change like any other, and happens only through a switch.
+With a ``dwell``, the policy switches once the raw value has lain inside another mode, at least ``margin`` past the hole, for that long;
+switching back obeys the same dwell and margin.
+A raw value counts as inside idle when it lies on idle or beyond it, seen from the current mode, and the margin does not apply to idle,
+since there is nothing to be past; so when a cloud lasts, a charging car goes idle after the dwell.
+A lasting deviation the policy will not follow leaves a residual the device does not absorb;
+that is what the exit gate below is for, which the policy leaves unchanged.
+Deadbands on commands and the device's own settle time are left to the device drivers in the controller.
+
+Several reacting devices
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The devices that react in a slot (``react`` 1) form the chain for that slot, in the order in which the flex-model lists them.
+They react in series: instead of the whole deviation at the meter, each device is given a residual,
+which is that deviation, plus the departures from plan of the devices outside the chain,
+plus the departures of the devices before it in the chain.
+:func:`residuals` computes these from the plans and the realized powers:
+
+.. code-block:: python
+
+    from flexmeasures_client.reaction import residuals
+
+    given = residuals(
+        deviation=-3.0,  # 3 kW more export than forecast
+        chain=["battery", "charger"],  # the devices with react = 1, in order
+        plans={"battery": 0.0, "charger": 4.4, "pv": -5.0},
+        realized={"battery": 3.0, "charger": 4.4, "pv": -5.0},
+    )
+    # given == {"battery": -3.0, "charger": 0.0}: the battery took the whole deviation
+
+Each device then evaluates its own rule with the residual it is given, in place of the deviation.
+``examples/reaction_rules.py`` triggers a schedule with these fields and walks the day sample by sample through the local loop,
+with the real pieces: the deviation at the meter goes through the smoother, the rule gives the setpoint, what the device could not absorb is the residual,
+and the exit gate says when a retrigger is due, which the probe only marks (after ``--turnaround`` seconds the gate is told the plan arrived and the same rules continue).
+It prints the setpoint per slot, every band exit with the energy past the band, and a summary with the counts;
+it exits with status 2 when the server served no rules, so it doubles as a smoke test.
+The loop's knobs are options with the classes' defaults (``--window``, ``--median``, ``--dwell``, ``--min-energy``, ``--tolerance``),
+and a recorded deviation replaces the scripted one with ``--deviation-csv`` (``--surprise-csv`` still works), a CSV with a header and the columns ``time`` (ISO 8601 with an offset)
+and ``deviation`` (or ``surprise``; in ``--deviation-unit``, kW by default), walked in time order against the slot each sample falls in; samples outside the schedule are skipped and counted.
+So a day's recording can be replayed against a real schedule with different knobs, to see how many exits and retriggers each setting gives.
+Every retrigger is printed as it happens, with the reason the gate gave (``band exit``, ``drift``, ``drift in target window`` or ``drift before target``).
+``--log PATH`` writes one CSV row per sample, flushed at once so the file can be watched while the probe runs:
+the raw and the smoothed deviation, the slot start, the plan, the react share, the raw and the commanded setpoint, the residual,
+whether it is outside the band, the exit gate's energy past the band, the drift, the operation mode, the event (``retrigger`` or ``plan arrived``), the reason and whether a request is in flight.
+Powers are in kW and energies in kWh whatever the schedule's unit, as the column names say (``plan_kw``, ``drift_kwh``).
+For a live test next to a recorder that appends to the CSV, ``--follow`` keeps reading it as it grows:
+the rows present are walked, then every ``--poll`` seconds (1 by default) the rows appended since, until Ctrl-C or until the wall clock passes ``--until``,
+after which the summary and the exit code are as usual.
+Rows must come in time order: a row before the previous one is refused with a warning, and a last line without its newline waits for the next poll.
+The schedule stays the one fetched at the start, unless ``--refetch MINUTES`` is given:
+then a new schedule is triggered every so many minutes with the same window and flex-model,
+since a scheduling job's schedule never changes, so fetching the first job again would bring nothing new;
+it is used from the next sample on, and both gates are told the plan arrived;
+a refetch that fails or comes back without rules leaves the current schedule in use.
+
+A day after saldering
+~~~~~~~~~~~~~~~~~~~~~
+
+Until the end of 2026, Dutch households net exported energy against imported energy (*saldering*),
+so a kilowatt-hour is worth the same whichever way it crosses the meter and a schedule that is a little off costs nothing.
+From 2027 an exported kilowatt-hour earns the feed-in price, far below the import price and negative in some hours.
+A schedule is then only as good as the forecast it was built on, and a household's forecast is wrong within minutes.
+
+``examples/reaction_rules_saldering.py`` simulates one such day for a bidirectional charger, offline:
+a forecast of everything behind the meter, the actual with a cloud, a sunny spell and the oven,
+the plan a scheduler would make under the forecast, and the reaction rules that would come with it.
+The rules are evaluated with ``flexmeasures_client.reaction.react``.
+It needs matplotlib for the pictures (``uv sync --group examples``); the numbers print without it.
+
+.. image:: https://raw.githubusercontent.com/FlexMeasures/screenshots/main/flexmeasures-client/reaction-rules-day.png
+    :alt: Three panels over one day: the house against its forecast, the net power at the connection with a plain schedule and with reaction rules, and the charger's plan and setpoint.
+    :width: 100%
+
+Following the plan blindly, the charger keeps charging at the planned rate through the cloud, so the house imports,
+and keeps the planned rate through the sunny spell, so the surplus is exported at a negative price;
+in the evening it discharges as planned while the oven pushes the house into the peak price.
+With reaction rules the charger charges less during the cloud, more during the sunny spell and discharges harder during the oven,
+within its band, and the connection stays where the plan put it.
+
+.. image:: https://raw.githubusercontent.com/FlexMeasures/screenshots/main/flexmeasures-client/reaction-rules-cost.png
+    :alt: Four bars with the cost of the same day: under saldering, the plan as expected, a plain schedule after saldering, and reaction rules after saldering.
+    :width: 100%
+
+The plain schedule costs about a euro more on this day than the planner expected; reaction rules bring the day back to within a few cents of the plan,
+which is also what the same day used to cost under saldering.
+
+A band exit, second by second
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A rule can only absorb what its band allows. When more is left over for long enough, the controller asks for a new plan,
+and ``examples/reaction_rules_retrigger.py`` shows how, at the meter's sampling rate.
+The car must keep energy for the morning, so it can discharge only 1.5 kW more than planned.
+First the kettle adds 3 kW for two minutes: the rule pins the charger to its band edge at once and 1.5 kW are left over,
+but two minutes of that is 50 Wh, a few cents, and not worth a scheduling run, so nothing fires.
+Then the oven adds 4.5 kW and stays: 3 kW are left over, and after the gate's dwell and 100 Wh past the band one retrigger fires with fresh meter data.
+Nothing else fires while the request is in flight, even when the oven's element cycles off for a moment,
+and the new plan arrives half a minute later with a wider band and a plan that closes the residual.
+
+.. image:: https://raw.githubusercontent.com/FlexMeasures/screenshots/main/flexmeasures-client/reaction-rules-retrigger.png
+    :alt: Four panels over seven minutes: the surprise with a kettle and an oven, the charger pinned to its band edge until a new plan widens the band, the residual, and the energy past the band with the threshold at which the retrigger fires.
+    :width: 100%
+
+The gate is :class:`flexmeasures_client.reaction.ExitGate`, a stateful piece next to the pure functions:
+it is fed every sample's residual and says when a retrigger is due, needing both a dwell (the slowest commanded device's settle time plus one sample,
+so a residual only counts once every device has had the chance to land) and a minimum energy past the band;
+after ``request_sent()`` nothing fires until ``plan_arrived()``.
+Its thresholds are parameters of the gate, not settings of the client, because the controller that runs the loop owns them
+and measures the settle times they rest on.
+The gate sees what the rule and the mode policy left over: a deviation the device will not follow into another mode shows up here as a residual.
+Next to the gate, :class:`flexmeasures_client.reaction.Smoother` takes the noise out of the per-sample deviation before it reaches the rule:
+a median over a few samples kills one-second spikes and a mean over a window of a few seconds takes out the jitter of a meter and a charger polled at different moments,
+at the price of about half a window of lag. Smooth the deviation and feed the smoothed residual to the gate; never smooth a fuse guard. The timings in the picture are placeholders, except the scheduling round trip,
+which takes 20 to 30 seconds in practice.
+
+Retriggering after absorbing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The exit gate only sees what went past the band; what a device absorbs inside its band never reaches it.
+Yet absorbing moves the device's state of charge away from the plan, and nothing in the rules gives it back:
+off the price kink the band is one-sided, so the drift even accumulates in one direction.
+The rule is therefore: a controller that follows the rules retriggers after absorbing,
+once the state of charge has drifted by a set amount from the plan, and in any case before a target.
+
+That is :class:`flexmeasures_client.reaction.DriftGate`, a separate gate because it answers a different question:
+the exit gate asks whether the rule could not cope, the drift gate whether the device has left its plan.
+It integrates realised minus planned power (in kW) since the last plan into a drift in kWh,
+and fires once the drift reaches ``threshold`` in either direction,
+or, given a ``lead``, when one of its ``targets`` is that close and the drift reaches ``min_drift_before_target``, at most once per target.
+Choose the threshold relative to the room the device has left before its next target; 0.5 kWh is a first default.
+A target is a moment or a window, given as a ``(start, end)`` pair, for a target that may fall due any time within it, such as a departure between 07:00 and 08:00;
+a moment is stored as a window of one moment.
+The lead counts towards the window's start, and a window is past only after its end, so a window that has started still fires once on some drift.
+While a sample lies inside a target window, ``threshold_in_window`` (in kWh) replaces ``threshold`` when it is set,
+since a device that may be asked to deliver at any moment has less room to drift.
+It shares the exit gate's protocol: ``observe(when, realized, planned)`` per sample, ``request_sent()``,
+and ``plan_arrived()``, which resets the drift, because the new plan starts from the measured state of charge.
+Keep one request in flight for both gates, whichever fires first, and tell both when it goes out and when the plan arrives.
+Each gate records why it fired in ``reason``, until ``plan_arrived()`` clears it:
+``"band exit"`` for the exit gate, and ``"drift"``, ``"drift in target window"`` or ``"drift before target"`` for the drift gate.
+The exit gate also tells how long the current excursion has lasted, as ``outside_for``.
+
+.. code-block:: python
+
+    from datetime import timedelta
+
+    from flexmeasures_client.reaction import DriftGate
+
+    drift_gate = DriftGate(
+        threshold=0.5,
+        lead=timedelta(minutes=30),
+        targets=[(earliest_departure, latest_departure)],
+        threshold_in_window=0.1,
+    )
+
+    # Per sample, in kW, next to the exit gate:
+    if exit_gate.observe(now, residual) or drift_gate.observe(now, setpoint, p):
+        exit_gate.request_sent()
+        drift_gate.request_sent()
+        ...  # request a new schedule; when it arrives, call plan_arrived() on both gates
+
+The probe ``examples/reaction_rules.py`` feeds it the commanded setpoint against the plan, with the knobs ``--drift``, ``--drift-lead``, ``--target-at``,
+``--target-window START/END`` (two ISO 8601 moments with offsets) and ``--drift-in-window``.
+
 Waiting, legacy polling, and errors
 -----------------------------------
 

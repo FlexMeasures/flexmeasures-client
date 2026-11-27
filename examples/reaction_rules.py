@@ -1,0 +1,1119 @@
+"""Trigger a schedule with reaction rules, parse them and walk a day of samples through the local loop.
+
+The script opts in to reaction rules with ``react: true`` on the device's flex-model,
+fetches the schedule, parses its ``reaction`` array and walks the day sample by sample,
+the way a home controller's loop does, with the real pieces of ``flexmeasures_client.reaction``:
+the deviation at the meter (what its uncontrolled part shows against the reference) goes through the :class:`Smoother`, the rule gives the setpoint,
+rounded to the device's operation modes by the :class:`ModePolicy` (which holds the plan's mode unless ``--mode-dwell`` lets it switch),
+what the device could not absorb is the residual, and the :class:`ExitGate` says when a retrigger is due.
+The :class:`DriftGate` watches what the device absorbed inside its band, the commanded setpoint against the plan,
+and says when that has moved it far enough from its plan (``--drift``), or, with ``--drift-lead``, when a target given with ``--target-at`` is near;
+a target that falls due within a window is given with ``--target-window START/END``, and ``--drift-in-window`` holds the drift to a tighter threshold inside it.
+One request is in flight at a time, from whichever gate fires first.
+A retrigger in this probe only marks the moment: no new schedule is requested,
+and after ``--turnaround`` seconds both gates are told that the plan arrived and the same rules continue.
+See FlexMeasures/flexmeasures-client#297 for the contract.
+
+The deviation is scripted by default (a cooking step, a sunny spell and a wobble, one sample per ``--sample`` seconds),
+or replayed from a recording with ``--deviation-csv``: a CSV with a header and two columns,
+``time`` (ISO 8601 with an offset) and ``deviation`` (in ``--deviation-unit``), walked in time order.
+``--surprise-csv``, ``--surprise-unit`` and a ``surprise`` column are accepted as the older names.
+With ``--follow`` the recording is followed while it grows, for a live test next to a recorder:
+the rows present are walked, then every ``--poll`` seconds (1 by default) the rows appended since,
+until Ctrl-C or until the wall clock passes ``--until``, after which the summary prints as usual.
+A last line without its newline waits for the next poll, and a row before the previous one is refused with a warning.
+The schedule is the one fetched at the start; ``--refetch MINUTES`` triggers a new one every so many minutes,
+with the same window and flex-model (a scheduling job's schedule never changes, so fetching the first job again would bring nothing new),
+and tells both gates that the plan arrived once it is in use.
+The loop's knobs are options, with the defaults of the classes.
+
+Every retrigger is printed as it happens, with its reason: ``band exit``, ``drift``, ``drift in target window`` or ``drift before target``.
+With ``--log PATH`` every sample becomes one row of a CSV, flushed at once, with the columns of :data:`LOG_COLUMNS`:
+the raw and the smoothed deviation, the slot, the plan, the react share, the raw and the commanded setpoint, the residual,
+whether it is outside the band, the exit gate's energy past the band, the drift, the operation mode, the event (``retrigger`` or ``plan arrived``), the reason and whether a request is in flight;
+powers are in kW and energies in kWh, whatever the schedule's unit.
+It prints the setpoint per slot, every band exit with the energy past the band, every drift retrigger, and a summary,
+and doubles as a smoke test against a FlexMeasures server that serves rules, through its exit code:
+
+- 0: the server served rules and every setpoint respected them;
+- 1: the trigger or the fetch failed, a setpoint broke an invariant, or the recording could not be read;
+- 2: the server served the schedule without rules.
+
+Usage::
+
+    python examples/reaction_rules.py --host localhost:5000 --no-ssl \\
+        --email user@example.com --password secret \\
+        --sensor 8 --price-sensor 7 \\
+        --deviation-csv deviation.csv --window 5 --median 3 --dwell 21 --min-energy 0.1 \\
+        --drift 0.5 --drift-lead 30 --target-at 2026-12-01T07:00:00+01:00
+
+    python examples/reaction_rules.py ... --deviation-csv live.csv --follow --refetch 15 --log walk.csv \\
+        --target-window 2026-12-01T07:00:00+01:00/2026-12-01T08:00:00+01:00 --drift-in-window 0.2
+
+Every connection option can be given through the environment instead, as ``FLEXMEASURES_HOST``, ``FLEXMEASURES_EMAIL``,
+``FLEXMEASURES_PASSWORD``, ``FLEXMEASURES_SENSOR`` and ``FLEXMEASURES_PRICE_SENSOR``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import csv
+import math
+import os
+import signal
+import sys
+from dataclasses import dataclass, field, fields
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Iterable, Iterator, TextIO
+
+import pandas as pd
+
+from flexmeasures_client import FlexMeasuresClient
+from flexmeasures_client.client import REACTION_MIN_SERVER_VERSION, convert_units
+from flexmeasures_client.reaction import (
+    DriftGate,
+    ExitGate,
+    InvalidReactionError,
+    ModePolicy,
+    ReactionSchedule,
+    Smoother,
+    react,
+)
+
+NO_RULES = 2
+
+_GATE_DEFAULTS = {f.name: f.default for f in fields(ExitGate)}
+DEFAULT_WINDOW_S = Smoother().window.total_seconds()
+DEFAULT_MEDIAN = Smoother().median_samples
+# The gate has no default dwell, as the controller measures it: a 20 s settle time plus one sample, as in the retrigger example.
+DEFAULT_DWELL_S = 21.0
+DEFAULT_MIN_ENERGY = _GATE_DEFAULTS["min_energy"]
+DEFAULT_TOLERANCE = _GATE_DEFAULTS["tolerance"]
+DEFAULT_DRIFT_KWH = DriftGate().threshold
+DEFAULT_TURNAROUND_S = 30.0
+DEFAULT_SAMPLE_S = 1.0
+DEFAULT_POLL_S = 1.0
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Read the connection, the sensors, the scheduling window, the deviation and the loop's knobs."""
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    env = os.environ.get
+    parser.add_argument("--host", default=env("FLEXMEASURES_HOST", "localhost:5000"))
+    parser.add_argument("--no-ssl", action="store_true", help="connect over http")
+    parser.add_argument("--email", default=env("FLEXMEASURES_EMAIL"))
+    parser.add_argument("--password", default=env("FLEXMEASURES_PASSWORD"))
+    parser.add_argument(
+        "--token-file",
+        type=Path,
+        default=env("FLEXMEASURES_TOKEN_FILE"),
+        help="a file holding an access token to use instead of the password, for an account with two-factor authentication",
+    )
+    parser.add_argument(
+        "--sensor",
+        type=int,
+        default=env("FLEXMEASURES_SENSOR"),
+        help="the power sensor of the device to schedule",
+    )
+    parser.add_argument(
+        "--price-sensor",
+        type=int,
+        default=env("FLEXMEASURES_PRICE_SENSOR"),
+        help="the consumption price sensor, optional",
+    )
+    parser.add_argument(
+        "--start",
+        default=None,
+        help="start of the scheduling window, default: the coming midnight (UTC)",
+    )
+    parser.add_argument("--duration", default="P1D")
+    parser.add_argument("--unit", default="kW", help="the unit of the schedule")
+    parser.add_argument(
+        "--power-capacity", default="7.4 kW", help="the device's power capacity"
+    )
+    parser.add_argument("--soc-at-start", type=float, default=20.0)
+    parser.add_argument("--soc-min", type=float, default=10.0)
+    parser.add_argument("--soc-max", type=float, default=60.0)
+
+    deviation = parser.add_argument_group("the deviation at the meter")
+    deviation.add_argument(
+        "--deviation-csv",
+        "--surprise-csv",
+        dest="deviation_csv",
+        type=Path,
+        default=None,
+        help="replay a recorded deviation: a CSV with a header and the columns time (ISO 8601 with offset) and deviation (or surprise)",
+    )
+    deviation.add_argument(
+        "--deviation-unit",
+        "--surprise-unit",
+        dest="deviation_unit",
+        default="kW",
+        help="the unit of the recorded deviation, converted to the schedule's unit (default: kW)",
+    )
+    deviation.add_argument(
+        "--follow",
+        action="store_true",
+        help="keep reading the --deviation-csv as it grows, walking appended rows as they arrive, until Ctrl-C or --until",
+    )
+    deviation.add_argument(
+        "--poll",
+        type=float,
+        default=DEFAULT_POLL_S,
+        help=f"seconds between reads of the followed recording (default: {DEFAULT_POLL_S:g})",
+    )
+    deviation.add_argument(
+        "--until",
+        default=None,
+        help="stop following once the wall clock passes this moment, in ISO 8601 with an offset (default: until Ctrl-C)",
+    )
+    deviation.add_argument(
+        "--refetch",
+        type=float,
+        default=None,
+        metavar="MINUTES",
+        help="while following, trigger and fetch a new schedule every so many minutes, with the same window and flex-model (default: never)",
+    )
+    deviation.add_argument(
+        "--sample",
+        type=float,
+        default=DEFAULT_SAMPLE_S,
+        help=f"seconds between the samples of the scripted deviation (default: {DEFAULT_SAMPLE_S:g})",
+    )
+
+    parser.add_argument(
+        "--log",
+        type=Path,
+        default=None,
+        help="write one CSV row per sample to this file, flushed every row: powers in kW, energies in kWh",
+    )
+
+    knobs = parser.add_argument_group("the loop's knobs")
+    knobs.add_argument(
+        "--window",
+        type=float,
+        default=DEFAULT_WINDOW_S,
+        help=f"the smoother's mean, in seconds (default: {DEFAULT_WINDOW_S:g})",
+    )
+    knobs.add_argument(
+        "--median",
+        type=int,
+        default=DEFAULT_MEDIAN,
+        help=f"how many of the latest samples the smoother's median spans, 1 disables it (default: {DEFAULT_MEDIAN})",
+    )
+    knobs.add_argument(
+        "--dwell",
+        type=float,
+        default=DEFAULT_DWELL_S,
+        help=f"the gate's dwell, in seconds: the slowest device's settle time plus one sample (default: {DEFAULT_DWELL_S:g})",
+    )
+    knobs.add_argument(
+        "--min-energy",
+        type=float,
+        default=DEFAULT_MIN_ENERGY,
+        help=f"energy past the band before a retrigger, in the schedule's unit times hours, kWh for kW (default: {DEFAULT_MIN_ENERGY:g})",
+    )
+    knobs.add_argument(
+        "--tolerance",
+        type=float,
+        default=DEFAULT_TOLERANCE,
+        help=f"residuals within this magnitude count as inside the band, in the schedule's unit (default: {DEFAULT_TOLERANCE:g})",
+    )
+    knobs.add_argument(
+        "--mode-dwell",
+        type=float,
+        default=None,
+        help="seconds a raw setpoint must lie in another operation mode before the device switches to it (default: never within a slot)",
+    )
+    knobs.add_argument(
+        "--mode-margin",
+        type=float,
+        default=0.0,
+        help="how far past the hole a raw setpoint must lie in another mode to count, in the schedule's unit (default: 0)",
+    )
+    knobs.add_argument(
+        "--drift",
+        type=float,
+        default=DEFAULT_DRIFT_KWH,
+        help=f"energy absorbed inside the band, away from the plan, before a retrigger, in kWh (default: {DEFAULT_DRIFT_KWH:g})",
+    )
+    knobs.add_argument(
+        "--drift-lead",
+        type=float,
+        default=None,
+        help="minutes before a target at which some drift already retriggers (default: none, the drift threshold alone)",
+    )
+    knobs.add_argument(
+        "--target-at",
+        dest="targets",
+        action="append",
+        default=[],
+        help="the moment of a target, in ISO 8601 with an offset; repeat for more targets",
+    )
+    knobs.add_argument(
+        "--target-window",
+        dest="target_windows",
+        action="append",
+        default=[],
+        metavar="START/END",
+        help="a target that falls due within a window, as two ISO 8601 moments with offsets separated by a slash; repeat for more targets",
+    )
+    knobs.add_argument(
+        "--drift-in-window",
+        type=float,
+        default=None,
+        help="the drift threshold while inside a target window, in kWh (default: the --drift threshold)",
+    )
+    knobs.add_argument(
+        "--turnaround",
+        type=float,
+        default=DEFAULT_TURNAROUND_S,
+        help=f"seconds from a retrigger to the plan's arrival, after which the gate is reset (default: {DEFAULT_TURNAROUND_S:g})",
+    )
+
+    args = parser.parse_args(argv)
+    for name in ("email", "password", "sensor"):
+        if getattr(args, name) is None:
+            parser.error(f"--{name.replace('_', '-')} is required")
+    for name in ("sample", "window", "dwell", "turnaround"):
+        if getattr(args, name) <= 0:
+            parser.error(f"--{name} must be positive")
+    if args.drift <= 0:
+        parser.error("--drift must be positive")
+    if args.drift_lead is not None and args.drift_lead <= 0:
+        parser.error("--drift-lead must be positive")
+    if args.poll <= 0:
+        parser.error("--poll must be positive")
+    if args.refetch is not None and args.refetch <= 0:
+        parser.error("--refetch must be positive")
+    if args.follow and args.deviation_csv is None:
+        parser.error("--follow needs --deviation-csv")
+    for name in ("until", "refetch"):
+        if getattr(args, name) is not None and not args.follow:
+            parser.error(f"--{name} needs --follow")
+    if args.until is not None:
+        try:
+            until = pd.Timestamp(args.until).to_pydatetime()
+        except ValueError:
+            parser.error(f"--until {args.until!r} is not an ISO 8601 moment")
+        if until.tzinfo is None:
+            parser.error(f"--until {args.until!r} needs an offset")
+        args.until = until
+    if args.drift_in_window is not None and args.drift_in_window <= 0:
+        parser.error("--drift-in-window must be positive")
+
+    def moment(text: str, option: str) -> datetime:
+        try:
+            when = pd.Timestamp(text).to_pydatetime()
+        except ValueError:
+            parser.error(f"{option} {text!r} is not an ISO 8601 moment")
+        if when.tzinfo is None:
+            parser.error(f"{option} {text!r} needs an offset")
+        return when
+
+    targets: list[datetime | tuple[datetime, datetime]] = [
+        moment(target, "--target-at") for target in args.targets
+    ]
+    for window in args.target_windows:
+        if window.count("/") != 1:
+            parser.error(f"--target-window {window!r} should be START/END")
+        start, end = (moment(part, "--target-window") for part in window.split("/"))
+        if end < start:
+            parser.error(f"--target-window {window!r} ends before it starts")
+        targets.append((start, end))
+    args.targets = sorted(
+        targets,
+        key=lambda target: target if isinstance(target, tuple) else (target, target),
+    )
+    if args.mode_dwell is not None and args.mode_dwell <= 0:
+        parser.error("--mode-dwell must be positive")
+    if args.mode_margin < 0:
+        parser.error("--mode-margin must not be negative")
+    if args.median < 1:
+        parser.error("--median must be at least 1")
+    if args.start is None:
+        tomorrow = datetime.now(timezone.utc).date() + timedelta(days=1)
+        args.start = datetime.combine(tomorrow, datetime.min.time(), timezone.utc)
+    return args
+
+
+def flex_fields(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return the flex-model that opts in to reaction rules for one device, and the flex-context."""
+    flex_model = {
+        "soc-unit": "kWh",
+        "soc-at-start": args.soc_at_start,
+        "soc-min": args.soc_min,
+        "soc-max": args.soc_max,
+        "power-capacity": args.power_capacity,
+        "react": True,
+    }
+    flex_context: dict[str, Any] = {}
+    if args.price_sensor is not None:
+        flex_context["consumption-price"] = {"sensor": args.price_sensor}
+    return flex_model, flex_context
+
+
+def scripted_deviation(slots: int, amplitude: float = 1.0) -> list[float]:
+    """Return a deviation of the uncontrolled part of the meter from the reference per slot, in the schedule's unit.
+
+    The household behaves as forecast at first, then someone cooks (more import than forecast),
+    then the sun comes out (less import than forecast), with a small wobble throughout.
+    """
+    deviation = []
+    for index in range(slots):
+        fraction = index / max(slots, 1)
+        value = 0.1 * amplitude * math.sin(2 * math.pi * 4 * fraction)
+        if 0.3 <= fraction < 0.4:
+            value += 1.5 * amplitude
+        if 0.5 <= fraction < 0.65:
+            value -= 2.0 * amplitude
+        deviation.append(value)
+    return deviation
+
+
+def scripted_samples(
+    schedule: ReactionSchedule, sample_seconds: float
+) -> Iterator[tuple[datetime, float]]:
+    """Yield the scripted deviation once per sample over the schedule, constant within a slot."""
+    per_slot = scripted_deviation(len(schedule))
+    step = timedelta(seconds=sample_seconds)
+    when = schedule.start
+    while when < schedule.end:
+        yield when, per_slot[schedule.slot(when)]
+        when += step
+
+
+def samples_from_csv(
+    path: Path, deviation_unit: str, schedule_unit: str
+) -> list[tuple[datetime, float]]:
+    """Read a recorded deviation series and return it in the schedule's unit, in time order.
+
+    The value column is ``deviation``, or ``surprise`` as the older name.
+
+    :raises ValueError: When the file lacks the columns, a time has no offset, or a value is not a number.
+    """
+    samples = []
+    with path.open(newline="") as file:
+        reader = csv.DictReader(file)
+        columns = set(reader.fieldnames or ())
+        column = "deviation" if "deviation" in columns else "surprise"
+        if "time" not in columns or column not in columns:
+            raise ValueError(
+                f"{path} needs a header with the columns time and deviation, got {reader.fieldnames}."
+            )
+        for number, row in enumerate(reader, start=2):
+            when = pd.Timestamp(row["time"]).to_pydatetime()
+            if when.tzinfo is None:
+                raise ValueError(f"{path} line {number}: the time needs an offset.")
+            try:
+                value = float(row[column])
+            except ValueError as error:
+                raise ValueError(
+                    f"{path} line {number}: {column} {row[column]!r} is not a number."
+                ) from error
+            samples.append((when, value))
+    samples.sort(key=lambda sample: sample[0])
+    values = convert_units(
+        [value for _, value in samples], deviation_unit, schedule_unit
+    )
+    return [(when, value) for (when, _), value in zip(samples, values)]
+
+
+@dataclass
+class Knobs:
+    """The settings of the local loop, as the options give them."""
+
+    window: float = DEFAULT_WINDOW_S
+    median: int = DEFAULT_MEDIAN
+    dwell: float = DEFAULT_DWELL_S
+    min_energy: float = DEFAULT_MIN_ENERGY
+    tolerance: float = DEFAULT_TOLERANCE
+    turnaround: float = DEFAULT_TURNAROUND_S
+    mode_dwell: float | None = None
+    mode_margin: float = 0.0
+    drift: float = DEFAULT_DRIFT_KWH
+    drift_lead: float | None = None
+    targets: list[datetime | tuple[datetime, datetime]] = field(default_factory=list)
+    drift_in_window: float | None = None
+
+    @classmethod
+    def from_args(cls, args: argparse.Namespace) -> Knobs:
+        return cls(
+            window=args.window,
+            median=args.median,
+            dwell=args.dwell,
+            min_energy=args.min_energy,
+            tolerance=args.tolerance,
+            turnaround=args.turnaround,
+            mode_dwell=args.mode_dwell,
+            mode_margin=args.mode_margin,
+            drift=args.drift,
+            drift_lead=args.drift_lead,
+            targets=list(args.targets),
+            drift_in_window=args.drift_in_window,
+        )
+
+
+@dataclass
+class Exit:
+    """One excursion of the residual outside the band."""
+
+    start: datetime
+    end: datetime | None = None
+    energy: float = 0.0
+    retrigger_at: datetime | None = None
+
+
+@dataclass
+class DriftRetrigger:
+    """One retrigger of the drift gate, with the drift away from the plan at that moment and why it fired."""
+
+    at: datetime
+    drift: float
+    reason: str | None = None
+
+
+@dataclass
+class Walk:
+    """What the walk through the samples found."""
+
+    slot_deviation: list[float | None]
+    slot_setpoint: list[float | None]
+    exits: list[Exit] = field(default_factory=list)
+    retriggers: list[datetime] = field(default_factory=list)
+    drift_retriggers: list[DriftRetrigger] = field(default_factory=list)
+    samples: int = 0
+    skipped: int = 0
+    mode_switches: int = 0
+    problems: list[str] = field(default_factory=list)
+
+
+LOG_COLUMNS = [
+    "time",
+    "deviation_kw",
+    "smoothed_deviation_kw",
+    "slot_start",
+    "plan_kw",
+    "react",
+    "raw_setpoint_kw",
+    "setpoint_kw",
+    "residual_kw",
+    "outside",
+    "energy_outside_kwh",
+    "drift_kwh",
+    "mode_kw",
+    "event",
+    "reason",
+    "in_flight",
+]
+"""The columns of the per-sample log: powers in kW and energies in kWh, whatever the schedule's unit."""
+
+
+class Loop:
+    """The local loop of one device, fed one sample at a time: smoother, rule, mode policy, exit gate and drift gate.
+
+    With one reacting device, the residual is the deviation plus what the setpoint moved away from the plan.
+    The mode policy starts every slot in the mode that contains the plan and rounds the rule's answer relative to it.
+    The drift gate sees the commanded setpoint as the realised power and the plan value as the planned power, both in kW.
+    A retrigger, from whichever gate fires first, is printed with its reason, and both gates are told a request went out;
+    after the turnaround both gates are told the plan arrived, and the same rules continue.
+    A schedule installed with :meth:`install` after the first one also counts as the plan arriving.
+    With a log, every sample becomes one row of :data:`LOG_COLUMNS`, flushed at once, so the file can be watched while the loop runs.
+    """
+
+    def __init__(
+        self, schedule: ReactionSchedule, knobs: Knobs, log: TextIO | None = None
+    ):
+        self.knobs = knobs
+        self.result = Walk(
+            slot_deviation=[None] * len(schedule),
+            slot_setpoint=[None] * len(schedule),
+        )
+        self.smoother = Smoother(
+            window=timedelta(seconds=knobs.window), median_samples=knobs.median
+        )
+        self.gate = ExitGate(
+            dwell=timedelta(seconds=knobs.dwell),
+            min_energy=knobs.min_energy,
+            tolerance=knobs.tolerance,
+        )
+        self.drift_gate = DriftGate(
+            threshold=knobs.drift,
+            lead=(
+                None
+                if knobs.drift_lead is None
+                else timedelta(minutes=knobs.drift_lead)
+            ),
+            targets=list(knobs.targets),
+            threshold_in_window=knobs.drift_in_window,
+        )
+        self.policy = ModePolicy(
+            dwell=(
+                None
+                if knobs.mode_dwell is None
+                else timedelta(seconds=knobs.mode_dwell)
+            ),
+            margin=knobs.mode_margin,
+        )
+        self._log = log
+        self._writer = csv.writer(log) if log is not None else None
+        if self._writer is not None:
+            self._writer.writerow(LOG_COLUMNS)
+            self._flush()
+        self._slot_index: int | None = None
+        self._plan_due: datetime | None = None
+        self._current: Exit | None = None
+        self._last_seen: datetime | None = None
+        self._outside_reported: set[int] = set()
+        self._events: list[str] = []
+        self.schedule = schedule
+        self._check(schedule)
+        self._to_kw = convert_units([1.0], schedule.unit, "kW")[0]
+
+    def install(self, schedule: ReactionSchedule) -> None:
+        """Use a new schedule from the next sample on, and tell both gates the plan arrived."""
+        if (schedule.start, schedule.resolution, len(schedule)) != (
+            self.schedule.start,
+            self.schedule.resolution,
+            len(self.schedule),
+        ):
+            self.result.slot_deviation = [None] * len(schedule)
+            self.result.slot_setpoint = [None] * len(schedule)
+        self.schedule = schedule
+        self._check(schedule)
+        self._to_kw = convert_units([1.0], schedule.unit, "kW")[0]
+        self._slot_index = None
+        self._outside_reported.clear()
+        self._plan_arrived()
+
+    def _check(self, schedule: ReactionSchedule) -> None:
+        """Note every slot whose rule breaks an invariant."""
+        assert schedule.rules is not None
+        for index, (p, rule) in enumerate(zip(schedule.values, schedule.rules)):
+            if react(rule, p, 0.0) != p:
+                self.result.problems.append(
+                    f"slot {index}: a zero deviation does not return the plan"
+                )
+            if rule.react != 0 and rule.band and not rule.contains(p):
+                self.result.problems.append(
+                    f"slot {index}: the plan {p} is outside its own band"
+                )
+
+    def _plan_arrived(self) -> None:
+        self.gate.plan_arrived()
+        self.drift_gate.plan_arrived()
+        self._plan_due = None
+        self._events.append("plan arrived")
+
+    def feed(self, when: datetime, raw: float) -> None:
+        """Walk one sample of the deviation, in the schedule's unit, through the loop."""
+        schedule, knobs, result = self.schedule, self.knobs, self.result
+        assert schedule.rules is not None
+        try:
+            index = schedule.slot(when)
+        except IndexError:
+            result.skipped += 1
+            return
+        result.samples += 1
+        if self._plan_due is not None and when >= self._plan_due:
+            self._plan_arrived()
+        p, rule = schedule.values[index], schedule.rules[index]
+        if index != self._slot_index:
+            self.policy.start_slot(p, rule.band)
+            self._slot_index = index
+        deviation = self.smoother.update(when, raw)
+        raw_setpoint = p if rule.react == 0 else p - rule.react * deviation
+        setpoint = p if rule.react == 0 else self.policy.observe(when, raw_setpoint)
+        if (
+            rule.band
+            and not rule.contains(setpoint)
+            and index not in self._outside_reported
+        ):
+            self._outside_reported.add(index)
+            result.problems.append(
+                f"slot {index}: setpoint {setpoint} is outside the band"
+            )
+        residual = deviation + (setpoint - p)
+        outside = abs(residual) > knobs.tolerance
+        current = self._current
+        if outside:
+            if current is None:
+                current = self._current = Exit(start=when)
+                result.exits.append(current)
+            elif self._last_seen is not None:
+                current.energy += (
+                    abs(residual) * (when - self._last_seen).total_seconds() / 3600
+                )
+        elif current is not None:
+            current.end = when
+            current = self._current = None
+        to_kw = self._to_kw
+        exit_due = self.gate.observe(when, residual)
+        drift_due = self.drift_gate.observe(when, setpoint * to_kw, p * to_kw)
+        reasons = [
+            gate.reason
+            for gate, due in ((self.gate, exit_due), (self.drift_gate, drift_due))
+            if due and gate.reason is not None
+        ]
+        if exit_due:
+            result.retriggers.append(when)
+            if current is not None:
+                current.retrigger_at = when
+        elif drift_due:
+            result.drift_retriggers.append(
+                DriftRetrigger(when, self.drift_gate.drift, self.drift_gate.reason)
+            )
+        if exit_due or drift_due:
+            self.gate.request_sent()
+            self.drift_gate.request_sent()
+            self._plan_due = when + timedelta(seconds=knobs.turnaround)
+            self._events.append("retrigger")
+            print(f"retrigger at {when.isoformat()}: {'; '.join(reasons)}", flush=True)
+        result.slot_deviation[index] = deviation
+        result.slot_setpoint[index] = setpoint
+        self._last_seen = when
+        if self._writer is not None:
+            mode = self.policy.current
+            self._writer.writerow(
+                [
+                    when.isoformat(),
+                    _kw(raw * to_kw),
+                    _kw(deviation * to_kw),
+                    (schedule.start + schedule.resolution * index).isoformat(),
+                    _kw(p * to_kw),
+                    f"{rule.react:g}",
+                    _kw(raw_setpoint * to_kw),
+                    _kw(setpoint * to_kw),
+                    _kw(residual * to_kw),
+                    int(outside),
+                    _kw(self.gate.energy_outside * to_kw),
+                    _kw(self.drift_gate.drift),
+                    (
+                        ""
+                        if mode is None
+                        else f"[{_kw(mode[0] * to_kw)}, {_kw(mode[1] * to_kw)}]"
+                    ),
+                    "; ".join(self._events),
+                    "; ".join(reasons),
+                    int(self.gate.in_flight),
+                ]
+            )
+            self._flush()
+        self._events = []
+
+    def _flush(self) -> None:
+        if self._log is not None:
+            self._log.flush()
+
+    def finish(self) -> Walk:
+        """Return what the walk found so far."""
+        self.result.mode_switches = self.policy.switches
+        return self.result
+
+
+def _kw(value: float) -> str:
+    """Format a power in kW or an energy in kWh for the log, to the watt or watt-hour and below."""
+    return f"{value:.6f}"
+
+
+def walk(
+    schedule: ReactionSchedule,
+    samples: Iterable[tuple[datetime, float]],
+    knobs: Knobs,
+    log: TextIO | None = None,
+) -> Walk:
+    """Walk the samples through the smoother, the rule and the gates; keep the per-slot and per-exit results.
+
+    See :class:`Loop`, which this feeds every sample in turn.
+    """
+    loop = Loop(schedule, knobs, log)
+    for when, raw in samples:
+        loop.feed(when, raw)
+    return loop.finish()
+
+
+def _number(value: float | None, width: int, digits: int = 3) -> str:
+    return f"{'-':>{width}}" if value is None else f"{value:>{width}.{digits}f}"
+
+
+def print_slots(schedule: ReactionSchedule, result: Walk) -> None:
+    """Print the plan, the rule and the last sample's deviation and setpoint per slot."""
+    assert schedule.rules is not None
+    print(
+        f"{'slot start':<25} {'plan':>8} {'reference':>10} {'react':>5} {'deviation':>9} {'setpoint':>9}  band [{schedule.unit}]"
+    )
+    for index, (slot_start, p, rule) in enumerate(schedule):
+        assert rule is not None
+        band = ", ".join(f"[{low:g}, {high:g}]" for low, high in rule.band)
+        print(
+            f"{slot_start.isoformat():<25} {p:>8.3f} {rule.reference:>10.3f} {rule.react:>5.2g}"
+            f" {_number(result.slot_deviation[index], 9)} {_number(result.slot_setpoint[index], 9)}  {band}"
+        )
+
+
+def print_summary(result: Walk, unit: str, knobs: Knobs) -> None:
+    """Print every band exit with its energy past the band, and the counts."""
+    if result.exits:
+        print()
+        print(
+            f"{'exit':<25} {'end':<25} {'duration':>10} {'energy':>10} {'retrigger':<25}"
+        )
+        for exit_ in result.exits:
+            end = exit_.end.isoformat() if exit_.end is not None else "(still out)"
+            duration = str(exit_.end - exit_.start) if exit_.end is not None else "-"
+            retrigger = exit_.retrigger_at.isoformat() if exit_.retrigger_at else "-"
+            print(
+                f"{exit_.start.isoformat():<25} {end:<25} {duration:>10} {exit_.energy:>10.3f} {retrigger:<25}"
+            )
+    if result.drift_retriggers:
+        print()
+        print(f"{'drift retrigger':<25} {'drift [kWh]':>11}  reason")
+        for retrigger in result.drift_retriggers:
+            print(
+                f"{retrigger.at.isoformat():<25} {retrigger.drift:>11.3f}  {retrigger.reason or ''}"
+            )
+    energy = sum(exit_.energy for exit_ in result.exits)
+    print()
+    print(
+        f"Samples: {result.samples} walked, {result.skipped} outside the schedule skipped."
+        f" Band exits: {len(result.exits)}, retriggers: {len(result.retriggers)},"
+        f" drift retriggers: {len(result.drift_retriggers)},"
+        f" mode switches: {result.mode_switches},"
+        f" energy past the band: {energy:.3f} {unit}h."
+    )
+    print(
+        f"Knobs: window {knobs.window:g} s, median {knobs.median}, dwell {knobs.dwell:g} s,"
+        f" min-energy {knobs.min_energy:g} {unit}h, tolerance {knobs.tolerance:g} {unit}, turnaround {knobs.turnaround:g} s,"
+        f" mode-dwell {'hold' if knobs.mode_dwell is None else f'{knobs.mode_dwell:g} s'}, mode-margin {knobs.mode_margin:g} {unit},"
+        f" drift {knobs.drift:g} kWh, drift-lead {'none' if knobs.drift_lead is None else f'{knobs.drift_lead:g} min'},"
+        f" drift-in-window {'none' if knobs.drift_in_window is None else f'{knobs.drift_in_window:g} kWh'},"
+        f" targets {len(knobs.targets)}."
+    )
+
+
+async def fetch_schedule(
+    client: FlexMeasuresClient, args: argparse.Namespace
+) -> ReactionSchedule:
+    """Trigger a schedule for the device, wait for it and parse it.
+
+    :raises ValueError: When scheduling fails, the answer is not one schedule, or its reaction is invalid.
+    """
+    flex_model, flex_context = flex_fields(args)
+    try:
+        raw = await client.trigger_and_get_schedule(
+            sensor_id=args.sensor,
+            start=args.start,
+            duration=args.duration,
+            flex_model=flex_model,
+            flex_context=flex_context,
+            unit=args.unit,
+        )
+    except (ValueError, ConnectionError) as error:
+        raise ValueError(f"Scheduling failed: {error}") from error
+    if not isinstance(raw, dict):
+        raise ValueError(f"Expected one schedule, but got {type(raw).__name__}")
+    try:
+        return ReactionSchedule.from_schedule(raw)
+    except InvalidReactionError as error:
+        raise ValueError(f"The schedule's reaction is invalid: {error}") from error
+
+
+class CsvTail:
+    """Reads a recorded deviation that is still growing: each :meth:`read` returns the complete rows appended since the last one.
+
+    A last line without its newline is left for the next read, as the recorder may be writing it.
+    Rows must come in time order; a row before the previous one, or one that cannot be read, is refused with a warning and counted,
+    so that one bad line does not end a live run.
+    A file that does not exist yet reads as empty.
+    A file replaced by a shorter one (a recorder that starts afresh, or a sync that replaces the file) is read again from its start,
+    skipping the rows up to the last one already read.
+    """
+
+    def __init__(self, path: Path, deviation_unit: str, schedule_unit: str):
+        self.path = path
+        self.deviation_unit = deviation_unit
+        self.schedule_unit = schedule_unit
+        self.rows = 0
+        self.refused = 0
+        self._offset = 0
+        self._line = 0
+        self._columns: tuple[int, int] | None = None
+        self._last: datetime | None = None
+        self._skip_until: datetime | None = None
+
+    def read(self) -> list[tuple[datetime, float]]:
+        """Return the rows completed since the last read, in the schedule's unit.
+
+        :raises ValueError: When the header lacks the columns time and deviation (or surprise).
+        """
+        try:
+            with self.path.open("rb") as file:
+                if os.fstat(file.fileno()).st_size < self._offset:
+                    print(
+                        f"{self.path} was replaced by a shorter file; reading it from its start.",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    self._offset, self._line, self._columns = 0, 0, None
+                    self._skip_until = self._last
+                file.seek(self._offset)
+                data = file.read()
+        except FileNotFoundError:
+            return []
+        complete = data.rfind(b"\n") + 1
+        self._offset += complete
+        samples: list[tuple[datetime, float]] = []
+        for line in data[:complete].decode().splitlines():
+            self._line += 1
+            if not line.strip():
+                continue
+            cells = next(csv.reader([line]))
+            if self._columns is None:
+                self._columns = self._header(cells)
+                continue
+            sample = self._sample(cells)
+            if sample is not None:
+                samples.append(sample)
+        self.rows += len(samples)
+        values = convert_units(
+            [value for _, value in samples], self.deviation_unit, self.schedule_unit
+        )
+        return [(when, value) for (when, _), value in zip(samples, values)]
+
+    def _header(self, cells: list[str]) -> tuple[int, int]:
+        names = [cell.strip() for cell in cells]
+        column = "deviation" if "deviation" in names else "surprise"
+        if "time" not in names or column not in names:
+            raise ValueError(
+                f"{self.path} needs a header with the columns time and deviation, got {names}."
+            )
+        return names.index("time"), names.index(column)
+
+    def _sample(self, cells: list[str]) -> tuple[datetime, float] | None:
+        assert self._columns is not None
+        time_column, value_column = self._columns
+        where = f"{self.path} line {self._line}"
+        try:
+            when = pd.Timestamp(cells[time_column]).to_pydatetime()
+            value = float(cells[value_column])
+        except (IndexError, ValueError) as error:
+            self._refuse(f"{where} could not be read ({error}).")
+            return None
+        if when.tzinfo is None:
+            self._refuse(f"{where}: the time needs an offset.")
+            return None
+        if self._skip_until is not None:
+            if when <= self._skip_until:
+                return None
+            self._skip_until = None
+        if self._last is not None and when < self._last:
+            self._refuse(f"{where} comes before the previous row.")
+            return None
+        self._last = when
+        return when, value
+
+    def _refuse(self, message: str) -> None:
+        self.refused += 1
+        print(f"Refused: {message}", file=sys.stderr, flush=True)
+        return None
+
+
+Sleep = Callable[[float], Awaitable[None]]
+Clock = Callable[[], datetime]
+
+
+async def follow(
+    client: FlexMeasuresClient,
+    args: argparse.Namespace,
+    loop: Loop,
+    tail: CsvTail,
+    sleep: Sleep | None = None,
+    now: Clock | None = None,
+) -> None:
+    """Feed the loop the rows of a growing recording as they arrive, until interrupted or ``--until`` passes.
+
+    Every ``--poll`` seconds the rows appended since the last poll are walked.
+    With ``--refetch``, a new schedule is triggered every so many minutes with the same window and flex-model,
+    since a scheduling job's schedule never changes and the client has no call for the latest schedule of a device;
+    once it arrives with rules it is used from the next sample on, and both gates are told the plan arrived.
+    A refetch that fails, or that comes back without rules, is reported and the current schedule stays.
+    Ctrl-C ends the following after one last read, like ``--until``.
+
+    :param sleep: Waits so many seconds; by default it returns early on Ctrl-C. Tests pass a fake.
+    :param now:   The wall clock, against which ``--until`` and ``--refetch`` are timed. Tests pass a fake.
+    """
+    stopped = asyncio.Event()
+    event_loop = asyncio.get_running_loop()
+    try:
+        event_loop.add_signal_handler(signal.SIGINT, stopped.set)
+        handling_sigint = True
+    except (NotImplementedError, RuntimeError):
+        handling_sigint = False
+
+    async def wait(seconds: float) -> None:
+        try:
+            await asyncio.wait_for(stopped.wait(), seconds)
+        except asyncio.TimeoutError:
+            pass
+
+    sleep = sleep or wait
+    now = now or (lambda: datetime.now(timezone.utc))
+    every = None if args.refetch is None else timedelta(minutes=args.refetch)
+    next_refetch = None if every is None else now() + every
+    try:
+        while True:
+            for when, value in tail.read():
+                loop.feed(when, value)
+            if stopped.is_set() or (args.until is not None and now() >= args.until):
+                break
+            if next_refetch is not None and every is not None and now() >= next_refetch:
+                next_refetch = now() + every
+                await refetch(client, args, loop)
+            await sleep(args.poll)
+    finally:
+        if handling_sigint:
+            event_loop.remove_signal_handler(signal.SIGINT)
+
+
+async def refetch(
+    client: FlexMeasuresClient, args: argparse.Namespace, loop: Loop
+) -> None:
+    """Trigger and fetch a new schedule, and install it in the loop when it comes with rules."""
+    try:
+        schedule = await fetch_schedule(client, args)
+    except ValueError as error:
+        print(
+            f"Refetch failed, the current schedule stays: {error}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return
+    if not schedule.has_rules:
+        print(
+            "The refetched schedule came without rules, the current schedule stays.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return
+    loop.install(schedule)
+    print(
+        f"Refetched the schedule: {len(schedule)} slots from {schedule.start.isoformat()}, in use from the next sample.",
+        flush=True,
+    )
+
+
+async def run(
+    client: FlexMeasuresClient,
+    args: argparse.Namespace,
+    sleep: Sleep | None = None,
+    now: Clock | None = None,
+) -> int:
+    """Trigger, fetch, parse and walk; return the exit code.
+
+    ``sleep`` and ``now`` are handed to :func:`follow` with ``--follow``.
+    """
+    if not await client.server_version_at_least(REACTION_MIN_SERVER_VERSION):
+        print(
+            f"The server does not serve reaction rules: they need FlexMeasures {REACTION_MIN_SERVER_VERSION} or later"
+            " (a release candidate counts), and an older server refuses the opt-in. Nothing was triggered.",
+            file=sys.stderr,
+        )
+        return NO_RULES
+    try:
+        schedule = await fetch_schedule(client, args)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 1
+    print(
+        f"Schedule of {len(schedule)} slots of {schedule.resolution} from {schedule.start.isoformat()} in {schedule.unit}."
+    )
+    if not schedule.has_rules:
+        print(
+            "The server returned NO reaction rules with this schedule (no 'reaction' array)."
+            " The server may not serve rules yet, or the trigger did not opt in.",
+            file=sys.stderr,
+        )
+        return NO_RULES
+    samples: Iterable[tuple[datetime, float]] = ()
+    if args.deviation_csv is not None and not args.follow:
+        try:
+            samples = samples_from_csv(
+                args.deviation_csv, args.deviation_unit, schedule.unit
+            )
+        except (OSError, ValueError, NotImplementedError) as error:
+            print(f"The recorded deviation could not be read: {error}", file=sys.stderr)
+            return 1
+        print(f"Replaying {len(samples)} recorded samples from {args.deviation_csv}.")
+    elif args.deviation_csv is None:
+        samples = scripted_samples(schedule, args.sample)
+    knobs = Knobs.from_args(args)
+    try:
+        log = None if args.log is None else args.log.open("w", newline="")
+    except OSError as error:
+        print(f"The log could not be opened: {error}", file=sys.stderr)
+        return 1
+    try:
+        loop = Loop(schedule, knobs, log)
+        if args.follow:
+            tail = CsvTail(args.deviation_csv, args.deviation_unit, schedule.unit)
+            print(
+                f"Following {args.deviation_csv}, every {args.poll:g} s, until"
+                f" {'interrupted' if args.until is None else args.until.isoformat()}.",
+                flush=True,
+            )
+            try:
+                await follow(client, args, loop, tail, sleep=sleep, now=now)
+            except (OSError, ValueError, NotImplementedError) as error:
+                print(
+                    f"The recorded deviation could not be read: {error}",
+                    file=sys.stderr,
+                )
+                return 1
+            print(f"Followed {tail.rows} recorded samples, refused {tail.refused}.")
+        else:
+            for when, value in samples:
+                loop.feed(when, value)
+        result = loop.finish()
+    finally:
+        if log is not None:
+            log.close()
+    schedule = loop.schedule
+    assert schedule.rules is not None
+    print_slots(schedule, result)
+    print_summary(result, schedule.unit, knobs)
+    if result.problems:
+        print("\n".join(result.problems), file=sys.stderr)
+        return 1
+    reacting = sum(1 for rule in schedule.rules if rule.react != 0)
+    print(
+        f"All setpoints respect the rules; {reacting} of {len(schedule)} slots absorb the deviation."
+    )
+    return 0
+
+
+def read_token(path: Path | None) -> str | None:
+    """Read an access token from a file, without its surrounding whitespace."""
+    if path is None:
+        return None
+    return Path(path).read_text().strip() or None
+
+
+async def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    client = FlexMeasuresClient(
+        host=args.host,
+        ssl=not args.no_ssl,
+        email=args.email,
+        password=args.password or "",
+        access_token=read_token(args.token_file),
+    )
+    try:
+        return await run(client, args)
+    finally:
+        await client.close()
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))
