@@ -132,3 +132,25 @@ def test_outside_a_target_window_the_tighter_threshold_does_not_fire():
     # The same 0.12 kWh of drift, reached at ten minutes, after the window ended.
     assert _feed(gate, [PLAN + 0.7] * 601 + [PLAN] * 1199) == []
     assert gate.drift == pytest.approx(0.7 * 600 / 3600)
+
+
+def test_the_reason_says_drift_and_the_plan_clears_it():
+    gate = DriftGate(threshold=0.5)
+    assert gate.reason is None
+    assert _feed(gate, [PLAN + 3.0] * 1200) == [600]
+    assert gate.reason == "drift"
+    gate.plan_arrived()
+    assert gate.reason is None
+
+
+def test_the_reason_says_drift_before_target():
+    gate = DriftGate(lead=timedelta(minutes=10), targets=[T0 + timedelta(minutes=30)])
+    assert _feed(gate, [PLAN + 0.6] * 601 + [PLAN] * 1199) == [20 * 60]
+    assert gate.reason == "drift before target"
+
+
+def test_the_reason_says_drift_in_target_window():
+    window = (T0 + timedelta(minutes=20), T0 + timedelta(minutes=30))
+    gate = DriftGate(threshold=0.5, threshold_in_window=0.1, targets=[window])
+    assert _feed(gate, [PLAN + 0.7] * 601 + [PLAN] * 1199) == [20 * 60]
+    assert gate.reason == "drift in target window"

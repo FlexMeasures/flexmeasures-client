@@ -70,3 +70,22 @@ def test_samples_out_of_order_are_refused():
     gate.observe(T0 + SAMPLE, 0.0)
     with pytest.raises(ValueError):
         gate.observe(T0, 0.0)
+
+
+def test_the_reason_says_band_exit_and_the_plan_clears_it():
+    gate = ExitGate(dwell=timedelta(seconds=21), min_energy=0.1)
+    assert gate.reason is None
+    # An oven: 3 kW left over reaches 100 Wh after 120 s.
+    assert _feed(gate, [3.0] * 200) == [120]
+    assert gate.reason == "band exit"
+    gate.plan_arrived()
+    assert gate.reason is None
+
+
+def test_outside_for_is_the_duration_of_the_current_excursion():
+    gate = ExitGate(dwell=timedelta(seconds=21))
+    assert gate.outside_for == timedelta(0)
+    _feed(gate, [0.0] * 10 + [1.0] * 31)
+    assert gate.outside_for == timedelta(seconds=30)
+    gate.observe(T0 + timedelta(seconds=41), 0.0)
+    assert gate.outside_for == timedelta(0)

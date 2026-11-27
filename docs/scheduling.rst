@@ -467,6 +467,9 @@ since a device that may be asked to deliver at any moment has less room to drift
 It shares the exit gate's protocol: ``observe(when, realized, planned)`` per sample, ``request_sent()``,
 and ``plan_arrived()``, which resets the drift, because the new plan starts from the measured state of charge.
 Keep one request in flight for both gates, whichever fires first, and tell both when it goes out and when the plan arrives.
+Each gate records why it fired in ``reason``, until ``plan_arrived()`` clears it:
+``"band exit"`` for the exit gate, and ``"drift"``, ``"drift in target window"`` or ``"drift before target"`` for the drift gate.
+The exit gate also tells how long the current excursion has lasted, as ``outside_for``.
 
 .. code-block:: python
 

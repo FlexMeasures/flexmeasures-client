@@ -449,6 +449,8 @@ class ExitGate:
     :param min_energy: Energy past the band before a retrigger, in the residual's unit times hours
                        (kWh for a residual in kW).
     :param tolerance:  Residuals within this magnitude count as inside the band.
+
+    When :meth:`observe` returns True, ``reason`` says why, ``"band exit"``; :meth:`plan_arrived` clears it.
     """
 
     dwell: timedelta
@@ -457,7 +459,15 @@ class ExitGate:
     exited_at: datetime | None = None
     energy_outside: float = 0.0
     in_flight: bool = False
+    reason: str | None = None
     _last_seen: datetime | None = None
+
+    @property
+    def outside_for(self) -> timedelta:
+        """Return how long the current excursion has lasted as of the latest sample, or zero when the residual is inside the band."""
+        if self.exited_at is None or self._last_seen is None:
+            return timedelta(0)
+        return self._last_seen - self.exited_at
 
     def observe(self, when: datetime, residual: float) -> bool:
         """Feed one meter sample; return True when a retrigger is due now.
@@ -484,10 +494,13 @@ class ExitGate:
             self.energy_outside += abs(residual) * hours
         if self.in_flight:
             return False
-        return (
+        if (
             when - self.exited_at >= self.dwell
             and self.energy_outside >= self.min_energy
-        )
+        ):
+            self.reason = "band exit"
+            return True
+        return False
 
     def request_sent(self) -> None:
         """A scheduling request went out: nothing fires until the plan arrives."""
@@ -496,6 +509,7 @@ class ExitGate:
     def plan_arrived(self) -> None:
         """A new plan and its rules are installed: start afresh."""
         self.in_flight = False
+        self.reason = None
         self.exited_at = None
         self.energy_outside = 0.0
 
@@ -562,6 +576,10 @@ class DriftGate:
                                     they are stored as windows, a moment ``t`` as ``(t, t)``.
     :param threshold_in_window:     The drift that is worth a new plan while inside a target window, in kWh;
                                     ``None`` keeps ``threshold``.
+
+    When :meth:`observe` returns True, ``reason`` says why:
+    ``"drift"`` for the threshold, ``"drift in target window"`` for the in-window threshold,
+    and ``"drift before target"`` for a target within the lead; :meth:`plan_arrived` clears it.
     """
 
     threshold: float = 0.5
@@ -571,6 +589,7 @@ class DriftGate:
     threshold_in_window: float | None = None
     drift: float = 0.0
     in_flight: bool = False
+    reason: str | None = None
     _last_seen: datetime | None = None
     _targets_done: set[TargetWindow] = field(default_factory=set)
 
@@ -603,22 +622,21 @@ class DriftGate:
         if self.in_flight:
             return False
         due_targets = self._targets_within_lead(when)
-        if abs(self.drift) >= self._threshold_at(when) or (
-            due_targets and abs(self.drift) >= self.min_drift_before_target
-        ):
-            self._targets_done.update(due_targets)
-            return True
-        return False
+        threshold, in_window = self.threshold, False
+        if self.threshold_in_window is not None and self._in_window(when):
+            threshold, in_window = self.threshold_in_window, True
+        if abs(self.drift) >= threshold:
+            self.reason = "drift in target window" if in_window else "drift"
+        elif due_targets and abs(self.drift) >= self.min_drift_before_target:
+            self.reason = "drift before target"
+        else:
+            return False
+        self._targets_done.update(due_targets)
+        return True
 
     def _in_window(self, when: datetime) -> bool:
         """Return whether the moment lies inside one of the target windows, ends included."""
         return any(start <= when <= end for start, end in self.windows)
-
-    def _threshold_at(self, when: datetime) -> float:
-        """Return the drift threshold that holds at the moment: the in-window one inside a target window, when set."""
-        if self.threshold_in_window is not None and self._in_window(when):
-            return self.threshold_in_window
-        return self.threshold
 
     def _targets_within_lead(self, when: datetime) -> list[TargetWindow]:
         """Return the targets not fired for yet whose window starts by ``when + lead`` and has not ended by ``when``."""
@@ -639,6 +657,7 @@ class DriftGate:
     def plan_arrived(self) -> None:
         """A new plan is installed, starting from the measured state of charge: the drift starts afresh."""
         self.in_flight = False
+        self.reason = None
         self.drift = 0.0
 
 
