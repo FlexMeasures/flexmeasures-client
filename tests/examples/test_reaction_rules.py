@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import importlib.util
 import sys
 from datetime import datetime, timedelta, timezone
@@ -426,3 +427,138 @@ def test_a_mode_dwell_lets_the_device_switch_and_closes_the_residual(tmp_path):
     )
     assert idled.mode_switches == 1
     assert idled.slot_setpoint[3] == 0.0
+
+
+def read_log(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="") as file:
+        return list(csv.DictReader(file))
+
+
+@pytest.mark.asyncio
+async def test_the_log_has_a_header_and_one_row_per_sample(tmp_path, capsys):
+    recording = write_csv(tmp_path / "deviation.csv", recorded_series())
+    log = tmp_path / "log.csv"
+    client = StandInClient(served_schedule(with_rules=True))
+    args = example.parse_args(
+        ARGS + ["--deviation-csv", str(recording), "--log", str(log)]
+    )
+    assert await example.run(client, args) == 0
+    assert log.read_text().splitlines()[0] == ",".join(example.LOG_COLUMNS)
+    rows = read_log(log)
+    assert len(rows) == len(recorded_series()) == 180
+    assert rows[0]["time"] == START.isoformat()
+    assert all(
+        column.endswith(("_kw", "_kwh"))
+        for column in example.LOG_COLUMNS
+        if "deviation" in column or "plan" in column
+    )
+    # At 00:01 the 5 kW surprise starts; the first slot plans 4.4 kW and holds the charging mode [1.4, 7.4].
+    at_surprise = rows[6]
+    assert float(at_surprise["deviation_kw"]) == 5.0
+    assert float(at_surprise["plan_kw"]) == 4.4
+    assert at_surprise["mode_kw"] == "[1.400000, 7.400000]"
+    (retrigger,) = [row for row in rows if row["event"] == "retrigger"]
+    assert retrigger["reason"] == "band exit"
+    assert retrigger["in_flight"] == "1" and retrigger["outside"] == "1"
+    (arrival,) = [row for row in rows if row["event"] == "plan arrived"]
+    assert arrival["in_flight"] == "0"
+    out = capsys.readouterr().out
+    assert f"retrigger at {retrigger['time']}: band exit" in out
+
+
+def test_the_log_is_in_kw_whatever_the_schedule_unit(tmp_path):
+    in_kw, in_w = served_schedule(with_rules=True), served_schedule(with_rules=True)
+    in_w["unit"] = "W"
+    in_w["values"] = [1000 * v for v in in_w["values"]]
+    for entry in in_w["reaction"]:
+        entry["reference"] *= 1000
+        entry["band"] = [[1000 * low, 1000 * high] for low, high in entry["band"]]
+    samples = example.samples_from_csv(
+        write_csv(tmp_path / "deviation.csv", recorded_series()), "kW", "kW"
+    )
+    logs = []
+    for served, unit in ((in_kw, "kW"), (in_w, "W")):
+        schedule = ReactionSchedule.from_schedule(served)
+        path = tmp_path / f"log-{unit}.csv"
+        with path.open("w", newline="") as log:
+            example.walk(
+                schedule,
+                [
+                    (when, value * (1000 if unit == "W" else 1))
+                    for when, value in samples
+                ],
+                # Thresholds off the sample grid, so rounding cannot move a retrigger by one sample.
+                example.Knobs(
+                    min_energy=0.11 if unit == "kW" else 110,
+                    tolerance=0.05 if unit == "kW" else 50,
+                ),
+                log,
+            )
+        logs.append(read_log(path))
+    assert any(row["event"] == "retrigger" for row in logs[0])
+    assert logs[0] == logs[1]
+
+
+def test_a_drift_retrigger_row_carries_its_reason(tmp_path):
+    schedule = ReactionSchedule.from_schedule(served_schedule(with_rules=True))
+    samples = list(example.scripted_samples(schedule, example.DEFAULT_SAMPLE_S))
+    path = tmp_path / "log.csv"
+    with path.open("w", newline="") as log:
+        result = example.walk(schedule, samples, example.Knobs(), log)
+    (retrigger,) = result.drift_retriggers
+    assert retrigger.reason == "drift"
+    rows = read_log(path)
+    assert len(rows) == len(samples)
+    (row,) = [row for row in rows if row["event"] == "retrigger"]
+    assert (row["time"], row["reason"]) == (retrigger.at.isoformat(), "drift")
+    assert float(row["drift_kwh"]) == pytest.approx(retrigger.drift)
+
+
+def test_target_windows_are_parsed_and_reach_the_drift_gate():
+    args = example.parse_args(
+        ARGS
+        + [
+            "--drift-lead",
+            "15",
+            "--target-window",
+            "2026-11-30T01:00:00+01:00/2026-11-30T01:30:00+01:00",
+            "--target-at",
+            "2026-11-30T00:30:00+01:00",
+            "--drift-in-window",
+            "0.1",
+        ]
+    )
+    window = (START + timedelta(hours=1), START + timedelta(minutes=90))
+    assert args.targets == [START + timedelta(minutes=30), window]
+    knobs = example.Knobs.from_args(args)
+    assert knobs.drift_in_window == 0.1
+    loop = example.Loop(
+        ReactionSchedule.from_schedule(served_schedule(with_rules=True)), knobs
+    )
+    assert loop.drift_gate.targets == [(START + timedelta(minutes=30),) * 2, window]
+    assert loop.drift_gate.threshold_in_window == 0.1
+    for bad in (
+        "2026-11-30T01:00:00+01:00",
+        "2026-11-30T01:30:00+01:00/2026-11-30T01:00:00+01:00",
+        "2026-11-30T01:00:00/2026-11-30T01:30:00+01:00",
+    ):
+        with pytest.raises(SystemExit):
+            example.parse_args(ARGS + ["--target-window", bad])
+
+
+def test_the_in_window_threshold_retriggers_inside_a_target_window():
+    """The scripted sunny spell is absorbed in slots 4 and 5 (01:00 to 01:30), 2 kW above the plan.
+
+    With a threshold of 2 kWh nothing fires, but inside a window over the spell 0.1 kWh does, three minutes in.
+    """
+    schedule = ReactionSchedule.from_schedule(served_schedule(with_rules=True))
+    samples = list(example.scripted_samples(schedule, example.DEFAULT_SAMPLE_S))
+    window = (START + timedelta(hours=1), START + timedelta(minutes=90))
+    knobs = example.Knobs(drift=2.0, targets=[window], drift_in_window=0.1)
+    retriggers = example.walk(schedule, samples, knobs).drift_retriggers
+    assert retriggers
+    assert all(window[0] <= r.at <= window[1] for r in retriggers)
+    assert {r.reason for r in retriggers} == {"drift in target window"}
+    assert (
+        example.walk(schedule, samples, example.Knobs(drift=2.0)).drift_retriggers == []
+    )

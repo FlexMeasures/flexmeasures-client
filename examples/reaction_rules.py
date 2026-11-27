@@ -7,7 +7,8 @@ the deviation at the meter (what its uncontrolled part shows against the referen
 rounded to the device's operation modes by the :class:`ModePolicy` (which holds the plan's mode unless ``--mode-dwell`` lets it switch),
 what the device could not absorb is the residual, and the :class:`ExitGate` says when a retrigger is due.
 The :class:`DriftGate` watches what the device absorbed inside its band, the commanded setpoint against the plan,
-and says when that has moved it far enough from its plan (``--drift``), or, with ``--drift-lead``, when a target given with ``--target-at`` is near.
+and says when that has moved it far enough from its plan (``--drift``), or, with ``--drift-lead``, when a target given with ``--target-at`` is near;
+a target that falls due within a window is given with ``--target-window START/END``, and ``--drift-in-window`` holds the drift to a tighter threshold inside it.
 One request is in flight at a time, from whichever gate fires first.
 A retrigger in this probe only marks the moment: no new schedule is requested,
 and after ``--turnaround`` seconds both gates are told that the plan arrived and the same rules continue.
@@ -19,6 +20,11 @@ or replayed from a recording with ``--deviation-csv``: a CSV with a header and t
 ``--surprise-csv``, ``--surprise-unit`` and a ``surprise`` column are accepted as the older names.
 The loop's knobs are options, with the defaults of the classes.
 
+Every retrigger is printed as it happens, with its reason: ``band exit``, ``drift``, ``drift in target window`` or ``drift before target``.
+With ``--log PATH`` every sample becomes one row of a CSV, flushed at once, with the columns of :data:`LOG_COLUMNS`:
+the raw and the smoothed deviation, the slot, the plan, the react share, the raw and the commanded setpoint, the residual,
+whether it is outside the band, the exit gate's energy past the band, the drift, the operation mode, the event (``retrigger`` or ``plan arrived``), the reason and whether a request is in flight;
+powers are in kW and energies in kWh, whatever the schedule's unit.
 It prints the setpoint per slot, every band exit with the energy past the band, every drift retrigger, and a summary,
 and doubles as a smoke test against a FlexMeasures server that serves rules, through its exit code:
 
@@ -49,7 +55,7 @@ import sys
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, TextIO
 
 import pandas as pd
 
@@ -136,6 +142,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"seconds between the samples of the scripted deviation (default: {DEFAULT_SAMPLE_S:g})",
     )
 
+    parser.add_argument(
+        "--log",
+        type=Path,
+        default=None,
+        help="write one CSV row per sample to this file, flushed every row: powers in kW, energies in kWh",
+    )
+
     knobs = parser.add_argument_group("the loop's knobs")
     knobs.add_argument(
         "--window",
@@ -199,6 +212,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="the moment of a target, in ISO 8601 with an offset; repeat for more targets",
     )
     knobs.add_argument(
+        "--target-window",
+        dest="target_windows",
+        action="append",
+        default=[],
+        metavar="START/END",
+        help="a target that falls due within a window, as two ISO 8601 moments with offsets separated by a slash; repeat for more targets",
+    )
+    knobs.add_argument(
+        "--drift-in-window",
+        type=float,
+        default=None,
+        help="the drift threshold while inside a target window, in kWh (default: the --drift threshold)",
+    )
+    knobs.add_argument(
         "--turnaround",
         type=float,
         default=DEFAULT_TURNAROUND_S,
@@ -216,16 +243,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--drift must be positive")
     if args.drift_lead is not None and args.drift_lead <= 0:
         parser.error("--drift-lead must be positive")
-    targets = []
-    for target in args.targets:
+    if args.drift_in_window is not None and args.drift_in_window <= 0:
+        parser.error("--drift-in-window must be positive")
+
+    def moment(text: str, option: str) -> datetime:
         try:
-            when = pd.Timestamp(target).to_pydatetime()
+            when = pd.Timestamp(text).to_pydatetime()
         except ValueError:
-            parser.error(f"--target-at {target!r} is not an ISO 8601 moment")
+            parser.error(f"{option} {text!r} is not an ISO 8601 moment")
         if when.tzinfo is None:
-            parser.error(f"--target-at {target!r} needs an offset")
-        targets.append(when)
-    args.targets = sorted(targets)
+            parser.error(f"{option} {text!r} needs an offset")
+        return when
+
+    targets: list[datetime | tuple[datetime, datetime]] = [
+        moment(target, "--target-at") for target in args.targets
+    ]
+    for window in args.target_windows:
+        if window.count("/") != 1:
+            parser.error(f"--target-window {window!r} should be START/END")
+        start, end = (moment(part, "--target-window") for part in window.split("/"))
+        if end < start:
+            parser.error(f"--target-window {window!r} ends before it starts")
+        targets.append((start, end))
+    args.targets = sorted(
+        targets,
+        key=lambda target: target if isinstance(target, tuple) else (target, target),
+    )
     if args.mode_dwell is not None and args.mode_dwell <= 0:
         parser.error("--mode-dwell must be positive")
     if args.mode_margin < 0:
@@ -334,7 +377,8 @@ class Knobs:
     mode_margin: float = 0.0
     drift: float = DEFAULT_DRIFT_KWH
     drift_lead: float | None = None
-    targets: list[datetime] = field(default_factory=list)
+    targets: list[datetime | tuple[datetime, datetime]] = field(default_factory=list)
+    drift_in_window: float | None = None
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> Knobs:
@@ -350,6 +394,7 @@ class Knobs:
             drift=args.drift,
             drift_lead=args.drift_lead,
             targets=list(args.targets),
+            drift_in_window=args.drift_in_window,
         )
 
 
@@ -365,10 +410,11 @@ class Exit:
 
 @dataclass
 class DriftRetrigger:
-    """One retrigger of the drift gate, with the drift away from the plan at that moment."""
+    """One retrigger of the drift gate, with the drift away from the plan at that moment and why it fired."""
 
     at: datetime
     drift: float
+    reason: str | None = None
 
 
 @dataclass
@@ -386,111 +432,248 @@ class Walk:
     problems: list[str] = field(default_factory=list)
 
 
-def walk(
-    schedule: ReactionSchedule,
-    samples: Iterable[tuple[datetime, float]],
-    knobs: Knobs,
-) -> Walk:
-    """Walk the samples through the smoother, the rule and the gate; keep the per-slot and per-exit results.
+LOG_COLUMNS = [
+    "time",
+    "deviation_kw",
+    "smoothed_deviation_kw",
+    "slot_start",
+    "plan_kw",
+    "react",
+    "raw_setpoint_kw",
+    "setpoint_kw",
+    "residual_kw",
+    "outside",
+    "energy_outside_kwh",
+    "drift_kwh",
+    "mode_kw",
+    "event",
+    "reason",
+    "in_flight",
+]
+"""The columns of the per-sample log: powers in kW and energies in kWh, whatever the schedule's unit."""
+
+
+class Loop:
+    """The local loop of one device, fed one sample at a time: smoother, rule, mode policy, exit gate and drift gate.
 
     With one reacting device, the residual is the deviation plus what the setpoint moved away from the plan.
     The mode policy starts every slot in the mode that contains the plan and rounds the rule's answer relative to it.
     The drift gate sees the commanded setpoint as the realised power and the plan value as the planned power, both in kW.
-    A retrigger, from whichever gate fires first, only marks the moment and tells both gates a request went out;
+    A retrigger, from whichever gate fires first, is printed with its reason, and both gates are told a request went out;
     after the turnaround both gates are told the plan arrived, and the same rules continue.
+    A schedule installed with :meth:`install` after the first one also counts as the plan arriving.
+    With a log, every sample becomes one row of :data:`LOG_COLUMNS`, flushed at once, so the file can be watched while the loop runs.
     """
-    assert schedule.rules is not None
-    result = Walk(
-        slot_deviation=[None] * len(schedule), slot_setpoint=[None] * len(schedule)
-    )
-    for index, (p, rule) in enumerate(zip(schedule.values, schedule.rules)):
-        if react(rule, p, 0.0) != p:
-            result.problems.append(
-                f"slot {index}: a zero deviation does not return the plan"
-            )
-        if rule.react != 0 and rule.band and not rule.contains(p):
-            result.problems.append(
-                f"slot {index}: the plan {p} is outside its own band"
-            )
-    smoother = Smoother(
-        window=timedelta(seconds=knobs.window), median_samples=knobs.median
-    )
-    gate = ExitGate(
-        dwell=timedelta(seconds=knobs.dwell),
-        min_energy=knobs.min_energy,
-        tolerance=knobs.tolerance,
-    )
-    drift_gate = DriftGate(
-        threshold=knobs.drift,
-        lead=None if knobs.drift_lead is None else timedelta(minutes=knobs.drift_lead),
-        targets=list(knobs.targets),
-    )
-    to_kw = convert_units([1.0], schedule.unit, "kW")[0]
-    policy = ModePolicy(
-        dwell=(
-            None if knobs.mode_dwell is None else timedelta(seconds=knobs.mode_dwell)
-        ),
-        margin=knobs.mode_margin,
-    )
-    slot_index: int | None = None
-    plan_due: datetime | None = None
-    current: Exit | None = None
-    last_seen: datetime | None = None
-    outside_reported: set[int] = set()
-    for when, raw in samples:
+
+    def __init__(
+        self, schedule: ReactionSchedule, knobs: Knobs, log: TextIO | None = None
+    ):
+        self.knobs = knobs
+        self.result = Walk(
+            slot_deviation=[None] * len(schedule),
+            slot_setpoint=[None] * len(schedule),
+        )
+        self.smoother = Smoother(
+            window=timedelta(seconds=knobs.window), median_samples=knobs.median
+        )
+        self.gate = ExitGate(
+            dwell=timedelta(seconds=knobs.dwell),
+            min_energy=knobs.min_energy,
+            tolerance=knobs.tolerance,
+        )
+        self.drift_gate = DriftGate(
+            threshold=knobs.drift,
+            lead=(
+                None
+                if knobs.drift_lead is None
+                else timedelta(minutes=knobs.drift_lead)
+            ),
+            targets=list(knobs.targets),
+            threshold_in_window=knobs.drift_in_window,
+        )
+        self.policy = ModePolicy(
+            dwell=(
+                None
+                if knobs.mode_dwell is None
+                else timedelta(seconds=knobs.mode_dwell)
+            ),
+            margin=knobs.mode_margin,
+        )
+        self._log = log
+        self._writer = csv.writer(log) if log is not None else None
+        if self._writer is not None:
+            self._writer.writerow(LOG_COLUMNS)
+            self._flush()
+        self._slot_index: int | None = None
+        self._plan_due: datetime | None = None
+        self._current: Exit | None = None
+        self._last_seen: datetime | None = None
+        self._outside_reported: set[int] = set()
+        self._events: list[str] = []
+        self.schedule = schedule
+        self._check(schedule)
+        self._to_kw = convert_units([1.0], schedule.unit, "kW")[0]
+
+    def install(self, schedule: ReactionSchedule) -> None:
+        """Use a new schedule from the next sample on, and tell both gates the plan arrived."""
+        if (schedule.start, schedule.resolution, len(schedule)) != (
+            self.schedule.start,
+            self.schedule.resolution,
+            len(self.schedule),
+        ):
+            self.result.slot_deviation = [None] * len(schedule)
+            self.result.slot_setpoint = [None] * len(schedule)
+        self.schedule = schedule
+        self._check(schedule)
+        self._to_kw = convert_units([1.0], schedule.unit, "kW")[0]
+        self._slot_index = None
+        self._outside_reported.clear()
+        self._plan_arrived()
+
+    def _check(self, schedule: ReactionSchedule) -> None:
+        """Note every slot whose rule breaks an invariant."""
+        assert schedule.rules is not None
+        for index, (p, rule) in enumerate(zip(schedule.values, schedule.rules)):
+            if react(rule, p, 0.0) != p:
+                self.result.problems.append(
+                    f"slot {index}: a zero deviation does not return the plan"
+                )
+            if rule.react != 0 and rule.band and not rule.contains(p):
+                self.result.problems.append(
+                    f"slot {index}: the plan {p} is outside its own band"
+                )
+
+    def _plan_arrived(self) -> None:
+        self.gate.plan_arrived()
+        self.drift_gate.plan_arrived()
+        self._plan_due = None
+        self._events.append("plan arrived")
+
+    def feed(self, when: datetime, raw: float) -> None:
+        """Walk one sample of the deviation, in the schedule's unit, through the loop."""
+        schedule, knobs, result = self.schedule, self.knobs, self.result
+        assert schedule.rules is not None
         try:
             index = schedule.slot(when)
         except IndexError:
             result.skipped += 1
-            continue
+            return
         result.samples += 1
-        if plan_due is not None and when >= plan_due:
-            gate.plan_arrived()
-            drift_gate.plan_arrived()
-            plan_due = None
+        if self._plan_due is not None and when >= self._plan_due:
+            self._plan_arrived()
         p, rule = schedule.values[index], schedule.rules[index]
-        if index != slot_index:
-            policy.start_slot(p, rule.band)
-            slot_index = index
-        deviation = smoother.update(when, raw)
-        setpoint = (
-            p if rule.react == 0 else policy.observe(when, p - rule.react * deviation)
-        )
-        if rule.band and not rule.contains(setpoint) and index not in outside_reported:
-            outside_reported.add(index)
+        if index != self._slot_index:
+            self.policy.start_slot(p, rule.band)
+            self._slot_index = index
+        deviation = self.smoother.update(when, raw)
+        raw_setpoint = p if rule.react == 0 else p - rule.react * deviation
+        setpoint = p if rule.react == 0 else self.policy.observe(when, raw_setpoint)
+        if (
+            rule.band
+            and not rule.contains(setpoint)
+            and index not in self._outside_reported
+        ):
+            self._outside_reported.add(index)
             result.problems.append(
                 f"slot {index}: setpoint {setpoint} is outside the band"
             )
         residual = deviation + (setpoint - p)
         outside = abs(residual) > knobs.tolerance
+        current = self._current
         if outside:
             if current is None:
-                current = Exit(start=when)
+                current = self._current = Exit(start=when)
                 result.exits.append(current)
-            elif last_seen is not None:
+            elif self._last_seen is not None:
                 current.energy += (
-                    abs(residual) * (when - last_seen).total_seconds() / 3600
+                    abs(residual) * (when - self._last_seen).total_seconds() / 3600
                 )
         elif current is not None:
             current.end = when
-            current = None
-        exit_due = gate.observe(when, residual)
-        drift_due = drift_gate.observe(when, setpoint * to_kw, p * to_kw)
+            current = self._current = None
+        to_kw = self._to_kw
+        exit_due = self.gate.observe(when, residual)
+        drift_due = self.drift_gate.observe(when, setpoint * to_kw, p * to_kw)
+        reasons = [
+            gate.reason
+            for gate, due in ((self.gate, exit_due), (self.drift_gate, drift_due))
+            if due and gate.reason is not None
+        ]
         if exit_due:
             result.retriggers.append(when)
             if current is not None:
                 current.retrigger_at = when
         elif drift_due:
-            result.drift_retriggers.append(DriftRetrigger(when, drift_gate.drift))
+            result.drift_retriggers.append(
+                DriftRetrigger(when, self.drift_gate.drift, self.drift_gate.reason)
+            )
         if exit_due or drift_due:
-            gate.request_sent()
-            drift_gate.request_sent()
-            plan_due = when + timedelta(seconds=knobs.turnaround)
+            self.gate.request_sent()
+            self.drift_gate.request_sent()
+            self._plan_due = when + timedelta(seconds=knobs.turnaround)
+            self._events.append("retrigger")
+            print(f"retrigger at {when.isoformat()}: {'; '.join(reasons)}", flush=True)
         result.slot_deviation[index] = deviation
         result.slot_setpoint[index] = setpoint
-        last_seen = when
-    result.mode_switches = policy.switches
-    return result
+        self._last_seen = when
+        if self._writer is not None:
+            mode = self.policy.current
+            self._writer.writerow(
+                [
+                    when.isoformat(),
+                    _kw(raw * to_kw),
+                    _kw(deviation * to_kw),
+                    (schedule.start + schedule.resolution * index).isoformat(),
+                    _kw(p * to_kw),
+                    f"{rule.react:g}",
+                    _kw(raw_setpoint * to_kw),
+                    _kw(setpoint * to_kw),
+                    _kw(residual * to_kw),
+                    int(outside),
+                    _kw(self.gate.energy_outside * to_kw),
+                    _kw(self.drift_gate.drift),
+                    (
+                        ""
+                        if mode is None
+                        else f"[{_kw(mode[0] * to_kw)}, {_kw(mode[1] * to_kw)}]"
+                    ),
+                    "; ".join(self._events),
+                    "; ".join(reasons),
+                    int(self.gate.in_flight),
+                ]
+            )
+            self._flush()
+        self._events = []
+
+    def _flush(self) -> None:
+        if self._log is not None:
+            self._log.flush()
+
+    def finish(self) -> Walk:
+        """Return what the walk found so far."""
+        self.result.mode_switches = self.policy.switches
+        return self.result
+
+
+def _kw(value: float) -> str:
+    """Format a power in kW or an energy in kWh for the log, to the watt or watt-hour and below."""
+    return f"{value:.6f}"
+
+
+def walk(
+    schedule: ReactionSchedule,
+    samples: Iterable[tuple[datetime, float]],
+    knobs: Knobs,
+    log: TextIO | None = None,
+) -> Walk:
+    """Walk the samples through the smoother, the rule and the gates; keep the per-slot and per-exit results.
+
+    See :class:`Loop`, which this feeds every sample in turn.
+    """
+    loop = Loop(schedule, knobs, log)
+    for when, raw in samples:
+        loop.feed(when, raw)
+    return loop.finish()
 
 
 def _number(value: float | None, width: int, digits: int = 3) -> str:
@@ -528,9 +711,11 @@ def print_summary(result: Walk, unit: str, knobs: Knobs) -> None:
             )
     if result.drift_retriggers:
         print()
-        print(f"{'drift retrigger':<25} {'drift [kWh]':>11}")
+        print(f"{'drift retrigger':<25} {'drift [kWh]':>11}  reason")
         for retrigger in result.drift_retriggers:
-            print(f"{retrigger.at.isoformat():<25} {retrigger.drift:>11.3f}")
+            print(
+                f"{retrigger.at.isoformat():<25} {retrigger.drift:>11.3f}  {retrigger.reason or ''}"
+            )
     energy = sum(exit_.energy for exit_ in result.exits)
     print()
     print(
@@ -545,6 +730,7 @@ def print_summary(result: Walk, unit: str, knobs: Knobs) -> None:
         f" min-energy {knobs.min_energy:g} {unit}h, tolerance {knobs.tolerance:g} {unit}, turnaround {knobs.turnaround:g} s,"
         f" mode-dwell {'hold' if knobs.mode_dwell is None else f'{knobs.mode_dwell:g} s'}, mode-margin {knobs.mode_margin:g} {unit},"
         f" drift {knobs.drift:g} kWh, drift-lead {'none' if knobs.drift_lead is None else f'{knobs.drift_lead:g} min'},"
+        f" drift-in-window {'none' if knobs.drift_in_window is None else f'{knobs.drift_in_window:g} kWh'},"
         f" targets {len(knobs.targets)}."
     )
 
@@ -595,7 +781,16 @@ async def run(client: FlexMeasuresClient, args: argparse.Namespace) -> int:
     else:
         samples = scripted_samples(schedule, args.sample)
     knobs = Knobs.from_args(args)
-    result = walk(schedule, samples, knobs)
+    try:
+        log = None if args.log is None else args.log.open("w", newline="")
+    except OSError as error:
+        print(f"The log could not be opened: {error}", file=sys.stderr)
+        return 1
+    try:
+        result = walk(schedule, samples, knobs, log)
+    finally:
+        if log is not None:
+            log.close()
     print_slots(schedule, result)
     print_summary(result, schedule.unit, knobs)
     if result.problems:

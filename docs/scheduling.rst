@@ -384,6 +384,11 @@ The loop's knobs are options with the classes' defaults (``--window``, ``--media
 and a recorded deviation replaces the scripted one with ``--deviation-csv`` (``--surprise-csv`` still works), a CSV with a header and the columns ``time`` (ISO 8601 with an offset)
 and ``deviation`` (or ``surprise``; in ``--deviation-unit``, kW by default), walked in time order against the slot each sample falls in; samples outside the schedule are skipped and counted.
 So a day's recording can be replayed against a real schedule with different knobs, to see how many exits and retriggers each setting gives.
+Every retrigger is printed as it happens, with the reason the gate gave (``band exit``, ``drift``, ``drift in target window`` or ``drift before target``).
+``--log PATH`` writes one CSV row per sample, flushed at once so the file can be watched while the probe runs:
+the raw and the smoothed deviation, the slot start, the plan, the react share, the raw and the commanded setpoint, the residual,
+whether it is outside the band, the exit gate's energy past the band, the drift, the operation mode, the event (``retrigger`` or ``plan arrived``), the reason and whether a request is in flight.
+Powers are in kW and energies in kWh whatever the schedule's unit, as the column names say (``plan_kw``, ``drift_kwh``).
 
 A day after saldering
 ~~~~~~~~~~~~~~~~~~~~~
@@ -490,7 +495,8 @@ The exit gate also tells how long the current excursion has lasted, as ``outside
         drift_gate.request_sent()
         ...  # request a new schedule; when it arrives, call plan_arrived() on both gates
 
-The probe ``examples/reaction_rules.py`` feeds it the commanded setpoint against the plan, with the knobs ``--drift``, ``--drift-lead`` and ``--target-at``.
+The probe ``examples/reaction_rules.py`` feeds it the commanded setpoint against the plan, with the knobs ``--drift``, ``--drift-lead``, ``--target-at``,
+``--target-window START/END`` (two ISO 8601 moments with offsets) and ``--drift-in-window``.
 
 Waiting, legacy polling, and errors
 -----------------------------------
