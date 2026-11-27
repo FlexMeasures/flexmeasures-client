@@ -821,6 +821,8 @@ class CsvTail:
     Rows must come in time order; a row before the previous one, or one that cannot be read, is refused with a warning and counted,
     so that one bad line does not end a live run.
     A file that does not exist yet reads as empty.
+    A file replaced by a shorter one (a recorder that starts afresh, or a sync that replaces the file) is read again from its start,
+    skipping the rows up to the last one already read.
     """
 
     def __init__(self, path: Path, deviation_unit: str, schedule_unit: str):
@@ -833,6 +835,7 @@ class CsvTail:
         self._line = 0
         self._columns: tuple[int, int] | None = None
         self._last: datetime | None = None
+        self._skip_until: datetime | None = None
 
     def read(self) -> list[tuple[datetime, float]]:
         """Return the rows completed since the last read, in the schedule's unit.
@@ -841,6 +844,14 @@ class CsvTail:
         """
         try:
             with self.path.open("rb") as file:
+                if os.fstat(file.fileno()).st_size < self._offset:
+                    print(
+                        f"{self.path} was replaced by a shorter file; reading it from its start.",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    self._offset, self._line, self._columns = 0, 0, None
+                    self._skip_until = self._last
                 file.seek(self._offset)
                 data = file.read()
         except FileNotFoundError:
@@ -887,6 +898,10 @@ class CsvTail:
         if when.tzinfo is None:
             self._refuse(f"{where}: the time needs an offset.")
             return None
+        if self._skip_until is not None:
+            if when <= self._skip_until:
+                return None
+            self._skip_until = None
         if self._last is not None and when < self._last:
             self._refuse(f"{where} comes before the previous row.")
             return None

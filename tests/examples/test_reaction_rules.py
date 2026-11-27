@@ -634,6 +634,34 @@ def test_the_tail_waits_for_a_partial_last_line_and_refuses_rows_out_of_order(
     assert tail.read() == [(START + timedelta(seconds=20), 0.5)]
 
 
+def test_the_tail_reads_a_shorter_replacement_from_its_start(tmp_path, capsys):
+    """A recorder that starts afresh, or a sync that replaces the file, must not stall the tail at its old offset."""
+    path = tmp_path / "deviation.csv"
+    tail = example.CsvTail(path, "W", "kW")
+    first, second, third, fourth = csv_lines(every(10, 0, 40, 500.0))
+    path.write_text("time,deviation\n" + first + second + third)
+    assert len(tail.read()) == 3
+    path.unlink()
+    path.write_text("time,deviation\n" + third + fourth)
+    assert tail.read() == [(START + timedelta(seconds=30), 0.5)]
+    assert (tail.rows, tail.refused) == (4, 0)
+    assert "replaced by a shorter file" in capsys.readouterr().err
+
+
+def test_the_tail_follows_a_longer_replacement_as_if_it_had_grown(tmp_path):
+    path = tmp_path / "deviation.csv"
+    tail = example.CsvTail(path, "W", "kW")
+    first, second, third = csv_lines(every(10, 0, 30, 500.0))
+    path.write_text("time,deviation\n" + first)
+    assert len(tail.read()) == 1
+    path.unlink()
+    path.write_text("time,deviation\n" + first + second + third)
+    assert [when for when, _ in tail.read()] == [
+        START + timedelta(seconds=10),
+        START + timedelta(seconds=20),
+    ]
+
+
 @pytest.mark.asyncio
 async def test_following_a_growing_recording_walks_it_like_a_replay(tmp_path, capsys):
     """The recording grows by a few rows per poll, with a line split over two polls; the walk ends as the replay of the whole file does."""
