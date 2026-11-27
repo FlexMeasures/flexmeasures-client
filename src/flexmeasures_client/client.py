@@ -319,9 +319,13 @@ class FlexMeasuresClient:
         minimum_server_version: str,
         minimum_server_version_msg: str | None = None,
     ):
-        """Ensure that the server version meets a minimum requirement."""
+        """Ensure that the server version meets a minimum requirement.
+
+        Release generations are compared, as in :meth:`server_version_at_least`,
+        so a release candidate such as ``1.2.0rc1`` or a development build such as ``1.2.0.dev3`` meets a minimum of ``1.2.0``.
+        """
         await self._resolve_server_version()
-        if Version(cast(str, self.server_version)) < Version(minimum_server_version):
+        if not _server_version_at_least(self.server_version, minimum_server_version):
             msg = (
                 "This functionality requires FlexMeasures server of "
                 f"{minimum_server_version} or above. Current server has version "

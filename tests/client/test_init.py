@@ -453,6 +453,26 @@ async def test_ensure_minimum_server_version_already_satisfied():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("server_version", ["1.2.0rc1", "1.2.0.dev3", "1.2.0"])
+async def test_ensure_minimum_server_version_counts_a_release_candidate(
+    server_version,
+):
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.server_version = server_version
+    await client.ensure_minimum_server_version("1.2.0")
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_ensure_minimum_server_version_refuses_the_previous_generation():
+    client = FlexMeasuresClient(email="test@test.test", password="test")
+    client.server_version = "1.1.9"
+    with pytest.raises(InsufficientServerVersionError, match="1.2.0 or above"):
+        await client.ensure_minimum_server_version("1.2.0")
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_ensure_minimum_server_version_raises_with_message():
     client = FlexMeasuresClient(email="test@test.test", password="test")
     client.server_version = "0.30.0"
