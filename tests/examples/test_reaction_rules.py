@@ -392,6 +392,7 @@ async def test_example_main_closes_the_client(monkeypatch):
         "ssl": False,
         "email": "user@example.com",
         "password": "secret",
+        "access_token": None,
     }
 
 
@@ -632,6 +633,15 @@ def test_the_tail_waits_for_a_partial_last_line_and_refuses_rows_out_of_order(
     with path.open("a") as file:
         file.write(third)
     assert tail.read() == [(START + timedelta(seconds=20), 0.5)]
+
+
+def test_a_token_file_gives_the_client_its_token(tmp_path):
+    token = tmp_path / "token"
+    token.write_text("  secret-token\n")
+    assert example.read_token(token) == "secret-token"
+    assert example.read_token(None) is None
+    args = example.parse_args(ARGS + ["--token-file", str(token)])
+    assert args.token_file == token
 
 
 def test_the_tail_reads_a_shorter_replacement_from_its_start(tmp_path, capsys):

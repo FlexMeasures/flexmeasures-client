@@ -106,6 +106,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--email", default=env("FLEXMEASURES_EMAIL"))
     parser.add_argument("--password", default=env("FLEXMEASURES_PASSWORD"))
     parser.add_argument(
+        "--token-file",
+        type=Path,
+        default=env("FLEXMEASURES_TOKEN_FILE"),
+        help="a file holding an access token to use instead of the password, for an account with two-factor authentication",
+    )
+    parser.add_argument(
         "--sensor",
         type=int,
         default=env("FLEXMEASURES_SENSOR"),
@@ -1087,13 +1093,21 @@ async def run(
     return 0
 
 
+def read_token(path: Path | None) -> str | None:
+    """Read an access token from a file, without its surrounding whitespace."""
+    if path is None:
+        return None
+    return Path(path).read_text().strip() or None
+
+
 async def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     client = FlexMeasuresClient(
         host=args.host,
         ssl=not args.no_ssl,
         email=args.email,
-        password=args.password,
+        password=args.password or "",
+        access_token=read_token(args.token_file),
     )
     try:
         return await run(client, args)
