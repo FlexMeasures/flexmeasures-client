@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from flexmeasures_client.client import _server_version_at_least
 from flexmeasures_client.reaction import ReactionSchedule, react
 
 MODULE_PATH = Path(__file__).parents[2] / "examples" / "reaction_rules.py"
@@ -38,10 +39,14 @@ ARGS = [
 
 
 class StandInClient:
-    def __init__(self, schedule: dict):
+    def __init__(self, schedule: dict, server_version: str = "1.2.0rc1"):
         self.schedule = schedule
+        self.server_version = server_version
         self.calls: list[dict] = []
         self.closed = False
+
+    async def server_version_at_least(self, minimum: str) -> bool:
+        return _server_version_at_least(self.server_version, minimum)
 
     async def trigger_and_get_schedule(self, **kwargs) -> dict:
         self.calls.append(kwargs)
@@ -122,6 +127,25 @@ async def test_example_opts_in_and_walks_the_rules(capsys):
     assert "absorb the deviation" in out
     assert "Samples: 7200 walked, 0 outside the schedule skipped." in out
     assert "mode switches: 0," in out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("server_version", ["1.1.0", "1.1.9"])
+async def test_a_server_without_reaction_rules_triggers_nothing(server_version, capsys):
+    client = StandInClient(served_schedule(with_rules=True), server_version)
+    args = example.parse_args(ARGS)
+    assert await example.run(client, args) == example.NO_RULES
+    assert client.calls == []
+    assert "1.2.0 or later" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("server_version", ["1.2.0rc1", "1.2.0.dev3", "1.2.0", "1.3.0"])
+async def test_a_release_candidate_serves_reaction_rules(server_version):
+    client = StandInClient(served_schedule(with_rules=True), server_version)
+    args = example.parse_args(ARGS)
+    assert await example.run(client, args) == 0
+    assert len(client.calls) == 1
 
 
 def test_defaults_give_the_same_walk_as_the_per_slot_evaluation():

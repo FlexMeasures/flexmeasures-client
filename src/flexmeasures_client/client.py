@@ -73,6 +73,10 @@ REPORT_TRIGGER_MIN_SERVER_VERSION = "1.1.0"
 # The asset automation endpoints landed in FlexMeasures v1.1.0
 AUTOMATIONS_MIN_SERVER_VERSION = "1.1.0"
 
+# The flex-model field ``react`` and the ``reaction`` array in the schedule landed in FlexMeasures v1.2.0;
+# an older server refuses ``react`` as an unknown field.
+REACTION_MIN_SERVER_VERSION = "1.2.0"
+
 
 def _parse_json_field(data: dict, field_name: str) -> None:
     """Parse a JSON string field in-place if it exists and is a string."""

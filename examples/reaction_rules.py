@@ -71,7 +71,7 @@ from typing import Any, Awaitable, Callable, Iterable, Iterator, TextIO
 import pandas as pd
 
 from flexmeasures_client import FlexMeasuresClient
-from flexmeasures_client.client import convert_units
+from flexmeasures_client.client import REACTION_MIN_SERVER_VERSION, convert_units
 from flexmeasures_client.reaction import (
     DriftGate,
     ExitGate,
@@ -993,6 +993,13 @@ async def run(
 
     ``sleep`` and ``now`` are handed to :func:`follow` with ``--follow``.
     """
+    if not await client.server_version_at_least(REACTION_MIN_SERVER_VERSION):
+        print(
+            f"The server does not serve reaction rules: they need FlexMeasures {REACTION_MIN_SERVER_VERSION} or later"
+            " (a release candidate counts), and an older server refuses the opt-in. Nothing was triggered.",
+            file=sys.stderr,
+        )
+        return NO_RULES
     try:
         schedule = await fetch_schedule(client, args)
     except ValueError as error:
