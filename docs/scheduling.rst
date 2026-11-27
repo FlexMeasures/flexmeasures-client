@@ -389,6 +389,15 @@ Every retrigger is printed as it happens, with the reason the gate gave (``band 
 the raw and the smoothed deviation, the slot start, the plan, the react share, the raw and the commanded setpoint, the residual,
 whether it is outside the band, the exit gate's energy past the band, the drift, the operation mode, the event (``retrigger`` or ``plan arrived``), the reason and whether a request is in flight.
 Powers are in kW and energies in kWh whatever the schedule's unit, as the column names say (``plan_kw``, ``drift_kwh``).
+For a live test next to a recorder that appends to the CSV, ``--follow`` keeps reading it as it grows:
+the rows present are walked, then every ``--poll`` seconds (1 by default) the rows appended since, until Ctrl-C or until the wall clock passes ``--until``,
+after which the summary and the exit code are as usual.
+Rows must come in time order: a row before the previous one is refused with a warning, and a last line without its newline waits for the next poll.
+The schedule stays the one fetched at the start, unless ``--refetch MINUTES`` is given:
+then a new schedule is triggered every so many minutes with the same window and flex-model,
+since a scheduling job's schedule never changes, so fetching the first job again would bring nothing new;
+it is used from the next sample on, and both gates are told the plan arrived;
+a refetch that fails or comes back without rules leaves the current schedule in use.
 
 A day after saldering
 ~~~~~~~~~~~~~~~~~~~~~
@@ -464,8 +473,8 @@ It integrates realised minus planned power (in kW) since the last plan into a dr
 and fires once the drift reaches ``threshold`` in either direction,
 or, given a ``lead``, when one of its ``targets`` is that close and the drift reaches ``min_drift_before_target``, at most once per target.
 Choose the threshold relative to the room the device has left before its next target; 0.5 kWh is a first default.
-A target is a moment or a window, given as a ``(start, end)`` pair, for a target that may fall due any time within it, such as a departure between 07:00 and 08:00
-(a moment is stored as a window of one moment).
+A target is a moment or a window, given as a ``(start, end)`` pair, for a target that may fall due any time within it, such as a departure between 07:00 and 08:00;
+a moment is stored as a window of one moment.
 The lead counts towards the window's start, and a window is past only after its end, so a window that has started still fires once on some drift.
 While a sample lies inside a target window, ``threshold_in_window`` (in kWh) replaces ``threshold`` when it is set,
 since a device that may be asked to deliver at any moment has less room to drift.

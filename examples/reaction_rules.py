@@ -18,6 +18,13 @@ The deviation is scripted by default (a cooking step, a sunny spell and a wobble
 or replayed from a recording with ``--deviation-csv``: a CSV with a header and two columns,
 ``time`` (ISO 8601 with an offset) and ``deviation`` (in ``--deviation-unit``), walked in time order.
 ``--surprise-csv``, ``--surprise-unit`` and a ``surprise`` column are accepted as the older names.
+With ``--follow`` the recording is followed while it grows, for a live test next to a recorder:
+the rows present are walked, then every ``--poll`` seconds (1 by default) the rows appended since,
+until Ctrl-C or until the wall clock passes ``--until``, after which the summary prints as usual.
+A last line without its newline waits for the next poll, and a row before the previous one is refused with a warning.
+The schedule is the one fetched at the start; ``--refetch MINUTES`` triggers a new one every so many minutes,
+with the same window and flex-model (a scheduling job's schedule never changes, so fetching the first job again would bring nothing new),
+and tells both gates that the plan arrived once it is in use.
 The loop's knobs are options, with the defaults of the classes.
 
 Every retrigger is printed as it happens, with its reason: ``band exit``, ``drift``, ``drift in target window`` or ``drift before target``.
@@ -40,6 +47,9 @@ Usage::
         --deviation-csv deviation.csv --window 5 --median 3 --dwell 21 --min-energy 0.1 \\
         --drift 0.5 --drift-lead 30 --target-at 2026-12-01T07:00:00+01:00
 
+    python examples/reaction_rules.py ... --deviation-csv live.csv --follow --refetch 15 --log walk.csv \\
+        --target-window 2026-12-01T07:00:00+01:00/2026-12-01T08:00:00+01:00 --drift-in-window 0.2
+
 Every connection option can be given through the environment instead, as ``FLEXMEASURES_HOST``, ``FLEXMEASURES_EMAIL``,
 ``FLEXMEASURES_PASSWORD``, ``FLEXMEASURES_SENSOR`` and ``FLEXMEASURES_PRICE_SENSOR``.
 """
@@ -51,11 +61,12 @@ import asyncio
 import csv
 import math
 import os
+import signal
 import sys
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable, Iterator, TextIO
+from typing import Any, Awaitable, Callable, Iterable, Iterator, TextIO
 
 import pandas as pd
 
@@ -83,6 +94,7 @@ DEFAULT_TOLERANCE = _GATE_DEFAULTS["tolerance"]
 DEFAULT_DRIFT_KWH = DriftGate().threshold
 DEFAULT_TURNAROUND_S = 30.0
 DEFAULT_SAMPLE_S = 1.0
+DEFAULT_POLL_S = 1.0
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -134,6 +146,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="deviation_unit",
         default="kW",
         help="the unit of the recorded deviation, converted to the schedule's unit (default: kW)",
+    )
+    deviation.add_argument(
+        "--follow",
+        action="store_true",
+        help="keep reading the --deviation-csv as it grows, walking appended rows as they arrive, until Ctrl-C or --until",
+    )
+    deviation.add_argument(
+        "--poll",
+        type=float,
+        default=DEFAULT_POLL_S,
+        help=f"seconds between reads of the followed recording (default: {DEFAULT_POLL_S:g})",
+    )
+    deviation.add_argument(
+        "--until",
+        default=None,
+        help="stop following once the wall clock passes this moment, in ISO 8601 with an offset (default: until Ctrl-C)",
+    )
+    deviation.add_argument(
+        "--refetch",
+        type=float,
+        default=None,
+        metavar="MINUTES",
+        help="while following, trigger and fetch a new schedule every so many minutes, with the same window and flex-model (default: never)",
     )
     deviation.add_argument(
         "--sample",
@@ -243,6 +278,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--drift must be positive")
     if args.drift_lead is not None and args.drift_lead <= 0:
         parser.error("--drift-lead must be positive")
+    if args.poll <= 0:
+        parser.error("--poll must be positive")
+    if args.refetch is not None and args.refetch <= 0:
+        parser.error("--refetch must be positive")
+    if args.follow and args.deviation_csv is None:
+        parser.error("--follow needs --deviation-csv")
+    for name in ("until", "refetch"):
+        if getattr(args, name) is not None and not args.follow:
+            parser.error(f"--{name} needs --follow")
+    if args.until is not None:
+        try:
+            until = pd.Timestamp(args.until).to_pydatetime()
+        except ValueError:
+            parser.error(f"--until {args.until!r} is not an ISO 8601 moment")
+        if until.tzinfo is None:
+            parser.error(f"--until {args.until!r} needs an offset")
+        args.until = until
     if args.drift_in_window is not None and args.drift_in_window <= 0:
         parser.error("--drift-in-window must be positive")
 
@@ -735,8 +787,13 @@ def print_summary(result: Walk, unit: str, knobs: Knobs) -> None:
     )
 
 
-async def run(client: FlexMeasuresClient, args: argparse.Namespace) -> int:
-    """Trigger, fetch, parse and walk; return the exit code."""
+async def fetch_schedule(
+    client: FlexMeasuresClient, args: argparse.Namespace
+) -> ReactionSchedule:
+    """Trigger a schedule for the device, wait for it and parse it.
+
+    :raises ValueError: When scheduling fails, the answer is not one schedule, or its reaction is invalid.
+    """
     flex_model, flex_context = flex_fields(args)
     try:
         raw = await client.trigger_and_get_schedule(
@@ -748,15 +805,198 @@ async def run(client: FlexMeasuresClient, args: argparse.Namespace) -> int:
             unit=args.unit,
         )
     except (ValueError, ConnectionError) as error:
-        print(f"Scheduling failed: {error}", file=sys.stderr)
-        return 1
+        raise ValueError(f"Scheduling failed: {error}") from error
     if not isinstance(raw, dict):
-        print(f"Expected one schedule, but got {type(raw).__name__}", file=sys.stderr)
-        return 1
+        raise ValueError(f"Expected one schedule, but got {type(raw).__name__}")
     try:
-        schedule = ReactionSchedule.from_schedule(raw)
+        return ReactionSchedule.from_schedule(raw)
     except InvalidReactionError as error:
-        print(f"The schedule's reaction is invalid: {error}", file=sys.stderr)
+        raise ValueError(f"The schedule's reaction is invalid: {error}") from error
+
+
+class CsvTail:
+    """Reads a recorded deviation that is still growing: each :meth:`read` returns the complete rows appended since the last one.
+
+    A last line without its newline is left for the next read, as the recorder may be writing it.
+    Rows must come in time order; a row before the previous one, or one that cannot be read, is refused with a warning and counted,
+    so that one bad line does not end a live run.
+    A file that does not exist yet reads as empty.
+    """
+
+    def __init__(self, path: Path, deviation_unit: str, schedule_unit: str):
+        self.path = path
+        self.deviation_unit = deviation_unit
+        self.schedule_unit = schedule_unit
+        self.rows = 0
+        self.refused = 0
+        self._offset = 0
+        self._line = 0
+        self._columns: tuple[int, int] | None = None
+        self._last: datetime | None = None
+
+    def read(self) -> list[tuple[datetime, float]]:
+        """Return the rows completed since the last read, in the schedule's unit.
+
+        :raises ValueError: When the header lacks the columns time and deviation (or surprise).
+        """
+        try:
+            with self.path.open("rb") as file:
+                file.seek(self._offset)
+                data = file.read()
+        except FileNotFoundError:
+            return []
+        complete = data.rfind(b"\n") + 1
+        self._offset += complete
+        samples: list[tuple[datetime, float]] = []
+        for line in data[:complete].decode().splitlines():
+            self._line += 1
+            if not line.strip():
+                continue
+            cells = next(csv.reader([line]))
+            if self._columns is None:
+                self._columns = self._header(cells)
+                continue
+            sample = self._sample(cells)
+            if sample is not None:
+                samples.append(sample)
+        self.rows += len(samples)
+        values = convert_units(
+            [value for _, value in samples], self.deviation_unit, self.schedule_unit
+        )
+        return [(when, value) for (when, _), value in zip(samples, values)]
+
+    def _header(self, cells: list[str]) -> tuple[int, int]:
+        names = [cell.strip() for cell in cells]
+        column = "deviation" if "deviation" in names else "surprise"
+        if "time" not in names or column not in names:
+            raise ValueError(
+                f"{self.path} needs a header with the columns time and deviation, got {names}."
+            )
+        return names.index("time"), names.index(column)
+
+    def _sample(self, cells: list[str]) -> tuple[datetime, float] | None:
+        assert self._columns is not None
+        time_column, value_column = self._columns
+        where = f"{self.path} line {self._line}"
+        try:
+            when = pd.Timestamp(cells[time_column]).to_pydatetime()
+            value = float(cells[value_column])
+        except (IndexError, ValueError) as error:
+            self._refuse(f"{where} could not be read ({error}).")
+            return None
+        if when.tzinfo is None:
+            self._refuse(f"{where}: the time needs an offset.")
+            return None
+        if self._last is not None and when < self._last:
+            self._refuse(f"{where} comes before the previous row.")
+            return None
+        self._last = when
+        return when, value
+
+    def _refuse(self, message: str) -> None:
+        self.refused += 1
+        print(f"Refused: {message}", file=sys.stderr, flush=True)
+        return None
+
+
+Sleep = Callable[[float], Awaitable[None]]
+Clock = Callable[[], datetime]
+
+
+async def follow(
+    client: FlexMeasuresClient,
+    args: argparse.Namespace,
+    loop: Loop,
+    tail: CsvTail,
+    sleep: Sleep | None = None,
+    now: Clock | None = None,
+) -> None:
+    """Feed the loop the rows of a growing recording as they arrive, until interrupted or ``--until`` passes.
+
+    Every ``--poll`` seconds the rows appended since the last poll are walked.
+    With ``--refetch``, a new schedule is triggered every so many minutes with the same window and flex-model,
+    since a scheduling job's schedule never changes and the client has no call for the latest schedule of a device;
+    once it arrives with rules it is used from the next sample on, and both gates are told the plan arrived.
+    A refetch that fails, or that comes back without rules, is reported and the current schedule stays.
+    Ctrl-C ends the following after one last read, like ``--until``.
+
+    :param sleep: Waits so many seconds; by default it returns early on Ctrl-C. Tests pass a fake.
+    :param now:   The wall clock, against which ``--until`` and ``--refetch`` are timed. Tests pass a fake.
+    """
+    stopped = asyncio.Event()
+    event_loop = asyncio.get_running_loop()
+    try:
+        event_loop.add_signal_handler(signal.SIGINT, stopped.set)
+        handling_sigint = True
+    except (NotImplementedError, RuntimeError):
+        handling_sigint = False
+
+    async def wait(seconds: float) -> None:
+        try:
+            await asyncio.wait_for(stopped.wait(), seconds)
+        except asyncio.TimeoutError:
+            pass
+
+    sleep = sleep or wait
+    now = now or (lambda: datetime.now(timezone.utc))
+    every = None if args.refetch is None else timedelta(minutes=args.refetch)
+    next_refetch = None if every is None else now() + every
+    try:
+        while True:
+            for when, value in tail.read():
+                loop.feed(when, value)
+            if stopped.is_set() or (args.until is not None and now() >= args.until):
+                break
+            if next_refetch is not None and every is not None and now() >= next_refetch:
+                next_refetch = now() + every
+                await refetch(client, args, loop)
+            await sleep(args.poll)
+    finally:
+        if handling_sigint:
+            event_loop.remove_signal_handler(signal.SIGINT)
+
+
+async def refetch(
+    client: FlexMeasuresClient, args: argparse.Namespace, loop: Loop
+) -> None:
+    """Trigger and fetch a new schedule, and install it in the loop when it comes with rules."""
+    try:
+        schedule = await fetch_schedule(client, args)
+    except ValueError as error:
+        print(
+            f"Refetch failed, the current schedule stays: {error}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return
+    if not schedule.has_rules:
+        print(
+            "The refetched schedule came without rules, the current schedule stays.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return
+    loop.install(schedule)
+    print(
+        f"Refetched the schedule: {len(schedule)} slots from {schedule.start.isoformat()}, in use from the next sample.",
+        flush=True,
+    )
+
+
+async def run(
+    client: FlexMeasuresClient,
+    args: argparse.Namespace,
+    sleep: Sleep | None = None,
+    now: Clock | None = None,
+) -> int:
+    """Trigger, fetch, parse and walk; return the exit code.
+
+    ``sleep`` and ``now`` are handed to :func:`follow` with ``--follow``.
+    """
+    try:
+        schedule = await fetch_schedule(client, args)
+    except ValueError as error:
+        print(error, file=sys.stderr)
         return 1
     print(
         f"Schedule of {len(schedule)} slots of {schedule.resolution} from {schedule.start.isoformat()} in {schedule.unit}."
@@ -768,8 +1008,8 @@ async def run(client: FlexMeasuresClient, args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return NO_RULES
-    samples: Iterable[tuple[datetime, float]]
-    if args.deviation_csv is not None:
+    samples: Iterable[tuple[datetime, float]] = ()
+    if args.deviation_csv is not None and not args.follow:
         try:
             samples = samples_from_csv(
                 args.deviation_csv, args.deviation_unit, schedule.unit
@@ -778,7 +1018,7 @@ async def run(client: FlexMeasuresClient, args: argparse.Namespace) -> int:
             print(f"The recorded deviation could not be read: {error}", file=sys.stderr)
             return 1
         print(f"Replaying {len(samples)} recorded samples from {args.deviation_csv}.")
-    else:
+    elif args.deviation_csv is None:
         samples = scripted_samples(schedule, args.sample)
     knobs = Knobs.from_args(args)
     try:
@@ -787,10 +1027,32 @@ async def run(client: FlexMeasuresClient, args: argparse.Namespace) -> int:
         print(f"The log could not be opened: {error}", file=sys.stderr)
         return 1
     try:
-        result = walk(schedule, samples, knobs, log)
+        loop = Loop(schedule, knobs, log)
+        if args.follow:
+            tail = CsvTail(args.deviation_csv, args.deviation_unit, schedule.unit)
+            print(
+                f"Following {args.deviation_csv}, every {args.poll:g} s, until"
+                f" {'interrupted' if args.until is None else args.until.isoformat()}.",
+                flush=True,
+            )
+            try:
+                await follow(client, args, loop, tail, sleep=sleep, now=now)
+            except (OSError, ValueError, NotImplementedError) as error:
+                print(
+                    f"The recorded deviation could not be read: {error}",
+                    file=sys.stderr,
+                )
+                return 1
+            print(f"Followed {tail.rows} recorded samples, refused {tail.refused}.")
+        else:
+            for when, value in samples:
+                loop.feed(when, value)
+        result = loop.finish()
     finally:
         if log is not None:
             log.close()
+    schedule = loop.schedule
+    assert schedule.rules is not None
     print_slots(schedule, result)
     print_summary(result, schedule.unit, knobs)
     if result.problems:

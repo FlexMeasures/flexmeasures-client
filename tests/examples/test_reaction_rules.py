@@ -562,3 +562,137 @@ def test_the_in_window_threshold_retriggers_inside_a_target_window():
     assert (
         example.walk(schedule, samples, example.Knobs(drift=2.0)).drift_retriggers == []
     )
+
+
+WALL = datetime(2026, 11, 29, 12, 0, tzinfo=timezone.utc)
+
+
+class FakeTime:
+    """A wall clock that only moves when the follower sleeps, appending the next chunk of the recording at every sleep."""
+
+    def __init__(self, path: Path, chunks: list[str]):
+        self.path = path
+        self.chunks = list(chunks)
+        self.now = WALL
+        self.sleeps = 0
+
+    def clock(self) -> datetime:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps += 1
+        self.now += timedelta(seconds=seconds)
+        if self.chunks:
+            with self.path.open("a") as file:
+                file.write(self.chunks.pop(0))
+
+
+def csv_lines(rows: list[tuple[datetime, float]]) -> list[str]:
+    return [f"{when.isoformat()},{value}\n" for when, value in rows]
+
+
+def test_the_tail_waits_for_a_partial_last_line_and_refuses_rows_out_of_order(
+    tmp_path, capsys
+):
+    path = tmp_path / "deviation.csv"
+    tail = example.CsvTail(path, "W", "kW")
+    assert tail.read() == []  # not there yet
+    first, second, third = csv_lines(every(10, 0, 30, 500.0))
+    path.write_text("time,deviation\n" + first + second[:12])
+    assert tail.read() == [(START, 0.5)]
+    with path.open("a") as file:
+        file.write(second[12:] + first)
+    assert tail.read() == [(START + timedelta(seconds=10), 0.5)]
+    assert (tail.rows, tail.refused) == (2, 1)
+    assert "comes before the previous row" in capsys.readouterr().err
+    with path.open("a") as file:
+        file.write(third)
+    assert tail.read() == [(START + timedelta(seconds=20), 0.5)]
+
+
+@pytest.mark.asyncio
+async def test_following_a_growing_recording_walks_it_like_a_replay(tmp_path, capsys):
+    """The recording grows by a few rows per poll, with a line split over two polls; the walk ends as the replay of the whole file does."""
+    lines = csv_lines(recorded_series())
+    path = tmp_path / "deviation.csv"
+    path.write_text("time,deviation\n" + "".join(lines[:20]))
+    chunks = []
+    for start in range(20, len(lines), 7):
+        chunks.append("".join(lines[start : start + 7]))
+    chunks[3], chunks[4] = chunks[3] + chunks[4][:15], chunks[4][15:]
+    fake = FakeTime(path, chunks)
+    log = tmp_path / "log.csv"
+    until = WALL + timedelta(seconds=2 * len(chunks) + 2)
+    args = example.parse_args(
+        ARGS
+        + [
+            "--deviation-csv",
+            str(path),
+            "--follow",
+            "--poll",
+            "2",
+            "--until",
+            until.isoformat(),
+            "--log",
+            str(log),
+        ]
+    )
+    client = StandInClient(served_schedule(with_rules=True))
+    assert await example.run(client, args, sleep=fake.sleep, now=fake.clock) == 0
+    assert fake.chunks == [] and fake.now == until
+    out = capsys.readouterr().out
+    assert "Followed 180 recorded samples, refused 0." in out
+    assert "Band exits: 2, retriggers: 1," in out
+    assert "Samples: 180 walked, 0 outside the schedule skipped." in out
+    assert len(read_log(log)) == 180
+    assert len(client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_refetching_installs_the_new_schedule_and_tells_the_gates(
+    tmp_path, capsys
+):
+    lines = csv_lines(every(10, 0, 600, 0.0))
+    path = tmp_path / "deviation.csv"
+    path.write_text("time,deviation\n")
+    fake = FakeTime(path, ["".join(lines[i : i + 6]) for i in range(0, len(lines), 6)])
+    log = tmp_path / "log.csv"
+    args = example.parse_args(
+        ARGS
+        + [
+            "--deviation-csv",
+            str(path),
+            "--follow",
+            "--poll",
+            "30",
+            "--refetch",
+            "2",
+            "--until",
+            (WALL + timedelta(minutes=5)).isoformat(),
+            "--log",
+            str(log),
+        ]
+    )
+    client = StandInClient(served_schedule(with_rules=True))
+    assert await example.run(client, args, sleep=fake.sleep, now=fake.clock) == 0
+    # The first trigger at the start, then one every two minutes of the wall clock: at 2 and 4 minutes.
+    assert len(client.calls) == 3
+    assert all(call == client.calls[0] for call in client.calls)
+    arrivals = [row for row in read_log(log) if row["event"] == "plan arrived"]
+    assert len(arrivals) == 2
+    assert "Refetched the schedule" in capsys.readouterr().out
+
+
+def test_follow_options_need_follow_and_a_recording():
+    with pytest.raises(SystemExit):
+        example.parse_args(ARGS + ["--follow"])
+    for extra in (["--until", "2026-11-30T01:00:00+01:00"], ["--refetch", "5"]):
+        with pytest.raises(SystemExit):
+            example.parse_args(ARGS + ["--deviation-csv", "x.csv"] + extra)
+    with pytest.raises(SystemExit):
+        example.parse_args(
+            ARGS
+            + ["--deviation-csv", "x.csv", "--follow", "--until", "2026-11-30T01:00:00"]
+        )
+    args = example.parse_args(ARGS + ["--deviation-csv", "x.csv", "--follow"])
+    assert (args.poll, args.until, args.refetch) == (1.0, None, None)
