@@ -13,9 +13,10 @@ the deviation from the balance point the plan rests on.
 Signs are those of the schedule values: consumption positive, so import at the connection is positive.
 
 The rule functions (:func:`parse_reaction`, :func:`react`, :func:`clip_to_band`, :func:`residuals`) are pure: no timers, no state, no I/O.
-Three helpers hold the little state a live controller needs between samples, and nothing more:
-:class:`ExitGate` the current excursion outside the band, :class:`Smoother` the window of recent samples,
-and :class:`ModePolicy` the operation mode the device is in. None of them does I/O.
+Four helpers hold the little state a live controller needs between samples, and nothing more:
+:class:`ExitGate` the current excursion outside the band, :class:`DriftGate` the energy absorbed since the last plan,
+:class:`Smoother` the window of recent samples, and :class:`ModePolicy` the operation mode the device is in.
+None of them does I/O.
 Deadbands on commands and the devices' own settle times belong to the device drivers in the controller.
 """
 
@@ -39,6 +40,7 @@ __all__ = [
     "residuals",
     "convert_reaction_units",
     "ExitGate",
+    "DriftGate",
     "Smoother",
     "ModePolicy",
 ]
@@ -495,6 +497,95 @@ class ExitGate:
         self.in_flight = False
         self.exited_at = None
         self.energy_outside = 0.0
+
+
+@dataclass
+class DriftGate:
+    """Decides when the energy a device absorbed inside its band has moved it far enough from its plan to ask for a new one.
+
+    The :class:`ExitGate` only sees the residual past the band; energy the device absorbs inside its band never reaches it.
+    Yet absorbing a deviation moves the device's state of charge away from the plan, and nothing in the rules gives it back:
+    off the price kink the band is one-sided, so a device that absorbed a surplus is not asked to give it back later,
+    and the drift ratchets in one direction.
+    The two gates answer two different questions, and so stay separate:
+    the exit gate asks whether the rule could not cope, this gate asks whether the device has left its plan.
+    The server's contract (FlexMeasures/flexmeasures#2894 and FlexMeasures/flexmeasures#2905) asks a controller that follows the rules to retrigger after absorbing,
+    once the state of charge has drifted by a set amount from the plan, and in any case before a target.
+
+    The drift is the integral of realised minus planned power since the last plan, in kWh,
+    positive when the device took in more energy than planned.
+    A retrigger is due when the drift reaches ``threshold`` in either direction,
+    or when a target lies within ``lead`` of the sample and the drift reaches ``min_drift_before_target``;
+    each target fires at most once, and any retrigger within the lead of a target counts for that target,
+    since the plan it brings already steers towards the target.
+    The threshold is best chosen relative to the room the device has left before its next target:
+    0.5 kWh is a first default, a few minutes of charging that a car can easily make up for.
+
+    After :meth:`request_sent` nothing fires until :meth:`plan_arrived`,
+    which resets the drift to zero, because the new plan starts from the measured state of charge.
+    The drift keeps integrating while a request is in flight.
+
+    :param threshold:               The drift that is worth a new plan, in kWh.
+    :param lead:                    How long before a target to fire when there is drift; ``None`` fires on the threshold alone.
+    :param min_drift_before_target: The drift needed to fire for a target, in kWh, so that a device on plan does not retrigger.
+    :param targets:                 The moments of the device's targets, as timezone-aware datetimes.
+    """
+
+    threshold: float = 0.5
+    lead: timedelta | None = None
+    min_drift_before_target: float = 0.05
+    targets: list[datetime] = field(default_factory=list)
+    drift: float = 0.0
+    in_flight: bool = False
+    _last_seen: datetime | None = None
+    _targets_done: set[datetime] = field(default_factory=set)
+
+    def observe(self, when: datetime, realized: float, planned: float) -> bool:
+        """Feed one sample; return True when a retrigger is due now.
+
+        The first sample only sets the clock;
+        each later one adds ``(realized - planned)`` times the hours since the previous sample to the drift.
+        Powers are in kW, so that the drift is in kWh: the caller converts from the schedule's unit.
+
+        :param when:     The sample's time, timezone-aware; samples must be fed in order.
+        :param realized: The power the device took, in kW, consumption positive (the commanded setpoint will do).
+        :param planned:  The plan value for the moment, in kW.
+        :raises ValueError: When the sample comes before the previous one.
+        """
+        if self._last_seen is not None and when < self._last_seen:
+            raise ValueError("samples must be observed in order")
+        if self._last_seen is not None:
+            hours = (when - self._last_seen).total_seconds() / 3600
+            self.drift += (realized - planned) * hours
+        self._last_seen = when
+        if self.in_flight:
+            return False
+        due_targets = self._targets_within_lead(when)
+        if abs(self.drift) >= self.threshold or (
+            due_targets and abs(self.drift) >= self.min_drift_before_target
+        ):
+            self._targets_done.update(due_targets)
+            return True
+        return False
+
+    def _targets_within_lead(self, when: datetime) -> list[datetime]:
+        """Return the targets not fired for yet that lie between ``when`` and ``when + lead``."""
+        if self.lead is None:
+            return []
+        return [
+            target
+            for target in self.targets
+            if target not in self._targets_done and when <= target <= when + self.lead
+        ]
+
+    def request_sent(self) -> None:
+        """A scheduling request went out: nothing fires until the plan arrives."""
+        self.in_flight = True
+
+    def plan_arrived(self) -> None:
+        """A new plan is installed, starting from the measured state of charge: the drift starts afresh."""
+        self.in_flight = False
+        self.drift = 0.0
 
 
 @dataclass
