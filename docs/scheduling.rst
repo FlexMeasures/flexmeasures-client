@@ -277,8 +277,9 @@ A single reacting device
 With one reacting device, the residual it is given is the deviation from the balance point:
 the net power at the connection, minus the device's realized power, minus the reference.
 ``flexmeasures_client.reaction`` parses the rules and evaluates them with pure functions, with no state and no I/O.
-Next to them it offers three controller-side helpers that hold the little state a live loop needs between samples,
-``ExitGate`` (the current excursion outside the band), ``Smoother`` (the window of recent samples) and ``ModePolicy`` (the operation mode the device is in),
+Next to them it offers four controller-side helpers that hold the little state a live loop needs between samples,
+``ExitGate`` (the current excursion outside the band), ``DriftGate`` (the energy absorbed since the last plan),
+``Smoother`` (the window of recent samples) and ``ModePolicy`` (the operation mode the device is in),
 which the sections below introduce in turn:
 
 .. code-block:: python
@@ -431,7 +432,7 @@ and the new plan arrives half a minute later with a wider band and a plan that c
     :alt: Four panels over seven minutes: the surprise with a kettle and an oven, the charger pinned to its band edge until a new plan widens the band, the residual, and the energy past the band with the threshold at which the retrigger fires.
     :width: 100%
 
-The gate is :class:`flexmeasures_client.reaction.ExitGate`, the one stateful piece next to the pure functions:
+The gate is :class:`flexmeasures_client.reaction.ExitGate`, a stateful piece next to the pure functions:
 it is fed every sample's residual and says when a retrigger is due, needing both a dwell (the slowest commanded device's settle time plus one sample,
 so a residual only counts once every device has had the chance to land) and a minimum energy past the band;
 after ``request_sent()`` nothing fires until ``plan_arrived()``.
@@ -442,6 +443,41 @@ Next to the gate, :class:`flexmeasures_client.reaction.Smoother` takes the noise
 a median over a few samples kills one-second spikes and a mean over a window of a few seconds takes out the jitter of a meter and a charger polled at different moments,
 at the price of about half a window of lag. Smooth the deviation and feed the smoothed residual to the gate; never smooth a fuse guard. The timings in the picture are placeholders, except the scheduling round trip,
 which takes 20 to 30 seconds in practice.
+
+Retriggering after absorbing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The exit gate only sees what went past the band; what a device absorbs inside its band never reaches it.
+Yet absorbing moves the device's state of charge away from the plan, and nothing in the rules gives it back:
+off the price kink the band is one-sided, so the drift even accumulates in one direction.
+The rule is therefore: a controller that follows the rules retriggers after absorbing,
+once the state of charge has drifted by a set amount from the plan, and in any case before a target.
+
+That is :class:`flexmeasures_client.reaction.DriftGate`, a separate gate because it answers a different question:
+the exit gate asks whether the rule could not cope, the drift gate whether the device has left its plan.
+It integrates realised minus planned power (in kW) since the last plan into a drift in kWh,
+and fires once the drift reaches ``threshold`` in either direction,
+or, given a ``lead``, when one of its ``targets`` is that close and the drift reaches ``min_drift_before_target``, at most once per target.
+Choose the threshold relative to the room the device has left before its next target; 0.5 kWh is a first default.
+It shares the exit gate's protocol: ``observe(when, realized, planned)`` per sample, ``request_sent()``,
+and ``plan_arrived()``, which resets the drift, because the new plan starts from the measured state of charge.
+Keep one request in flight for both gates, whichever fires first, and tell both when it goes out and when the plan arrives.
+
+.. code-block:: python
+
+    from datetime import timedelta
+
+    from flexmeasures_client.reaction import DriftGate
+
+    drift_gate = DriftGate(threshold=0.5, lead=timedelta(minutes=30), targets=[departure])
+
+    # Per sample, in kW, next to the exit gate:
+    if exit_gate.observe(now, residual) or drift_gate.observe(now, setpoint, p):
+        exit_gate.request_sent()
+        drift_gate.request_sent()
+        ...  # request a new schedule; when it arrives, call plan_arrived() on both gates
+
+The probe ``examples/reaction_rules.py`` feeds it the commanded setpoint against the plan, with the knobs ``--drift``, ``--drift-lead`` and ``--target-at``.
 
 Waiting, legacy polling, and errors
 -----------------------------------
