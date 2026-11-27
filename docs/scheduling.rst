@@ -459,6 +459,11 @@ It integrates realised minus planned power (in kW) since the last plan into a dr
 and fires once the drift reaches ``threshold`` in either direction,
 or, given a ``lead``, when one of its ``targets`` is that close and the drift reaches ``min_drift_before_target``, at most once per target.
 Choose the threshold relative to the room the device has left before its next target; 0.5 kWh is a first default.
+A target is a moment or a window, given as a ``(start, end)`` pair, for a target that may fall due any time within it, such as a departure between 07:00 and 08:00
+(a moment is stored as a window of one moment).
+The lead counts towards the window's start, and a window is past only after its end, so a window that has started still fires once on some drift.
+While a sample lies inside a target window, ``threshold_in_window`` (in kWh) replaces ``threshold`` when it is set,
+since a device that may be asked to deliver at any moment has less room to drift.
 It shares the exit gate's protocol: ``observe(when, realized, planned)`` per sample, ``request_sent()``,
 and ``plan_arrived()``, which resets the drift, because the new plan starts from the measured state of charge.
 Keep one request in flight for both gates, whichever fires first, and tell both when it goes out and when the plan arrives.
@@ -469,7 +474,12 @@ Keep one request in flight for both gates, whichever fires first, and tell both 
 
     from flexmeasures_client.reaction import DriftGate
 
-    drift_gate = DriftGate(threshold=0.5, lead=timedelta(minutes=30), targets=[departure])
+    drift_gate = DriftGate(
+        threshold=0.5,
+        lead=timedelta(minutes=30),
+        targets=[(earliest_departure, latest_departure)],
+        threshold_in_window=0.1,
+    )
 
     # Per sample, in kW, next to the exit gate:
     if exit_gate.observe(now, residual) or drift_gate.observe(now, setpoint, p):

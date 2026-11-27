@@ -41,6 +41,7 @@ __all__ = [
     "convert_reaction_units",
     "ExitGate",
     "DriftGate",
+    "TargetWindow",
     "Smoother",
     "ModePolicy",
 ]
@@ -499,6 +500,28 @@ class ExitGate:
         self.energy_outside = 0.0
 
 
+TargetWindow = tuple[datetime, datetime]
+"""A target as the window ``(start, end)`` within which it falls; a target at one moment ``t`` is ``(t, t)``."""
+
+
+def _as_window(target: datetime | Sequence[datetime]) -> TargetWindow:
+    """Return a target, given as a moment or as a ``(start, end)`` pair, as a window.
+
+    :raises ValueError: When the window ends before it starts, or a moment is not timezone-aware.
+    """
+    if isinstance(target, datetime):
+        start = end = target
+    else:
+        start, end = target
+    if start.tzinfo is None or end.tzinfo is None:
+        raise ValueError("Targets must be timezone-aware.")
+    if end < start:
+        raise ValueError(
+            f"The target window ends ({end.isoformat()}) before it starts ({start.isoformat()})."
+        )
+    return (start, end)
+
+
 @dataclass
 class DriftGate:
     """Decides when the energy a device absorbed inside its band has moved it far enough from its plan to ask for a new one.
@@ -518,6 +541,13 @@ class DriftGate:
     or when a target lies within ``lead`` of the sample and the drift reaches ``min_drift_before_target``;
     each target fires at most once, and any retrigger within the lead of a target counts for that target,
     since the plan it brings already steers towards the target.
+
+    A target is a moment or a window, such as a car's departure that may come any time between 07:00 and 08:00.
+    The lead counts towards the window's start, and a window stays due until its end:
+    it is past only once its end has passed, so a target whose window has started still fires once on some drift.
+    While the sample lies inside a target window, from its start to its end,
+    the drift is held to ``threshold_in_window`` instead of ``threshold`` when that is set,
+    since a device that may be asked to deliver at any moment has less room to drift.
     The threshold is best chosen relative to the room the device has left before its next target:
     0.5 kWh is a first default, a few minutes of charging that a car can easily make up for.
 
@@ -528,17 +558,29 @@ class DriftGate:
     :param threshold:               The drift that is worth a new plan, in kWh.
     :param lead:                    How long before a target to fire when there is drift; ``None`` fires on the threshold alone.
     :param min_drift_before_target: The drift needed to fire for a target, in kWh, so that a device on plan does not retrigger.
-    :param targets:                 The moments of the device's targets, as timezone-aware datetimes.
+    :param targets:                 The device's targets, each a timezone-aware datetime or a ``(start, end)`` window of two;
+                                    they are stored as windows, a moment ``t`` as ``(t, t)``.
+    :param threshold_in_window:     The drift that is worth a new plan while inside a target window, in kWh;
+                                    ``None`` keeps ``threshold``.
     """
 
     threshold: float = 0.5
     lead: timedelta | None = None
     min_drift_before_target: float = 0.05
-    targets: list[datetime] = field(default_factory=list)
+    targets: list[datetime | TargetWindow] = field(default_factory=list)
+    threshold_in_window: float | None = None
     drift: float = 0.0
     in_flight: bool = False
     _last_seen: datetime | None = None
-    _targets_done: set[datetime] = field(default_factory=set)
+    _targets_done: set[TargetWindow] = field(default_factory=set)
+
+    def __post_init__(self) -> None:
+        self.targets = list(self.windows)
+
+    @property
+    def windows(self) -> list[TargetWindow]:
+        """Return the targets as ``(start, end)`` windows."""
+        return [_as_window(target) for target in self.targets]
 
     def observe(self, when: datetime, realized: float, planned: float) -> bool:
         """Feed one sample; return True when a retrigger is due now.
@@ -561,21 +603,33 @@ class DriftGate:
         if self.in_flight:
             return False
         due_targets = self._targets_within_lead(when)
-        if abs(self.drift) >= self.threshold or (
+        if abs(self.drift) >= self._threshold_at(when) or (
             due_targets and abs(self.drift) >= self.min_drift_before_target
         ):
             self._targets_done.update(due_targets)
             return True
         return False
 
-    def _targets_within_lead(self, when: datetime) -> list[datetime]:
-        """Return the targets not fired for yet that lie between ``when`` and ``when + lead``."""
+    def _in_window(self, when: datetime) -> bool:
+        """Return whether the moment lies inside one of the target windows, ends included."""
+        return any(start <= when <= end for start, end in self.windows)
+
+    def _threshold_at(self, when: datetime) -> float:
+        """Return the drift threshold that holds at the moment: the in-window one inside a target window, when set."""
+        if self.threshold_in_window is not None and self._in_window(when):
+            return self.threshold_in_window
+        return self.threshold
+
+    def _targets_within_lead(self, when: datetime) -> list[TargetWindow]:
+        """Return the targets not fired for yet whose window starts by ``when + lead`` and has not ended by ``when``."""
         if self.lead is None:
             return []
         return [
-            target
-            for target in self.targets
-            if target not in self._targets_done and when <= target <= when + self.lead
+            (start, end)
+            for start, end in self.windows
+            if (start, end) not in self._targets_done
+            and when <= end
+            and start <= when + self.lead
         ]
 
     def request_sent(self) -> None:

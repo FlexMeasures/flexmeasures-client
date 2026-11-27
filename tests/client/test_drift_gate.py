@@ -94,3 +94,41 @@ def test_samples_out_of_order_are_refused():
     gate.observe(T0, PLAN, PLAN)
     with pytest.raises(ValueError):
         gate.observe(T0 - SAMPLE, PLAN, PLAN)
+
+
+def test_a_moment_is_stored_as_a_window_of_one_moment():
+    moment = T0 + timedelta(minutes=30)
+    window = (T0 + timedelta(minutes=40), T0 + timedelta(minutes=50))
+    gate = DriftGate(targets=[moment, window])
+    assert gate.targets == [(moment, moment), window]
+    with pytest.raises(ValueError):
+        DriftGate(targets=[(window[1], window[0])])
+
+
+def test_the_lead_counts_towards_the_start_of_a_target_window():
+    window = (T0 + timedelta(minutes=30), T0 + timedelta(minutes=60))
+    gate = DriftGate(lead=timedelta(minutes=10), targets=[window])
+    # 0.1 kWh of drift in the first ten minutes; the lead of the window's start begins at 20 minutes, not that of its end at 50.
+    assert _feed(gate, [PLAN + 0.6] * 601 + [PLAN] * 2999) == [20 * 60]
+
+
+def test_a_target_window_that_has_started_is_not_past():
+    window = (T0 + timedelta(minutes=5), T0 + timedelta(minutes=60))
+    gate = DriftGate(lead=timedelta(minutes=10), targets=[window])
+    # On plan for ten minutes, inside the window; then 1.1 kW more than planned reaches the 0.05 kWh minimum after 164 s.
+    assert _feed(gate, [PLAN] * 601 + [PLAN + 1.1] * 600) == [600 + 164]
+
+
+def test_inside_a_target_window_the_tighter_threshold_fires():
+    window = (T0 + timedelta(minutes=20), T0 + timedelta(minutes=30))
+    gate = DriftGate(threshold=0.5, threshold_in_window=0.1, targets=[window])
+    # 0.12 kWh of drift in the first ten minutes, outside the window: below the threshold of 0.5 kWh, so nothing fires until the window starts.
+    assert _feed(gate, [PLAN + 0.7] * 601 + [PLAN] * 1199) == [20 * 60]
+
+
+def test_outside_a_target_window_the_tighter_threshold_does_not_fire():
+    window = (T0 + timedelta(minutes=1), T0 + timedelta(minutes=5))
+    gate = DriftGate(threshold=0.5, threshold_in_window=0.1, targets=[window])
+    # The same 0.12 kWh of drift, reached at ten minutes, after the window ended.
+    assert _feed(gate, [PLAN + 0.7] * 601 + [PLAN] * 1199) == []
+    assert gate.drift == pytest.approx(0.7 * 600 / 3600)
